@@ -1,0 +1,24 @@
+# Julia compilation caches
+*.ji
+*.cov
+*.jld2
+# NOTE: Manifest.toml is deliberately committed — together with Project.toml it
+# is the portability/reproducibility guarantee across computing instances.
+
+# Data & Runs (Do not commit massive multi-gigabyte simulation runs!)
+# Note: `data/runs/*` (not `data/runs/`) so the .gitkeep negation can take
+# effect — git never descends into a directory excluded as a whole.
+data/runs/*
+!data/runs/.gitkeep
+data/*.csv
+
+# Documenter.jl artifacts
+docs/build/
+docs/site/
+
+# VS Code / OS config
+.vscode/
+.idea/
+.DS_Store
+.AppleDouble
+.LSOverride

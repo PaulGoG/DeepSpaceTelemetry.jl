@@ -1,0 +1,157 @@
+# Analysis Interfaces
+
+The framework couples to external data-analysis pipelines (sliding-window
+searches, matched filters, alert generators) exclusively through the
+filesystem. There is no in-memory API to link against: every interface below
+is a file contract, so consumers may be written in any language and any number
+of analysis instances may operate concurrently on a single telemetry run.
+
+## Design Principles
+
+1. **Consumers are read/copy-only.** Analysis processes must never create,
+   modify, move, or delete anything inside a run directory. Data a pipeline
+   needs to own is copied out to consumer-managed storage.
+2. **Concurrent consumers are safe by construction.** All consumer-facing
+   files are either append-only (event logs, metrics) or appear atomically
+   and are immutable afterwards (batch directories). No locking protocol
+   exists or is needed — provided rule 1 is respected.
+3. **The contract is invariant under `speed_up`.** A consumer developed
+   against an accelerated run (`speed_up = 3600`) works unchanged against a
+   real-time run (`speed_up = 1.0`); only the wall-clock arrival cadence
+   differs. Develop fast, rehearse at mission cadence.
+4. **`config_snapshot.toml` is the only source of derived quantities.**
+   Sample rates, segment/batch geometry, and session parameters are read from
+   the run's own snapshot, never from the live `config.toml`.
+
+## The Run-Directory Contract
+
+`data/runs/<RUN_ID>/` contents, from a consumer's perspective:
+
+| Artifact | Writer | Consumer access |
+|---|---|---|
+| `ground/<BATCH>/` | receiver | **Read/copy.** The delivery surface (see below). |
+| `lost/<BATCH>/` | receiver | Read/copy. Retry-exhausted batches, preserved but never ground-available. |
+| `events_rx.csv` | receiver (single writer) | **Tail/read.** The authoritative arrival feed. |
+| `events_tx.csv` | emitter (single writer) | Tail/read. Generation and transmission milestones. |
+| `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics (change-driven cadence). |
+| `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
+| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters (+ `[provenance]` input identity for external data). |
+| `RUN_ACTIVE` / `RUN_COMPLETE` | pipeline | Read. Lifecycle sentinels (see below). |
+| `emitter.log`, `receiver.log` | logger | Read. Human diagnostics; not machine-parsed interfaces. |
+| `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; `link/*.ack` files are the emitter–receiver acknowledgement protocol. |
+
+A batch directory contains `metadata.json` (`batch_id`, `segment_count`,
+`created_at`) and one `seg_<id>.csv` per segment (single `Amplitude` column).
+Batches are delivered by an atomic same-filesystem `mv`: a directory visible
+under `ground/` is complete, and it is never modified afterwards except by
+the retention custodian (below).
+
+## Availability Window & Lifecycle Sentinels
+
+With `[retention]` disabled (the default), nothing is deleted from a run
+directory while the simulation is active — delivered payloads persist for the
+run's lifetime, and the only deletion path in the framework is the
+interactive `scripts/maintenance/cleanup.jl`.
+
+With `retention.enabled = true`, the receiver's custodian bounds the
+delivered-payload footprint: **a batch's payload is guaranteed readable for
+`retention.grace_hours` of mission time after its `ingested` event** — copy
+what your pipeline needs within that window. Beyond it, once the payload
+tally exceeds `retention.high_watermark_gb`, the oldest-ingested batches lose
+their `seg_*.csv` files; the batch directory remains, keeps `metadata.json`,
+gains a zero-byte `PRUNED` marker, and a `pruned` row (state-preserving,
+`Attempt = 0`) is appended to `events_rx.csv`. Consumers must tolerate both
+the marker and the event value. Event logs, metrics, masks, snapshots, and
+`lost/` are never pruned, so post-hoc replay and mask products are unaffected.
+Time-based retention deliberately requires no consumer registration — that
+would make consumers writers.
+
+Run lifecycle is signaled by sentinel files in the run directory:
+`RUN_ACTIVE` exists while the pipeline may still write; it is replaced by
+`RUN_COMPLETE` when the lifecycle ends (including after a reported failure —
+the sentinel marks "no further writes", not success). A consumer may treat
+`RUN_COMPLETE` as the signal to switch from tailing to batch processing.
+
+## Event Feeds
+
+`events_rx.csv` — columns `SimTime, Batch, Event, Attempt`:
+
+* `ingested` — the batch reached the ground archive. **Ordering guarantee:**
+  the payload is moved into `ground/` *before* this row is appended, so a
+  consumer that reads an `ingested` event may open the batch immediately.
+* `retry` — a transfer attempt was lost; the batch remains on the link
+  (head-of-line blocking). `Attempt` counts failed attempts so far.
+* `lost` — retry budget exhausted; the batch was moved to `lost/` (also
+  before the row is appended) and will never become ground-available.
+
+`events_tx.csv` — columns `SimTime, Batch, Event`, with `gen` (batch
+finalized onboard) and `tx` (batch placed on the downlink).
+
+## Batch Identity → Sample Interval
+
+Batch names are `LIVE_batch_<k>` (generated during a DSN pass) or
+`ARCH_batch_<k>` (generated in a blind spot or blackout); `k` is the global
+1-based batch index. With
+
+```
+points_per_batch = sample_rate × segment_duration_sec × batch_size
+```
+
+(all three from `config_snapshot.toml` `[physics]`), batch `k` covers rows
+
+```
+[(k − 1) · points_per_batch + 1,  k · points_per_batch]
+```
+
+of the underlying time series. This mapping is **row-index exact**: in
+external mode the intervals index the input CSV rows one-to-one, and the
+point-wise masks are generated on the same convention.
+
+## Live Consumption (streaming analysis)
+
+The recommended loop for an online sliding-window pipeline:
+
+1. Tail `events_rx.csv` (poll or `FileWatching`-style monitoring).
+2. On `ingested`: map the batch to its sample interval, add it to a coverage
+   structure (interval set), and copy the payload out if the pipeline needs
+   it beyond the run's lifetime.
+3. Evaluate every analysis window that the updated coverage now fully (or
+   acceptably) spans.
+4. On `lost`: mark the interval as a **permanent hole** — windows crossing it
+   must gap-handle or be discarded, never waited on.
+
+Consumers must tolerate out-of-temporal-order arrival: live data streams FIFO
+with priority, while the archived backlog backfills LIFO (newest first), so
+coverage grows *backwards in time* from each live front — contiguously behind
+it, session by session, with a moving frontier at each blind-spot boundary.
+This is the intended behavior for sliding-window alert pipelines: the data
+most tightly coupled to a live event arrives first.
+
+## Post-Hoc Replay (offline analysis)
+
+For reproducible offline studies, replay `events_rx.csv` in `SimTime` order
+as a simulated arrival stream and drive the same consumer logic — the event
+log is the ground truth from which the framework's own mask reconstruction is
+computed, so replayed availability is bit-identical to the live view.
+Alternatively, consume the prepared products:
+
+* `masks/telemetry_mask_timeline.csv` — rows = time snapshots, columns =
+  `Batch_<k>`, values `0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost`. A
+  window anchored at snapshot `r` may use exactly the batches with state 3 in
+  row `r`.
+* Point-wise 0/1 expansions via
+  `scripts/postprocessing/apply_telemetry_mask.jl` (config-aware) or the
+  dependency-light `standalone_mask_expander.jl` (requires only `CSV` and
+  `DataFrames`; suitable for Python/MATLAB/C++ collaborators to run
+  alongside their own tooling). Multiply an expanded row against the raw
+  series to blank undelivered data.
+
+## Real-Time Operation
+
+`speed_up = 1.0` is a supported configuration (validation only guards
+against *too fast* pacing): the mission clock then advances at wall-clock
+rate and consumers experience genuine mission cadence — one segment per
+`segment_duration_sec` of real time. Current limitation for long campaigns:
+a run executes in a single process with no checkpoint/resume, so multi-year
+real-time rehearsals should be planned as bounded campaigns (e.g. a session
+or a disruption window at 1×) until run resumption is implemented.
