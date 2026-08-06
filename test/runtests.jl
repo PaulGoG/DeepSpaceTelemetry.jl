@@ -318,6 +318,91 @@ end
     end
 end
 
+@testset "Process-flow resilience (clock anchor + HALT)" begin
+    # Anchor roundtrip: a re-attaching component reconstructs the identical clock
+    mktempdir() do tmp
+        clock = TelemetryCore.SimulationClock(
+            DateTime(2026, 1, 1, 12),
+            DateTime(2035, 1, 1, 6),
+            3600.0,
+        )
+        deadline = DateTime(2026, 1, 1, 12, 5)
+        TelemetryCore.save_clock_anchor(tmp, clock, deadline)
+        restored = TelemetryCore.load_clock_anchor(tmp)
+        @test restored.clock == clock
+        @test restored.deadline == deadline
+        @test_throws ErrorException TelemetryCore.load_clock_anchor(joinpath(tmp, "absent"))
+    end
+
+    # HALT sentinel: both loops exit promptly, well before their duration
+    halt_id = "TEST_RUN_halt_pid$(getpid())"
+    mktempdir() do tmp
+        ext_path = joinpath(tmp, "ext.csv")
+        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:60_000)))
+        cfg_stub = Dict{String,Any}(
+            "simulation" => Dict{String,Any}(
+                "speed_up" => 1800.0,
+                "start_sim_time" => "2035-01-01T10:00:00",
+            ),
+        )
+        halt_dir = TelemetryCore.setup_run_dir(halt_id; cfg = cfg_stub)
+        try
+            start_sim = DateTime(2035, 1, 1, 10)
+            vis = TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat")
+            link = ChannelEffects.LinkModel(vis)
+            vi, leftover = with_logger(NullLogger()) do
+                Emitter.pre_populate(
+                    start_sim,
+                    halt_id;
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    initial_downtime_days = 0.01,
+                    data_source = "external",
+                    ext_path = ext_path,
+                )
+            end
+            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
+            em = Threads.@spawn with_logger(NullLogger()) do
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    halt_id;
+                    test_duration_sec = 30.0,
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    data_source = "external",
+                    ext_path = ext_path,
+                    instrument = vi,
+                    initial_segments = leftover,
+                )
+            end
+            rx = Threads.@spawn with_logger(NullLogger()) do
+                Receiver.run_receiver(
+                    clock,
+                    link,
+                    halt_id;
+                    test_duration_sec = 30.0,
+                    orig_stdout = devnull,
+                    max_batches_per_hour = 1800.0,
+                )
+            end
+            sleep(2.0)
+            touch(joinpath(halt_dir, "HALT"))
+            t_halt = time()
+            wait(em)
+            @test time() - t_halt < 10.0 # cooperative stop, not the 30 s duration
+            # The receiver's exit path includes its finally-block plot
+            # generation (Makie first-plot compilation): not latency-bounded.
+            wait(rx)
+            @test isfile(joinpath(halt_dir, "events_tx.csv"))
+        finally
+            rm(halt_dir; recursive = true, force = true)
+        end
+    end
+end
+
 @testset "Storage governance (estimator + mitigation-aware gate)" begin
     base = Dict{String,Any}(
         "simulation" => Dict{String,Any}(

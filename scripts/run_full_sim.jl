@@ -140,6 +140,15 @@ run_dir = DeepSpaceTelemetry.TelemetryCore.setup_run_dir(run_id; cfg = cfg)
 # RUN_ACTIVE while the pipeline may still write, RUN_COMPLETE afterwards.
 rm(joinpath(run_dir, "RUN_COMPLETE"), force = true)
 touch(joinpath(run_dir, "RUN_ACTIVE"))
+# Sentinel truthfulness on any exit path: an abort before lifecycle end must
+# not strand RUN_ACTIVE (consumers would see a live run with no process).
+mission_completed = Ref(false)
+atexit() do
+    if !mission_completed[]
+        rm(joinpath(run_dir, "RUN_ACTIVE"), force = true)
+        touch(joinpath(run_dir, "RUN_ABORTED"))
+    end
+end
 
 emitter_log = joinpath(run_dir, "emitter.log")
 receiver_log = joinpath(run_dir, "receiver.log")
@@ -167,6 +176,24 @@ instrument, leftover_segs =
 
 clock = DeepSpaceTelemetry.TelemetryCore.SimulationClock(now(), START_SIM, SPEED_UP)
 
+# Shared absolute deadline + persisted anchor: both loops terminate at the
+# same wall instant regardless of spawn jitter, and a re-attaching component
+# reconstructs the identical mission clock (component outages simply elapse
+# as mission time).
+mission_deadline = clock.start_real_time + Millisecond(round(Int, TEST_DURATION_SEC * 1000))
+DeepSpaceTelemetry.TelemetryCore.save_clock_anchor(run_dir, clock, mission_deadline)
+
+# Supervision policy
+sup_cfg = get(cfg, "supervision", Dict{String,Any}())
+const ON_FAILURE = lowercase(String(get(sup_cfg, "on_component_failure", "abort")))
+const MAX_RESTARTS = Int(get(sup_cfg, "max_restarts", 3))
+const WATCHDOG_SEC = Float64(get(sup_cfg, "watchdog_sec", 30.0))
+stop_flag = Threads.Atomic{Bool}(false)
+heartbeats = Dict(
+    :emitter => joinpath(run_dir, "emitter_alive"),
+    :receiver => joinpath(run_dir, "receiver_alive"),
+)
+
 println("="^55)
 println(lpad("DEEP-SPACE TELEMETRY MISSION START", 44))
 println("="^55)
@@ -179,25 +206,33 @@ println("="^55)
 # 3. Execution with Redirected Output
 orig_stdout = stdout
 
-function run_emitter_logged()
+# Component spawners: attempt 0 is the primary launch; attempt ≥ 1 is a
+# supervised restart. A restarted emitter takes a fresh instrument anchored
+# at the current mission time (honest generation gap, new noise realization
+# on a derived seed) and no carried-over partial batch.
+function run_emitter_logged(attempt::Int = 0)
     with_logger(get_clean_logger(emitter_log; rotate_bytes = retention.log_rotate_bytes)) do
         DeepSpaceTelemetry.Emitter.run_emitter(
             clock,
             link,
             run_id;
-            test_duration_sec = TEST_DURATION_SEC,
             sample_rate = SAMPLE_RATE,
             seg_dur = SEG_DUR,
             batch_size = BATCH_SIZE,
             data_source = DATA_SOURCE,
             ext_path = EXT_PATH,
-            instrument = instrument,
-            initial_segments = leftover_segs,
+            instrument = attempt == 0 ? instrument : nothing,
+            initial_segments = attempt == 0 ? leftover_segs :
+                               DeepSpaceTelemetry.TelemetryCore.DataSegment[],
+            rng = attempt == 0 ? instrument_rng : Xoshiro(RNG_SEED + 100 + attempt),
+            deadline = mission_deadline,
+            stop = stop_flag,
+            heartbeat_path = heartbeats[:emitter],
         )
     end
 end
 
-function run_receiver_logged()
+function run_receiver_logged(attempt::Int = 0)
     with_logger(
         get_clean_logger(receiver_log; rotate_bytes = retention.log_rotate_bytes),
     ) do
@@ -205,33 +240,118 @@ function run_receiver_logged()
             clock,
             link,
             run_id;
-            test_duration_sec = TEST_DURATION_SEC,
             orig_stdout = orig_stdout,
             max_batches_per_hour = MAX_BATCHES_PER_HOUR,
             loss_model = loss_model,
             max_retries = max_retries,
             retention = retention,
+            deadline = mission_deadline,
+            stop = stop_flag,
+            heartbeat_path = heartbeats[:receiver],
         )
     end
 end
 
-# Spawn both
-emitter_task = Threads.@spawn run_emitter_logged()
-receiver_task = Threads.@spawn run_receiver_logged()
+spawners = Dict{Symbol,Function}(
+    :emitter => a -> Threads.@spawn(run_emitter_logged(a)),
+    :receiver => a -> Threads.@spawn(run_receiver_logged(a)),
+)
 
-# Wait
-try
-    wait(emitter_task)
-    wait(receiver_task)
-catch e
-    println(orig_stdout, "\n[ERROR] Simulation task failed:")
-    if isa(e, TaskFailedException)
-        showerror(orig_stdout, e.task.exception)
-    else
-        showerror(orig_stdout, e)
+# Component-outage record (single writer: this supervisor). Consumed by
+# post-processing and external consumers alike.
+component_events_path = joinpath(run_dir, "component_events.csv")
+function log_component_event(component::Symbol, event::String)
+    header = !isfile(component_events_path)
+    open(component_events_path, "a") do io
+        header && println(io, "SimTime,Component,Event")
+        println(
+            io,
+            DeepSpaceTelemetry.TelemetryCore.get_current_sim_time(clock),
+            ",",
+            component,
+            ",",
+            event,
+        )
     end
-    println(orig_stdout)
 end
+
+# Supervisor: post-processing must never overlap a live task, RUN_COMPLETE
+# must be truthful, and a single component's death must not silently waste
+# the run (policy: abort | continue | restart with bounded relaunches).
+tasks = Dict(name => sp(0) for (name, sp) in spawners)
+restart_counts = Dict(:emitter => 0, :receiver => 0)
+failure_handled = Set{Symbol}()
+watchdog_tripped = Set{Symbol}()
+while !all(istaskdone, values(tasks))
+    sleep(DeepSpaceTelemetry.TelemetryCore.RECEIVER_POLL_INTERVAL_SEC)
+    for (name, t) in collect(tasks)
+        (istaskfailed(t) && !(name in failure_handled)) || continue
+        println(orig_stdout, "\n[SUPERVISOR] Component $name failed:")
+        showerror(orig_stdout, t.result)
+        println(orig_stdout)
+        log_component_event(name, "down")
+        if ON_FAILURE == "restart" && restart_counts[name] < MAX_RESTARTS
+            restart_counts[name] += 1
+            if name == :emitter
+                # No live events_tx writer exists at this instant: record the
+                # generation gap bounds before the replacement starts.
+                tx_p = joinpath(run_dir, "events_tx.csv")
+                last_gen = isfile(tx_p) ?
+                           maximum(
+                    CSV.read(tx_p, DataFrame).SimTime;
+                    init = clock.start_sim_time,
+                ) : clock.start_sim_time
+                DeepSpaceTelemetry.TelemetryCore.log_tx_event(
+                    run_dir, last_gen, "STREAM", "gap_start",
+                )
+                DeepSpaceTelemetry.TelemetryCore.log_tx_event(
+                    run_dir,
+                    DeepSpaceTelemetry.TelemetryCore.get_current_sim_time(clock),
+                    "STREAM",
+                    "gap_end",
+                )
+            end
+            tasks[name] = spawners[name](restart_counts[name])
+            log_component_event(name, "restart")
+            println(
+                orig_stdout,
+                "[SUPERVISOR] Restarted $name (attempt $(restart_counts[name]) of $MAX_RESTARTS).",
+            )
+        elseif ON_FAILURE == "continue"
+            push!(failure_handled, name)
+            println(orig_stdout, "[SUPERVISOR] Policy continue: $name stays down.")
+        else
+            push!(failure_handled, name)
+            stop_flag[] = true
+            println(orig_stdout, "[SUPERVISOR] Policy abort: stopping the partner component.")
+        end
+    end
+    # Watchdog: a hung (not dead) component stops heartbeating.
+    for (name, hb) in heartbeats
+        t = tasks[name]
+        (istaskdone(t) || !isfile(hb)) && continue
+        stalled = time() - mtime(hb) > WATCHDOG_SEC
+        if stalled && !(name in watchdog_tripped)
+            push!(watchdog_tripped, name)
+            log_component_event(name, "stalled")
+            println(
+                orig_stdout,
+                "\n[SUPERVISOR] Watchdog: no heartbeat from $name for > $(WATCHDOG_SEC) s.",
+            )
+        elseif !stalled && name in watchdog_tripped
+            delete!(watchdog_tripped, name)
+            log_component_event(name, "recovered")
+        end
+    end
+end
+for t in values(tasks)
+    try
+        wait(t)
+    catch
+        # Failure already reported by the supervisor loop.
+    end
+end
+rm(joinpath(run_dir, "HALT"), force = true) # consumed if an operator halted the run
 
 # Post-run stages are failure-isolated: the simulation data is already on
 # disk, so a post-processing error is reported loudly but never aborts the
@@ -289,6 +409,7 @@ end
 # Lifecycle handoff: no pipeline stage writes into the run directory beyond
 # this point (RUN_COMPLETE marks lifecycle end, not success — a failed task
 # above still reaches here after the failure-isolated post-processing).
+mission_completed[] = true
 rm(joinpath(run_dir, "RUN_ACTIVE"), force = true)
 touch(joinpath(run_dir, "RUN_COMPLETE"))
 

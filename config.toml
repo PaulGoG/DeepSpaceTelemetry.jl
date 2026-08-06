@@ -11,6 +11,11 @@ rng_seed = 2035                      # Seeds physics and packet-loss RNGs. SAFE:
 max_storage_gb = 5.0                 # Run-directory disk budget [GB]. SAFE: > 0.
 max_file_count = 500000              # Run-directory inode budget. SAFE: > 0.
 
+[supervision]
+on_component_failure = "abort"       # Policy on a component failure. One of: "abort" | "continue" | "restart".
+max_restarts = 3                     # Relaunch budget per component when policy = "restart". SAFE: >= 0.
+watchdog_sec = 30.0                  # Heartbeat-silence threshold flagging a hung component [s]. SAFE: > 0.
+
 [retention]
 enabled = false                      # Delivered payload pruning flag. One of: true | false.
 grace_hours = 24.0                   # Minimum payload retention window [h]. SAFE: > 0.

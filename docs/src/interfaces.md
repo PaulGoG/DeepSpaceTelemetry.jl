@@ -36,7 +36,12 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics (change-driven cadence). |
 | `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
 | `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters (+ `[provenance]` input identity for external data). |
-| `RUN_ACTIVE` / `RUN_COMPLETE` | pipeline | Read. Lifecycle sentinels (see below). |
+| `RUN_ACTIVE` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
+| `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor + absolute deadline; re-attaching components reconstruct the identical clock from it. |
+| `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record: `down`, `restart`, `stalled`, `recovered`. |
+| `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs. |
+| `masks/batch_epochs.csv` | post-processing | Read. Batch → generation-epoch map; re-anchors point-wise mask rows on the mission timeline across generation gaps. |
+| `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline consumes the file at lifecycle end. |
 | `emitter.log`, `receiver.log` | logger | Read. Human diagnostics; not machine-parsed interfaces. |
 | `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; `link/*.ack` files are the emitter–receiver acknowledgement protocol. |
 
@@ -68,9 +73,26 @@ would make consumers writers.
 
 Run lifecycle is signaled by sentinel files in the run directory:
 `RUN_ACTIVE` exists while the pipeline may still write; it is replaced by
-`RUN_COMPLETE` when the lifecycle ends (including after a reported failure —
-the sentinel marks "no further writes", not success). A consumer may treat
-`RUN_COMPLETE` as the signal to switch from tailing to batch processing.
+`RUN_COMPLETE` when the lifecycle ends (including after reported component
+failures — the sentinel marks "no further writes", not success) or by
+`RUN_ABORTED` when the pipeline exits before its lifecycle completes. A
+consumer may treat either terminal sentinel as the signal to switch from
+tailing to batch processing.
+
+## Component Outages & Generation Gaps
+
+The two components run under a supervisor (`[supervision]` in the config):
+on a component failure the policy `abort`s the run cleanly, `continue`s
+one-sided, or `restart`s the component (bounded attempts). Consumers observe
+outages through `component_events.csv` and the heartbeat mtimes. A receiver
+outage needs no special handling — it reproduces ground-station-blackout
+phenomenology (backlog accumulation, then drain). An **emitter outage is a
+genuine generation gap**: the restarted instrument resumes at the *current*
+mission time with a fresh noise realization, and the dead window is bounded
+by `gap_start`/`gap_end` rows (Batch = `STREAM`) in `events_tx.csv`. Because
+batch IDs stay contiguous while mission time is not, point-wise mask rows
+must be re-anchored via `masks/batch_epochs.csv` when gap events are
+present; the mask replay itself treats gap events as state-preserving.
 
 ## Event Feeds
 

@@ -18,6 +18,7 @@ function generate_mission_plots(run_dir::String)
 
     log_path = joinpath(run_dir, "mission_profile.csv")
     if !isfile(log_path)
+        @warn "[POST] mission_profile.csv missing in $run_dir — the receiver produced no metrics (component never ran?); skipping this product."
         return
     end
 
@@ -690,6 +691,7 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     prio = Dict("gen" => 1, "tx" => 2, "ingested" => 3, "lost" => 3)
     events = Vector{Tuple{DateTime,Int,String,String}}()
     for r in eachrow(tx)
+        r.Event in ("gap_start", "gap_end") && continue # stream-level outage bounds
         if !haskey(prio, r.Event)
             @warn "[POST] Skipping unknown event \"$(r.Event)\" in events_tx.csv." maxlog =
                 1
@@ -799,6 +801,7 @@ their exact physical location (0=Future, 1=Onboard, 2=Link, 3=Ground,
 function generate_telemetry_masks(run_dir::String)
     log_path = joinpath(run_dir, "mission_profile.csv")
     if !isfile(log_path)
+        @warn "[POST] mission_profile.csv missing in $run_dir — the receiver produced no metrics (component never ran?); skipping this product."
         return
     end
 
@@ -854,6 +857,19 @@ function generate_telemetry_masks(run_dir::String)
     mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
     TelemetryCore.safe_csv_write(mask_path, mask_df)
     @info "[RECEIVER] Saved 2D Telemetry Data Masks to: $(relpath(mask_path, run_dir))"
+
+    # Batch → generation-epoch sidecar: the point-wise mask's row-index
+    # contract assumes a contiguous series, which emitter outages break; this
+    # map lets consumers re-anchor batch rows on the mission timeline.
+    tx_path = joinpath(run_dir, "events_tx.csv")
+    if isfile(tx_path)
+        tx_events = CSV.read(tx_path, DataFrame)
+        gens = tx_events[tx_events.Event.=="gen", :]
+        if !isempty(gens)
+            epochs = DataFrame(Batch = gens.Batch, GenSimTime = gens.SimTime)
+            TelemetryCore.safe_csv_write(joinpath(run_dir, "masks", "batch_epochs.csv"), epochs)
+        end
+    end
 end
 
 # --- Receiver Main Loop ---
@@ -892,15 +908,20 @@ function run_receiver(
     loss_model::ChannelEffects.LossModel = ChannelEffects.NoLoss(),
     max_retries::Int = 3,
     retention::NamedTuple = TelemetryCore.retention_settings(Dict{String,Any}()),
+    deadline::Union{DateTime,Nothing} = nothing,
+    stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
+    heartbeat_path::Union{String,Nothing} = nothing,
 )
     run_dir = joinpath(TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
     link_path = joinpath(run_dir, "link")
     onboard_path = joinpath(run_dir, "onboard")
     ground_path = joinpath(run_dir, "ground")
     lost_path = joinpath(run_dir, "lost")
-    mkpath(lost_path) # legacy run dirs created before the lost/ stage
+    foreach(mkpath, (link_path, onboard_path, ground_path, lost_path)) # idempotent
 
     start_wall_time = now()
+    halt_path = joinpath(run_dir, "HALT")
+    last_heartbeat = now() - Second(2)
 
     last_onboard = -1
     last_link = -1
@@ -926,13 +947,75 @@ function run_receiver(
     prune_queue = Vector{Tuple{DateTime,String,Int}}()
     ground_payload_bytes = 0
 
+    # Re-attach seeding + delivery reconciliation from the event log: a
+    # restarted receiver must not grant fresh retry budgets to in-flight
+    # batches nor forget custodial state, and batches present in ground/
+    # without an ingested record witness a crash between delivery and
+    # logging (they remain in-transit in the mask replay).
+    rx_log_path = joinpath(run_dir, "events_rx.csv")
+    if isfile(rx_log_path)
+        rx_hist = CSV.read(rx_log_path, DataFrame)
+        if !isempty(rx_hist)
+            total_retries = count(==("retry"), rx_hist.Event)
+            pending = Set(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
+            for r in eachrow(rx_hist)
+                r.Event == "retry" &&
+                    r.Batch in pending &&
+                    (retry_counts[r.Batch] = get(retry_counts, r.Batch, 0) + 1)
+            end
+            ingested_t = Dict(
+                String(r.Batch) => r.SimTime for
+                r in eachrow(rx_hist) if r.Event == "ingested"
+            )
+            unrecorded = setdiff(Set(ground_seed), keys(ingested_t))
+            isempty(unrecorded) ||
+                @warn "[RECEIVER] Re-attach: $(length(unrecorded)) batches in ground/ lack an ingested record (crash window between delivery and logging); the mask replay shows them in transit." batches = first(
+                    sort!(collect(unrecorded)),
+                    min(5, length(unrecorded)),
+                )
+            if retention.enabled
+                pruned_set =
+                    Set(String(r.Batch) for r in eachrow(rx_hist) if r.Event == "pruned")
+                survivors = sort!(
+                    [b for b in ground_seed if haskey(ingested_t, b) && !(b in pruned_set)];
+                    by = b -> ingested_t[b],
+                )
+                for b in survivors
+                    bdir = joinpath(ground_path, b)
+                    payload = sum(
+                        f -> startswith(f, "seg_") ? Int(filesize(joinpath(bdir, f))) : 0,
+                        readdir(bdir);
+                        init = 0,
+                    )
+                    push!(prune_queue, (ingested_t[b], b, payload))
+                    ground_payload_bytes += payload
+                end
+            end
+        end
+    end
+
     @info "Initializing Receiver Dashboard..."
 
     try
         while true
+            if stop !== nothing && stop[]
+                @info "[RECEIVER] Stop signal received. Shutting down."
+                break
+            end
+            if isfile(halt_path)
+                @info "[RECEIVER] HALT sentinel detected. Shutting down."
+                break
+            end
+            if deadline !== nothing && now() >= deadline
+                break
+            end
             if test_duration_sec > 0.0 &&
                (now() - start_wall_time).value / 1000.0 > test_duration_sec
                 break
+            end
+            if heartbeat_path !== nothing && (now() - last_heartbeat).value >= 1000
+                touch(heartbeat_path)
+                last_heartbeat = now()
             end
 
             sim_t = TelemetryCore.get_current_sim_time(clock)

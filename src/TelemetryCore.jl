@@ -215,6 +215,7 @@ const KNOWN_CONFIG_KEYS = Dict(
     "post_processing" =>
         ["generate_batch_matrix", "expand_to_pointwise_masks", "target_event_rows"],
     "provenance" => String[], # pipeline-generated; free-form by design
+    "supervision" => ["on_component_failure", "max_restarts", "watchdog_sec"],
 )
 const KNOWN_EVENT_KEYS = [
     "type",
@@ -504,6 +505,24 @@ function validate_config(cfg::AbstractDict)
     if haskey(st, "max_file_count")
         nf = checked_integer(st["max_file_count"], "storage.max_file_count")
         nf > 0 || error("[CONFIG] storage.max_file_count must be > 0 (got $nf).")
+    end
+
+    # -- [supervision] --
+    sup = get(cfg, "supervision", Dict{String,Any}())
+    if !isempty(sup)
+        pol = lowercase(
+            checked_string(
+                get(sup, "on_component_failure", "abort"),
+                "supervision.on_component_failure",
+            ),
+        )
+        pol in ("abort", "continue", "restart") || error(
+            "[CONFIG] Unknown supervision.on_component_failure = \"$pol\" (expected \"abort\", \"continue\", or \"restart\").",
+        )
+        nr = checked_integer(get(sup, "max_restarts", 3), "supervision.max_restarts")
+        nr >= 0 || error("[CONFIG] supervision.max_restarts must be ≥ 0 (got $nr).")
+        wd = checked_number(get(sup, "watchdog_sec", 30.0), "supervision.watchdog_sec")
+        wd > 0.0 || error("[CONFIG] supervision.watchdog_sec must be > 0 (got $wd).")
     end
 
     # -- [retention] --
@@ -858,6 +877,50 @@ function get_current_sim_time(clock::SimulationClock)
     return clock.start_sim_time + Millisecond(round(Int, sim_ms))
 end
 
+"""
+    save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
+
+Persists the mission clock anchor (wall epoch, mission epoch, speed-up) and
+the absolute wall-clock deadline into `<run_dir>/clock_anchor.toml`. Written
+once at mission start; a re-attaching or restarted component reconstructs
+the identical clock from it ([`load_clock_anchor`](@ref)), so mission time
+survives component outages — the outage simply elapses as mission time.
+"""
+function save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
+    open(joinpath(run_dir, "clock_anchor.toml"), "w") do io
+        TOML.print(
+            io,
+            Dict(
+                "wall_epoch" => string(clock.start_real_time),
+                "start_sim_time" => string(clock.start_sim_time),
+                "speed_up" => clock.speed_up,
+                "deadline_wall" => string(deadline),
+            ),
+        )
+    end
+end
+
+"""
+    load_clock_anchor(run_dir::String) -> (clock::SimulationClock, deadline::DateTime)
+
+Reconstructs the mission clock and the absolute deadline persisted by
+[`save_clock_anchor`](@ref). Errors when the anchor file is absent (runs
+started by an older pipeline cannot be re-attached).
+"""
+function load_clock_anchor(run_dir::String)
+    path = joinpath(run_dir, "clock_anchor.toml")
+    isfile(path) || error(
+        "[RUN] clock_anchor.toml missing in $run_dir — component re-attachment requires the persisted anchor written at mission start.",
+    )
+    a = TOML.parsefile(path)
+    clock = SimulationClock(
+        DateTime(a["wall_epoch"]),
+        DateTime(a["start_sim_time"]),
+        Float64(a["speed_up"]),
+    )
+    return (clock = clock, deadline = DateTime(a["deadline_wall"]))
+end
+
 # --- Data Structures ---
 """
     DataSegment
@@ -977,6 +1040,23 @@ function log_rx_event(
     path = joinpath(run_dir, "events_rx.csv")
     df = DataFrame(SimTime = sim_t, Batch = batch, Event = event, Attempt = attempt)
     CSV.write(path, df; append = isfile(path))
+end
+
+"""
+    max_logged_batch_id(run_dir::String) -> Int
+
+Highest batch ID recorded in `events_tx.csv` (0 when the log is absent or
+empty) — the authoritative resume point for a re-attaching emitter's batch
+counter, immune to batches already delivered out of `onboard/`.
+"""
+function max_logged_batch_id(run_dir::String)
+    path = joinpath(run_dir, "events_tx.csv")
+    isfile(path) || return 0
+    df = CSV.read(path, DataFrame)
+    isempty(df) && return 0
+    return maximum(
+        something(tryparse(Int, String(last(split(String(b), "_")))), 0) for b in df.Batch
+    )
 end
 
 # --- Safe File Writing (DrWatson `safesave` semantics for CSV/TOML) ---

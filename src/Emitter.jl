@@ -124,11 +124,17 @@ function run_emitter(
     instrument::Union{VirtualInstrument.InstrumentState,Nothing} = nothing,
     initial_segments::Vector{TelemetryCore.DataSegment} = TelemetryCore.DataSegment[],
     rng::Random.AbstractRNG = Xoshiro(0),
+    deadline::Union{DateTime,Nothing} = nothing,
+    stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
+    heartbeat_path::Union{String,Nothing} = nothing,
 )
+    # A fresh instrument anchors at the *current* mission time, not the
+    # mission epoch: on a mid-mission restart the outage becomes an honest
+    # generation gap instead of a replayed stream.
     vi =
         instrument === nothing ?
         VirtualInstrument.InstrumentState(
-            clock.start_sim_time,
+            TelemetryCore.get_current_sim_time(clock),
             sample_rate,
             seg_dur,
             data_source,
@@ -138,21 +144,35 @@ function run_emitter(
     run_dir = joinpath(TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
     buffer_path = joinpath(run_dir, "onboard")
     link_path = joinpath(run_dir, "link")
+    foreach(mkpath, (buffer_path, link_path)) # idempotent: standalone/restart entry
 
     # Internal state tracking to avoid expensive `readdir` polling
     onboard_live_queue = String[]
     onboard_arch_queue = String[]
 
-    # Initialize queues from pre-population
+    # Re-entrant census: rebuild BOTH queues (a restarted emitter must not
+    # orphan LIVE batches stranded onboard at the crash) and resume the
+    # batch counter from the ground-truth event log — directory counts alone
+    # would collide with batches already delivered downstream. tryparse
+    # tolerates stray directories that merely share the prefix.
+    batch_id = x -> something(tryparse(Int, split(x, "_")[end]), 0)
     all_onboard = filter(f -> isdir(joinpath(buffer_path, f)), readdir(buffer_path))
     archived = filter(f -> startswith(f, "ARCH_batch_"), all_onboard)
-    # tryparse tolerates stray directories that merely share the prefix; a
-    # non-numeric suffix sorts to the LIFO tail instead of aborting the loop.
-    sort!(archived, by = x -> something(tryparse(Int, split(x, "_")[end]), 0), rev = true) # LIFO internal
+    sort!(archived, by = batch_id, rev = true) # LIFO internal
     append!(onboard_arch_queue, archived)
-
-    batch_counter = length(archived) + 1
+    stranded_live = filter(f -> startswith(f, "LIVE_batch_"), all_onboard)
+    sort!(stranded_live, by = batch_id) # FIFO
+    append!(onboard_live_queue, stranded_live)
+    isempty(stranded_live) ||
+        @info "[EMITTER] Re-attach: recovered $(length(stranded_live)) stranded LIVE batches."
+    batch_counter =
+        1 + max(
+            isempty(all_onboard) ? 0 : maximum(batch_id, all_onboard),
+            TelemetryCore.max_logged_batch_id(run_dir),
+        )
     current_batch_segs = copy(initial_segments)
+    halt_path = joinpath(run_dir, "HALT")
+    last_heartbeat = now() - Second(2)
 
     @info "[EMITTER] Logic: NRT Priority + Archive Gap-fill (LIFO). Run: $run_id"
 
@@ -160,10 +180,26 @@ function run_emitter(
     next_wall_t = start_wall_t
 
     while true
+        if stop !== nothing && stop[]
+            @info "[EMITTER] Stop signal received. Shutting down."
+            break
+        end
+        if isfile(halt_path)
+            @info "[EMITTER] HALT sentinel detected. Shutting down."
+            break
+        end
+        if deadline !== nothing && now() >= deadline
+            @info "[EMITTER] Mission deadline reached. Shutting down."
+            break
+        end
         if test_duration_sec > 0.0 &&
            (now() - start_wall_t).value / 1000.0 > test_duration_sec
             @info "[EMITTER] Test duration reached. Shutting down."
             break
+        end
+        if heartbeat_path !== nothing && (now() - last_heartbeat).value >= 1000
+            touch(heartbeat_path)
+            last_heartbeat = now()
         end
 
         # 1. Generation
