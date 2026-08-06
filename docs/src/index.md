@@ -14,4 +14,4 @@ Deep-space missions communicate on asymmetric duty cycles: a daily ground-statio
 * **Automated Post-Processing**: Tracks the exact state of every batch across time (the 2D `telemetry_mask_timeline.csv` matrix, reconstructed exactly from ground-truth event logs) and provides utilities to expand it into point-wise 0/1 ground-availability masks for external datasets.
 * **Validated Configuration**: Every tunable has a documented safe interval; `validate_config` aborts on code-breaking values and warns on suspicious ones before a single byte is generated. All RNGs are seeded from the config for full reproducibility.
 
-Navigate the manual using the sidebar to explore the Physics engine, Usage instructions, and full API Reference.
+Navigate the manual using the sidebar: the physics engine, usage and configuration, the filesystem analysis interfaces, and the full API reference.

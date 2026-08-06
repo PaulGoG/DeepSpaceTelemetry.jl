@@ -8,9 +8,7 @@ using DeepSpaceTelemetry
 makedocs(
     sitename = "DeepSpaceTelemetry",
     remotes = nothing,
-    format = Documenter.HTML(
-        prettyurls = get(ENV, "CI", nothing) == "true"
-    ),
+    format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
     modules = [
         DeepSpaceTelemetry,
         DeepSpaceTelemetry.TelemetryCore,
@@ -25,6 +23,6 @@ makedocs(
         "Physics & Queuing Theory" => "physics.md",
         "Usage & Configuration" => "usage.md",
         "Analysis Interfaces" => "interfaces.md",
-        "API Reference" => "api.md"
-    ]
+        "API Reference" => "api.md",
+    ],
 )

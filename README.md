@@ -36,7 +36,9 @@ DeepSpaceTelemetry/
 │       ├── generate_example_strain.jl   # Example external-input generator
 │       └── cleanup.jl                   # Run-directory purger (asks for confirmation)
 ├── test/
-│   └── runtests.jl              # Unit + physics validation + 2 integration suites
+│   ├── Project.toml             # Test environment (QA deps; parent package dev'ed at ../)
+│   ├── Manifest.toml            # Resolved test environment (committed for portability)
+│   └── runtests.jl              # Static QA + unit + physics + 3 integration suites
 ├── bench/
 │   └── benchmarks.jl            # Performance benchmarks (incl. channel hot paths)
 ├── docs/
@@ -125,8 +127,9 @@ available on the ground.)
 
 ### 4. Tests & Benchmarks
 
-The unit + physics-validation suite plus two end-to-end Emitter → Receiver
-integration runs (lossless, and deterministic total-loss):
+The static-QA block (Aqua, ExplicitImports, JET), the unit and
+physics-validation suites, and three end-to-end Emitter → Receiver
+integration runs (lossless, retention custodian, deterministic total-loss):
 
 ```bash
 julia --project=. test/runtests.jl
@@ -163,8 +166,8 @@ julia --project=. scripts/maintenance/cleanup.jl
 julia --project=docs docs/make.jl
 ```
 
-renders the Documenter.jl manual (architecture, physics, usage, API reference)
-into `docs/build/`.
+renders the Documenter.jl manual (physics, usage, analysis interfaces, API
+reference) into `docs/build/`.
 
 ---
 

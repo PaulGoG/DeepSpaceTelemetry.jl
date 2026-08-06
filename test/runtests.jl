@@ -1,7 +1,60 @@
-using Pkg; Pkg.activate(joinpath(@__DIR__, ".."), io=devnull); Pkg.instantiate(io=devnull)
+# The suite runs in its own environment (test/Project.toml, with the parent
+# package dev'ed at a relative path) and loads DeepSpaceTelemetry as a real
+# package — never via include — so Aqua/JET/ExplicitImports resolve the
+# package identity and `Pkg.test`'s sandbox agrees with a direct
+# `julia --project=. test/runtests.jl` invocation.
+using Pkg;
+Pkg.activate(@__DIR__; io = devnull);
+Pkg.instantiate(; io = devnull)
 using Test, Dates, Statistics, CSV, DataFrames, Logging, Random, FFTW
-include("../src/DeepSpaceTelemetry.jl")
-using .DeepSpaceTelemetry
+using StableRNGs
+using Aqua, JET, ExplicitImports
+using DeepSpaceTelemetry
+using DeepSpaceTelemetry:
+    TelemetryCore, ChannelEffects, VirtualInstrument, Emitter, Receiver, PlotTheme
+
+@testset "Static QA (Aqua)" begin
+    # Script-only dependencies (consumed by scripts/ and bench/, which share
+    # the package environment) are exempted from the stale-deps check; their
+    # relocation into dedicated environments is tracked in the remedial plan.
+    Aqua.test_all(
+        DeepSpaceTelemetry;
+        stale_deps = (
+            ignore = [
+                :BenchmarkTools,
+                :Logging,
+                :LoggingExtras,
+                :SHA,
+                :TerminalLoggers,
+                :UnicodePlots,
+            ],
+        ),
+    )
+end
+
+@testset "Static QA (ExplicitImports)" begin
+    @test ExplicitImports.check_no_stale_explicit_imports(DeepSpaceTelemetry) === nothing
+    # The implicit-`using` blocks in src/ are a tracked migration (remedial
+    # plan P1); the check is asserted broken until that lands.
+    @test_broken ExplicitImports.check_no_implicit_imports(DeepSpaceTelemetry) === nothing
+end
+
+@testset "Static QA (JET)" begin
+    # Reports are restricted to this package's own modules; upstream
+    # dependencies are analyzed but not reported against.
+    JET.test_package(
+        DeepSpaceTelemetry;
+        target_modules = (
+            DeepSpaceTelemetry,
+            TelemetryCore,
+            ChannelEffects,
+            VirtualInstrument,
+            PlotTheme,
+            Emitter,
+            Receiver,
+        ),
+    )
+end
 
 @testset "SimulationClock" begin
     start = now()
@@ -31,22 +84,38 @@ end
 
         # Sine should peak near midpoint
         if p == "sine"
-            @test isapprox(val, 1.0, atol=0.01)
+            @test isapprox(val, 1.0, atol = 0.01)
         end
     end
 end
 
 @testset "Storage safety (legacy simulation.max_storage_gb fallback)" begin
     cfg_oversized = Dict(
-        "simulation" => Dict("speed_up" => 1.0, "test_duration_sec" => 1000000.0, "max_storage_gb" => 0.0001),
-        "physics" => Dict("segment_duration_sec" => 60.0, "sample_rate" => 1024.0, "batch_size" => 15)
+        "simulation" => Dict(
+            "speed_up" => 1.0,
+            "test_duration_sec" => 1000000.0,
+            "max_storage_gb" => 0.0001,
+        ),
+        "physics" => Dict(
+            "segment_duration_sec" => 60.0,
+            "sample_rate" => 1024.0,
+            "batch_size" => 15,
+        ),
     )
     @test_throws ErrorException TelemetryCore.check_storage_limits(cfg_oversized)
     @test TelemetryCore.storage_budget(cfg_oversized).max_gb == 0.0001
 
     cfg_safe = Dict(
-        "simulation" => Dict("speed_up" => 1.0, "test_duration_sec" => 100.0, "max_storage_gb" => 10.0),
-        "physics" => Dict("segment_duration_sec" => 60.0, "sample_rate" => 1024.0, "batch_size" => 15)
+        "simulation" => Dict(
+            "speed_up" => 1.0,
+            "test_duration_sec" => 100.0,
+            "max_storage_gb" => 10.0,
+        ),
+        "physics" => Dict(
+            "segment_duration_sec" => 60.0,
+            "sample_rate" => 1024.0,
+            "batch_size" => 15,
+        ),
     )
     # Should not throw
     TelemetryCore.check_storage_limits(cfg_safe)
@@ -55,17 +124,27 @@ end
 
 # Complete, in-range configuration used as the mutation baseline below.
 function valid_test_cfg()
-    return Dict{String, Any}(
-        "simulation" => Dict{String, Any}(
-            "speed_up" => 3600.0, "test_duration_sec" => 10.0,
-            "initial_downtime_days" => 0.0, "max_storage_gb" => 2.0,
-            "start_sim_time" => "2035-01-01T06:00:00", "rng_seed" => 1),
-        "telemetry" => Dict{String, Any}(
-            "session_start" => "08:00:00", "session_duration_hours" => 8.0,
-            "max_batches_per_hour" => 20.0, "bandwidth_profile" => "sine"),
-        "physics" => Dict{String, Any}(
-            "data_source" => "synthetic", "sample_rate" => 4.0,
-            "segment_duration_sec" => 60.0, "batch_size" => 10),
+    return Dict{String,Any}(
+        "simulation" => Dict{String,Any}(
+            "speed_up" => 3600.0,
+            "test_duration_sec" => 10.0,
+            "initial_downtime_days" => 0.0,
+            "max_storage_gb" => 2.0,
+            "start_sim_time" => "2035-01-01T06:00:00",
+            "rng_seed" => 1,
+        ),
+        "telemetry" => Dict{String,Any}(
+            "session_start" => "08:00:00",
+            "session_duration_hours" => 8.0,
+            "max_batches_per_hour" => 20.0,
+            "bandwidth_profile" => "sine",
+        ),
+        "physics" => Dict{String,Any}(
+            "data_source" => "synthetic",
+            "sample_rate" => 4.0,
+            "segment_duration_sec" => 60.0,
+            "batch_size" => 10,
+        ),
     )
 end
 
@@ -106,33 +185,39 @@ end
     # packet-loss corner cases
     for (key, val) in [("p_loss", 1.5), ("p_loss", -0.1), ("max_retries", -1)]
         cfg = valid_test_cfg()
-        cfg["packet_loss"] = Dict{String, Any}("enabled" => true, "model" => "bernoulli", key => val)
+        cfg["packet_loss"] =
+            Dict{String,Any}("enabled" => true, "model" => "bernoulli", key => val)
         @test_throws ErrorException TelemetryCore.validate_config(cfg)
     end
     cfg = valid_test_cfg()
-    cfg["packet_loss"] = Dict{String, Any}("enabled" => true, "model" => "unsupported_model")
+    cfg["packet_loss"] = Dict{String,Any}("enabled" => true, "model" => "unsupported_model")
     @test_throws ErrorException TelemetryCore.validate_config(cfg)
     cfg = valid_test_cfg()
-    cfg["packet_loss"] = Dict{String, Any}("enabled" => true, "on_loss" => "unsupported_policy")
+    cfg["packet_loss"] =
+        Dict{String,Any}("enabled" => true, "on_loss" => "unsupported_policy")
     @test_throws ErrorException TelemetryCore.validate_config(cfg)
 
     # disruption corner cases
-    for ev in [Dict("start_day" => -1.0), Dict("start_day" => 0.1, "duration_hours" => 0.0),
-               Dict("start_day" => 0.1, "recovery_hours" => -2.0),
-               Dict("start_day" => 0.1, "severity" => 1.5)]
+    for ev in [
+        Dict("start_day" => -1.0),
+        Dict("start_day" => 0.1, "duration_hours" => 0.0),
+        Dict("start_day" => 0.1, "recovery_hours" => -2.0),
+        Dict("start_day" => 0.1, "severity" => 1.5),
+    ]
         cfg = valid_test_cfg()
-        cfg["disruption"] = Dict{String, Any}("events" => [ev])
+        cfg["disruption"] = Dict{String,Any}("events" => [ev])
         @test_throws ErrorException TelemetryCore.validate_config(cfg)
     end
 
     # legacy [disaster] section still validated (deprecation warning + same rules)
     cfg = valid_test_cfg()
-    cfg["disaster"] = Dict{String, Any}("events" => [Dict("start_day" => -1.0)])
+    cfg["disaster"] = Dict{String,Any}("events" => [Dict("start_day" => -1.0)])
     @test_throws ErrorException TelemetryCore.validate_config(cfg)
 
     # disabled packet loss skips model validation entirely
     cfg = valid_test_cfg()
-    cfg["packet_loss"] = Dict{String, Any}("enabled" => false, "model" => "unsupported_model")
+    cfg["packet_loss"] =
+        Dict{String,Any}("enabled" => false, "model" => "unsupported_model")
     @test TelemetryCore.validate_config(cfg) isa AbstractDict
 end
 
@@ -140,7 +225,9 @@ end
     # Emitter pacing: 60 s segments at 10^6× → 0.06 ms real period
     cfg = valid_test_cfg()
     cfg["simulation"]["speed_up"] = 1.0e6
-    @test_logs (:warn, r"cannot keep pace") match_mode=:any TelemetryCore.validate_config(cfg)
+    @test_logs (:warn, r"cannot keep pace") match_mode=:any TelemetryCore.validate_config(
+        cfg,
+    )
 
     # Unknown bandwidth profile falls back with a warning
     cfg = valid_test_cfg()
@@ -149,13 +236,17 @@ end
 
     # Disruption scheduled after mission end never fires
     cfg = valid_test_cfg()
-    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}("start_day" => 100.0)])
+    cfg["disruption"] =
+        Dict{String,Any}("events" => [Dict{String,Any}("start_day" => 100.0)])
     @test_logs (:warn,) match_mode=:any TelemetryCore.validate_config(cfg)
 
     # Gilbert–Elliott channel that never recovers
     cfg = valid_test_cfg()
-    cfg["packet_loss"] = Dict{String, Any}("enabled" => true, "model" => "gilbert_elliott",
-                                           "p_bad_to_good" => 0.0)
+    cfg["packet_loss"] = Dict{String,Any}(
+        "enabled" => true,
+        "model" => "gilbert_elliott",
+        "p_bad_to_good" => 0.0,
+    )
     @test_logs (:warn,) match_mode=:any TelemetryCore.validate_config(cfg)
 end
 
@@ -163,32 +254,58 @@ end
     # Unrecognized keys and sections warn instead of silently defaulting
     cfg = valid_test_cfg()
     cfg["simulation"]["speedup"] = 7200.0 # typo'd key
-    @test_logs (:warn, r"Unrecognized key simulation\.speedup") match_mode = :any TelemetryCore.validate_config(cfg)
+    @test_logs (:warn, r"Unrecognized key simulation\.speedup") match_mode = :any TelemetryCore.validate_config(
+        cfg,
+    )
     cfg = valid_test_cfg()
-    cfg["simulaton"] = Dict{String, Any}("speed_up" => 2.0) # typo'd section
-    @test_logs (:warn, r"Unrecognized section") match_mode = :any TelemetryCore.validate_config(cfg)
+    cfg["simulaton"] = Dict{String,Any}("speed_up" => 2.0) # typo'd section
+    @test_logs (:warn, r"Unrecognized section") match_mode = :any TelemetryCore.validate_config(
+        cfg,
+    )
     cfg = valid_test_cfg()
-    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}(
-        "start_day" => 0.1, "duration_hurs" => 5.0)]) # typo'd event key
-    @test_logs (:warn, r"Unrecognized key disruption\.events\[1\]\.duration_hurs") match_mode = :any TelemetryCore.validate_config(cfg)
+    cfg["disruption"] = Dict{String,Any}(
+        "events" => [Dict{String,Any}("start_day" => 0.1, "duration_hurs" => 5.0)],
+    ) # typo'd event key
+    @test_logs (:warn, r"Unrecognized key disruption\.events\[1\]\.duration_hurs") match_mode =
+        :any TelemetryCore.validate_config(cfg)
 
     # Never-fires boundary is inclusive: an event at the exact final instant warns
     cfg = valid_test_cfg() # 10 s × 3600 → 10 mission hours
     mission_days = 10.0 * 3600.0 / 86_400.0
-    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}("start_day" => mission_days)])
+    cfg["disruption"] =
+        Dict{String,Any}("events" => [Dict{String,Any}("start_day" => mission_days)])
     @test_logs (:warn, r"never fires") match_mode = :any TelemetryCore.validate_config(cfg)
 
     # Blackout + recovery tail truncated by mission end warns
     cfg = valid_test_cfg()
-    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}(
-        "start_day" => 0.2, "duration_hours" => 2.0, "recovery_hours" => 24.0, "severity" => 0.5)])
+    cfg["disruption"] = Dict{String,Any}(
+        "events" => [
+            Dict{String,Any}(
+                "start_day" => 0.2,
+                "duration_hours" => 2.0,
+                "recovery_hours" => 24.0,
+                "severity" => 0.5,
+            ),
+        ],
+    )
     @test_logs (:warn, r"truncated") match_mode = :any TelemetryCore.validate_config(cfg)
 
     # Overlapping events warn and state the composition semantics
     cfg = valid_test_cfg()
-    cfg["disruption"] = Dict{String, Any}("events" => [
-        Dict{String, Any}("start_day" => 0.05, "duration_hours" => 3.0, "severity" => 0.5),
-        Dict{String, Any}("start_day" => 0.1, "duration_hours" => 2.0, "severity" => 0.9)])
+    cfg["disruption"] = Dict{String,Any}(
+        "events" => [
+            Dict{String,Any}(
+                "start_day" => 0.05,
+                "duration_hours" => 3.0,
+                "severity" => 0.5,
+            ),
+            Dict{String,Any}(
+                "start_day" => 0.1,
+                "duration_hours" => 2.0,
+                "severity" => 0.9,
+            ),
+        ],
+    )
     @test_logs (:warn, r"overlap") match_mode = :any TelemetryCore.validate_config(cfg)
 
     # Run-ID reuse guard: a second setup on a non-empty run directory refuses
@@ -202,14 +319,22 @@ end
 end
 
 @testset "Storage governance (estimator + mitigation-aware gate)" begin
-    base = Dict{String, Any}(
-        "simulation" => Dict{String, Any}("speed_up" => 1.0, "test_duration_sec" => 100.0,
-                                          "initial_downtime_days" => 0.0),
-        "physics" => Dict{String, Any}("segment_duration_sec" => 10.0, "sample_rate" => 2.0,
-                                       "batch_size" => 5),
-        "post_processing" => Dict{String, Any}("generate_batch_matrix" => false,
-                                               "expand_to_pointwise_masks" => false),
-        "storage" => Dict{String, Any}("max_storage_gb" => 10.0),
+    base = Dict{String,Any}(
+        "simulation" => Dict{String,Any}(
+            "speed_up" => 1.0,
+            "test_duration_sec" => 100.0,
+            "initial_downtime_days" => 0.0,
+        ),
+        "physics" => Dict{String,Any}(
+            "segment_duration_sec" => 10.0,
+            "sample_rate" => 2.0,
+            "batch_size" => 5,
+        ),
+        "post_processing" => Dict{String,Any}(
+            "generate_batch_matrix" => false,
+            "expand_to_pointwise_masks" => false,
+        ),
+        "storage" => Dict{String,Any}("max_storage_gb" => 10.0),
     )
 
     # Closed-form artifact counts
@@ -239,16 +364,22 @@ end
 
     # Over budget, retention on, steady state also over: hard stop
     over_steady = deepcopy(over)
-    over_steady["retention"] = Dict{String, Any}("enabled" => true, "high_watermark_gb" => 1.0e-9)
+    over_steady["retention"] =
+        Dict{String,Any}("enabled" => true, "high_watermark_gb" => 1.0e-9)
     @test_throws ErrorException TelemetryCore.check_storage_limits(over_steady)
 
     # Unbounded projection over budget, retention bounds the steady state: pass
     mitigated = deepcopy(base)
-    mitigated["storage"]["max_storage_gb"] = (est.total_bytes - est.prunable_bytes + 1000.0) / 1024^3
-    mitigated["retention"] = Dict{String, Any}("enabled" => true,
-                                               "high_watermark_gb" => 500.0 / 1024^3,
-                                               "grace_hours" => 1.0e-9)
-    @test_logs (:warn, r"retention bounds the steady state") match_mode = :any TelemetryCore.check_storage_limits(mitigated)
+    mitigated["storage"]["max_storage_gb"] =
+        (est.total_bytes - est.prunable_bytes + 1000.0) / 1024^3
+    mitigated["retention"] = Dict{String,Any}(
+        "enabled" => true,
+        "high_watermark_gb" => 500.0 / 1024^3,
+        "grace_hours" => 1.0e-9,
+    )
+    @test_logs (:warn, r"retention bounds the steady state") match_mode = :any TelemetryCore.check_storage_limits(
+        mitigated,
+    )
 
     # File-count budget, retention off: hard stop
     over_files = deepcopy(base)
@@ -263,37 +394,47 @@ end
 
     # validate_config rejects a watermark above the storage budget
     bad = valid_test_cfg()
-    bad["storage"] = Dict{String, Any}("max_storage_gb" => 1.0)
-    bad["retention"] = Dict{String, Any}("enabled" => true, "high_watermark_gb" => 2.0)
+    bad["storage"] = Dict{String,Any}("max_storage_gb" => 1.0)
+    bad["retention"] = Dict{String,Any}("enabled" => true, "high_watermark_gb" => 2.0)
     @test_throws ErrorException TelemetryCore.validate_config(bad)
 end
 
 @testset "Config guardrails (malformed inputs)" begin
     # Type-mismatched values abort with a clean [CONFIG] error, not a raw
     # conversion stacktrace
-    for (sec, key, val) in [("simulation", "speed_up", "3600"),
-                            ("simulation", "rng_seed", true),
-                            ("physics", "batch_size", 2.5),
-                            ("physics", "data_source", 5),
-                            ("telemetry", "max_batches_per_hour", "many")]
+    for (sec, key, val) in [
+        ("simulation", "speed_up", "3600"),
+        ("simulation", "rng_seed", true),
+        ("physics", "batch_size", 2.5),
+        ("physics", "data_source", 5),
+        ("telemetry", "max_batches_per_hour", "many"),
+    ]
         cfg = valid_test_cfg()
         cfg[sec][key] = val
         @test_throws ErrorException TelemetryCore.validate_config(cfg)
     end
     cfg = valid_test_cfg()
-    cfg["packet_loss"] = Dict{String, Any}("enabled" => true, "p_loss" => "high")
+    cfg["packet_loss"] = Dict{String,Any}("enabled" => true, "p_loss" => "high")
     @test_throws ErrorException TelemetryCore.validate_config(cfg)
     cfg = valid_test_cfg()
-    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}("start_day" => "ten")])
+    cfg["disruption"] =
+        Dict{String,Any}("events" => [Dict{String,Any}("start_day" => "ten")])
     @test_throws ErrorException TelemetryCore.validate_config(cfg)
 
     # The builders re-check defensively (reachable via legacy run snapshots
     # that never pass through validate_config)
     start = DateTime(2035, 1, 1)
-    bad_ev = Dict{String, Any}("disruption" => Dict{String, Any}("events" => [Dict{String, Any}("start_day" => "ten")]))
+    bad_ev = Dict{String,Any}(
+        "disruption" =>
+            Dict{String,Any}("events" => [Dict{String,Any}("start_day" => "ten")]),
+    )
     @test_throws ErrorException ChannelEffects.build_disruption_timeline(bad_ev, start)
     @test_throws ErrorException ChannelEffects.build_loss_model(
-        Dict{String, Any}("packet_loss" => Dict{String, Any}("enabled" => true, "p_loss" => "high")), 1)
+        Dict{String,Any}(
+            "packet_loss" => Dict{String,Any}("enabled" => true, "p_loss" => "high"),
+        ),
+        1,
+    )
 
     # Relative config paths resolve against PROJECT_ROOT (the test process
     # does not run from the package root — exactly the regression condition)
@@ -320,53 +461,67 @@ end
     @test ChannelEffects.stationary_loss_rate(ChannelEffects.NoLoss()) == 0.0
 
     # Bernoulli: empirical rate matches p (seeded)
-    m = ChannelEffects.BernoulliLoss(0.2, Xoshiro(7))
+    m = ChannelEffects.BernoulliLoss(0.2, StableRNG(7))
     n = 200_000
     rate = count(_ -> ChannelEffects.sample_loss!(m), 1:n) / n
-    @test isapprox(rate, 0.2, rtol=0.05)
+    @test isapprox(rate, 0.2, rtol = 0.05)
     @test ChannelEffects.stationary_loss_rate(m) == 0.2
 
     # Multiplier scaling and clamping
-    m_hi = ChannelEffects.BernoulliLoss(0.5, Xoshiro(1))
-    @test all(ChannelEffects.sample_loss!(m_hi; multiplier=10.0) for _ in 1:200) # 0.5×10 → 1
-    m_lo = ChannelEffects.BernoulliLoss(0.5, Xoshiro(1))
-    @test !any(ChannelEffects.sample_loss!(m_lo; multiplier=0.0) for _ in 1:200)
+    m_hi = ChannelEffects.BernoulliLoss(0.5, StableRNG(1))
+    @test all(ChannelEffects.sample_loss!(m_hi; multiplier = 10.0) for _ in 1:200) # 0.5×10 → 1
+    m_lo = ChannelEffects.BernoulliLoss(0.5, StableRNG(1))
+    @test !any(ChannelEffects.sample_loss!(m_lo; multiplier = 0.0) for _ in 1:200)
 
     # Gilbert–Elliott: sampled long-run rate matches the analytic stationary rate
-    ge = ChannelEffects.GilbertElliottLoss(0.05, 0.25, 0.01, 0.5, false, Xoshiro(11))
+    ge = ChannelEffects.GilbertElliottLoss(0.05, 0.25, 0.01, 0.5, false, StableRNG(11))
     expected = ChannelEffects.stationary_loss_rate(ge)
-    @test isapprox(expected, (0.05 / 0.30) * 0.5 + (0.25 / 0.30) * 0.01; rtol=1e-12)
+    @test isapprox(expected, (0.05 / 0.30) * 0.5 + (0.25 / 0.30) * 0.01; rtol = 1e-12)
     n = 400_000
     rate = count(_ -> ChannelEffects.sample_loss!(ge), 1:n) / n
-    @test isapprox(rate, expected, rtol=0.05)
+    @test isapprox(rate, expected, rtol = 0.05)
 
     # Determinism: identical seeds → identical realizations
-    a = ChannelEffects.GilbertElliottLoss(0.1, 0.3, 0.01, 0.6, false, Xoshiro(3))
-    b = ChannelEffects.GilbertElliottLoss(0.1, 0.3, 0.01, 0.6, false, Xoshiro(3))
-    @test [ChannelEffects.sample_loss!(a) for _ in 1:1000] ==
-          [ChannelEffects.sample_loss!(b) for _ in 1:1000]
+    a = ChannelEffects.GilbertElliottLoss(0.1, 0.3, 0.01, 0.6, false, StableRNG(3))
+    b = ChannelEffects.GilbertElliottLoss(0.1, 0.3, 0.01, 0.6, false, StableRNG(3))
+    @test [ChannelEffects.sample_loss!(a) for _ in 1:1000] == [ChannelEffects.sample_loss!(b) for _ in 1:1000]
 
     # Burstiness: loss events must cluster (conditional loss probability after
     # a loss far exceeds the marginal rate for a strongly two-sided channel)
-    gb = ChannelEffects.GilbertElliottLoss(0.02, 0.2, 0.001, 0.8, false, Xoshiro(21))
+    gb = ChannelEffects.GilbertElliottLoss(0.02, 0.2, 0.001, 0.8, false, StableRNG(21))
     draws = [ChannelEffects.sample_loss!(gb) for _ in 1:200_000]
     marginal = mean(draws)
-    after_loss = mean(draws[i+1] for i in 1:length(draws)-1 if draws[i])
+    after_loss = mean(draws[i+1] for i in 1:(length(draws)-1) if draws[i])
     @test after_loss > 2 * marginal
 end
 
 @testset "ChannelEffects: disruption timeline" begin
     start = DateTime(2035, 1, 1)
-    cfg = Dict{String, Any}("disruption" => Dict{String, Any}("events" => [Dict{String, Any}(
-        "type" => "link_disruption", "label" => "solar flare", "start_day" => 1.0,
-        "duration_hours" => 24.0, "recovery_hours" => 12.0, "severity" => 1.0,
-        "loss_multiplier" => 5.0)]))
+    cfg = Dict{String,Any}(
+        "disruption" => Dict{String,Any}(
+            "events" => [
+                Dict{String,Any}(
+                    "type" => "link_disruption",
+                    "label" => "solar flare",
+                    "start_day" => 1.0,
+                    "duration_hours" => 24.0,
+                    "recovery_hours" => 12.0,
+                    "severity" => 1.0,
+                    "loss_multiplier" => 5.0,
+                ),
+            ],
+        ),
+    )
     tl = ChannelEffects.build_disruption_timeline(cfg, start)
 
     @test ChannelEffects.disruption_factor(tl, start) == 1.0                          # before
     @test ChannelEffects.disruption_factor(tl, start + Day(1)) == 0.0                 # blackout onset
     @test ChannelEffects.disruption_factor(tl, start + Day(1) + Hour(23)) == 0.0      # deep blackout
-    @test isapprox(ChannelEffects.disruption_factor(tl, start + Day(2) + Hour(6)), 0.5, atol=1e-9) # mid-ramp
+    @test isapprox(
+        ChannelEffects.disruption_factor(tl, start + Day(2) + Hour(6)),
+        0.5,
+        atol = 1e-9,
+    ) # mid-ramp
     @test ChannelEffects.disruption_factor(tl, start + Day(2) + Hour(12)) == 1.0      # recovered
 
     # Ramp is monotone non-decreasing
@@ -380,34 +535,68 @@ end
     @test ChannelEffects.disruption_loss_multiplier(tl, start) == 1.0
 
     # Optional display label: set while active, "" outside / when unlabeled
-    @test ChannelEffects.active_disruption_label(tl, start + Day(1) + Hour(5)) == "solar flare"
+    @test ChannelEffects.active_disruption_label(tl, start + Day(1) + Hour(5)) ==
+          "solar flare"
     @test ChannelEffects.active_disruption_label(tl, start) == ""
 
     # Partial severity degrades instead of blacking out
-    cfg2 = Dict{String, Any}("disruption" => Dict{String, Any}("events" => [Dict{String, Any}(
-        "start_day" => 0.0, "duration_hours" => 12.0, "severity" => 0.4)]))
+    cfg2 = Dict{String,Any}(
+        "disruption" => Dict{String,Any}(
+            "events" => [
+                Dict{String,Any}(
+                    "start_day" => 0.0,
+                    "duration_hours" => 12.0,
+                    "severity" => 0.4,
+                ),
+            ],
+        ),
+    )
     tl2 = ChannelEffects.build_disruption_timeline(cfg2, start)
-    @test isapprox(ChannelEffects.disruption_factor(tl2, start + Hour(6)), 0.6, atol=1e-9)
+    @test isapprox(ChannelEffects.disruption_factor(tl2, start + Hour(6)), 0.6, atol = 1e-9)
     @test ChannelEffects.active_disruption_label(tl2, start + Hour(6)) == ""
 
     # Legacy [disaster] section name (pre-rename run snapshots) still parses
-    legacy = Dict{String, Any}("disaster" => Dict{String, Any}("events" => [Dict{String, Any}(
-        "start_day" => 0.0, "duration_hours" => 12.0, "severity" => 0.4)]))
+    legacy = Dict{String,Any}(
+        "disaster" => Dict{String,Any}(
+            "events" => [
+                Dict{String,Any}(
+                    "start_day" => 0.0,
+                    "duration_hours" => 12.0,
+                    "severity" => 0.4,
+                ),
+            ],
+        ),
+    )
     tl_legacy = ChannelEffects.build_disruption_timeline(legacy, start)
-    @test isapprox(ChannelEffects.disruption_factor(tl_legacy, start + Hour(6)), 0.6, atol=1e-9)
+    @test isapprox(
+        ChannelEffects.disruption_factor(tl_legacy, start + Hour(6)),
+        0.6,
+        atol = 1e-9,
+    )
 
     # Empty timeline is a no-op
-    @test ChannelEffects.disruption_factor(ChannelEffects.DisruptionTimeline(), start) == 1.0
+    @test ChannelEffects.disruption_factor(ChannelEffects.DisruptionTimeline(), start) ==
+          1.0
 
     # Malformed events abort
-    bad = Dict{String, Any}("disruption" => Dict{String, Any}("events" => [Dict{String, Any}("start_day" => -1.0)]))
+    bad = Dict{String,Any}(
+        "disruption" =>
+            Dict{String,Any}("events" => [Dict{String,Any}("start_day" => -1.0)]),
+    )
     @test_throws ErrorException ChannelEffects.build_disruption_timeline(bad, start)
 end
 
 @testset "ChannelEffects: LinkModel composition" begin
     cfg = valid_test_cfg()
-    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}(
-        "start_day" => 0.0, "duration_hours" => 4.0, "severity" => 1.0)]) # 06:00–10:00 blackout
+    cfg["disruption"] = Dict{String,Any}(
+        "events" => [
+            Dict{String,Any}(
+                "start_day" => 0.0,
+                "duration_hours" => 4.0,
+                "severity" => 1.0,
+            ),
+        ],
+    ) # 06:00–10:00 blackout
     cfg["telemetry"]["bandwidth_profile"] = "flat"
     link = ChannelEffects.build_link_model(cfg)
 
@@ -428,35 +617,82 @@ end
 
 @testset "ChannelEffects: config builders" begin
     # Disabled / absent → NoLoss
-    @test ChannelEffects.build_loss_model(Dict{String, Any}(), 1) isa ChannelEffects.NoLoss
-    cfg = Dict{String, Any}("packet_loss" => Dict{String, Any}("enabled" => false, "p_loss" => 0.9))
+    @test ChannelEffects.build_loss_model(Dict{String,Any}(), 1) isa ChannelEffects.NoLoss
+    cfg = Dict{String,Any}(
+        "packet_loss" => Dict{String,Any}("enabled" => false, "p_loss" => 0.9),
+    )
     @test ChannelEffects.build_loss_model(cfg, 1) isa ChannelEffects.NoLoss
 
-    cfg = Dict{String, Any}("packet_loss" => Dict{String, Any}("enabled" => true, "model" => "bernoulli", "p_loss" => 0.3))
+    cfg = Dict{String,Any}(
+        "packet_loss" => Dict{String,Any}(
+            "enabled" => true,
+            "model" => "bernoulli",
+            "p_loss" => 0.3,
+        ),
+    )
     m = ChannelEffects.build_loss_model(cfg, 1)
     @test m isa ChannelEffects.BernoulliLoss && m.p == 0.3
 
-    cfg = Dict{String, Any}("packet_loss" => Dict{String, Any}("enabled" => true, "model" => "gilbert_elliott",
-        "p_good_to_bad" => 0.1, "p_bad_to_good" => 0.4, "p_loss_good" => 0.01, "p_loss_bad" => 0.5))
+    cfg = Dict{String,Any}(
+        "packet_loss" => Dict{String,Any}(
+            "enabled" => true,
+            "model" => "gilbert_elliott",
+            "p_good_to_bad" => 0.1,
+            "p_bad_to_good" => 0.4,
+            "p_loss_good" => 0.01,
+            "p_loss_bad" => 0.5,
+        ),
+    )
     ge = ChannelEffects.build_loss_model(cfg, 1)
-    @test ge isa ChannelEffects.GilbertElliottLoss && ge.p_loss_bad == 0.5 && !ge.in_bad_state
+    @test ge isa ChannelEffects.GilbertElliottLoss &&
+          ge.p_loss_bad == 0.5 &&
+          !ge.in_bad_state
 
     @test_throws ErrorException ChannelEffects.build_loss_model(
-        Dict{String, Any}("packet_loss" => Dict{String, Any}("enabled" => true, "model" => "unsupported_model")), 1)
+        Dict{String,Any}(
+            "packet_loss" =>
+                Dict{String,Any}("enabled" => true, "model" => "unsupported_model"),
+        ),
+        1,
+    )
     @test_throws ErrorException ChannelEffects.build_loss_model(
-        Dict{String, Any}("packet_loss" => Dict{String, Any}("enabled" => true, "p_loss" => 1.5)), 1)
+        Dict{String,Any}(
+            "packet_loss" => Dict{String,Any}("enabled" => true, "p_loss" => 1.5),
+        ),
+        1,
+    )
 
     # Retry policy resolution
-    @test ChannelEffects.loss_retry_limit(Dict{String, Any}()) == 3
-    @test ChannelEffects.loss_retry_limit(Dict{String, Any}("packet_loss" => Dict{String, Any}("on_loss" => "drop", "max_retries" => 7))) == 0
-    @test ChannelEffects.loss_retry_limit(Dict{String, Any}("packet_loss" => Dict{String, Any}("max_retries" => 7))) == 7
-    @test_throws ErrorException ChannelEffects.loss_retry_limit(Dict{String, Any}("packet_loss" => Dict{String, Any}("on_loss" => "unsupported_policy")))
+    @test ChannelEffects.loss_retry_limit(Dict{String,Any}()) == 3
+    @test ChannelEffects.loss_retry_limit(
+        Dict{String,Any}(
+            "packet_loss" => Dict{String,Any}("on_loss" => "drop", "max_retries" => 7),
+        ),
+    ) == 0
+    @test ChannelEffects.loss_retry_limit(
+        Dict{String,Any}("packet_loss" => Dict{String,Any}("max_retries" => 7)),
+    ) == 7
+    @test_throws ErrorException ChannelEffects.loss_retry_limit(
+        Dict{String,Any}(
+            "packet_loss" => Dict{String,Any}("on_loss" => "unsupported_policy"),
+        ),
+    )
 end
 
 @testset "Batch I/O" begin
     mktempdir() do tmp
-        seg1 = TelemetryCore.DataSegment(1, DateTime(2030, 1, 1), Float32[1.0, 2.0, 3.0], false)
-        seg2 = TelemetryCore.DataSegment(2, DateTime(2030, 1, 1, 0, 1), Float32[4.0, 5.0, 6.0], true)
+        seg1 = TelemetryCore.DataSegment(
+            1,
+            DateTime(2030, 1, 1),
+            Float32[1.0, 2.0, 3.0],
+            false,
+        )
+        seg2 = TelemetryCore.DataSegment(
+            2,
+            DateTime(2030, 1, 1, 0, 1),
+            Float32[4.0, 5.0, 6.0],
+            true,
+        )
         batch = TelemetryCore.DataBatch(100, [seg1, seg2], now())
 
         batch_dir = joinpath(tmp, "batch_100")
@@ -477,7 +713,14 @@ end
     seg_dur = 1.0
     n = 10
     start_t = DateTime(2030, 1, 1)
-    vi = VirtualInstrument.InstrumentState(start_t, fs, seg_dur, "synthetic", ""; rng=Xoshiro(42))
+    vi = VirtualInstrument.InstrumentState(
+        start_t,
+        fs,
+        seg_dur,
+        "synthetic",
+        "";
+        rng = StableRNG(42),
+    )
 
     seg1 = VirtualInstrument.next_segment!(vi)
     @test length(seg1.data) == n
@@ -492,12 +735,12 @@ end
     block_len = 2n
     freqs = collect(rfftfreq(block_len, fs))
     S = VirtualInstrument.lisa_noise_psd.(freqs)
-    expected_var = (fs / block_len) * (sum(S[2:end-1]) + S[end] / 2)
+    expected_var = (fs / block_len) * (sum(S[2:(end-1)]) + S[end] / 2)
     vals = Float64[]
     for _ in 1:2000
         append!(vals, Float64.(VirtualInstrument.next_segment!(vi).data))
     end
-    @test isapprox(var(vals), expected_var, rtol=0.1)
+    @test isapprox(var(vals), expected_var, rtol = 0.1)
 
     # Continuity: jumps across segment boundaries must be statistically
     # indistinguishable from jumps inside segments (no per-segment seams).
@@ -512,8 +755,22 @@ end
 
 @testset "VirtualInstrument determinism (seeded RNG)" begin
     start_t = DateTime(2030, 1, 1)
-    v1 = VirtualInstrument.InstrumentState(start_t, 10.0, 1.0, "synthetic", ""; rng=Xoshiro(99))
-    v2 = VirtualInstrument.InstrumentState(start_t, 10.0, 1.0, "synthetic", ""; rng=Xoshiro(99))
+    v1 = VirtualInstrument.InstrumentState(
+        start_t,
+        10.0,
+        1.0,
+        "synthetic",
+        "";
+        rng = StableRNG(99),
+    )
+    v2 = VirtualInstrument.InstrumentState(
+        start_t,
+        10.0,
+        1.0,
+        "synthetic",
+        "";
+        rng = StableRNG(99),
+    )
     for _ in 1:5
         s1 = VirtualInstrument.next_segment!(v1)
         s2 = VirtualInstrument.next_segment!(v2)
@@ -521,8 +778,16 @@ end
         @test s1.is_signal == s2.is_signal
     end
     # Different seeds → different streams
-    v3 = VirtualInstrument.InstrumentState(start_t, 10.0, 1.0, "synthetic", ""; rng=Xoshiro(100))
-    @test VirtualInstrument.next_segment!(v3).data != VirtualInstrument.next_segment!(v1).data
+    v3 = VirtualInstrument.InstrumentState(
+        start_t,
+        10.0,
+        1.0,
+        "synthetic",
+        "";
+        rng = StableRNG(100),
+    )
+    @test VirtualInstrument.next_segment!(v3).data !=
+          VirtualInstrument.next_segment!(v1).data
 end
 
 @testset "VirtualInstrument External" begin
@@ -532,7 +797,13 @@ end
     abs_name = joinpath(TelemetryCore.PROJECT_ROOT, rel_name)
     try
         CSV.write(abs_name, DataFrame(Amplitude = Float32[1.0, 2.0, 3.0, 4.0]))
-        vi_rel = VirtualInstrument.InstrumentState(DateTime(2030, 1, 1), 2.0, 2.0, "external", rel_name)
+        vi_rel = VirtualInstrument.InstrumentState(
+            DateTime(2030, 1, 1),
+            2.0,
+            2.0,
+            "external",
+            rel_name,
+        )
         @test vi_rel.ext_data == Float32[1.0, 2.0, 3.0, 4.0]
     finally
         rm(abs_name, force = true)
@@ -543,15 +814,33 @@ end
     mktempdir() do tmp
         txt_csv = joinpath(tmp, "text.csv")
         CSV.write(txt_csv, DataFrame(Amplitude = ["a", "b"]))
-        @test_throws ErrorException VirtualInstrument.InstrumentState(DateTime(2030, 1, 1), 2.0, 2.0, "external", txt_csv)
+        @test_throws ErrorException VirtualInstrument.InstrumentState(
+            DateTime(2030, 1, 1),
+            2.0,
+            2.0,
+            "external",
+            txt_csv,
+        )
 
         empty_csv = joinpath(tmp, "empty.csv")
         CSV.write(empty_csv, DataFrame(Amplitude = Float32[]))
-        @test_throws ErrorException VirtualInstrument.InstrumentState(DateTime(2030, 1, 1), 2.0, 2.0, "external", empty_csv)
+        @test_throws ErrorException VirtualInstrument.InstrumentState(
+            DateTime(2030, 1, 1),
+            2.0,
+            2.0,
+            "external",
+            empty_csv,
+        )
 
         short_csv = joinpath(tmp, "short.csv")
         CSV.write(short_csv, DataFrame(Amplitude = Float32[1, 2, 3, 4, 5, 6]))
-        vi_s = VirtualInstrument.InstrumentState(DateTime(2030, 1, 1), 2.0, 2.0, "external", short_csv)
+        vi_s = VirtualInstrument.InstrumentState(
+            DateTime(2030, 1, 1),
+            2.0,
+            2.0,
+            "external",
+            short_csv,
+        )
         VirtualInstrument.next_segment!(vi_s)                     # samples 1–4: silent
         seg_pad = @test_logs (:warn,) match_mode=:any VirtualInstrument.next_segment!(vi_s)
         @test seg_pad.data == Float32[5.0, 6.0, 0.0, 0.0]         # 5–6 + zero padding
@@ -606,7 +895,11 @@ end
     @test TelemetryCore.get_bandwidth_factor(m, DateTime(2030, 1, 2, 2, 0, 0)) ≈ 1.0
     ms = TelemetryCore.VisibilityModel(Time(20, 0, 0), Second(8 * 3600), "sine")
     # Sine profile peaks at the session midpoint (midnight)
-    @test isapprox(TelemetryCore.get_bandwidth_factor(ms, DateTime(2030, 1, 2, 0, 0, 0)), 1.0, atol=0.01)
+    @test isapprox(
+        TelemetryCore.get_bandwidth_factor(ms, DateTime(2030, 1, 2, 0, 0, 0)),
+        1.0,
+        atol = 0.01,
+    )
 end
 
 @testset "Safe CSV write (backup rotation)" begin
@@ -628,12 +921,14 @@ end
         tx = DataFrame(
             SimTime = [t0 - Hour(1), t0 + Minute(1), t0 + Minute(2), t0 + Minute(3)],
             Batch = ["ARCH_batch_1", "LIVE_batch_2", "ARCH_batch_1", "LIVE_batch_2"],
-            Event = ["gen", "gen", "tx", "tx"])
+            Event = ["gen", "gen", "tx", "tx"],
+        )
         rx = DataFrame(
             SimTime = [t0 + Minute(4), t0 + Minute(5), t0 + Minute(6)],
             Batch = ["ARCH_batch_1", "LIVE_batch_2", "LIVE_batch_2"],
             Event = ["ingested", "retry", "lost"],
-            Attempt = [0, 1, 2])
+            Attempt = [0, 1, 2],
+        )
         CSV.write(joinpath(tmp, "events_tx.csv"), tx)
         CSV.write(joinpath(tmp, "events_rx.csv"), rx)
 
@@ -664,13 +959,17 @@ end
     # warning, leaving the delivery state untouched.
     mktempdir() do tmp
         t0 = DateTime(2035, 1, 1, 8, 0, 0)
-        tx = DataFrame(SimTime = [t0, t0 + Minute(1), t0 + Minute(9)],
-                       Batch = ["LIVE_batch_1", "LIVE_batch_1", "LIVE_batch_1"],
-                       Event = ["gen", "tx", "future_tx_event"])
-        rx = DataFrame(SimTime = [t0 + Minute(2), t0 + Minute(3), t0 + Minute(4)],
-                       Batch = ["LIVE_batch_1", "LIVE_batch_1", "LIVE_batch_1"],
-                       Event = ["ingested", "pruned", "future_rx_event"],
-                       Attempt = [0, 0, 0])
+        tx = DataFrame(
+            SimTime = [t0, t0 + Minute(1), t0 + Minute(9)],
+            Batch = ["LIVE_batch_1", "LIVE_batch_1", "LIVE_batch_1"],
+            Event = ["gen", "tx", "future_tx_event"],
+        )
+        rx = DataFrame(
+            SimTime = [t0 + Minute(2), t0 + Minute(3), t0 + Minute(4)],
+            Batch = ["LIVE_batch_1", "LIVE_batch_1", "LIVE_batch_1"],
+            Event = ["ingested", "pruned", "future_rx_event"],
+            Attempt = [0, 0, 0],
+        )
         CSV.write(joinpath(tmp, "events_tx.csv"), tx)
         CSV.write(joinpath(tmp, "events_rx.csv"), rx)
         df = DataFrame(SimTime = [t0 + Minute(30)])
@@ -696,11 +995,17 @@ end
         ext_path = joinpath(tmp, "ext_strain.csv")
         CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:60_000)))
 
-        cfg_stub = Dict{String, Any}(
-            "simulation" => Dict{String, Any}("speed_up" => 1800.0, "start_sim_time" => "2035-01-01T10:00:00"),
-            "telemetry" => Dict{String, Any}("session_start" => "08:00:00",
-                                             "session_duration_hours" => 8.0,
-                                             "bandwidth_profile" => "flat"))
+        cfg_stub = Dict{String,Any}(
+            "simulation" => Dict{String,Any}(
+                "speed_up" => 1800.0,
+                "start_sim_time" => "2035-01-01T10:00:00",
+            ),
+            "telemetry" => Dict{String,Any}(
+                "session_start" => "08:00:00",
+                "session_duration_hours" => 8.0,
+                "bandwidth_profile" => "flat",
+            ),
+        )
         run_dir = TelemetryCore.setup_run_dir(run_id; cfg = cfg_stub)
         try
             @test isfile(joinpath(run_dir, "config_snapshot.toml"))
@@ -712,12 +1017,22 @@ end
 
             # 0.02 days = 1728 s of downtime -> 29 segments -> 9 full batches + 2 leftover
             vi, leftover = with_logger(NullLogger()) do
-                Emitter.pre_populate(start_sim, run_id;
-                    sample_rate = sample_rate, seg_dur = seg_dur, batch_size = 3,
-                    initial_downtime_days = 0.02, data_source = "external", ext_path = ext_path)
+                Emitter.pre_populate(
+                    start_sim,
+                    run_id;
+                    sample_rate = sample_rate,
+                    seg_dur = seg_dur,
+                    batch_size = 3,
+                    initial_downtime_days = 0.02,
+                    data_source = "external",
+                    ext_path = ext_path,
+                )
             end
 
-            arch_batches = filter(f -> startswith(f, "ARCH_batch_"), readdir(joinpath(run_dir, "onboard")))
+            arch_batches = filter(
+                f -> startswith(f, "ARCH_batch_"),
+                readdir(joinpath(run_dir, "onboard")),
+            )
             @test length(arch_batches) == 9
             @test vi.last_t >= start_sim
             # Stream continuity: instrument consumed exactly 29 segments...
@@ -728,14 +1043,29 @@ end
 
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
             em = Threads.@spawn with_logger(NullLogger()) do
-                Emitter.run_emitter(clock, link, run_id;
-                    test_duration_sec = 6.0, sample_rate = sample_rate, seg_dur = seg_dur,
-                    batch_size = 3, data_source = "external", ext_path = ext_path,
-                    instrument = vi, initial_segments = leftover)
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    run_id;
+                    test_duration_sec = 6.0,
+                    sample_rate = sample_rate,
+                    seg_dur = seg_dur,
+                    batch_size = 3,
+                    data_source = "external",
+                    ext_path = ext_path,
+                    instrument = vi,
+                    initial_segments = leftover,
+                )
             end
             rx = Threads.@spawn with_logger(NullLogger()) do
-                Receiver.run_receiver(clock, link, run_id;
-                    test_duration_sec = 6.0, orig_stdout = devnull, max_batches_per_hour = 1800.0)
+                Receiver.run_receiver(
+                    clock,
+                    link,
+                    run_id;
+                    test_duration_sec = 6.0,
+                    orig_stdout = devnull,
+                    max_batches_per_hour = 1800.0,
+                )
             end
             wait(em)
             wait(rx)
@@ -757,8 +1087,18 @@ end
 
             # Conservation: every generated batch is in exactly one place
             n_gen = count(==("gen"), tx_events.Event)
-            n_onboard = length(filter(f -> isdir(joinpath(run_dir, "onboard", f)), readdir(joinpath(run_dir, "onboard"))))
-            n_link = length(filter(f -> isdir(joinpath(run_dir, "link", f)), readdir(joinpath(run_dir, "link"))))
+            n_onboard = length(
+                filter(
+                    f -> isdir(joinpath(run_dir, "onboard", f)),
+                    readdir(joinpath(run_dir, "onboard")),
+                ),
+            )
+            n_link = length(
+                filter(
+                    f -> isdir(joinpath(run_dir, "link", f)),
+                    readdir(joinpath(run_dir, "link")),
+                ),
+            )
             @test n_gen == n_onboard + n_link + length(ground)
 
             Receiver.generate_telemetry_masks(run_dir)
@@ -790,36 +1130,69 @@ end
     mktempdir() do tmp
         ext_path = joinpath(tmp, "ext_strain.csv")
         CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:60_000)))
-        cfg_stub = Dict{String, Any}(
-            "simulation" => Dict{String, Any}("speed_up" => 1800.0, "start_sim_time" => "2035-01-01T10:00:00"))
+        cfg_stub = Dict{String,Any}(
+            "simulation" => Dict{String,Any}(
+                "speed_up" => 1800.0,
+                "start_sim_time" => "2035-01-01T10:00:00",
+            ),
+        )
         run_dir = TelemetryCore.setup_run_dir(run_id; cfg = cfg_stub)
         try
             start_sim = DateTime(2035, 1, 1, 10, 0, 0)
             vis = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "flat")
             link = ChannelEffects.LinkModel(vis)
             vi, leftover = with_logger(NullLogger()) do
-                Emitter.pre_populate(start_sim, run_id;
-                    sample_rate = 4.0, seg_dur = 60.0, batch_size = 3,
-                    initial_downtime_days = 0.02, data_source = "external", ext_path = ext_path)
+                Emitter.pre_populate(
+                    start_sim,
+                    run_id;
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    initial_downtime_days = 0.02,
+                    data_source = "external",
+                    ext_path = ext_path,
+                )
             end
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
-            retention = (enabled = true, grace_hours = 0.25, watermark_bytes = 0.0,
-                         log_rotate_bytes = 64.0 * 1024^2)
+            retention = (
+                enabled = true,
+                grace_hours = 0.25,
+                watermark_bytes = 0.0,
+                log_rotate_bytes = 64.0 * 1024^2,
+            )
             em = Threads.@spawn with_logger(NullLogger()) do
-                Emitter.run_emitter(clock, link, run_id;
-                    test_duration_sec = 6.0, sample_rate = 4.0, seg_dur = 60.0,
-                    batch_size = 3, data_source = "external", ext_path = ext_path,
-                    instrument = vi, initial_segments = leftover)
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    run_id;
+                    test_duration_sec = 6.0,
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    data_source = "external",
+                    ext_path = ext_path,
+                    instrument = vi,
+                    initial_segments = leftover,
+                )
             end
             rx_task = Threads.@spawn with_logger(NullLogger()) do
-                Receiver.run_receiver(clock, link, run_id;
-                    test_duration_sec = 6.0, orig_stdout = devnull,
-                    max_batches_per_hour = 1800.0, retention = retention)
+                Receiver.run_receiver(
+                    clock,
+                    link,
+                    run_id;
+                    test_duration_sec = 6.0,
+                    orig_stdout = devnull,
+                    max_batches_per_hour = 1800.0,
+                    retention = retention,
+                )
             end
             wait(em)
             wait(rx_task)
 
-            ground = filter(f -> isdir(joinpath(run_dir, "ground", f)), readdir(joinpath(run_dir, "ground")))
+            ground = filter(
+                f -> isdir(joinpath(run_dir, "ground", f)),
+                readdir(joinpath(run_dir, "ground")),
+            )
             @test !isempty(ground)
             pruned = filter(b -> isfile(joinpath(run_dir, "ground", b, "PRUNED")), ground)
             @test !isempty(pruned)
@@ -832,7 +1205,9 @@ end
             rx_events = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
             @test count(==("pruned"), rx_events.Event) == length(pruned)
             # Grace guarantee: ingest → prune gap ≥ grace_hours of mission time
-            ingest_times = Dict(r.Batch => r.SimTime for r in eachrow(rx_events) if r.Event == "ingested")
+            ingest_times = Dict(
+                r.Batch => r.SimTime for r in eachrow(rx_events) if r.Event == "ingested"
+            )
             for r in eachrow(rx_events)
                 r.Event == "pruned" || continue
                 @test (r.SimTime - ingest_times[r.Batch]).value >= 0.25 * 3.6e6
@@ -842,7 +1217,10 @@ end
             with_logger(NullLogger()) do
                 Receiver.generate_telemetry_masks(run_dir)
             end
-            mask_df = CSV.read(joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"), DataFrame)
+            mask_df = CSV.read(
+                joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"),
+                DataFrame,
+            )
             for col in names(mask_df)
                 col == "SimTime" && continue
                 @test issorted(mask_df[!, col])
@@ -869,41 +1247,73 @@ end
         ext_path = joinpath(tmp, "ext_strain.csv")
         CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:60_000)))
 
-        cfg_stub = Dict{String, Any}(
-            "simulation" => Dict{String, Any}("speed_up" => 1800.0, "start_sim_time" => "2035-01-01T10:00:00"),
-            "telemetry" => Dict{String, Any}("session_start" => "08:00:00",
-                                             "session_duration_hours" => 8.0,
-                                             "bandwidth_profile" => "flat"))
+        cfg_stub = Dict{String,Any}(
+            "simulation" => Dict{String,Any}(
+                "speed_up" => 1800.0,
+                "start_sim_time" => "2035-01-01T10:00:00",
+            ),
+            "telemetry" => Dict{String,Any}(
+                "session_start" => "08:00:00",
+                "session_duration_hours" => 8.0,
+                "bandwidth_profile" => "flat",
+            ),
+        )
         run_dir = TelemetryCore.setup_run_dir(run_id; cfg = cfg_stub)
         try
             start_sim = DateTime(2035, 1, 1, 10, 0, 0)
             vis = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "flat")
             link = ChannelEffects.LinkModel(vis)
-            loss = ChannelEffects.BernoulliLoss(1.0, Xoshiro(5))
+            loss = ChannelEffects.BernoulliLoss(1.0, StableRNG(5))
 
             vi, leftover = with_logger(NullLogger()) do
-                Emitter.pre_populate(start_sim, run_id;
-                    sample_rate = 4.0, seg_dur = 60.0, batch_size = 3,
-                    initial_downtime_days = 0.02, data_source = "external", ext_path = ext_path)
+                Emitter.pre_populate(
+                    start_sim,
+                    run_id;
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    initial_downtime_days = 0.02,
+                    data_source = "external",
+                    ext_path = ext_path,
+                )
             end
 
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
             em = Threads.@spawn with_logger(NullLogger()) do
-                Emitter.run_emitter(clock, link, run_id;
-                    test_duration_sec = 6.0, sample_rate = 4.0, seg_dur = 60.0,
-                    batch_size = 3, data_source = "external", ext_path = ext_path,
-                    instrument = vi, initial_segments = leftover)
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    run_id;
+                    test_duration_sec = 6.0,
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    data_source = "external",
+                    ext_path = ext_path,
+                    instrument = vi,
+                    initial_segments = leftover,
+                )
             end
             rx = Threads.@spawn with_logger(NullLogger()) do
-                Receiver.run_receiver(clock, link, run_id;
-                    test_duration_sec = 6.0, orig_stdout = devnull, max_batches_per_hour = 1800.0,
-                    loss_model = loss, max_retries = 2)
+                Receiver.run_receiver(
+                    clock,
+                    link,
+                    run_id;
+                    test_duration_sec = 6.0,
+                    orig_stdout = devnull,
+                    max_batches_per_hour = 1800.0,
+                    loss_model = loss,
+                    max_retries = 2,
+                )
             end
             wait(em)
             wait(rx)
 
             ground = readdir(joinpath(run_dir, "ground"))
-            lost = filter(f -> isdir(joinpath(run_dir, "lost", f)), readdir(joinpath(run_dir, "lost")))
+            lost = filter(
+                f -> isdir(joinpath(run_dir, "lost", f)),
+                readdir(joinpath(run_dir, "lost")),
+            )
             @test isempty(ground)   # p = 1: nothing ever gets through
             @test !isempty(lost)    # ...and the retry budget kept expiring
 
@@ -926,13 +1336,26 @@ end
             # Conservation across all four stages
             tx_events = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
             n_gen = count(==("gen"), tx_events.Event)
-            n_onboard = length(filter(f -> isdir(joinpath(run_dir, "onboard", f)), readdir(joinpath(run_dir, "onboard"))))
-            n_link = length(filter(f -> isdir(joinpath(run_dir, "link", f)), readdir(joinpath(run_dir, "link"))))
+            n_onboard = length(
+                filter(
+                    f -> isdir(joinpath(run_dir, "onboard", f)),
+                    readdir(joinpath(run_dir, "onboard")),
+                ),
+            )
+            n_link = length(
+                filter(
+                    f -> isdir(joinpath(run_dir, "link", f)),
+                    readdir(joinpath(run_dir, "link")),
+                ),
+            )
             @test n_gen == n_onboard + n_link + length(ground) + length(lost)
 
             # Mask matrix carries terminal state 4 and stays monotone
             Receiver.generate_telemetry_masks(run_dir)
-            mask_df = CSV.read(joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"), DataFrame)
+            mask_df = CSV.read(
+                joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"),
+                DataFrame,
+            )
             saw_lost = false
             for col in names(mask_df)
                 col == "SimTime" && continue
