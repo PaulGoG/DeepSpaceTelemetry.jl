@@ -1,25 +1,42 @@
 using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."), io=devnull)
-Pkg.instantiate(io=devnull)
+Pkg.activate(joinpath(@__DIR__, ".."), io = devnull)
+Pkg.instantiate(io = devnull)
 
 include("../src/DeepSpaceTelemetry.jl")
 
 function launch_terminal(title::String, cmd::String)
     if Sys.islinux()
         if !isnothing(Sys.which("gnome-terminal"))
-            run(Cmd(["gnome-terminal", "--title", title, "--", "bash", "-c", "$cmd; exec bash"]), wait=false)
+            run(
+                Cmd([
+                    "gnome-terminal",
+                    "--title",
+                    title,
+                    "--",
+                    "bash",
+                    "-c",
+                    "$cmd; exec bash",
+                ]),
+                wait = false,
+            )
         elseif !isnothing(Sys.which("konsole"))
-            run(Cmd(["konsole", "--title", title, "-e", "bash", "-c", "$cmd; exec bash"]), wait=false)
+            run(
+                Cmd(["konsole", "--title", title, "-e", "bash", "-c", "$cmd; exec bash"]),
+                wait = false,
+            )
         elseif !isnothing(Sys.which("xterm"))
-            run(Cmd(["xterm", "-title", title, "-e", "bash", "-c", "$cmd; exec bash"]), wait=false)
+            run(
+                Cmd(["xterm", "-title", title, "-e", "bash", "-c", "$cmd; exec bash"]),
+                wait = false,
+            )
         else
             @warn "Could not find supported GUI terminal. Run manually in a new window:\n$cmd"
         end
     elseif Sys.isapple()
         apple_cmd = "osascript -e 'tell application \"Terminal\" to do script \"cd $(pwd()) && $cmd\"'"
-        run(Cmd(["sh", "-c", apple_cmd]), wait=false)
+        run(Cmd(["sh", "-c", apple_cmd]), wait = false)
     elseif Sys.iswindows()
-        run(Cmd(["cmd", "/c", "start", title, "cmd", "/k", cmd]), wait=false)
+        run(Cmd(["cmd", "/c", "start", title, "cmd", "/k", cmd]), wait = false)
     else
         @warn "Unsupported OS for automated terminal launching. Run manually:\n$cmd"
     end
@@ -38,7 +55,7 @@ cfg = DeepSpaceTelemetry.TelemetryCore.load_config(config_arg)
 
 # Generate a Run ID and setup directories
 run_id = DeepSpaceTelemetry.TelemetryCore.generate_run_id()
-run_dir = DeepSpaceTelemetry.TelemetryCore.setup_run_dir(run_id; cfg=cfg)
+run_dir = DeepSpaceTelemetry.TelemetryCore.setup_run_dir(run_id; cfg = cfg)
 
 # Touch log files to prevent `tail` errors
 touch(joinpath(run_dir, "receiver.log"))
@@ -64,7 +81,9 @@ if get(db_cfg, "open_emitter_log", true)
 end
 
 println("Dashboard launched: live viewer and log-tail terminals spawned.")
-println("Starting Main Simulation (Duration: $(cfg["simulation"]["test_duration_sec"])s)...")
+println(
+    "Starting Main Simulation (Duration: $(cfg["simulation"]["test_duration_sec"])s)...",
+)
 println("="^55)
 
 # Give terminals a second to open before starting the data generation

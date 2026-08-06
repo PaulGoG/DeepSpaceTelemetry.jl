@@ -14,7 +14,9 @@ Usage:
     julia apply_telemetry_mask.jl <run_id> <total_points> <event_row_index> <output_csv>
 """
 
-using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."), io=devnull); Pkg.instantiate(io=devnull)
+using Pkg;
+Pkg.activate(joinpath(@__DIR__, "..", ".."), io = devnull);
+Pkg.instantiate(io = devnull)
 using CSV, DataFrames, TOML
 # Reuse the already-loaded module when included from run_full_sim.jl (where
 # `using .DeepSpaceTelemetry` exports TelemetryCore into Main); load it directly
@@ -55,7 +57,7 @@ function apply_mask(run_id::String, total_points::Int, event_idx::Int, output_pa
     sample_rate = Float64(cfg["physics"]["sample_rate"])
     seg_dur = Float64(cfg["physics"]["segment_duration_sec"])
     batch_size = Int(cfg["physics"]["batch_size"])
-    
+
     points_per_batch = round(Int, sample_rate * seg_dur * batch_size)
     println("Configuration loaded:")
     println("  -> Points per batch: $points_per_batch")
@@ -63,23 +65,25 @@ function apply_mask(run_id::String, total_points::Int, event_idx::Int, output_pa
     # 3. Load the Telemetry Mask
     println("Loading mask timeline from: $mask_path")
     mask_df = CSV.read(mask_path, DataFrame)
-    
+
     target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
-    
+
     if target_idx < 1 || target_idx > nrow(mask_df)
-        error("Event index $target_idx is out of bounds. The timeline has $(nrow(mask_df)) events.")
+        error(
+            "Event index $target_idx is out of bounds. The timeline has $(nrow(mask_df)) events.",
+        )
     end
-    
+
     event_row = mask_df[target_idx, :]
     event_time = event_row.SimTime
     println("Selected Telemetry Event: $event_time (Row $target_idx)")
-    
+
     batch_statuses = Vector(event_row[2:end])
-    
+
     # 4. Expand Batch Mask to Point-Wise Integer Array (1/0)
     println("Expanding batch masks to point-wise 0/1 array for $total_points points...")
     point_mask = zeros(Int8, total_points)
-    
+
     for (batch_idx_zero_based, status) in enumerate(batch_statuses)
         # Status 3 means 'Ground Archive' (Successfully downlinked).
         # 0 (Future), 1 (Onboard), 2 (Link) and 4 (Lost) all stay masked:
@@ -87,21 +91,21 @@ function apply_mask(run_id::String, total_points::Int, event_idx::Int, output_pa
         if status == 3
             start_idx = (batch_idx_zero_based - 1) * points_per_batch + 1
             end_idx = min(start_idx + points_per_batch - 1, total_points)
-            
+
             if start_idx <= total_points
                 point_mask[start_idx:end_idx] .= 1
             end
         end
     end
-    
+
     # 5. Save Output
     println("Saving pointwise mask to: $output_path")
     output_df = DataFrame(Time_Index = 1:total_points, Ground_Available = point_mask)
     TelemetryCore.safe_csv_write(output_path, output_df)
-    
+
     available_pts = count(x -> x == 1, point_mask)
-    avail_pct = round((available_pts / total_points) * 100, digits=2)
-    
+    avail_pct = round((available_pts / total_points) * 100, digits = 2)
+
     println("\n=== MASK EXPANSION COMPLETE ===")
     println("Total Data Points:     $total_points")
     println("Available on Ground:   $available_pts ($avail_pct%)")
@@ -110,17 +114,21 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     if length(ARGS) != 4
-        println("Usage: julia apply_telemetry_mask.jl <run_id> <total_points> <event_row_index> <output_csv>")
+        println(
+            "Usage: julia apply_telemetry_mask.jl <run_id> <total_points> <event_row_index> <output_csv>",
+        )
         exit(1)
     end
-    
+
     run_id = ARGS[1]
     total_pts = tryparse(Int, ARGS[2])
     event_idx = tryparse(Int, ARGS[3])
     out_csv = ARGS[4]
     if total_pts === nothing || event_idx === nothing
-        println("Error: <total_points> and <event_row_index> must be integers " *
-                "(got \"$(ARGS[2])\", \"$(ARGS[3])\").")
+        println(
+            "Error: <total_points> and <event_row_index> must be integers " *
+            "(got \"$(ARGS[2])\", \"$(ARGS[3])\").",
+        )
         exit(1)
     end
 

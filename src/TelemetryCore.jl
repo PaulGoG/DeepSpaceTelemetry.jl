@@ -9,21 +9,21 @@ using DrWatson
 
 Length of the LISA constellation arms (2.5 million kilometers).
 """
-const L_ARM = 2.5e9            
+const L_ARM = 2.5e9
 
 """
     C_LIGHT
 
 Speed of light in vacuum (m/s).
 """
-const C_LIGHT = 2.99792458e8   
+const C_LIGHT = 2.99792458e8
 
 """
     F_STAR
 
 Characteristic transfer frequency of the LISA arm (Hz).
 """
-const F_STAR = C_LIGHT / (2π * L_ARM) 
+const F_STAR = C_LIGHT / (2π * L_ARM)
 
 const PROJECT_ROOT = let
     try
@@ -41,7 +41,7 @@ Loads the mission configuration from `config.toml`. Uses the provided path
 (relative paths resolve against the current directory first, then the project
 root) or defaults to `config.toml` at the project root.
 """
-function load_config(path::String="")
+function load_config(path::String = "")
     if isempty(path)
         path = isfile("config.toml") ? "config.toml" : joinpath(PROJECT_ROOT, "config.toml")
     elseif !isabspath(path) && !isfile(path)
@@ -76,7 +76,8 @@ function load_run_config(run_dir::String)
         try
             return TOML.parsefile(snapshot)
         catch e
-            @warn "[CONFIG] Corrupt config_snapshot.toml in $run_dir — falling back to the project config.toml." exception = e
+            @warn "[CONFIG] Corrupt config_snapshot.toml in $run_dir — falling back to the project config.toml." exception =
+                e
         end
     end
     return load_config()
@@ -91,7 +92,8 @@ when the TOML value is not numeric (e.g. a quoted `"3600"`), instead of
 surfacing a raw `MethodError` from deep inside the validator or a builder.
 """
 function checked_number(v, name::String)
-    (v isa Real && !(v isa Bool)) || error("[CONFIG] $name must be a number (got $(repr(v))).")
+    (v isa Real && !(v isa Bool)) ||
+        error("[CONFIG] $name must be a number (got $(repr(v))).")
     return Float64(v)
 end
 
@@ -102,7 +104,8 @@ Coerces a config value to `Int` with a clean `[CONFIG]` error on non-integer
 TOML values (strings, floats, booleans).
 """
 function checked_integer(v, name::String)
-    (v isa Integer && !(v isa Bool)) || error("[CONFIG] $name must be an integer (got $(repr(v))).")
+    (v isa Integer && !(v isa Bool)) ||
+        error("[CONFIG] $name must be an integer (got $(repr(v))).")
     return Int(v)
 end
 
@@ -161,29 +164,67 @@ end
 # warning in validate_config: a typo'd key silently falling back to a
 # default is the quietest failure mode a config can carry.
 const KNOWN_CONFIG_KEYS = Dict(
-    "simulation" => ["speed_up", "start_sim_time", "test_duration_sec",
-                     "initial_downtime_days", "rng_seed", "max_storage_gb"],
-    "storage" => ["max_storage_gb", "max_file_count", "bytes_per_sample",
-                  "bytes_batch_metadata", "bytes_event_row", "bytes_metrics_row",
-                  "bytes_mask_cell", "bytes_pointwise_cell", "bytes_plot",
-                  "bytes_log_per_batch"],
+    "simulation" => [
+        "speed_up",
+        "start_sim_time",
+        "test_duration_sec",
+        "initial_downtime_days",
+        "rng_seed",
+        "max_storage_gb",
+    ],
+    "storage" => [
+        "max_storage_gb",
+        "max_file_count",
+        "bytes_per_sample",
+        "bytes_batch_metadata",
+        "bytes_event_row",
+        "bytes_metrics_row",
+        "bytes_mask_cell",
+        "bytes_pointwise_cell",
+        "bytes_plot",
+        "bytes_log_per_batch",
+    ],
     "retention" => ["enabled", "grace_hours", "high_watermark_gb", "log_rotate_mb"],
-    "telemetry" => ["session_start", "session_duration_hours",
-                    "max_batches_per_hour", "bandwidth_profile"],
-    "physics" => ["data_source", "external_data_path", "sample_rate",
-                  "segment_duration_sec", "batch_size"],
-    "packet_loss" => ["enabled", "model", "p_loss", "p_good_to_bad",
-                      "p_bad_to_good", "p_loss_good", "p_loss_bad", "on_loss",
-                      "max_retries"],
+    "telemetry" => [
+        "session_start",
+        "session_duration_hours",
+        "max_batches_per_hour",
+        "bandwidth_profile",
+    ],
+    "physics" => [
+        "data_source",
+        "external_data_path",
+        "sample_rate",
+        "segment_duration_sec",
+        "batch_size",
+    ],
+    "packet_loss" => [
+        "enabled",
+        "model",
+        "p_loss",
+        "p_good_to_bad",
+        "p_bad_to_good",
+        "p_loss_good",
+        "p_loss_bad",
+        "on_loss",
+        "max_retries",
+    ],
     "disruption" => ["events"],
     "disaster" => ["events"],
     "dashboard" => ["open_live_viewer", "open_receiver_log", "open_emitter_log"],
-    "post_processing" => ["generate_batch_matrix", "expand_to_pointwise_masks",
-                          "target_event_rows"],
+    "post_processing" =>
+        ["generate_batch_matrix", "expand_to_pointwise_masks", "target_event_rows"],
     "provenance" => String[], # pipeline-generated; free-form by design
 )
-const KNOWN_EVENT_KEYS = ["type", "label", "start_day", "duration_hours",
-                          "severity", "recovery_hours", "loss_multiplier"]
+const KNOWN_EVENT_KEYS = [
+    "type",
+    "label",
+    "start_day",
+    "duration_hours",
+    "severity",
+    "recovery_hours",
+    "loss_multiplier",
+]
 
 """
     validate_config(cfg::AbstractDict)
@@ -240,8 +281,13 @@ function validate_config(cfg::AbstractDict)
             end
         end
     end
-    for (i, e) in enumerate(get(get(cfg, "disruption", get(cfg, "disaster", Dict{String, Any}())),
-                                "events", Any[]))
+    for (i, e) in enumerate(
+        get(
+            get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}())),
+            "events",
+            Any[],
+        ),
+    )
         e isa AbstractDict || continue
         for key in keys(e)
             key in KNOWN_EVENT_KEYS ||
@@ -249,26 +295,35 @@ function validate_config(cfg::AbstractDict)
         end
     end
 
-    sim = get(cfg, "simulation", Dict{String, Any}())
-    tel = get(cfg, "telemetry", Dict{String, Any}())
-    phy = get(cfg, "physics", Dict{String, Any}())
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    tel = get(cfg, "telemetry", Dict{String,Any}())
+    phy = get(cfg, "physics", Dict{String,Any}())
 
     # -- [simulation] --
     speed_up = checked_number(get(sim, "speed_up", 0.0), "simulation.speed_up")
     speed_up > 0.0 || error("[CONFIG] simulation.speed_up must be > 0 (got $speed_up).")
-    test_dur = checked_number(get(sim, "test_duration_sec", 0.0), "simulation.test_duration_sec")
-    test_dur > 0.0 || error("[CONFIG] simulation.test_duration_sec must be > 0 (got $test_dur).")
-    downtime = checked_number(get(sim, "initial_downtime_days", 0.0), "simulation.initial_downtime_days")
-    downtime >= 0.0 || error("[CONFIG] simulation.initial_downtime_days must be ≥ 0 (got $downtime).")
+    test_dur =
+        checked_number(get(sim, "test_duration_sec", 0.0), "simulation.test_duration_sec")
+    test_dur > 0.0 ||
+        error("[CONFIG] simulation.test_duration_sec must be > 0 (got $test_dur).")
+    downtime = checked_number(
+        get(sim, "initial_downtime_days", 0.0),
+        "simulation.initial_downtime_days",
+    )
+    downtime >= 0.0 ||
+        error("[CONFIG] simulation.initial_downtime_days must be ≥ 0 (got $downtime).")
     # Budget positivity is checked through storage_budget so both the
     # [storage] location and the deprecated [simulation] fallback are covered.
     max_gb = storage_budget(cfg).max_gb
     max_gb > 0.0 || error("[CONFIG] storage.max_storage_gb must be > 0 (got $max_gb).")
-    haskey(sim, "start_sim_time") || error("[CONFIG] simulation.start_sim_time is required.")
+    haskey(sim, "start_sim_time") ||
+        error("[CONFIG] simulation.start_sim_time is required.")
     try
         DateTime(sim["start_sim_time"])
     catch
-        error("[CONFIG] simulation.start_sim_time is not a parseable ISO datetime: $(sim["start_sim_time"])")
+        error(
+            "[CONFIG] simulation.start_sim_time is not a parseable ISO datetime: $(sim["start_sim_time"])",
+        )
     end
     seed = get(sim, "rng_seed", 0)
     (seed isa Integer && !(seed isa Bool)) ||
@@ -277,26 +332,36 @@ function validate_config(cfg::AbstractDict)
     # -- [physics] --
     sr = checked_number(get(phy, "sample_rate", 0.0), "physics.sample_rate")
     sr > 0.0 || error("[CONFIG] physics.sample_rate must be > 0 (got $sr).")
-    seg_dur = checked_number(get(phy, "segment_duration_sec", 0.0), "physics.segment_duration_sec")
-    seg_dur > 0.0 || error("[CONFIG] physics.segment_duration_sec must be > 0 (got $seg_dur).")
+    seg_dur = checked_number(
+        get(phy, "segment_duration_sec", 0.0),
+        "physics.segment_duration_sec",
+    )
+    seg_dur > 0.0 ||
+        error("[CONFIG] physics.segment_duration_sec must be > 0 (got $seg_dur).")
     batch_sz = checked_integer(get(phy, "batch_size", 0), "physics.batch_size")
     batch_sz >= 1 || error("[CONFIG] physics.batch_size must be ≥ 1 (got $batch_sz).")
 
     n_samples = sr * seg_dur
-    n_samples >= 2.0 ||
-        error("[CONFIG] sample_rate × segment_duration_sec = $n_samples < 2: FFT synthesis needs ≥ 2 samples per segment.")
+    n_samples >= 2.0 || error(
+        "[CONFIG] sample_rate × segment_duration_sec = $n_samples < 2: FFT synthesis needs ≥ 2 samples per segment.",
+    )
     if !isapprox(n_samples, round(n_samples); atol = 1e-9)
         @warn "[CONFIG] sample_rate × segment_duration_sec = $n_samples is not an integer; segment length is rounded to $(round(Int, n_samples)) samples."
     end
 
-    data_source = checked_string(get(phy, "data_source", "synthetic"), "physics.data_source")
+    data_source =
+        checked_string(get(phy, "data_source", "synthetic"), "physics.data_source")
     if data_source == "external"
-        ext = checked_string(get(phy, "external_data_path", ""), "physics.external_data_path")
+        ext =
+            checked_string(get(phy, "external_data_path", ""), "physics.external_data_path")
         ext_path = isabspath(ext) ? ext : joinpath(PROJECT_ROOT, ext)
-        isfile(ext_path) ||
-            error("[CONFIG] physics.data_source = \"external\" but external_data_path not found: $ext_path")
+        isfile(ext_path) || error(
+            "[CONFIG] physics.data_source = \"external\" but external_data_path not found: $ext_path",
+        )
     elseif data_source != "synthetic"
-        error("[CONFIG] Unknown physics.data_source = \"$data_source\" (expected \"synthetic\" or \"external\").")
+        error(
+            "[CONFIG] Unknown physics.data_source = \"$data_source\" (expected \"synthetic\" or \"external\").",
+        )
     end
 
     # -- [telemetry] --
@@ -304,14 +369,24 @@ function validate_config(cfg::AbstractDict)
     try
         Time(tel["session_start"])
     catch
-        error("[CONFIG] telemetry.session_start is not a parseable time: $(tel["session_start"])")
+        error(
+            "[CONFIG] telemetry.session_start is not a parseable time: $(tel["session_start"])",
+        )
     end
-    sess_h = checked_number(get(tel, "session_duration_hours", 0.0), "telemetry.session_duration_hours")
-    0.0 < sess_h <= 24.0 ||
-        error("[CONFIG] telemetry.session_duration_hours must lie in (0, 24] (got $sess_h): the daily scheduler wraps Time arithmetic at 24 h.")
-    mbph = checked_number(get(tel, "max_batches_per_hour", 0.0), "telemetry.max_batches_per_hour")
+    sess_h = checked_number(
+        get(tel, "session_duration_hours", 0.0),
+        "telemetry.session_duration_hours",
+    )
+    0.0 < sess_h <= 24.0 || error(
+        "[CONFIG] telemetry.session_duration_hours must lie in (0, 24] (got $sess_h): the daily scheduler wraps Time arithmetic at 24 h.",
+    )
+    mbph = checked_number(
+        get(tel, "max_batches_per_hour", 0.0),
+        "telemetry.max_batches_per_hour",
+    )
     mbph > 0.0 || error("[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $mbph).")
-    profile = checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
+    profile =
+        checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
     profile in ("sine", "sigmoid", "gaussian", "flat") ||
         @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$profile\"; falling back to \"sine\"."
 
@@ -331,22 +406,28 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [packet_loss] --
-    pl = get(cfg, "packet_loss", Dict{String, Any}())
+    pl = get(cfg, "packet_loss", Dict{String,Any}())
     if get(pl, "enabled", false)
-        model = lowercase(checked_string(get(pl, "model", "bernoulli"), "packet_loss.model"))
-        model in ("bernoulli", "gilbert_elliott") ||
-            error("[CONFIG] Unknown packet_loss.model = \"$model\" (expected \"bernoulli\" or \"gilbert_elliott\").")
+        model =
+            lowercase(checked_string(get(pl, "model", "bernoulli"), "packet_loss.model"))
+        model in ("bernoulli", "gilbert_elliott") || error(
+            "[CONFIG] Unknown packet_loss.model = \"$model\" (expected \"bernoulli\" or \"gilbert_elliott\").",
+        )
         for key in ("p_loss", "p_good_to_bad", "p_bad_to_good", "p_loss_good", "p_loss_bad")
             if haskey(pl, key)
                 v = checked_number(pl[key], "packet_loss.$key")
                 0.0 <= v <= 1.0 || error("[CONFIG] packet_loss.$key = $v outside [0, 1].")
             end
         end
-        on_loss = lowercase(checked_string(get(pl, "on_loss", "retransmit"), "packet_loss.on_loss"))
-        on_loss in ("retransmit", "drop") ||
-            error("[CONFIG] Unknown packet_loss.on_loss = \"$on_loss\" (expected \"retransmit\" or \"drop\").")
+        on_loss = lowercase(
+            checked_string(get(pl, "on_loss", "retransmit"), "packet_loss.on_loss"),
+        )
+        on_loss in ("retransmit", "drop") || error(
+            "[CONFIG] Unknown packet_loss.on_loss = \"$on_loss\" (expected \"retransmit\" or \"drop\").",
+        )
         retries = checked_integer(get(pl, "max_retries", 3), "packet_loss.max_retries")
-        retries >= 0 || error("[CONFIG] packet_loss.max_retries must be ≥ 0 (got $retries).")
+        retries >= 0 ||
+            error("[CONFIG] packet_loss.max_retries must be ≥ 0 (got $retries).")
         if model == "gilbert_elliott" && Float64(get(pl, "p_bad_to_good", 0.0)) == 0.0
             @warn "[CONFIG] packet_loss.p_bad_to_good = 0: once the channel enters the BAD state it never recovers."
         end
@@ -356,20 +437,32 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [disruption] --
-    haskey(cfg, "disaster") && !haskey(cfg, "disruption") &&
+    haskey(cfg, "disaster") &&
+        !haskey(cfg, "disruption") &&
         @warn "[CONFIG] The [disaster] section name is deprecated — rename it to [disruption]."
-    d = get(cfg, "disruption", get(cfg, "disaster", Dict{String, Any}()))
+    d = get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}()))
     mission_days = test_dur * speed_up / 86_400.0
-    event_windows = Tuple{Float64, Float64, Int}[] # (start_h, end_h incl. ramp, event index)
+    event_windows = Tuple{Float64,Float64,Int}[] # (start_h, end_h incl. ramp, event index)
     for (i, e) in enumerate(get(d, "events", Any[]))
-        start_day = checked_number(get(e, "start_day", -1.0), "disruption.events[$i].start_day")
-        start_day >= 0.0 || error("[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).")
-        dur_h = checked_number(get(e, "duration_hours", 24.0), "disruption.events[$i].duration_hours")
-        dur_h > 0.0 || error("[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $dur_h).")
-        rec_h = checked_number(get(e, "recovery_hours", 0.0), "disruption.events[$i].recovery_hours")
-        rec_h >= 0.0 || error("[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $rec_h).")
+        start_day =
+            checked_number(get(e, "start_day", -1.0), "disruption.events[$i].start_day")
+        start_day >= 0.0 ||
+            error("[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).")
+        dur_h = checked_number(
+            get(e, "duration_hours", 24.0),
+            "disruption.events[$i].duration_hours",
+        )
+        dur_h > 0.0 ||
+            error("[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $dur_h).")
+        rec_h = checked_number(
+            get(e, "recovery_hours", 0.0),
+            "disruption.events[$i].recovery_hours",
+        )
+        rec_h >= 0.0 ||
+            error("[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $rec_h).")
         sev = checked_number(get(e, "severity", 1.0), "disruption.events[$i].severity")
-        0.0 <= sev <= 1.0 || error("[CONFIG] disruption.events[$i].severity = $sev outside [0, 1].")
+        0.0 <= sev <= 1.0 ||
+            error("[CONFIG] disruption.events[$i].severity = $sev outside [0, 1].")
         if start_day >= mission_days
             # Inclusive boundary: an event at the exact final instant is
             # never simulated either.
@@ -383,7 +476,7 @@ function validate_config(cfg::AbstractDict)
     end
     sort!(event_windows, by = first)
     for k in 2:length(event_windows)
-        (_, end_prev, i_prev) = event_windows[k - 1]
+        (_, end_prev, i_prev) = event_windows[k-1]
         (start_k, _, i_k) = event_windows[k]
         if start_k < end_prev
             @warn "[CONFIG] disruption.events[$i_prev] and disruption.events[$i_k] overlap in time: link capacity composes as the minimum over active events and the loss multiplier as their maximum — verify this is the intended physics."
@@ -391,10 +484,18 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [storage] --
-    st = get(cfg, "storage", Dict{String, Any}())
-    for key in ("max_storage_gb", "bytes_per_sample", "bytes_batch_metadata",
-                "bytes_event_row", "bytes_metrics_row", "bytes_mask_cell",
-                "bytes_pointwise_cell", "bytes_plot", "bytes_log_per_batch")
+    st = get(cfg, "storage", Dict{String,Any}())
+    for key in (
+        "max_storage_gb",
+        "bytes_per_sample",
+        "bytes_batch_metadata",
+        "bytes_event_row",
+        "bytes_metrics_row",
+        "bytes_mask_cell",
+        "bytes_pointwise_cell",
+        "bytes_plot",
+        "bytes_log_per_batch",
+    )
         if haskey(st, key)
             v = checked_number(st[key], "storage.$key")
             v > 0.0 || error("[CONFIG] storage.$key must be > 0 (got $v).")
@@ -406,10 +507,11 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [retention] --
-    ret = get(cfg, "retention", Dict{String, Any}())
+    ret = get(cfg, "retention", Dict{String,Any}())
     if !isempty(ret)
         en = get(ret, "enabled", false)
-        en isa Bool || error("[CONFIG] retention.enabled must be a boolean (got $(repr(en))).")
+        en isa Bool ||
+            error("[CONFIG] retention.enabled must be a boolean (got $(repr(en))).")
         for key in ("grace_hours", "high_watermark_gb", "log_rotate_mb")
             if haskey(ret, key)
                 v = checked_number(ret[key], "retention.$key")
@@ -419,8 +521,9 @@ function validate_config(cfg::AbstractDict)
         if haskey(ret, "high_watermark_gb")
             budget = storage_budget(cfg)
             wm = Float64(ret["high_watermark_gb"])
-            wm <= budget.max_gb ||
-                error("[CONFIG] retention.high_watermark_gb = $wm exceeds the storage budget ($(budget.max_gb) GB): the custodian would never trigger below the abort threshold.")
+            wm <= budget.max_gb || error(
+                "[CONFIG] retention.high_watermark_gb = $wm exceeds the storage budget ($(budget.max_gb) GB): the custodian would never trigger below the abort threshold.",
+            )
         end
     end
 
@@ -456,17 +559,19 @@ Resolves the run-directory disk budget [GB] and inode budget from `[storage]`.
 warning); with neither present the legacy default of 5.0 GB applies.
 """
 function storage_budget(cfg::AbstractDict)
-    st = get(cfg, "storage", Dict{String, Any}())
-    sim = get(cfg, "simulation", Dict{String, Any}())
+    st = get(cfg, "storage", Dict{String,Any}())
+    sim = get(cfg, "simulation", Dict{String,Any}())
     max_gb = if haskey(st, "max_storage_gb")
         checked_number(st["max_storage_gb"], "storage.max_storage_gb")
     elseif haskey(sim, "max_storage_gb")
-        @warn "[CONFIG] simulation.max_storage_gb is deprecated — move the key to [storage]." maxlog = 1
+        @warn "[CONFIG] simulation.max_storage_gb is deprecated — move the key to [storage]." maxlog =
+            1
         checked_number(sim["max_storage_gb"], "simulation.max_storage_gb")
     else
         5.0
     end
-    max_files = checked_integer(get(st, "max_file_count", 1_000_000), "storage.max_file_count")
+    max_files =
+        checked_integer(get(st, "max_file_count", 1_000_000), "storage.max_file_count")
     return (max_gb = max_gb, max_files = max_files)
 end
 
@@ -480,15 +585,21 @@ of the storage budget), and `log_rotate_bytes` (size-capped log rotation,
 active regardless of `enabled`).
 """
 function retention_settings(cfg::AbstractDict)
-    ret = get(cfg, "retention", Dict{String, Any}())
+    ret = get(cfg, "retention", Dict{String,Any}())
     enabled = Bool(get(ret, "enabled", false))
     grace_hours = checked_number(get(ret, "grace_hours", 24.0), "retention.grace_hours")
     default_wm = 0.75 * storage_budget(cfg).max_gb
-    watermark_gb = checked_number(get(ret, "high_watermark_gb", default_wm), "retention.high_watermark_gb")
+    watermark_gb = checked_number(
+        get(ret, "high_watermark_gb", default_wm),
+        "retention.high_watermark_gb",
+    )
     rotate_mb = checked_number(get(ret, "log_rotate_mb", 64.0), "retention.log_rotate_mb")
-    return (enabled = enabled, grace_hours = grace_hours,
-            watermark_bytes = watermark_gb * 1024^3,
-            log_rotate_bytes = rotate_mb * 1024^2)
+    return (
+        enabled = enabled,
+        grace_hours = grace_hours,
+        watermark_bytes = watermark_gb * 1024^3,
+        log_rotate_bytes = rotate_mb * 1024^2,
+    )
 end
 
 """
@@ -510,9 +621,9 @@ terminally lost batches land in `lost/`, and metadata, event logs, metrics,
 masks, and `lost/` are never prunable by construction.
 """
 function estimate_artifacts(cfg::AbstractDict)
-    sim = get(cfg, "simulation", Dict{String, Any}())
-    phy = get(cfg, "physics", Dict{String, Any}())
-    st = get(cfg, "storage", Dict{String, Any}())
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    phy = get(cfg, "physics", Dict{String,Any}())
+    st = get(cfg, "storage", Dict{String,Any}())
 
     speed_up = Float64(sim["speed_up"])
     test_dur = Float64(sim["test_duration_sec"])
@@ -521,10 +632,11 @@ function estimate_artifacts(cfg::AbstractDict)
     batch_sz = Int(get(phy, "batch_size", 15))
     downtime_days = Float64(get(sim, "initial_downtime_days", 0.0))
 
-    pl = get(cfg, "packet_loss", Dict{String, Any}())
+    pl = get(cfg, "packet_loss", Dict{String,Any}())
     retries = get(pl, "enabled", false) ? Int(get(pl, "max_retries", 3)) : 0
 
-    cal = key -> Float64(get(st, key, getproperty(STORAGE_CALIBRATION_DEFAULTS, Symbol(key))))
+    cal =
+        key -> Float64(get(st, key, getproperty(STORAGE_CALIBRATION_DEFAULTS, Symbol(key))))
 
     sim_sec = test_dur * speed_up
     total_sec_gen = sim_sec + downtime_days * 86_400.0
@@ -536,8 +648,9 @@ function estimate_artifacts(cfg::AbstractDict)
     # onboard, link, and ground/lost transitions plus slack) and on
     # bandwidth-hysteresis steps — one full 0 → peak → 0 pass admits up to
     # 2 × 100 / hysteresis rows per mission day.
-    metrics_rows = 4 * n_batches +
-                   2 * round(Int, 100.0 / METRICS_BANDWIDTH_HYSTERESIS_PCT) * max(mission_days, 1)
+    metrics_rows =
+        4 * n_batches +
+        2 * round(Int, 100.0 / METRICS_BANDWIDTH_HYSTERESIS_PCT) * max(mission_days, 1)
 
     payload_bytes = n_points * cal("bytes_per_sample")
     batch_meta_bytes = n_batches * cal("bytes_batch_metadata")
@@ -546,26 +659,47 @@ function estimate_artifacts(cfg::AbstractDict)
     event_bytes = (2 * n_batches + n_batches * (retries + 2)) * cal("bytes_event_row")
     metrics_bytes = metrics_rows * cal("bytes_metrics_row")
 
-    pp = get(cfg, "post_processing", Dict{String, Any}())
+    pp = get(cfg, "post_processing", Dict{String,Any}())
     do_matrix = Bool(get(pp, "generate_batch_matrix", true))
-    mask_bytes = do_matrix ? metrics_rows * (n_batches * cal("bytes_mask_cell") + 32.0) : 0.0
+    mask_bytes =
+        do_matrix ? metrics_rows * (n_batches * cal("bytes_mask_cell") + 32.0) : 0.0
 
     do_expand = Bool(get(pp, "expand_to_pointwise_masks", false))
     target_rows = normalize_target_rows(get(pp, "target_event_rows", [-1]))
-    n_expansions = do_expand ? (target_rows === :all ? metrics_rows : length(target_rows)) : 0
+    # Branch on the concrete type: the union contract admits any Symbol, so a
+    # type test narrows soundly where `=== :all` would not.
+    n_expansions =
+        do_expand ? (target_rows isa Vector{Int} ? length(target_rows) : metrics_rows) : 0
     pointwise_bytes = n_expansions * n_points * cal("bytes_pointwise_cell")
 
     plot_bytes = (mission_days + 1) * cal("bytes_plot")
     log_bytes = n_batches * cal("bytes_log_per_batch") + 200_000.0
 
-    total_bytes = payload_bytes + batch_meta_bytes + event_bytes + metrics_bytes +
-                  mask_bytes + pointwise_bytes + plot_bytes + log_bytes
+    total_bytes =
+        payload_bytes +
+        batch_meta_bytes +
+        event_bytes +
+        metrics_bytes +
+        mask_bytes +
+        pointwise_bytes +
+        plot_bytes +
+        log_bytes
 
     # Files: per batch one directory, one metadata.json, batch_sz segment CSVs;
     # plus event logs, profile, mask products, plots, logs, snapshot, sentinels
     # and the six run subdirectories (small fixed slack for rotations).
-    file_count = n_batches * (batch_sz + 2) + 2 + 1 + (do_matrix ? 1 : 0) +
-                 n_expansions + (mission_days + 1) + 2 + 1 + 2 + 6 + 8
+    file_count =
+        n_batches * (batch_sz + 2) +
+        2 +
+        1 +
+        (do_matrix ? 1 : 0) +
+        n_expansions +
+        (mission_days + 1) +
+        2 +
+        1 +
+        2 +
+        6 +
+        8
 
     # Retention-prunable subset: delivered payload CSVs only. Batches that
     # terminally exhaust their retry budget land in lost/ (never prunable);
@@ -579,22 +713,32 @@ function estimate_artifacts(cfg::AbstractDict)
         p_b2g = Float64(get(pl, "p_bad_to_good", 1.0))
         pi_bad = p_g2b + p_b2g > 0.0 ? p_g2b / (p_g2b + p_b2g) : 0.0
         pi_bad * Float64(get(pl, "p_loss_bad", 0.0)) +
-            (1.0 - pi_bad) * Float64(get(pl, "p_loss_good", 0.0))
+        (1.0 - pi_bad) * Float64(get(pl, "p_loss_good", 0.0))
     else
         Float64(get(pl, "p_loss", 0.0))
     end
     lost_fraction = get(pl, "on_loss", "retransmit") == "drop" ? p_eff : p_eff^(retries + 1)
     delivered_fraction = 1.0 - lost_fraction
 
-    return (n_segments = n_segments, n_batches = n_batches, n_points = n_points,
-            mission_days = mission_days, metrics_rows = metrics_rows,
-            payload_bytes = payload_bytes, batch_meta_bytes = batch_meta_bytes,
-            event_bytes = event_bytes, metrics_bytes = metrics_bytes,
-            mask_bytes = mask_bytes, pointwise_bytes = pointwise_bytes,
-            plot_bytes = plot_bytes, log_bytes = log_bytes,
-            total_bytes = total_bytes, file_count = file_count,
-            prunable_bytes = payload_bytes * delivered_fraction,
-            prunable_files = round(Int, n_segments * delivered_fraction))
+    return (
+        n_segments = n_segments,
+        n_batches = n_batches,
+        n_points = n_points,
+        mission_days = mission_days,
+        metrics_rows = metrics_rows,
+        payload_bytes = payload_bytes,
+        batch_meta_bytes = batch_meta_bytes,
+        event_bytes = event_bytes,
+        metrics_bytes = metrics_bytes,
+        mask_bytes = mask_bytes,
+        pointwise_bytes = pointwise_bytes,
+        plot_bytes = plot_bytes,
+        log_bytes = log_bytes,
+        total_bytes = total_bytes,
+        file_count = file_count,
+        prunable_bytes = payload_bytes * delivered_fraction,
+        prunable_files = round(Int, n_segments * delivered_fraction),
+    )
 end
 
 const STORAGE_CALIBRATION_DEFAULTS = (
@@ -639,7 +783,8 @@ function check_storage_limits(cfg::AbstractDict)
     @info "  -> Event logs:           $(gb(est.event_bytes)) GB"
     @info "  -> Metrics profile:      $(gb(est.metrics_bytes)) GB (≤ $(est.metrics_rows) rows)"
     est.mask_bytes > 0 && @info "  -> Mask timeline:        $(gb(est.mask_bytes)) GB"
-    est.pointwise_bytes > 0 && @info "  -> Point-wise masks:     $(gb(est.pointwise_bytes)) GB"
+    est.pointwise_bytes > 0 &&
+        @info "  -> Point-wise masks:     $(gb(est.pointwise_bytes)) GB"
     @info "  -> Plots:                $(gb(est.plot_bytes)) GB"
     @info "  -> Logs:                 $(gb(est.log_bytes)) GB"
     @info "  -> Total:                $(gb(est.total_bytes)) GB, ≈ $(est.file_count) files (budget: $(budget.max_gb) GB, $(budget.max_files) files)"
@@ -647,9 +792,13 @@ function check_storage_limits(cfg::AbstractDict)
     max_bytes = budget.max_gb * 1024^3
     if !ret.enabled
         if est.total_bytes > max_bytes
-            error("[STORAGE] Estimated storage ($(gb(est.total_bytes)) GB) exceeds the configured budget ($(budget.max_gb) GB) and no mitigation is active. Enable [retention], reduce the mission span, or raise storage.max_storage_gb.")
+            error(
+                "[STORAGE] Estimated storage ($(gb(est.total_bytes)) GB) exceeds the configured budget ($(budget.max_gb) GB) and no mitigation is active. Enable [retention], reduce the mission span, or raise storage.max_storage_gb.",
+            )
         elseif est.file_count > budget.max_files
-            error("[STORAGE] Estimated file count ($(est.file_count)) exceeds storage.max_file_count ($(budget.max_files)) and no mitigation is active. Enable [retention], reduce the mission span, or raise the budget.")
+            error(
+                "[STORAGE] Estimated file count ($(est.file_count)) exceeds storage.max_file_count ($(budget.max_files)) and no mitigation is active. Enable [retention], reduce the mission span, or raise the budget.",
+            )
         elseif est.total_bytes > 0.9 * max_bytes
             @warn "[STORAGE] Estimated storage ($(gb(est.total_bytes)) GB) is within 10 % of the configured budget ($(budget.max_gb) GB)."
         else
@@ -661,18 +810,24 @@ function check_storage_limits(cfg::AbstractDict)
     capped_payload = min(est.prunable_bytes, ret.watermark_bytes)
     steady_bytes = est.total_bytes - est.prunable_bytes + capped_payload
     payload_frac = est.prunable_bytes > 0 ? capped_payload / est.prunable_bytes : 1.0
-    steady_files = est.file_count - est.prunable_files + ceil(Int, payload_frac * est.prunable_files)
+    steady_files =
+        est.file_count - est.prunable_files + ceil(Int, payload_frac * est.prunable_files)
 
     if steady_bytes > max_bytes
-        error("[STORAGE] Even with retention active, the steady-state footprint ($(gb(steady_bytes)) GB: non-prunable classes + payload capped at the $(gb(ret.watermark_bytes)) GB watermark) exceeds the configured budget ($(budget.max_gb) GB). Reduce the mission span, lower retention.high_watermark_gb, or raise storage.max_storage_gb.")
+        error(
+            "[STORAGE] Even with retention active, the steady-state footprint ($(gb(steady_bytes)) GB: non-prunable classes + payload capped at the $(gb(ret.watermark_bytes)) GB watermark) exceeds the configured budget ($(budget.max_gb) GB). Reduce the mission span, lower retention.high_watermark_gb, or raise storage.max_storage_gb.",
+        )
     elseif steady_files > budget.max_files
-        error("[STORAGE] Even with retention active, the steady-state file count ($steady_files) exceeds storage.max_file_count ($(budget.max_files)).")
+        error(
+            "[STORAGE] Even with retention active, the steady-state file count ($steady_files) exceeds storage.max_file_count ($(budget.max_files)).",
+        )
     end
     if est.total_bytes > max_bytes
         @warn "[STORAGE] Unbounded projection ($(gb(est.total_bytes)) GB) exceeds the budget ($(budget.max_gb) GB); retention bounds the steady state to ≈ $(gb(steady_bytes)) GB — proceeding."
     end
-    grace_payload = est.payload_bytes / max(est.n_segments, 1) *
-                    (ret.grace_hours * 3600.0 / Float64(cfg["physics"]["segment_duration_sec"]))
+    grace_payload =
+        est.payload_bytes / max(est.n_segments, 1) *
+        (ret.grace_hours * 3600.0 / Float64(cfg["physics"]["segment_duration_sec"]))
     if grace_payload > ret.watermark_bytes
         @warn "[STORAGE] Payload generated within one retention.grace_hours window (≈ $(gb(grace_payload)) GB) exceeds retention.high_watermark_gb ($(gb(ret.watermark_bytes)) GB): the custodian cannot honor the grace guarantee and stay below the watermark; the watermark will be exceeded transiently."
     end
@@ -766,23 +921,23 @@ function save_metrics(run_dir::String, m::MissionMetrics)
     df = DataFrame(
         SimTime = m.sim_time,
         WallTime = m.wall_time,
-        Mission_Day = round(m.hours_elapsed / 24.0, digits=2),
-        Hours_Elapsed = round(m.hours_elapsed, digits=2),
-        Bandwidth_Pct = round(m.bandwidth_pct, digits=1),
+        Mission_Day = round(m.hours_elapsed / 24.0, digits = 2),
+        Hours_Elapsed = round(m.hours_elapsed, digits = 2),
+        Bandwidth_Pct = round(m.bandwidth_pct, digits = 1),
         Onboard_Buffer = m.onboard_buffer,
         Link_Buffer = m.link_buffer,
         Ground_Archive = m.ground_archive,
         Ground_Live = m.ground_live,
         Ground_Arch = m.ground_arch,
-        Nominal_Bandwidth_Pct = round(m.nominal_bandwidth_pct, digits=1),
+        Nominal_Bandwidth_Pct = round(m.nominal_bandwidth_pct, digits = 1),
         Lost_Count = m.lost_count,
         Retry_Count = m.retry_count,
-        Disruption_Active = m.disruption_active
+        Disruption_Active = m.disruption_active,
     )
 
     # CSV.write in append mode: DrWatson's safesave() has no efficient
     # line-by-line CSV append path.
-    CSV.write(log_path, df; append=exists)
+    CSV.write(log_path, df; append = exists)
 end
 
 # --- Ground-Truth Event Logs ---
@@ -812,7 +967,13 @@ payload CSVs after the grace window; state-preserving for the mask replay).
 `attempt` counts failed transfer attempts so far (0 for `"pruned"`).
 Only the receiver task writes this file (single-writer; no lock needed).
 """
-function log_rx_event(run_dir::String, sim_t::DateTime, batch::String, event::String, attempt::Int)
+function log_rx_event(
+    run_dir::String,
+    sim_t::DateTime,
+    batch::String,
+    event::String,
+    attempt::Int,
+)
     path = joinpath(run_dir, "events_rx.csv")
     df = DataFrame(SimTime = sim_t, Batch = batch, Event = event, Attempt = attempt)
     CSV.write(path, df; append = isfile(path))
@@ -860,7 +1021,10 @@ end
 Generates a unique ID for the current simulation run using DrWatson's savename format.
 """
 function generate_run_id()
-    return DrWatson.savename("RUN", Dict("t" => Dates.format(now(), "yyyymmdd_HHMMSS"), "pid" => getpid()))
+    return DrWatson.savename(
+        "RUN",
+        Dict("t" => Dates.format(now(), "yyyymmdd_HHMMSS"), "pid" => getpid()),
+    )
 end
 
 """
@@ -872,12 +1036,14 @@ required subdirectories. When the parsed configuration `cfg` is provided, a
 backup rotation) so every run's exact parameters remain reproducible after
 `config.toml` changes.
 """
-function setup_run_dir(run_id::String; cfg::Union{AbstractDict, Nothing}=nothing)
+function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothing)
     base_dir = DrWatson.datadir("runs", run_id)
     # Run-ID reuse guard (silent-failure mode): a reused ID would interleave
     # two missions' rows in mission_profile.csv and truncate the prior logs.
     if isdir(base_dir) && !isempty(filter(f -> !startswith(f, "."), readdir(base_dir)))
-        error("[RUN] Run directory $base_dir already exists and is non-empty — run IDs must be unique. Choose a new run ID or purge the previous run (scripts/maintenance/cleanup.jl).")
+        error(
+            "[RUN] Run directory $base_dir already exists and is non-empty — run IDs must be unique. Choose a new run ID or purge the previous run (scripts/maintenance/cleanup.jl).",
+        )
     end
     paths = [
         joinpath(base_dir, "onboard"),
@@ -885,7 +1051,7 @@ function setup_run_dir(run_id::String; cfg::Union{AbstractDict, Nothing}=nothing
         joinpath(base_dir, "ground"),
         joinpath(base_dir, "lost"),
         joinpath(base_dir, "plots"),
-        joinpath(base_dir, "masks")
+        joinpath(base_dir, "masks"),
     ]
     foreach(mkpath, paths)
     if cfg !== nothing
@@ -909,12 +1075,12 @@ function save_batch(path::String, batch::DataBatch)
     metadata = Dict(
         "batch_id" => batch.id,
         "segment_count" => length(batch.segments),
-        "created_at" => string(batch.created_at)
+        "created_at" => string(batch.created_at),
     )
     open(joinpath(path, "metadata.json"), "w") do io
         JSON3.write(io, metadata)
     end
-    
+
     for seg in batch.segments
         save_segment(joinpath(path, "seg_$(seg.id).csv"), seg)
     end
@@ -937,8 +1103,10 @@ Loads a 1D CSV time series back into a `DataSegment` object.
 """
 function load_segment(path::String)
     df = CSV.read(path, DataFrame)
-    id_str = match(r"seg_(\d+)\.csv", basename(path))
-    id = id_str !== nothing ? parse(Int, id_str[1]) : 0
+    id_match = match(r"seg_(\d+)\.csv", basename(path))
+    # The capture is a Union{Nothing, SubString}: guard the full chain so a
+    # nonconforming filename degrades to id 0 instead of throwing.
+    id = id_match !== nothing ? something(tryparse(Int, something(id_match[1], "")), 0) : 0
     return DataSegment(id, now(), Vector{Float32}(df.Amplitude), false)
 end
 
@@ -977,14 +1145,16 @@ end
 Calculates the effective link capacity (0.0 to 1.0) based on the configured profile (sine, sigmoid, gaussian, flat).
 """
 function get_bandwidth_factor(model::VisibilityModel, t::DateTime)
-    if !is_visible(model, t) return 0.0 end
+    if !is_visible(model, t)
+        return 0.0
+    end
     elapsed_ns = Time(t).instant.value - model.session_start.instant.value
     if elapsed_ns < 0 # session crossed midnight relative to `t`
         elapsed_ns += 24 * 3600 * 1_000_000_000
     end
     total_sec = model.session_duration.value
     progress = clamp(elapsed_ns / 1e9 / total_sec, 0.0, 1.0)
-    
+
     if model.profile == "sine"
         return sin(pi * progress)^2
     elseif model.profile == "sigmoid"

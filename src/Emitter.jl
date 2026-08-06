@@ -7,7 +7,6 @@ using Dates
 using ProgressMeter
 using Random
 
-
 """
     pre_populate(start_sim_time, run_id; ...) -> (instrument, leftover_segments)
 
@@ -20,19 +19,28 @@ segments that did not fill a complete batch. Both must be handed to
 consumed via `ext_index`) continues seamlessly instead of restarting at the
 first sample.
 """
-function pre_populate(start_sim_time::DateTime, run_id::String;
-                      sample_rate::Float64=1024.0,
-                      seg_dur::Float64=60.0,
-                      batch_size::Int=15,
-                      initial_downtime_days::Float64=3.0,
-                      data_source::String="synthetic",
-                      ext_path::String="",
-                      rng::Xoshiro=Xoshiro(0))
-
+function pre_populate(
+    start_sim_time::DateTime,
+    run_id::String;
+    sample_rate::Float64 = 1024.0,
+    seg_dur::Float64 = 60.0,
+    batch_size::Int = 15,
+    initial_downtime_days::Float64 = 3.0,
+    data_source::String = "synthetic",
+    ext_path::String = "",
+    rng::Random.AbstractRNG = Xoshiro(0),
+)
     downtime_ms = max(0, round(Int, initial_downtime_days * 86_400_000))
     downtime_start = start_sim_time - Millisecond(downtime_ms)
 
-    vi = VirtualInstrument.InstrumentState(downtime_start, sample_rate, seg_dur, data_source, ext_path; rng=rng)
+    vi = VirtualInstrument.InstrumentState(
+        downtime_start,
+        sample_rate,
+        seg_dur,
+        data_source,
+        ext_path;
+        rng = rng,
+    )
     current_batch_segs = TelemetryCore.DataSegment[]
 
     if initial_downtime_days <= 0.0
@@ -59,15 +67,23 @@ function pre_populate(start_sim_time::DateTime, run_id::String;
             # created_at carries mission time (the generation epoch of the
             # batch's first segment), never wall-clock time: metadata.json is
             # persisted provenance and must live on the mission timeline.
-            batch = TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs),
-                                            current_batch_segs[1].timestamp)
+            batch = TelemetryCore.DataBatch(
+                batch_counter,
+                copy(current_batch_segs),
+                current_batch_segs[1].timestamp,
+            )
             batch_name = "ARCH_batch_$batch_counter"
             batch_dir = joinpath(buffer_path, batch_name)
 
             TelemetryCore.save_batch(batch_dir, batch)
             # Ground-truth milestone: generation time = first segment timestamp
             # (inside the blind spot, i.e. before mission start).
-            TelemetryCore.log_tx_event(run_dir, batch.segments[1].timestamp, batch_name, "gen")
+            TelemetryCore.log_tx_event(
+                run_dir,
+                batch.segments[1].timestamp,
+                batch_name,
+                "gen",
+            )
             empty!(current_batch_segs)
             batch_counter += 1
         end
@@ -95,20 +111,30 @@ to continue the pre-populated data stream without gaps or duplication; when
 `instrument === nothing` a fresh `InstrumentState` starting at
 `clock.start_sim_time` is created instead (seeded by `rng`).
 """
-function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.LinkModel, run_id::String;
-                     test_duration_sec::Float64=0.0,
-                     sample_rate::Float64=1024.0,
-                     seg_dur::Float64=60.0,
-                     batch_size::Int=15,
-                     data_source::String="synthetic",
-                     ext_path::String="",
-                     instrument::Union{VirtualInstrument.InstrumentState, Nothing}=nothing,
-                     initial_segments::Vector{TelemetryCore.DataSegment}=TelemetryCore.DataSegment[],
-                     rng::Xoshiro=Xoshiro(0))
-
-    vi = instrument === nothing ?
-        VirtualInstrument.InstrumentState(clock.start_sim_time, sample_rate, seg_dur, data_source, ext_path; rng=rng) :
-        instrument
+function run_emitter(
+    clock::TelemetryCore.SimulationClock,
+    link::ChannelEffects.LinkModel,
+    run_id::String;
+    test_duration_sec::Float64 = 0.0,
+    sample_rate::Float64 = 1024.0,
+    seg_dur::Float64 = 60.0,
+    batch_size::Int = 15,
+    data_source::String = "synthetic",
+    ext_path::String = "",
+    instrument::Union{VirtualInstrument.InstrumentState,Nothing} = nothing,
+    initial_segments::Vector{TelemetryCore.DataSegment} = TelemetryCore.DataSegment[],
+    rng::Random.AbstractRNG = Xoshiro(0),
+)
+    vi =
+        instrument === nothing ?
+        VirtualInstrument.InstrumentState(
+            clock.start_sim_time,
+            sample_rate,
+            seg_dur,
+            data_source,
+            ext_path;
+            rng = rng,
+        ) : instrument
     run_dir = joinpath(TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
     buffer_path = joinpath(run_dir, "onboard")
     link_path = joinpath(run_dir, "link")
@@ -122,19 +148,20 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
     archived = filter(f -> startswith(f, "ARCH_batch_"), all_onboard)
     # tryparse tolerates stray directories that merely share the prefix; a
     # non-numeric suffix sorts to the LIFO tail instead of aborting the loop.
-    sort!(archived, by = x -> something(tryparse(Int, split(x, "_")[end]), 0), rev=true) # LIFO internal
+    sort!(archived, by = x -> something(tryparse(Int, split(x, "_")[end]), 0), rev = true) # LIFO internal
     append!(onboard_arch_queue, archived)
 
     batch_counter = length(archived) + 1
     current_batch_segs = copy(initial_segments)
-    
+
     @info "[EMITTER] Logic: NRT Priority + Archive Gap-fill (LIFO). Run: $run_id"
 
     start_wall_t = now()
     next_wall_t = start_wall_t
 
     while true
-        if test_duration_sec > 0.0 && (now() - start_wall_t).value / 1000.0 > test_duration_sec
+        if test_duration_sec > 0.0 &&
+           (now() - start_wall_t).value / 1000.0 > test_duration_sec
             @info "[EMITTER] Test duration reached. Shutting down."
             break
         end
@@ -143,7 +170,7 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
         sim_t = TelemetryCore.get_current_sim_time(clock)
         seg = VirtualInstrument.next_segment!(vi)
         push!(current_batch_segs, seg)
-        
+
         # 2. Batch Finalization
         if length(current_batch_segs) >= batch_size
             is_live = ChannelEffects.is_transmittable(link, sim_t)
@@ -152,9 +179,9 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
             prefix = is_live ? "LIVE_" : "ARCH_"
             batch_name = "$(prefix)batch_$batch_counter"
             batch_dir = joinpath(buffer_path, batch_name)
-            
+
             TelemetryCore.save_batch(batch_dir, batch)
-            
+
             # Add to internal queue
             if is_live
                 # LIVE queue is FIFO: append at the tail, drain from the head.
@@ -163,7 +190,7 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
                 # ARCH queue is LIFO: insert at the head so popfirst! yields newest-first.
                 pushfirst!(onboard_arch_queue, batch_name)
             end
-            
+
             @info "[EMITTER] Gen  | $batch_name @ SimTime: $(batch.segments[1].timestamp)"
             TelemetryCore.log_tx_event(run_dir, sim_t, batch_name, "gen")
             empty!(current_batch_segs)
@@ -178,7 +205,8 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
                 rm(joinpath(link_path, ack))
             end
 
-            link_count = length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
+            link_count =
+                length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
 
             if link_count < 5
                 next_batch = ""
@@ -191,7 +219,11 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
                     reason = "Backfill"
                 end
                 if !isempty(next_batch)
-                    mv(joinpath(buffer_path, next_batch), joinpath(link_path, next_batch), force=true)
+                    mv(
+                        joinpath(buffer_path, next_batch),
+                        joinpath(link_path, next_batch),
+                        force = true,
+                    )
                     @info "[EMITTER] Tx ->| $next_batch ($reason)"
                     TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
                 end
@@ -201,8 +233,10 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
         # 4. Precision Timing
         next_wall_t += Millisecond(round(Int, (vi.seg_dur / clock.speed_up) * 1000.0))
         wait_time = (next_wall_t - now()).value / 1000.0
-        
-        if wait_time > 0 sleep(wait_time) end
+
+        if wait_time > 0
+            sleep(wait_time)
+        end
     end
 end
 

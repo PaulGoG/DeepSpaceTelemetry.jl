@@ -15,17 +15,22 @@ Outputs are saved into the `<run_dir>/plots` directory.
 """
 function generate_mission_plots(run_dir::String)
     @info "[RECEIVER] Generating Mission & Session Plots..."
-    
+
     log_path = joinpath(run_dir, "mission_profile.csv")
-    if !isfile(log_path) return end
-    
+    if !isfile(log_path)
+        return
+    end
+
     df = CSV.read(log_path, DataFrame)
-    if isempty(df) return end
+    if isempty(df)
+        return
+    end
 
     cfg = TelemetryCore.load_run_config(run_dir)
-    tel = get(cfg, "telemetry", Dict{String, Any}())
+    tel = get(cfg, "telemetry", Dict{String,Any}())
     session_start_time = Time(get(tel, "session_start", "08:00:00"))
-    session_dur = Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
+    session_dur =
+        Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
     bw_profile = String(get(tel, "bandwidth_profile", "sine"))
     vis_model = TelemetryCore.VisibilityModel(session_start_time, session_dur, bw_profile)
 
@@ -33,11 +38,14 @@ function generate_mission_plots(run_dir::String)
     # configs). A malformed snapshot must not abort post-processing of an
     # otherwise complete run: warn and plot without disruption shading.
     disruptions = try
-        haskey(get(cfg, "simulation", Dict{String, Any}()), "start_sim_time") ?
-            ChannelEffects.build_disruption_timeline(cfg, DateTime(cfg["simulation"]["start_sim_time"])) :
-            ChannelEffects.DisruptionTimeline()
+        haskey(get(cfg, "simulation", Dict{String,Any}()), "start_sim_time") ?
+        ChannelEffects.build_disruption_timeline(
+            cfg,
+            DateTime(cfg["simulation"]["start_sim_time"]),
+        ) : ChannelEffects.DisruptionTimeline()
     catch e
-        @warn "[RECEIVER] Could not parse disruption events from the run snapshot; plotting without disruption shading." exception = e
+        @warn "[RECEIVER] Could not parse disruption events from the run snapshot; plotting without disruption shading." exception =
+            e
         ChannelEffects.DisruptionTimeline()
     end
     link_model = ChannelEffects.LinkModel(vis_model, disruptions)
@@ -47,7 +55,7 @@ function generate_mission_plots(run_dir::String)
     # The dedicated Lost strip renders whenever the loss channel was enabled —
     # an empty strip honestly reports "no losses" — and for legacy runs that
     # recorded losses without a config snapshot.
-    loss_enabled = Bool(get(get(cfg, "packet_loss", Dict{String, Any}()), "enabled", false))
+    loss_enabled = Bool(get(get(cfg, "packet_loss", Dict{String,Any}()), "enabled", false))
     show_lost_panel = (loss_enabled && has_loss_cols) || any_lost
 
     # Anchor the time axis at start_sim_time — NOT at the first metrics row,
@@ -58,7 +66,7 @@ function generate_mission_plots(run_dir::String)
     # matching disruption.start_day and the t₀-anchored elapsed-time axes of
     # detection/estimation pipelines.
     sim_start = try
-        DateTime(get(get(cfg, "simulation", Dict{String, Any}()), "start_sim_time", ""))
+        DateTime(get(get(cfg, "simulation", Dict{String,Any}()), "start_sim_time", ""))
     catch
         nothing # legacy/corrupt snapshot: fall back to the first metrics row
     end
@@ -67,8 +75,10 @@ function generate_mission_plots(run_dir::String)
     df_x = to_h.(df.SimTime)
 
     # Disruption spans in plot coordinates: (blackout_start, blackout_end, recovery_end)
-    disruption_spans = [(to_h(ev.start_time), to_h(ev.blackout_end), to_h(ev.recovery_end))
-                        for ev in disruptions.events]
+    disruption_spans = [
+        (to_h(ev.start_time), to_h(ev.blackout_end), to_h(ev.recovery_end)) for
+        ev in disruptions.events
+    ]
 
     # Shades every disruption event onto `ax`, clamped to the plotted range:
     # a uniform dark wash over the blackout, fading linearly to zero alpha
@@ -77,32 +87,43 @@ function generate_mission_plots(run_dir::String)
     # far back along z so it renders behind the data identically on every
     # panel of every figure — but strictly above z = -100, where the white
     # background of a twin Axis (dual-y panels) would cover it.
-    shade_disruptions! = (ax, x_lo, x_hi) -> begin
-        for (b0, b1, r1) in disruption_spans
-            b0c, b1c = max(b0, x_lo), min(b1, x_hi)
-            if b0c < b1c
-                v = vspan!(ax, b0c, b1c, color = (COLOR_DISRUPTION, 0.18))
-                translate!(v, 0, 0, -99)
-            end
-            r0c, r1c = max(b1, x_lo), min(r1, x_hi)
-            if r0c < r1c
-                edges = collect(range(r0c, r1c, length = 25))
-                for k in 1:(length(edges) - 1)
-                    mid = (edges[k] + edges[k + 1]) / 2
-                    fade = 0.18 * (1.0 - (mid - b1) / (r1 - b1))
-                    v = vspan!(ax, edges[k], edges[k + 1], color = (COLOR_DISRUPTION, fade))
+    shade_disruptions! =
+        (ax, x_lo, x_hi) -> begin
+            for (b0, b1, r1) in disruption_spans
+                b0c, b1c = max(b0, x_lo), min(b1, x_hi)
+                if b0c < b1c
+                    v = vspan!(ax, b0c, b1c, color = (COLOR_DISRUPTION, 0.18))
                     translate!(v, 0, 0, -99)
                 end
-            end
-            for x_edge in (b0, r1)
-                if x_lo <= x_edge <= x_hi
-                    l = vlines!(ax, [x_edge], color = (:gray30, 0.8),
-                                linestyle = :dash, linewidth = 1.5)
-                    translate!(l, 0, 0, -98)
+                r0c, r1c = max(b1, x_lo), min(r1, x_hi)
+                if r0c < r1c
+                    edges = collect(range(r0c, r1c, length = 25))
+                    for k in 1:(length(edges)-1)
+                        mid = (edges[k] + edges[k+1]) / 2
+                        fade = 0.18 * (1.0 - (mid - b1) / (r1 - b1))
+                        v = vspan!(
+                            ax,
+                            edges[k],
+                            edges[k+1],
+                            color = (COLOR_DISRUPTION, fade),
+                        )
+                        translate!(v, 0, 0, -99)
+                    end
+                end
+                for x_edge in (b0, r1)
+                    if x_lo <= x_edge <= x_hi
+                        l = vlines!(
+                            ax,
+                            [x_edge],
+                            color = (:gray30, 0.8),
+                            linestyle = :dash,
+                            linewidth = 1.5,
+                        )
+                        translate!(l, 0, 0, -98)
+                    end
                 end
             end
         end
-    end
 
     # True when any blackout / recovery-ramp phase overlaps the plotted
     # x-window — legends must only advertise what their own figure actually
@@ -116,51 +137,95 @@ function generate_mission_plots(run_dir::String)
     # strictly limited to what that specific figure draws: `shading` gates the
     # Blackout/Recovery patches, `lost` is :strip (summary stairs+marks),
     # :marks (session ✕ pins), or :none.
-    add_figure_legend! = (fig; degraded, blackout, ramp, lost) -> begin
-        elems = Any[]
-        labels = String[]
-        if degraded
-            push!(elems, LineElement(color = (COLOR_BANDWIDTH, 0.5), linewidth = 3, linestyle = :dot))
-            push!(labels, "Nominal capacity")
-            push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 3))
-            push!(labels, "Effective capacity")
-        else
-            push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 3))
-            push!(labels, "Link capacity")
+    add_figure_legend! =
+        (fig; degraded, blackout, ramp, lost) -> begin
+            elems = Any[]
+            labels = String[]
+            if degraded
+                push!(
+                    elems,
+                    LineElement(
+                        color = (COLOR_BANDWIDTH, 0.5),
+                        linewidth = 3,
+                        linestyle = :dot,
+                    ),
+                )
+                push!(labels, "Nominal capacity")
+                push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 3))
+                push!(labels, "Effective capacity")
+            else
+                push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 3))
+                push!(labels, "Link capacity")
+            end
+            push!(
+                elems,
+                LineElement(color = COLOR_ONBOARD, linewidth = 3, linestyle = :dash),
+            )
+            push!(labels, "Onboard buffer")
+            push!(
+                elems,
+                PolyElement(
+                    color = (COLOR_LIVE, 0.4),
+                    strokecolor = COLOR_LIVE,
+                    strokewidth = 3,
+                ),
+            )
+            push!(labels, "Total received (live + archive)")
+            push!(
+                elems,
+                PolyElement(
+                    color = (COLOR_ARCHIVE, 0.4),
+                    strokecolor = COLOR_ARCHIVE,
+                    strokewidth = 3,
+                ),
+            )
+            push!(labels, "Archive backfill (LIFO)")
+            if lost === :strip
+                push!(
+                    elems,
+                    [
+                        LineElement(color = COLOR_LOST, linewidth = 3),
+                        MarkerElement(
+                            marker = :xcross,
+                            color = COLOR_LOST,
+                            markersize = 14,
+                        ),
+                    ],
+                )
+                push!(labels, "Lost")
+            elseif lost === :marks
+                push!(
+                    elems,
+                    MarkerElement(marker = :xcross, color = COLOR_LOST, markersize = 14),
+                )
+                push!(labels, "Lost")
+            end
+            if blackout
+                push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.18)))
+                push!(labels, "Blackout")
+            end
+            if ramp
+                push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.08)))
+                push!(labels, "Recovery ramp")
+            end
+            Legend(
+                fig[0, 1],
+                elems,
+                labels;
+                orientation = :horizontal,
+                nbanks = length(elems) > 5 ? 2 : 1,
+                framevisible = false,
+                backgroundcolor = :transparent,
+                colgap = 28,
+            )
         end
-        push!(elems, LineElement(color = COLOR_ONBOARD, linewidth = 3, linestyle = :dash))
-        push!(labels, "Onboard buffer")
-        push!(elems, PolyElement(color = (COLOR_LIVE, 0.4), strokecolor = COLOR_LIVE, strokewidth = 3))
-        push!(labels, "Total received (live + archive)")
-        push!(elems, PolyElement(color = (COLOR_ARCHIVE, 0.4), strokecolor = COLOR_ARCHIVE, strokewidth = 3))
-        push!(labels, "Archive backfill (LIFO)")
-        if lost === :strip
-            push!(elems, [LineElement(color = COLOR_LOST, linewidth = 3),
-                          MarkerElement(marker = :xcross, color = COLOR_LOST, markersize = 14)])
-            push!(labels, "Lost")
-        elseif lost === :marks
-            push!(elems, MarkerElement(marker = :xcross, color = COLOR_LOST, markersize = 14))
-            push!(labels, "Lost")
-        end
-        if blackout
-            push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.18)))
-            push!(labels, "Blackout")
-        end
-        if ramp
-            push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.08)))
-            push!(labels, "Recovery ramp")
-        end
-        Legend(fig[0, 1], elems, labels;
-               orientation = :horizontal, nbanks = length(elems) > 5 ? 2 : 1,
-               framevisible = false, backgroundcolor = :transparent, colgap = 28)
-    end
 
     # 1. Generate Global Summary Plot
     # Floor at one hour: a single-row (or sub-hour) profile would otherwise
     # produce degenerate axis limits and crash the renderer.
     max_x_h = max(df_x[end], 1.0)
     total_days = max_x_h / 24.0
-    
+
     # Dynamic tick step based on mission duration
     if total_days <= 10
         tick_step_h = 24.0
@@ -171,23 +236,30 @@ function generate_mission_plots(run_dir::String)
     else
         tick_step_h = 24.0 * 60 # Bi-monthly
     end
-    
+
     tick_vals_h = collect(0.0:tick_step_h:max_x_h)
     tick_labels = ["Day $(Int(floor(v/24)))" for v in tick_vals_h]
-    
+
     with_theme(telemetry_theme()) do
-        fig_global = Figure(size=(1400, show_lost_panel ? 1250 : 1050), figure_padding=30)
+        fig_global =
+            Figure(size = (1400, show_lost_panel ? 1250 : 1050), figure_padding = 30)
 
         # Dual Y-axis for global plot 1
-        ax1 = Axis(fig_global[1, 1],
-                   xlabel="", ylabel="Bandwidth [%]",
-                   xticks=(tick_vals_h, tick_labels))
+        ax1 = Axis(
+            fig_global[1, 1],
+            xlabel = "",
+            ylabel = "Bandwidth [%]",
+            xticks = (tick_vals_h, tick_labels),
+        )
         xlims!(ax1, 0, max_x_h)
         ylims!(ax1, 0, 105)
 
-        ax1_twin = Axis(fig_global[1, 1],
-                        yaxisposition=:right, ylabel="Buffered data batches",
-                        yticklabelcolor=COLOR_ONBOARD)
+        ax1_twin = Axis(
+            fig_global[1, 1],
+            yaxisposition = :right,
+            ylabel = "Buffered data batches",
+            yticklabelcolor = COLOR_ONBOARD,
+        )
         hidespines!(ax1_twin)
         hidexdecorations!(ax1_twin)
         xlims!(ax1_twin, 0, max_x_h)
@@ -199,31 +271,57 @@ function generate_mission_plots(run_dir::String)
 
         # Nominal (visibility-only) capacity behind the effective curve when a
         # disruption degraded the link somewhere in the run.
-        show_nominal = hasproperty(df, :Nominal_Bandwidth_Pct) &&
-                       maximum(abs.(df.Nominal_Bandwidth_Pct .- df.Bandwidth_Pct)) > 0.1
+        show_nominal =
+            hasproperty(df, :Nominal_Bandwidth_Pct) &&
+            maximum(abs.(df.Nominal_Bandwidth_Pct .- df.Bandwidth_Pct)) > 0.1
         if show_nominal
-            lines!(ax1, df_x, Float64.(df.Nominal_Bandwidth_Pct), color=(COLOR_BANDWIDTH, 0.35),
-                   linestyle=:dot)
+            lines!(
+                ax1,
+                df_x,
+                Float64.(df.Nominal_Bandwidth_Pct),
+                color = (COLOR_BANDWIDTH, 0.35),
+                linestyle = :dot,
+            )
         end
-        lines!(ax1, df_x, Float64.(df.Bandwidth_Pct), color=COLOR_BANDWIDTH)
-        lines!(ax1_twin, df_x, Float64.(df.Onboard_Buffer), color=COLOR_ONBOARD, linestyle=:dash)
+        lines!(ax1, df_x, Float64.(df.Bandwidth_Pct), color = COLOR_BANDWIDTH)
+        lines!(
+            ax1_twin,
+            df_x,
+            Float64.(df.Onboard_Buffer),
+            color = COLOR_ONBOARD,
+            linestyle = :dash,
+        )
 
         # Global plot 2
-        ax2 = Axis(fig_global[2, 1],
-                   xlabel=show_lost_panel ? "" : "Mission time",
-                   ylabel="Received data batches",
-                   xticks=(tick_vals_h, tick_labels))
+        ax2 = Axis(
+            fig_global[2, 1],
+            xlabel = show_lost_panel ? "" : "Mission time",
+            ylabel = "Received data batches",
+            xticks = (tick_vals_h, tick_labels),
+        )
         xlims!(ax2, 0, max_x_h)
         max_gnd = maximum(df.Ground_Archive)
         ylims!(ax2, 0, max(10.0, 1.2 * max_gnd))
 
         shade_disruptions!(ax2, 0.0, max_x_h)
 
-        band!(ax2, df_x, zeros(length(df_x)), Float64.(df.Ground_Archive), color=(COLOR_LIVE, 0.4))
-        stairs!(ax2, df_x, Float64.(df.Ground_Archive), color=COLOR_LIVE)
+        band!(
+            ax2,
+            df_x,
+            zeros(length(df_x)),
+            Float64.(df.Ground_Archive),
+            color = (COLOR_LIVE, 0.4),
+        )
+        stairs!(ax2, df_x, Float64.(df.Ground_Archive), color = COLOR_LIVE)
 
-        band!(ax2, df_x, zeros(length(df_x)), Float64.(df.Ground_Arch), color=(COLOR_ARCHIVE, 0.4))
-        stairs!(ax2, df_x, Float64.(df.Ground_Arch), color=COLOR_ARCHIVE)
+        band!(
+            ax2,
+            df_x,
+            zeros(length(df_x)),
+            Float64.(df.Ground_Arch),
+            color = (COLOR_ARCHIVE, 0.4),
+        )
+        stairs!(ax2, df_x, Float64.(df.Ground_Arch), color = COLOR_ARCHIVE)
 
         # Dedicated Lost strip: rare discrete events get their own small
         # linear axis instead of an invisible flat line under the received
@@ -232,42 +330,66 @@ function generate_mission_plots(run_dir::String)
         if show_lost_panel
             # LinearTicks(3): the strip is ~1/3 panel height, so the default
             # automatic ticks crowd together once losses reach double digits.
-            ax3 = Axis(fig_global[3, 1], xlabel="Mission time", ylabel="Lost",
-                       xticks=(tick_vals_h, tick_labels), yticks=LinearTicks(3))
+            ax3 = Axis(
+                fig_global[3, 1],
+                xlabel = "Mission time",
+                ylabel = "Lost",
+                xticks = (tick_vals_h, tick_labels),
+                yticks = LinearTicks(3),
+            )
             rowsize!(fig_global.layout, 3, Auto(0.32))
             xlims!(ax3, 0, max_x_h)
             lost_curve = has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
             ylims!(ax3, 0, max(4.0, 1.35 * maximum(lost_curve)))
             shade_disruptions!(ax3, 0.0, max_x_h)
-            stairs!(ax3, df_x, lost_curve, color=COLOR_LOST)
-            inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i - 1]]
-            scatter!(ax3, df_x[inc], lost_curve[inc], marker=:xcross,
-                     color=COLOR_LOST, markersize=16)
+            stairs!(ax3, df_x, lost_curve, color = COLOR_LOST)
+            inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
+            scatter!(
+                ax3,
+                df_x[inc],
+                lost_curve[inc],
+                marker = :xcross,
+                color = COLOR_LOST,
+                markersize = 16,
+            )
             if lost_curve[end] > 0
-                pct = 100 * lost_curve[end] / max(1.0, Float64(df.Ground_Archive[end]) + lost_curve[end])
-                text!(ax3, 0.985, 0.88, text="$(Int(lost_curve[end])) lost ($(round(pct, digits=2)) %)",
-                      space=:relative, align=(:right, :top), fontsize=20, color=COLOR_LOST)
+                pct =
+                    100 * lost_curve[end] /
+                    max(1.0, Float64(df.Ground_Archive[end]) + lost_curve[end])
+                text!(
+                    ax3,
+                    0.985,
+                    0.88,
+                    text = "$(Int(lost_curve[end])) lost ($(round(pct, digits=2)) %)",
+                    space = :relative,
+                    align = (:right, :top),
+                    fontsize = 20,
+                    color = COLOR_LOST,
+                )
             end
             push!(axes_to_link, ax3)
-            hidexdecorations!(ax2, grid=false, ticks=false)
+            hidexdecorations!(ax2, grid = false, ticks = false)
         end
-        hidexdecorations!(ax1, grid=false, ticks=false)
+        hidexdecorations!(ax1, grid = false, ticks = false)
 
         # One aligned label column: reserve equal tick-label width on all
         # stacked axes (the Lost strip's 1-digit ticks would otherwise pull
         # its ylabel inward relative to the 4-digit panels above).
         foreach(ax -> ax.yticklabelspace = 68.0, axes_to_link)
 
-        add_figure_legend!(fig_global; degraded=show_nominal,
-                           blackout=blackout_in(0.0, max_x_h),
-                           ramp=ramp_in(0.0, max_x_h),
-                           lost=show_lost_panel ? :strip : :none)
+        add_figure_legend!(
+            fig_global;
+            degraded = show_nominal,
+            blackout = blackout_in(0.0, max_x_h),
+            ramp = ramp_in(0.0, max_x_h),
+            lost = show_lost_panel ? :strip : :none,
+        )
         linkxaxes!(axes_to_link...)
 
         global_path = joinpath(run_dir, "plots", "mission_summary_global.png")
-        save(global_path, fig_global, px_per_unit=4)
+        save(global_path, fig_global, px_per_unit = 4)
         @info "[RECEIVER] Saved Global Summary Plot: $(relpath(global_path, run_dir))"
-        
+
         # 2. One session plot per mission day, enumerated from the NOMINAL
         # daily DSN window — not detected from effective bandwidth. A fully
         # blacked-out session therefore still receives its zero-throughput
@@ -275,7 +397,7 @@ function generate_mission_plots(run_dir::String)
         # buffer — so multi-day downtime spans the same days here as on the
         # summary, and file names share the summary's 0-based day coordinates.
         n_days = ceil(Int, max_x_h / 24.0)
-        for day_k in 0:(n_days - 1)
+        for day_k in 0:(n_days-1)
             min_sess_dt = DateTime(Date(t_start_dt + Day(day_k)), session_start_time)
             max_sess_dt = min_sess_dt + session_dur
             # Skip windows entirely outside the recorded mission span
@@ -283,34 +405,63 @@ function generate_mission_plots(run_dir::String)
 
             in_window = (df.SimTime .>= min_sess_dt) .& (df.SimTime .<= max_sess_dt)
             sdf = df[in_window, :]
-            if length(sdf.SimTime) < 2 continue end
-            
+            if length(sdf.SimTime) < 2
+                continue
+            end
+
             min_sess_h = to_h(min_sess_dt)
             max_sess_h = to_h(max_sess_dt)
-            
-            t_smooth_dt = [min_sess_dt + Millisecond(round(Int, (j-1)*session_dur.value*1000/199)) for j in 1:200]
+
+            t_smooth_dt = [
+                min_sess_dt + Millisecond(round(Int, (j-1)*session_dur.value*1000/199))
+                for j in 1:200
+            ]
             t_smooth_h = to_h.(t_smooth_dt)
-            bw_smooth = Float64[100.0 * ChannelEffects.effective_bandwidth(link_model, t) for t in t_smooth_dt]
-            bw_nominal_smooth = Float64[100.0 * TelemetryCore.get_bandwidth_factor(vis_model, t) for t in t_smooth_dt]
+            bw_smooth = Float64[
+                100.0 * ChannelEffects.effective_bandwidth(link_model, t) for
+                t in t_smooth_dt
+            ]
+            bw_nominal_smooth = Float64[
+                100.0 * TelemetryCore.get_bandwidth_factor(vis_model, t) for
+                t in t_smooth_dt
+            ]
             sess_degraded = maximum(abs.(bw_nominal_smooth .- bw_smooth)) > 0.1
-            
+
             tick_start_dt = Dates.floor(min_sess_dt, Hour(1))
             session_tick_vals_dt = collect(tick_start_dt:Hour(1):max_sess_dt)
             session_tick_vals_h = to_h.(session_tick_vals_dt)
             session_tick_labels = [Dates.format(t, "HH:MM") for t in session_tick_vals_dt]
-            
+
             sdf_h = to_h.(sdf.SimTime)
             plot_x = Float64[min_sess_h; sdf_h; max_sess_h]
-            plot_gnd = Float64[0.0; sdf.Ground_Archive .- sdf.Ground_Archive[1]; sdf.Ground_Archive[end] - sdf.Ground_Archive[1]]
-            plot_gnd_arch = Float64[0.0; sdf.Ground_Arch .- sdf.Ground_Arch[1]; sdf.Ground_Arch[end] - sdf.Ground_Arch[1]]
-            
-            fig_sess = Figure(size=(1400, 1050), figure_padding=30)
+            plot_gnd = Float64[
+                0.0;
+                sdf.Ground_Archive .- sdf.Ground_Archive[1];
+                sdf.Ground_Archive[end] - sdf.Ground_Archive[1]
+            ]
+            plot_gnd_arch = Float64[
+                0.0;
+                sdf.Ground_Arch .- sdf.Ground_Arch[1];
+                sdf.Ground_Arch[end] - sdf.Ground_Arch[1]
+            ]
 
-            ax_s1 = Axis(fig_sess[1, 1], xlabel="", ylabel="Bandwidth [%]", xticks=(session_tick_vals_h, session_tick_labels))
+            fig_sess = Figure(size = (1400, 1050), figure_padding = 30)
+
+            ax_s1 = Axis(
+                fig_sess[1, 1],
+                xlabel = "",
+                ylabel = "Bandwidth [%]",
+                xticks = (session_tick_vals_h, session_tick_labels),
+            )
             xlims!(ax_s1, min_sess_h, max_sess_h)
             ylims!(ax_s1, 0, 105)
 
-            ax_s1_twin = Axis(fig_sess[1, 1], yaxisposition=:right, ylabel="Buffered data batches", yticklabelcolor=COLOR_ONBOARD)
+            ax_s1_twin = Axis(
+                fig_sess[1, 1],
+                yaxisposition = :right,
+                ylabel = "Buffered data batches",
+                yticklabelcolor = COLOR_ONBOARD,
+            )
             hidespines!(ax_s1_twin)
             hidexdecorations!(ax_s1_twin)
             xlims!(ax_s1_twin, min_sess_h, max_sess_h)
@@ -320,15 +471,29 @@ function generate_mission_plots(run_dir::String)
 
             shade_disruptions!(ax_s1, min_sess_h, max_sess_h)
             if sess_degraded
-                lines!(ax_s1, t_smooth_h, bw_nominal_smooth, color=(COLOR_BANDWIDTH, 0.35), linestyle=:dot)
+                lines!(
+                    ax_s1,
+                    t_smooth_h,
+                    bw_nominal_smooth,
+                    color = (COLOR_BANDWIDTH, 0.35),
+                    linestyle = :dot,
+                )
             end
-            lines!(ax_s1, t_smooth_h, bw_smooth, color=COLOR_BANDWIDTH)
-            lines!(ax_s1_twin, sdf_h, Float64.(sdf.Onboard_Buffer), color=COLOR_ONBOARD, linestyle=:dash)
+            lines!(ax_s1, t_smooth_h, bw_smooth, color = COLOR_BANDWIDTH)
+            lines!(
+                ax_s1_twin,
+                sdf_h,
+                Float64.(sdf.Onboard_Buffer),
+                color = COLOR_ONBOARD,
+                linestyle = :dash,
+            )
 
-            ax_s2 = Axis(fig_sess[2, 1],
-                         xlabel="Mission time",
-                         ylabel="Received data batches",
-                         xticks=(session_tick_vals_h, session_tick_labels))
+            ax_s2 = Axis(
+                fig_sess[2, 1],
+                xlabel = "Mission time",
+                ylabel = "Received data batches",
+                xticks = (session_tick_vals_h, session_tick_labels),
+            )
             xlims!(ax_s2, min_sess_h, max_sess_h)
             max_sess_gnd = maximum(plot_gnd)
             y_max_s2 = max(10.0, 1.2 * max_sess_gnd)
@@ -336,11 +501,17 @@ function generate_mission_plots(run_dir::String)
 
             shade_disruptions!(ax_s2, min_sess_h, max_sess_h)
 
-            band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd, color=(COLOR_LIVE, 0.4))
-            stairs!(ax_s2, plot_x, plot_gnd, color=COLOR_LIVE)
+            band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd, color = (COLOR_LIVE, 0.4))
+            stairs!(ax_s2, plot_x, plot_gnd, color = COLOR_LIVE)
 
-            band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd_arch, color=(COLOR_ARCHIVE, 0.4))
-            stairs!(ax_s2, plot_x, plot_gnd_arch, color=COLOR_ARCHIVE)
+            band!(
+                ax_s2,
+                plot_x,
+                zeros(length(plot_x)),
+                plot_gnd_arch,
+                color = (COLOR_ARCHIVE, 0.4),
+            )
+            stairs!(ax_s2, plot_x, plot_gnd_arch, color = COLOR_ARCHIVE)
 
             # Session losses: no dedicated panel (it would sit empty on
             # loss-free days) — ✕ markers along the top edge at the loss
@@ -348,24 +519,42 @@ function generate_mission_plots(run_dir::String)
             # when the session lost nothing.
             n_lost_sess = has_loss_cols ? Int(sdf.Lost_Count[end] - sdf.Lost_Count[1]) : 0
             if n_lost_sess > 0
-                inc = [j for j in 2:nrow(sdf) if sdf.Lost_Count[j] > sdf.Lost_Count[j - 1]]
-                scatter!(ax_s2, sdf_h[inc], fill(0.93 * y_max_s2, length(inc)),
-                         marker=:xcross, color=COLOR_LOST, markersize=16)
-                text!(ax_s2, 0.985, 0.985, text="$n_lost_sess lost this session",
-                      space=:relative, align=(:right, :top), fontsize=20, color=COLOR_LOST)
+                inc = [j for j in 2:nrow(sdf) if sdf.Lost_Count[j] > sdf.Lost_Count[j-1]]
+                scatter!(
+                    ax_s2,
+                    sdf_h[inc],
+                    fill(0.93 * y_max_s2, length(inc)),
+                    marker = :xcross,
+                    color = COLOR_LOST,
+                    markersize = 16,
+                )
+                text!(
+                    ax_s2,
+                    0.985,
+                    0.985,
+                    text = "$n_lost_sess lost this session",
+                    space = :relative,
+                    align = (:right, :top),
+                    fontsize = 20,
+                    color = COLOR_LOST,
+                )
             end
 
-            hidexdecorations!(ax_s1, grid=false, ticks=false)
+            hidexdecorations!(ax_s1, grid = false, ticks = false)
             foreach(ax -> ax.yticklabelspace = 68.0, (ax_s1, ax_s2))
 
-            add_figure_legend!(fig_sess; degraded=sess_degraded,
-                               blackout=blackout_in(min_sess_h, max_sess_h),
-                               ramp=ramp_in(min_sess_h, max_sess_h),
-                               lost=n_lost_sess > 0 ? :marks : :none)
+            add_figure_legend!(
+                fig_sess;
+                degraded = sess_degraded,
+                blackout = blackout_in(min_sess_h, max_sess_h),
+                ramp = ramp_in(min_sess_h, max_sess_h),
+                lost = n_lost_sess > 0 ? :marks : :none,
+            )
             linkxaxes!(ax_s1, ax_s2)
 
-            session_path = joinpath(run_dir, "plots", "session_day$(lpad(day_k, 2, '0'))_detail.png")
-            save(session_path, fig_sess, px_per_unit=4)
+            session_path =
+                joinpath(run_dir, "plots", "session_day$(lpad(day_k, 2, '0'))_detail.png")
+            save(session_path, fig_sess, px_per_unit = 4)
         end
         @info "[RECEIVER] Saved Session-specific plots."
     end
@@ -378,8 +567,10 @@ Alias for the per-snapshot batch-location record shared by the mask generator
 and the GIF animation: batch-ID vectors for every (stage × stream) bucket plus
 the terminal `lost` bucket.
 """
-const BatchStates = NamedTuple{(:onb_live, :onb_arch, :lnk_live, :lnk_arch, :gnd_live, :gnd_arch, :lost),
-                               NTuple{7, Vector{Int}}}
+const BatchStates = NamedTuple{
+    (:onb_live, :onb_arch, :lnk_live, :lnk_arch, :gnd_live, :gnd_arch, :lost),
+    NTuple{7,Vector{Int}},
+}
 
 """
     reconstruct_batch_states(df::DataFrame, vis_model::TelemetryCore.VisibilityModel)
@@ -396,9 +587,12 @@ always empty. It remains only as a fallback for legacy runs; runs that carry
 [`reconstruct_batch_states_exact`](@ref) instead (see [`batch_states`](@ref)).
 """
 function reconstruct_batch_states(df::DataFrame, vis_model::TelemetryCore.VisibilityModel)
-    onb_live = Int[]; onb_arch = Int[]
-    lnk_live = Int[]; lnk_arch = Int[]
-    gnd_live = Int[]; gnd_arch = Int[]
+    onb_live = Int[]
+    onb_arch = Int[]
+    lnk_live = Int[]
+    lnk_arch = Int[]
+    gnd_live = Int[]
+    gnd_arch = Int[]
 
     states = Vector{BatchStates}(undef, 0)
     sizehint!(states, nrow(df))
@@ -412,7 +606,7 @@ function reconstruct_batch_states(df::DataFrame, vis_model::TelemetryCore.Visibi
         #    very first snapshot stems from pre-populated (archived) downtime.
         total_i = row.Onboard_Buffer + row.Link_Buffer + row.Ground_Archive
         if total_i > current_total
-            for id in (current_total + 1):total_i
+            for id in (current_total+1):total_i
                 if current_total == 0
                     push!(onb_arch, id)
                 else
@@ -424,28 +618,46 @@ function reconstruct_batch_states(df::DataFrame, vis_model::TelemetryCore.Visibi
 
         # 2. Reconcile Ground (Live drains FIFO, Archive drains LIFO)
         while length(gnd_live) < row.Ground_Live
-            if !isempty(lnk_live) push!(gnd_live, popfirst!(lnk_live))
-            elseif !isempty(onb_live) push!(gnd_live, popfirst!(onb_live))
-            else break end
+            if !isempty(lnk_live)
+                push!(gnd_live, popfirst!(lnk_live))
+            elseif !isempty(onb_live)
+                push!(gnd_live, popfirst!(onb_live))
+            else
+                break
+            end
         end
         while length(gnd_arch) < row.Ground_Arch
-            if !isempty(lnk_arch) push!(gnd_arch, popfirst!(lnk_arch))
-            elseif !isempty(onb_arch) push!(gnd_arch, pop!(onb_arch)) # LIFO
-            else break end
+            if !isempty(lnk_arch)
+                push!(gnd_arch, popfirst!(lnk_arch))
+            elseif !isempty(onb_arch)
+                push!(gnd_arch, pop!(onb_arch)) # LIFO
+            else
+                break
+            end
         end
 
         # 3. Reconcile Link
         needed = row.Link_Buffer - (length(lnk_live) + length(lnk_arch))
         for _ in 1:needed
-            if !isempty(onb_live) push!(lnk_live, popfirst!(onb_live))
-            elseif !isempty(onb_arch) push!(lnk_arch, pop!(onb_arch)) # LIFO
+            if !isempty(onb_live)
+                push!(lnk_live, popfirst!(onb_live))
+            elseif !isempty(onb_arch)
+                push!(lnk_arch, pop!(onb_arch)) # LIFO
             end
         end
 
-        push!(states, (onb_live=copy(onb_live), onb_arch=copy(onb_arch),
-                       lnk_live=copy(lnk_live), lnk_arch=copy(lnk_arch),
-                       gnd_live=copy(gnd_live), gnd_arch=copy(gnd_arch),
-                       lost=Int[]))
+        push!(
+            states,
+            (
+                onb_live = copy(onb_live),
+                onb_arch = copy(onb_arch),
+                lnk_live = copy(lnk_live),
+                lnk_arch = copy(lnk_arch),
+                gnd_live = copy(gnd_live),
+                gnd_arch = copy(gnd_arch),
+                lost = Int[],
+            ),
+        )
     end
     return states
 end
@@ -465,8 +677,9 @@ batch ID, which is what makes mask state `4 = Lost` possible.
 function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
     rx_path = joinpath(run_dir, "events_rx.csv")
-    rx = isfile(rx_path) ? CSV.read(rx_path, DataFrame) :
-         DataFrame(SimTime = DateTime[], Batch = String[], Event = String[], Attempt = Int[])
+    rx =
+        isfile(rx_path) ? CSV.read(rx_path, DataFrame) :
+        DataFrame(SimTime = DateTime[], Batch = String[], Event = String[], Attempt = Int[])
 
     # Chronological milestone list; the priority index breaks same-timestamp
     # ties in causal order (a batch is generated before it is transmitted,
@@ -475,10 +688,11 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     # skipped; unknown event names are tolerated with a warning so a newer
     # run's log never aborts an older toolchain's replay.
     prio = Dict("gen" => 1, "tx" => 2, "ingested" => 3, "lost" => 3)
-    events = Vector{Tuple{DateTime, Int, String, String}}()
+    events = Vector{Tuple{DateTime,Int,String,String}}()
     for r in eachrow(tx)
         if !haskey(prio, r.Event)
-            @warn "[POST] Skipping unknown event \"$(r.Event)\" in events_tx.csv." maxlog = 1
+            @warn "[POST] Skipping unknown event \"$(r.Event)\" in events_tx.csv." maxlog =
+                1
             continue
         end
         push!(events, (r.SimTime, prio[r.Event], String(r.Batch), String(r.Event)))
@@ -486,16 +700,20 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     for r in eachrow(rx)
         r.Event in ("retry", "pruned") && continue
         if !haskey(prio, r.Event)
-            @warn "[POST] Skipping unknown event \"$(r.Event)\" in events_rx.csv." maxlog = 1
+            @warn "[POST] Skipping unknown event \"$(r.Event)\" in events_rx.csv." maxlog =
+                1
             continue
         end
         push!(events, (r.SimTime, prio[r.Event], String(r.Batch), String(r.Event)))
     end
     sort!(events, by = e -> (e[1], e[2]))
 
-    onb_live = Int[]; onb_arch = Int[]
-    lnk_live = Int[]; lnk_arch = Int[]
-    gnd_live = Int[]; gnd_arch = Int[]
+    onb_live = Int[]
+    onb_arch = Int[]
+    lnk_live = Int[]
+    lnk_arch = Int[]
+    gnd_live = Int[]
+    gnd_arch = Int[]
     lost = Int[]
 
     states = Vector{BatchStates}(undef, 0)
@@ -512,26 +730,39 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
                 is_live ? push!(onb_live, id) : push!(onb_arch, id)
             elseif kind == "tx"
                 if is_live
-                    filter!(!=(id), onb_live); push!(lnk_live, id)
+                    filter!(!=(id), onb_live)
+                    push!(lnk_live, id)
                 else
-                    filter!(!=(id), onb_arch); push!(lnk_arch, id)
+                    filter!(!=(id), onb_arch)
+                    push!(lnk_arch, id)
                 end
             elseif kind == "ingested"
                 if is_live
-                    filter!(!=(id), lnk_live); push!(gnd_live, id)
+                    filter!(!=(id), lnk_live)
+                    push!(gnd_live, id)
                 else
-                    filter!(!=(id), lnk_arch); push!(gnd_arch, id)
+                    filter!(!=(id), lnk_arch)
+                    push!(gnd_arch, id)
                 end
             elseif kind == "lost"
-                filter!(!=(id), lnk_live); filter!(!=(id), lnk_arch)
+                filter!(!=(id), lnk_live)
+                filter!(!=(id), lnk_arch)
                 push!(lost, id)
             end
             ev_idx += 1
         end
-        push!(states, (onb_live=copy(onb_live), onb_arch=copy(onb_arch),
-                       lnk_live=copy(lnk_live), lnk_arch=copy(lnk_arch),
-                       gnd_live=copy(gnd_live), gnd_arch=copy(gnd_arch),
-                       lost=copy(lost)))
+        push!(
+            states,
+            (
+                onb_live = copy(onb_live),
+                onb_arch = copy(onb_arch),
+                lnk_live = copy(lnk_live),
+                lnk_arch = copy(lnk_arch),
+                gnd_live = copy(gnd_live),
+                gnd_arch = copy(gnd_arch),
+                lost = copy(lost),
+            ),
+        )
     end
     return states
 end
@@ -544,7 +775,11 @@ Dispatcher for the batch-state reconstruction: exact event-log replay
 `run_dir`, count-delta heuristic ([`reconstruct_batch_states`](@ref))
 otherwise (legacy runs).
 """
-function batch_states(run_dir::String, df::DataFrame, vis_model::TelemetryCore.VisibilityModel)
+function batch_states(
+    run_dir::String,
+    df::DataFrame,
+    vis_model::TelemetryCore.VisibilityModel,
+)
     if isfile(joinpath(run_dir, "events_tx.csv"))
         return reconstruct_batch_states_exact(run_dir, df)
     end
@@ -563,15 +798,20 @@ their exact physical location (0=Future, 1=Onboard, 2=Link, 3=Ground,
 """
 function generate_telemetry_masks(run_dir::String)
     log_path = joinpath(run_dir, "mission_profile.csv")
-    if !isfile(log_path) return end
+    if !isfile(log_path)
+        return
+    end
 
     df = CSV.read(log_path, DataFrame)
-    if isempty(df) return end
+    if isempty(df)
+        return
+    end
 
     cfg = TelemetryCore.load_run_config(run_dir)
-    tel = get(cfg, "telemetry", Dict{String, Any}())
+    tel = get(cfg, "telemetry", Dict{String,Any}())
     session_start_time = Time(get(tel, "session_start", "08:00:00"))
-    session_dur = Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
+    session_dur =
+        Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
     bw_profile = String(get(tel, "bandwidth_profile", "sine"))
     vis_model = TelemetryCore.VisibilityModel(session_start_time, session_dur, bw_profile)
 
@@ -582,13 +822,27 @@ function generate_telemetry_masks(run_dir::String)
     mask_matrix = zeros(Int8, nrow(df), max_id_ever)
 
     for (i, st) in enumerate(states)
-        for id in st.onb_live mask_matrix[i, id] = 1 end
-        for id in st.onb_arch mask_matrix[i, id] = 1 end
-        for id in st.lnk_live mask_matrix[i, id] = 2 end
-        for id in st.lnk_arch mask_matrix[i, id] = 2 end
-        for id in st.gnd_live mask_matrix[i, id] = 3 end
-        for id in st.gnd_arch mask_matrix[i, id] = 3 end
-        for id in st.lost    mask_matrix[i, id] = 4 end
+        for id in st.onb_live
+            mask_matrix[i, id] = 1
+        end
+        for id in st.onb_arch
+            mask_matrix[i, id] = 1
+        end
+        for id in st.lnk_live
+            mask_matrix[i, id] = 2
+        end
+        for id in st.lnk_arch
+            mask_matrix[i, id] = 2
+        end
+        for id in st.gnd_live
+            mask_matrix[i, id] = 3
+        end
+        for id in st.gnd_arch
+            mask_matrix[i, id] = 3
+        end
+        for id in st.lost
+            mask_matrix[i, id] = 4
+        end
     end
 
     # Construct DataFrame
@@ -596,7 +850,7 @@ function generate_telemetry_masks(run_dir::String)
     for id in 1:max_id_ever
         mask_df[!, Symbol("Batch_$id")] = mask_matrix[:, id]
     end
-    
+
     mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
     TelemetryCore.safe_csv_write(mask_path, mask_df)
     @info "[RECEIVER] Saved 2D Telemetry Data Masks to: $(relpath(mask_path, run_dir))"
@@ -628,12 +882,17 @@ batch directory keeps `metadata.json`, gains a `PRUNED` marker, and a
 `pruned` event is appended to `events_rx.csv`. Event logs, metrics, masks,
 and `lost/` are never pruned.
 """
-function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects.LinkModel, run_id::String;
-                      test_duration_sec::Float64=0.0, orig_stdout::IO=stdout, max_batches_per_hour::Float64=20.0,
-                      loss_model::ChannelEffects.LossModel=ChannelEffects.NoLoss(),
-                      max_retries::Int=3,
-                      retention::NamedTuple=TelemetryCore.retention_settings(Dict{String, Any}()))
-
+function run_receiver(
+    clock::TelemetryCore.SimulationClock,
+    link::ChannelEffects.LinkModel,
+    run_id::String;
+    test_duration_sec::Float64 = 0.0,
+    orig_stdout::IO = stdout,
+    max_batches_per_hour::Float64 = 20.0,
+    loss_model::ChannelEffects.LossModel = ChannelEffects.NoLoss(),
+    max_retries::Int = 3,
+    retention::NamedTuple = TelemetryCore.retention_settings(Dict{String,Any}()),
+)
     run_dir = joinpath(TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
     link_path = joinpath(run_dir, "link")
     onboard_path = joinpath(run_dir, "onboard")
@@ -649,7 +908,7 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
     last_lost = -1
     last_bw = -1.0
 
-    retry_counts = Dict{String, Int}() # failed attempts per in-flight batch
+    retry_counts = Dict{String,Int}() # failed attempts per in-flight batch
     total_retries = 0
 
     # Ground and lost counters are receiver-owned (only this loop moves batches
@@ -664,14 +923,15 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
     # Retention custodian state: FIFO of delivered batches (ingest sim-time,
     # name, payload bytes) and the running prunable-payload tally the
     # watermark is compared against.
-    prune_queue = Vector{Tuple{DateTime, String, Int}}()
+    prune_queue = Vector{Tuple{DateTime,String,Int}}()
     ground_payload_bytes = 0
 
     @info "Initializing Receiver Dashboard..."
 
     try
         while true
-            if test_duration_sec > 0.0 && (now() - start_wall_time).value / 1000.0 > test_duration_sec
+            if test_duration_sec > 0.0 &&
+               (now() - start_wall_time).value / 1000.0 > test_duration_sec
                 break
             end
 
@@ -684,15 +944,32 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
             nominal_pct = nominal_factor * 100
             disruption_active = dis_factor < 1.0
 
-            onboard_count = length(filter(f -> isdir(joinpath(onboard_path, f)), readdir(onboard_path)))
-            link_count = length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
+            onboard_count =
+                length(filter(f -> isdir(joinpath(onboard_path, f)), readdir(onboard_path)))
+            link_count =
+                length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
             ground_count = ground_live + ground_arch
 
-            if onboard_count != last_onboard || link_count != last_link || ground_count != last_ground ||
-               lost_count != last_lost || abs(bandwidth_pct - last_bw) > TelemetryCore.METRICS_BANDWIDTH_HYSTERESIS_PCT
-                metrics = TelemetryCore.MissionMetrics(sim_t, now(), hours_elapsed, bandwidth_pct,
-                                                       onboard_count, link_count, ground_count, ground_live, ground_arch,
-                                                       nominal_pct, lost_count, total_retries, disruption_active)
+            if onboard_count != last_onboard ||
+               link_count != last_link ||
+               ground_count != last_ground ||
+               lost_count != last_lost ||
+               abs(bandwidth_pct - last_bw) > TelemetryCore.METRICS_BANDWIDTH_HYSTERESIS_PCT
+                metrics = TelemetryCore.MissionMetrics(
+                    sim_t,
+                    now(),
+                    hours_elapsed,
+                    bandwidth_pct,
+                    onboard_count,
+                    link_count,
+                    ground_count,
+                    ground_live,
+                    ground_arch,
+                    nominal_pct,
+                    lost_count,
+                    total_retries,
+                    disruption_active,
+                )
                 TelemetryCore.save_metrics(run_dir, metrics)
 
                 last_onboard = onboard_count
@@ -717,7 +994,8 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
                     batch_dir = joinpath(ground_path, pruned_name)
                     try
                         for f in readdir(batch_dir)
-                            startswith(f, "seg_") && rm(joinpath(batch_dir, f); force = true)
+                            startswith(f, "seg_") &&
+                                rm(joinpath(batch_dir, f); force = true)
                         end
                         touch(joinpath(batch_dir, "PRUNED"))
                         TelemetryCore.log_rx_event(run_dir, sim_t, pruned_name, "pruned", 0)
@@ -727,7 +1005,8 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
                         # truthful (the batch is not re-queued; logged above).
                         ground_payload_bytes -= payload_bytes
                     catch e
-                        @error "[RECEIVER] Retention pruning failed for $pruned_name — continuing." exception = e
+                        @error "[RECEIVER] Retention pruning failed for $pruned_name — continuing." exception =
+                            e
                     end
                 end
             end
@@ -736,56 +1015,88 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
                 ev_label = ChannelEffects.active_disruption_label(link.disruptions, sim_t)
                 ev_name = isempty(ev_label) ? "DISRUPTION" : uppercase(ev_label)
                 dis_factor == 0.0 ? "$ev_name (Link down)" :
-                                    "$ev_name RECOVERY (Link: $(round(bandwidth_pct, digits=1))%)"
+                "$ev_name RECOVERY (Link: $(round(bandwidth_pct, digits=1))%)"
             elseif bw_factor > 0.0
                 "ACTIVE (Link: $(round(bandwidth_pct, digits=1))%)"
             else
                 "DORMANT (Out of window)"
             end
-            dashboard_text = "\e[H\e[J" *
-                             "="^55 * "\n" *
-                             lpad("DEEP-SPACE TELEMETRY DASHBOARD", 42) * "\n" *
-                             "="^55 * "\n" *
-                             rpad("Mission Day:", 20) * "$(round(hours_elapsed / 24.0, digits=2))\n" *
-                             rpad("Current Status:", 20) * "$status_text\n" *
-                             rpad("Ground Archive:", 20) * "$ground_count Received data batches\n" *
-                             rpad("Lost Batches:", 20) * "$lost_count ($total_retries failed transfers)\n" *
-                             "="^55 * "\n"
+            dashboard_text =
+                "\e[H\e[J" *
+                "="^55 *
+                "\n" *
+                lpad("DEEP-SPACE TELEMETRY DASHBOARD", 42) *
+                "\n" *
+                "="^55 *
+                "\n" *
+                rpad("Mission Day:", 20) *
+                "$(round(hours_elapsed / 24.0, digits=2))\n" *
+                rpad("Current Status:", 20) *
+                "$status_text\n" *
+                rpad("Ground Archive:", 20) *
+                "$ground_count Received data batches\n" *
+                rpad("Lost Batches:", 20) *
+                "$lost_count ($total_retries failed transfers)\n" *
+                "="^55 *
+                "\n"
             print(orig_stdout, dashboard_text)
             flush(orig_stdout)
 
-            pending_batches = filter(f -> contains(f, "batch_") && isdir(joinpath(link_path, f)), readdir(link_path))
+            pending_batches = filter(
+                f -> contains(f, "batch_") && isdir(joinpath(link_path, f)),
+                readdir(link_path),
+            )
 
             if !isempty(pending_batches) && bw_factor > 0.05
                 # LIVE before ARCH; within LIVE oldest-first (FIFO), within ARCH
                 # newest-first (LIFO). Plain lexicographic readdir order would
                 # scramble numeric IDs (e.g. batch_29 before batch_31).
-                sort!(pending_batches, by = x -> begin
-                    id = something(tryparse(Int, split(x, "_")[end]), 0)
-                    startswith(x, "LIVE_") ? (0, id) : (1, -id)
-                end)
+                sort!(
+                    pending_batches,
+                    by = x -> begin
+                        id = something(tryparse(Int, split(x, "_")[end]), 0)
+                        startswith(x, "LIVE_") ? (0, id) : (1, -id)
+                    end,
+                )
                 batch_name = first(pending_batches)
 
                 base_dl_time = (3600.0 / max_batches_per_hour)
                 surge_dl_time = base_dl_time / (bw_factor * clock.speed_up)
                 sleep(max(0.001, surge_dl_time))
 
-                loss_mult = ChannelEffects.disruption_loss_multiplier(link.disruptions, sim_t)
-                if ChannelEffects.sample_loss!(loss_model; multiplier=loss_mult)
+                loss_mult =
+                    ChannelEffects.disruption_loss_multiplier(link.disruptions, sim_t)
+                if ChannelEffects.sample_loss!(loss_model; multiplier = loss_mult)
                     attempts = get(retry_counts, batch_name, 0) + 1
                     retry_counts[batch_name] = attempts
                     total_retries += 1
                     if attempts > max_retries
                         # Retry budget exhausted: preserve the data in lost/,
                         # ack so the emitter frees the window slot.
-                        mv(joinpath(link_path, batch_name), joinpath(lost_path, batch_name), force=true)
+                        mv(
+                            joinpath(link_path, batch_name),
+                            joinpath(lost_path, batch_name),
+                            force = true,
+                        )
                         touch(joinpath(link_path, "$(batch_name).ack"))
                         delete!(retry_counts, batch_name)
                         lost_count += 1
-                        TelemetryCore.log_rx_event(run_dir, sim_t, batch_name, "lost", attempts)
+                        TelemetryCore.log_rx_event(
+                            run_dir,
+                            sim_t,
+                            batch_name,
+                            "lost",
+                            attempts,
+                        )
                         @warn "[RECEIVER] LOST: $batch_name after $attempts failed transfers @ SimTime: $sim_t"
                     else
-                        TelemetryCore.log_rx_event(run_dir, sim_t, batch_name, "retry", attempts)
+                        TelemetryCore.log_rx_event(
+                            run_dir,
+                            sim_t,
+                            batch_name,
+                            "retry",
+                            attempts,
+                        )
                         @info "[RECEIVER] Transfer failed ($attempts/$(max_retries + 1)): $batch_name — retrying"
                     end
                 else
@@ -793,7 +1104,11 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
                     @info "Bandwidth: $(round(bandwidth_pct))% | Batches buffered: $onboard_count | Total Data Batches: $ground_count"
 
                     prior_attempts = get(retry_counts, batch_name, 0)
-                    mv(joinpath(link_path, batch_name), joinpath(ground_path, batch_name), force=true)
+                    mv(
+                        joinpath(link_path, batch_name),
+                        joinpath(ground_path, batch_name),
+                        force = true,
+                    )
                     touch(joinpath(link_path, "$(batch_name).ack"))
                     delete!(retry_counts, batch_name)
                     if startswith(batch_name, "LIVE_")
@@ -801,11 +1116,22 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
                     else
                         ground_arch += 1
                     end
-                    TelemetryCore.log_rx_event(run_dir, sim_t, batch_name, "ingested", prior_attempts)
+                    TelemetryCore.log_rx_event(
+                        run_dir,
+                        sim_t,
+                        batch_name,
+                        "ingested",
+                        prior_attempts,
+                    )
                     if retention.enabled
                         batch_dir = joinpath(ground_path, batch_name)
-                        payload = sum(f -> startswith(f, "seg_") ? Int(filesize(joinpath(batch_dir, f))) : 0,
-                                      readdir(batch_dir); init = 0)
+                        payload = sum(
+                            f ->
+                                startswith(f, "seg_") ?
+                                Int(filesize(joinpath(batch_dir, f))) : 0,
+                            readdir(batch_dir);
+                            init = 0,
+                        )
                         push!(prune_queue, (sim_t, batch_name, payload))
                         ground_payload_bytes += payload
                     end
@@ -821,7 +1147,8 @@ function run_receiver(clock::TelemetryCore.SimulationClock, link::ChannelEffects
         try
             generate_mission_plots(run_dir)
         catch e
-            @error "[RECEIVER] Plot generation failed — run data is intact; fix and re-call generate_mission_plots(run_dir)." exception = (e, catch_backtrace())
+            @error "[RECEIVER] Plot generation failed — run data is intact; fix and re-call generate_mission_plots(run_dir)." exception =
+                (e, catch_backtrace())
         end
     end
 end

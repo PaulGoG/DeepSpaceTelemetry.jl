@@ -1,4 +1,6 @@
-using Pkg; Pkg.activate(joinpath(@__DIR__, ".."), io=devnull); Pkg.instantiate(io=devnull)
+using Pkg;
+Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
+Pkg.instantiate(io = devnull)
 
 # Guarded include: launch_dashboard.jl loads the module before including this
 # script, and re-including would replace the module mid-flight.
@@ -55,7 +57,7 @@ function get_clean_logger(log_path::String; rotate_bytes::Real = 64 * 1024^2)
     end
     return TransformerLogger(fmt) do log
         msg = log.message isa AbstractString ? strip_ansi(log.message) : log.message
-        return merge(log, (message=msg,))
+        return merge(log, (message = msg,))
     end
 end
 # 1. Load Config
@@ -108,8 +110,9 @@ instrument_rng = Xoshiro(RNG_SEED)
 # pins the exact input the run consumed (works for foreign data: no sidecar
 # or generator metadata is assumed).
 if DATA_SOURCE == "external"
-    ext_resolved = isabspath(EXT_PATH) ? EXT_PATH :
-                   joinpath(DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT, EXT_PATH)
+    ext_resolved =
+        isabspath(EXT_PATH) ? EXT_PATH :
+        joinpath(DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT, EXT_PATH)
     ext_rows = max(countlines(ext_resolved) - 1, 0) # header-inclusive count; ≈ for headerless files
     ext_sha = open(io -> bytes2hex(sha256(io)), ext_resolved)
     needed_days = (TEST_DURATION_SEC * SPEED_UP / 86_400.0) + INITIAL_DOWNTIME_DAYS
@@ -119,7 +122,7 @@ if DATA_SOURCE == "external"
     else
         @info "[INPUT] External data covers ≈ $(round(covered_days, digits=2)) mission days (mission needs $(round(needed_days, digits=2)))."
     end
-    cfg["provenance"] = Dict{String, Any}(
+    cfg["provenance"] = Dict{String,Any}(
         "external_data_path" => ext_resolved,
         "external_data_rows" => ext_rows,
         "external_data_sha256" => ext_sha,
@@ -131,31 +134,36 @@ end
 if isempty(run_id)
     run_id = DeepSpaceTelemetry.TelemetryCore.generate_run_id()
 end
-run_dir = DeepSpaceTelemetry.TelemetryCore.setup_run_dir(run_id; cfg=cfg)
+run_dir = DeepSpaceTelemetry.TelemetryCore.setup_run_dir(run_id; cfg = cfg)
 
 # Lifecycle sentinels for filesystem consumers (docs/src/interfaces.md):
 # RUN_ACTIVE while the pipeline may still write, RUN_COMPLETE afterwards.
-rm(joinpath(run_dir, "RUN_COMPLETE"), force=true)
+rm(joinpath(run_dir, "RUN_COMPLETE"), force = true)
 touch(joinpath(run_dir, "RUN_ACTIVE"))
 
 emitter_log = joinpath(run_dir, "emitter.log")
 receiver_log = joinpath(run_dir, "receiver.log")
-write(emitter_log, ""); write(receiver_log, "") # fresh logs for this run
+write(emitter_log, "");
+write(receiver_log, "") # fresh logs for this run
 
 # Pre-populate onboard buffer sequentially before starting the clock.
 # The returned instrument (and any partial batch) is handed to the main loop so
 # the data stream continues where pre-population stopped.
 println("Pre-populating onboard buffer for $(INITIAL_DOWNTIME_DAYS) days...")
-instrument, leftover_segs = with_logger(get_clean_logger(emitter_log; rotate_bytes=retention.log_rotate_bytes)) do
-    DeepSpaceTelemetry.Emitter.pre_populate(START_SIM, run_id;
-        sample_rate=SAMPLE_RATE,
-        seg_dur=SEG_DUR,
-        batch_size=BATCH_SIZE,
-        initial_downtime_days=INITIAL_DOWNTIME_DAYS,
-        data_source=DATA_SOURCE,
-        ext_path=EXT_PATH,
-        rng=instrument_rng)
-end
+instrument, leftover_segs =
+    with_logger(get_clean_logger(emitter_log; rotate_bytes = retention.log_rotate_bytes)) do
+        DeepSpaceTelemetry.Emitter.pre_populate(
+            START_SIM,
+            run_id;
+            sample_rate = SAMPLE_RATE,
+            seg_dur = SEG_DUR,
+            batch_size = BATCH_SIZE,
+            initial_downtime_days = INITIAL_DOWNTIME_DAYS,
+            data_source = DATA_SOURCE,
+            ext_path = EXT_PATH,
+            rng = instrument_rng,
+        )
+    end
 
 clock = DeepSpaceTelemetry.TelemetryCore.SimulationClock(now(), START_SIM, SPEED_UP)
 
@@ -172,28 +180,38 @@ println("="^55)
 orig_stdout = stdout
 
 function run_emitter_logged()
-    with_logger(get_clean_logger(emitter_log; rotate_bytes=retention.log_rotate_bytes)) do
-        DeepSpaceTelemetry.Emitter.run_emitter(clock, link, run_id;
-            test_duration_sec=TEST_DURATION_SEC,
-            sample_rate=SAMPLE_RATE,
-            seg_dur=SEG_DUR,
-            batch_size=BATCH_SIZE,
-            data_source=DATA_SOURCE,
-            ext_path=EXT_PATH,
-            instrument=instrument,
-            initial_segments=leftover_segs)
+    with_logger(get_clean_logger(emitter_log; rotate_bytes = retention.log_rotate_bytes)) do
+        DeepSpaceTelemetry.Emitter.run_emitter(
+            clock,
+            link,
+            run_id;
+            test_duration_sec = TEST_DURATION_SEC,
+            sample_rate = SAMPLE_RATE,
+            seg_dur = SEG_DUR,
+            batch_size = BATCH_SIZE,
+            data_source = DATA_SOURCE,
+            ext_path = EXT_PATH,
+            instrument = instrument,
+            initial_segments = leftover_segs,
+        )
     end
 end
 
 function run_receiver_logged()
-    with_logger(get_clean_logger(receiver_log; rotate_bytes=retention.log_rotate_bytes)) do
-        DeepSpaceTelemetry.Receiver.run_receiver(clock, link, run_id;
-            test_duration_sec=TEST_DURATION_SEC,
-            orig_stdout=orig_stdout,
-            max_batches_per_hour=MAX_BATCHES_PER_HOUR,
-            loss_model=loss_model,
-            max_retries=max_retries,
-            retention=retention)
+    with_logger(
+        get_clean_logger(receiver_log; rotate_bytes = retention.log_rotate_bytes),
+    ) do
+        DeepSpaceTelemetry.Receiver.run_receiver(
+            clock,
+            link,
+            run_id;
+            test_duration_sec = TEST_DURATION_SEC,
+            orig_stdout = orig_stdout,
+            max_batches_per_hour = MAX_BATCHES_PER_HOUR,
+            loss_model = loss_model,
+            max_retries = max_retries,
+            retention = retention,
+        )
     end
 end
 
@@ -226,7 +244,8 @@ if get(cfg, "post_processing", Dict()) |> pp -> get(pp, "generate_batch_matrix",
     try
         DeepSpaceTelemetry.Receiver.generate_telemetry_masks(run_dir)
     catch e
-        @error "[POST] Mask-matrix generation failed — run data is intact." exception = (e, catch_backtrace())
+        @error "[POST] Mask-matrix generation failed — run data is intact." exception =
+            (e, catch_backtrace())
     end
 end
 
@@ -240,7 +259,8 @@ if get(cfg, "post_processing", Dict()) |> pp -> get(pp, "expand_to_pointwise_mas
         total_pts = round(Int, total_segs * SEG_DUR * SAMPLE_RATE)
 
         target_rows_config = get(cfg["post_processing"], "target_event_rows", [-1])
-        target_rows = DeepSpaceTelemetry.TelemetryCore.normalize_target_rows(target_rows_config)
+        target_rows =
+            DeepSpaceTelemetry.TelemetryCore.normalize_target_rows(target_rows_config)
 
         if target_rows === :all
             mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
@@ -249,23 +269,27 @@ if get(cfg, "post_processing", Dict()) |> pp -> get(pp, "expand_to_pointwise_mas
         end
 
         for row_idx in target_rows
-            out_name = row_idx == -1 ? "pointwise_mask_final.csv" : "pointwise_mask_t$(row_idx).csv"
+            out_name =
+                row_idx == -1 ? "pointwise_mask_final.csv" :
+                "pointwise_mask_t$(row_idx).csv"
             out_path = joinpath(run_dir, "masks", out_name)
             try
                 apply_mask(run_id, total_pts, row_idx, out_path)
             catch e
-                @error "[POST] Point-wise expansion failed for row $row_idx — continuing with the remaining rows." exception = (e, catch_backtrace())
+                @error "[POST] Point-wise expansion failed for row $row_idx — continuing with the remaining rows." exception =
+                    (e, catch_backtrace())
             end
         end
     catch e
-        @error "[POST] Point-wise mask expansion stage failed — run data is intact." exception = (e, catch_backtrace())
+        @error "[POST] Point-wise mask expansion stage failed — run data is intact." exception =
+            (e, catch_backtrace())
     end
 end
 
 # Lifecycle handoff: no pipeline stage writes into the run directory beyond
 # this point (RUN_COMPLETE marks lifecycle end, not success — a failed task
 # above still reaches here after the failure-isolated post-processing).
-rm(joinpath(run_dir, "RUN_ACTIVE"), force=true)
+rm(joinpath(run_dir, "RUN_ACTIVE"), force = true)
 touch(joinpath(run_dir, "RUN_COMPLETE"))
 
 println(orig_stdout, "\n=== MISSION COMPLETE ===")

@@ -1,4 +1,6 @@
-using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."), io=devnull); Pkg.instantiate(io=devnull)
+using Pkg;
+Pkg.activate(joinpath(@__DIR__, "..", ".."), io = devnull);
+Pkg.instantiate(io = devnull)
 
 """
     cleanup_runs(; assume_yes::Bool = false)
@@ -30,7 +32,7 @@ function cleanup_runs(; assume_yes::Bool = false)
         end
     end
     for run in runs
-        rm(joinpath(run_path, run), recursive=true, force=true)
+        rm(joinpath(run_path, run), recursive = true, force = true)
     end
     println("Cleanup complete: $(length(runs)) run directories removed.")
 end

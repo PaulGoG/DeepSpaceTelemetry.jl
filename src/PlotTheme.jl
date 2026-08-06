@@ -3,8 +3,8 @@ module PlotTheme
 using CairoMakie
 using MathTeXEngine: texfont
 
-export telemetry_theme, COLOR_LIVE, COLOR_ARCHIVE, COLOR_BANDWIDTH, COLOR_ONBOARD,
-       COLOR_LOST, COLOR_DISRUPTION
+export telemetry_theme,
+    COLOR_LIVE, COLOR_ARCHIVE, COLOR_BANDWIDTH, COLOR_ONBOARD, COLOR_LOST, COLOR_DISRUPTION
 
 """
     COLOR_LIVE
@@ -64,7 +64,7 @@ function telemetry_theme()
             regular = texfont(:text),
             bold = texfont(:bold),
             italic = texfont(:italic),
-            bold_italic = texfont(:bolditalic)
+            bold_italic = texfont(:bolditalic),
         ),
         fontsize = 24,
         Lines = (linewidth = 3,),
@@ -74,7 +74,7 @@ function telemetry_theme()
             framecolor = (:black, 0.7),
             backgroundcolor = (:white, 0.85),
             labelsize = 22,
-            patchsize = (36, 18)
+            patchsize = (36, 18),
         ),
         Axis = (
             titlevisible = false,
@@ -94,8 +94,8 @@ function telemetry_theme()
             # Breathing room between the tick labels and the axis labels
             # (rotated day/time ticks otherwise crowd "Mission time")
             xlabelpadding = 16,
-            ylabelpadding = 12
-        )
+            ylabelpadding = 12,
+        ),
     )
 end
 

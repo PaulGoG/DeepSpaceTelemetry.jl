@@ -26,7 +26,7 @@ The amplitude spectrum is stored in `Float64`: raw LISA PSD values (~1e-40)
 underflow into `Float32` subnormals.
 
 All stochastic draws (noise phases, signal flags) come from the instrument's
-own `rng`, seeded via the constructor's `rng` keyword (default `Xoshiro(0)`) —
+own `rng` (any `Random.AbstractRNG`; default `Xoshiro(0)`), seeded via the constructor keyword —
 the stream is fully reproducible from `simulation.rng_seed` and independent of
 the global RNG and of other simulation components.
 
@@ -46,46 +46,82 @@ mutable struct InstrumentState
     carry::Vector{Float64}       # overlap-add tail carried into the next segment
     ext_data::Vector{Float32}
     ext_index::Int
-    rng::Xoshiro
+    rng::Random.AbstractRNG
 
-    function InstrumentState(start_t::DateTime, sample_rate::Float64, seg_dur::Float64,
-                             data_source::String, ext_path::String;
-                             rng::Xoshiro = Xoshiro(0))
+    function InstrumentState(
+        start_t::DateTime,
+        sample_rate::Float64,
+        seg_dur::Float64,
+        data_source::String,
+        ext_path::String;
+        rng::Random.AbstractRNG = Xoshiro(0),
+    )
         n_samples = round(Int, sample_rate * seg_dur)
         if data_source == "external"
             # Resolve relative paths against the project root (same rule as
             # validate_config) so runs work from any working directory.
-            resolved = isabspath(ext_path) ? ext_path :
-                       joinpath(TelemetryCore.PROJECT_ROOT, ext_path)
+            resolved =
+                isabspath(ext_path) ? ext_path :
+                joinpath(TelemetryCore.PROJECT_ROOT, ext_path)
             if !isfile(resolved)
                 error("External data source specified but file not found at: $resolved")
             end
             df = try
                 CSV.read(resolved, DataFrame)
             catch e
-                error("[CONFIG] Failed to parse external data CSV at $resolved: $(sprint(showerror, e))")
+                error(
+                    "[CONFIG] Failed to parse external data CSV at $resolved: $(sprint(showerror, e))",
+                )
             end
-            isempty(df) && error("[CONFIG] External data CSV at $resolved contains no rows.")
+            isempty(df) &&
+                error("[CONFIG] External data CSV at $resolved contains no rows.")
             # Assume single column or column named 'Amplitude'
             ext_col = hasproperty(df, :Amplitude) ? df.Amplitude : df[:, 1]
             ext_data = try
                 Float32.(ext_col)
             catch
-                error("[CONFIG] External data column in $resolved must be numeric with no missing values (got eltype $(eltype(ext_col))).")
+                error(
+                    "[CONFIG] External data column in $resolved must be numeric with no missing values (got eltype $(eltype(ext_col))).",
+                )
             end
-            new(start_t, 1, sample_rate, seg_dur, true, Float64[], Float64[], Float64[], ext_data, 1, rng)
+            new(
+                start_t,
+                1,
+                sample_rate,
+                seg_dur,
+                true,
+                Float64[],
+                Float64[],
+                Float64[],
+                ext_data,
+                1,
+                rng,
+            )
         else
             block_len = 2 * n_samples
             freqs = rfftfreq(block_len, sample_rate)
             # FFTW's unnormalized rfft convention: E|X_k|^2 = S(f_k)·fs·M/2
             # reproduces the one-sided PSD S after Julia's normalized irfft.
-            noise_amp = [sqrt(lisa_noise_psd(f) * sample_rate * block_len / 2) for f in freqs]
+            noise_amp =
+                [sqrt(lisa_noise_psd(f) * sample_rate * block_len / 2) for f in freqs]
             # Periodic sqrt-Hann: w²(n) + w²(n + M/2) = 1, so 50%-overlapped
             # independent blocks sum to a stationary stream with exact variance.
             window = [sqrt(0.5 * (1 - cos(2π * (n - 1) / block_len))) for n in 1:block_len]
             # Warm-up block so the very first segment is already stationary
-            carry = synth_windowed_block(rng, noise_amp, window)[n_samples+1:end]
-            new(start_t, 1, sample_rate, seg_dur, false, noise_amp, window, carry, Float32[], 1, rng)
+            carry = synth_windowed_block(rng, noise_amp, window)[(n_samples+1):end]
+            new(
+                start_t,
+                1,
+                sample_rate,
+                seg_dur,
+                false,
+                noise_amp,
+                window,
+                carry,
+                Float32[],
+                1,
+                rng,
+            )
         end
     end
 end
@@ -99,7 +135,11 @@ of `length(window)` samples from the scaled amplitude spectrum `noise_amp`
 zeroed and the Nyquist bin is forced real, as required for a real-valued
 signal.
 """
-function synth_windowed_block(rng::AbstractRNG, noise_amp::Vector{Float64}, window::Vector{Float64})
+function synth_windowed_block(
+    rng::AbstractRNG,
+    noise_amp::Vector{Float64},
+    window::Vector{Float64},
+)
     z = randn(rng, ComplexF64, length(noise_amp))
     z[1] = 0.0 + 0.0im               # zero-mean stream: no DC power
     z[end] = sqrt(2) * real(z[end])  # Nyquist bin of a real signal is real
@@ -118,15 +158,21 @@ galactic-binary confusion foreground. Returns a floor value of `1e-30` for
 non-positive frequencies.
 """
 function lisa_noise_psd(f)
-    if f <= 0.0; return 1e-30; end
+    if f <= 0.0
+        return 1e-30
+    end
     p_oms = (1.5e-11)^2 * (1 + (2e-3/f)^4)
     p_acc = (3e-15)^2 * (1 + (0.4e-3/f)^2) * (1 + (f/8e-3)^4)
-    s_inst = (p_oms / TelemetryCore.L_ARM^2) +
-             (2 * p_acc / ((2π*f)^4 * TelemetryCore.L_ARM^2)) * (1 + cos(f/TelemetryCore.F_STAR)^2)
+    s_inst =
+        (p_oms / TelemetryCore.L_ARM^2) +
+        (2 * p_acc / ((2π*f)^4 * TelemetryCore.L_ARM^2)) *
+        (1 + cos(f/TelemetryCore.F_STAR)^2)
     # Galactic-binary confusion foreground (analytic fit): amplitude,
     # knee frequency [Hz], and shape parameters of the exponential cutoff.
-    amp_gal, f_knee, alpha_gal, f_tanh, df_tanh = 1.8e-44, 1.0e-4, 292.0, 10.0^(-3.5), 10.0^(-4.5)
-    s_gal = amp_gal * f^(-7/3) * exp(-(f/f_knee)^alpha_gal) * (1 + tanh((f_tanh - f)/df_tanh))
+    amp_gal, f_knee, alpha_gal, f_tanh, df_tanh =
+        1.8e-44, 1.0e-4, 292.0, 10.0^(-3.5), 10.0^(-4.5)
+    s_gal =
+        amp_gal * f^(-7/3) * exp(-(f/f_knee)^alpha_gal) * (1 + tanh((f_tanh - f)/df_tanh))
     return s_inst + s_gal
 end
 
@@ -165,10 +211,10 @@ function next_segment!(vi::InstrumentState)
     else
         block = synth_windowed_block(vi.rng, vi.noise_amp, vi.window)
         data = Float32.(vi.carry .+ view(block, 1:n_samples))
-        vi.carry = block[n_samples+1:end]
+        vi.carry = block[(n_samples+1):end]
         is_sig = rand(vi.rng) > 0.98
     end
-    
+
     seg = TelemetryCore.DataSegment(vi.id_counter, vi.last_t, data, is_sig)
     vi.last_t += Second(round(Int, vi.seg_dur))
     vi.id_counter += 1

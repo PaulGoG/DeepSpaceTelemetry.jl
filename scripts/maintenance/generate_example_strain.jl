@@ -1,4 +1,6 @@
-using Pkg; Pkg.activate(joinpath(@__DIR__, "..", ".."), io=devnull); Pkg.instantiate(io=devnull)
+using Pkg;
+Pkg.activate(joinpath(@__DIR__, "..", ".."), io = devnull);
+Pkg.instantiate(io = devnull)
 using CSV, DataFrames
 include(joinpath(@__DIR__, "..", "..", "src", "TelemetryCore.jl"))
 using .TelemetryCore

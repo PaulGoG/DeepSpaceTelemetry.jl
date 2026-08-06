@@ -4,12 +4,24 @@ using ..TelemetryCore
 using Dates
 using Random
 
-export LossModel, NoLoss, BernoulliLoss, GilbertElliottLoss, sample_loss!,
-       stationary_loss_rate,
-       DisruptionEvent, DisruptionTimeline, disruption_factor,
-       disruption_loss_multiplier, active_disruption_label,
-       LinkModel, effective_bandwidth, is_transmittable,
-       build_loss_model, build_disruption_timeline, build_link_model, loss_retry_limit
+export LossModel,
+    NoLoss,
+    BernoulliLoss,
+    GilbertElliottLoss,
+    sample_loss!,
+    stationary_loss_rate,
+    DisruptionEvent,
+    DisruptionTimeline,
+    disruption_factor,
+    disruption_loss_multiplier,
+    active_disruption_label,
+    LinkModel,
+    effective_bandwidth,
+    is_transmittable,
+    build_loss_model,
+    build_disruption_timeline,
+    build_link_model,
+    loss_retry_limit
 
 # --- Stochastic Packet-Loss Models ---
 """
@@ -38,7 +50,7 @@ with probability `p ∈ [0, 1]`.
 """
 mutable struct BernoulliLoss <: LossModel
     p::Float64
-    rng::Xoshiro
+    rng::Random.AbstractRNG
 end
 
 """
@@ -57,7 +69,7 @@ mutable struct GilbertElliottLoss <: LossModel
     p_loss_good::Float64
     p_loss_bad::Float64
     in_bad_state::Bool
-    rng::Xoshiro
+    rng::Random.AbstractRNG
 end
 
 """
@@ -69,13 +81,13 @@ probability (clamped to `[0, 1]`) and is used to elevate loss rates during
 disruption events (see [`disruption_loss_multiplier`](@ref)). Mutates internal
 channel state for stateful models (Gilbert–Elliott).
 """
-sample_loss!(::NoLoss; multiplier::Float64=1.0) = false
+sample_loss!(::NoLoss; multiplier::Float64 = 1.0) = false
 
-function sample_loss!(m::BernoulliLoss; multiplier::Float64=1.0)
+function sample_loss!(m::BernoulliLoss; multiplier::Float64 = 1.0)
     return rand(m.rng) < clamp(m.p * multiplier, 0.0, 1.0)
 end
 
-function sample_loss!(m::GilbertElliottLoss; multiplier::Float64=1.0)
+function sample_loss!(m::GilbertElliottLoss; multiplier::Float64 = 1.0)
     # Advance the channel state once per transfer attempt.
     if m.in_bad_state
         if rand(m.rng) < m.p_bad_to_good
@@ -243,28 +255,38 @@ string or probabilities outside `[0, 1]` (validated upstream by
 `TelemetryCore.validate_config`, re-checked here defensively).
 """
 function build_loss_model(cfg::AbstractDict, seed::Integer)
-    pl = get(cfg, "packet_loss", Dict{String, Any}())
+    pl = get(cfg, "packet_loss", Dict{String,Any}())
     get(pl, "enabled", false) || return NoLoss()
 
-    model = lowercase(TelemetryCore.checked_string(get(pl, "model", "bernoulli"), "packet_loss.model"))
+    model = lowercase(
+        TelemetryCore.checked_string(get(pl, "model", "bernoulli"), "packet_loss.model"),
+    )
     rng = Xoshiro(seed)
 
-    getp = key -> begin
-        v = TelemetryCore.checked_number(get(pl, key, 0.0), "packet_loss.$key")
-        0.0 <= v <= 1.0 || error("[CONFIG] packet_loss.$key = $v outside [0, 1].")
-        v
-    end
+    getp =
+        key -> begin
+            v = TelemetryCore.checked_number(get(pl, key, 0.0), "packet_loss.$key")
+            0.0 <= v <= 1.0 || error("[CONFIG] packet_loss.$key = $v outside [0, 1].")
+            v
+        end
 
     if model == "bernoulli"
         p = TelemetryCore.checked_number(get(pl, "p_loss", 0.05), "packet_loss.p_loss")
         0.0 <= p <= 1.0 || error("[CONFIG] packet_loss.p_loss = $p outside [0, 1].")
         return BernoulliLoss(p, rng)
     elseif model == "gilbert_elliott"
-        return GilbertElliottLoss(getp("p_good_to_bad"), getp("p_bad_to_good"),
-                                  getp("p_loss_good"), getp("p_loss_bad"),
-                                  false, rng)
+        return GilbertElliottLoss(
+            getp("p_good_to_bad"),
+            getp("p_bad_to_good"),
+            getp("p_loss_good"),
+            getp("p_loss_bad"),
+            false,
+            rng,
+        )
     else
-        error("[CONFIG] Unknown packet_loss.model = \"$model\" (expected \"bernoulli\" or \"gilbert_elliott\").")
+        error(
+            "[CONFIG] Unknown packet_loss.model = \"$model\" (expected \"bernoulli\" or \"gilbert_elliott\").",
+        )
     end
 end
 
@@ -276,12 +298,19 @@ retries (immediate loss), `"retransmit"` (default) to `max_retries`
 (default 3).
 """
 function loss_retry_limit(cfg::AbstractDict)
-    pl = get(cfg, "packet_loss", Dict{String, Any}())
-    on_loss = lowercase(TelemetryCore.checked_string(get(pl, "on_loss", "retransmit"), "packet_loss.on_loss"))
-    on_loss in ("retransmit", "drop") ||
-        error("[CONFIG] Unknown packet_loss.on_loss = \"$on_loss\" (expected \"retransmit\" or \"drop\").")
+    pl = get(cfg, "packet_loss", Dict{String,Any}())
+    on_loss = lowercase(
+        TelemetryCore.checked_string(
+            get(pl, "on_loss", "retransmit"),
+            "packet_loss.on_loss",
+        ),
+    )
+    on_loss in ("retransmit", "drop") || error(
+        "[CONFIG] Unknown packet_loss.on_loss = \"$on_loss\" (expected \"retransmit\" or \"drop\").",
+    )
     on_loss == "drop" && return 0
-    retries = TelemetryCore.checked_integer(get(pl, "max_retries", 3), "packet_loss.max_retries")
+    retries =
+        TelemetryCore.checked_integer(get(pl, "max_retries", 3), "packet_loss.max_retries")
     retries >= 0 || error("[CONFIG] packet_loss.max_retries must be ≥ 0 (got $retries).")
     return retries
 end
@@ -296,27 +325,62 @@ Malformed events raise an error rather than being skipped: a silently missing
 disruption invalidates the scenario.
 """
 function build_disruption_timeline(cfg::AbstractDict, start_sim::DateTime)
-    d = get(cfg, "disruption", get(cfg, "disaster", Dict{String, Any}()))
+    d = get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}()))
     raw_events = get(d, "events", Any[])
     events = DisruptionEvent[]
     for (i, e) in enumerate(raw_events)
-        start_day = TelemetryCore.checked_number(get(e, "start_day", -1.0), "disruption.events[$i].start_day")
-        start_day >= 0.0 || error("[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).")
-        dur_h = TelemetryCore.checked_number(get(e, "duration_hours", 24.0), "disruption.events[$i].duration_hours")
-        dur_h > 0.0 || error("[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $dur_h).")
-        rec_h = TelemetryCore.checked_number(get(e, "recovery_hours", 0.0), "disruption.events[$i].recovery_hours")
-        rec_h >= 0.0 || error("[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $rec_h).")
-        sev = TelemetryCore.checked_number(get(e, "severity", 1.0), "disruption.events[$i].severity")
-        0.0 <= sev <= 1.0 || error("[CONFIG] disruption.events[$i].severity = $sev outside [0, 1].")
-        mult = TelemetryCore.checked_number(get(e, "loss_multiplier", 1.0), "disruption.events[$i].loss_multiplier")
-        mult >= 1.0 || @warn "[CONFIG] disruption.events[$i].loss_multiplier < 1 reduces loss during the event."
+        start_day = TelemetryCore.checked_number(
+            get(e, "start_day", -1.0),
+            "disruption.events[$i].start_day",
+        )
+        start_day >= 0.0 ||
+            error("[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).")
+        dur_h = TelemetryCore.checked_number(
+            get(e, "duration_hours", 24.0),
+            "disruption.events[$i].duration_hours",
+        )
+        dur_h > 0.0 ||
+            error("[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $dur_h).")
+        rec_h = TelemetryCore.checked_number(
+            get(e, "recovery_hours", 0.0),
+            "disruption.events[$i].recovery_hours",
+        )
+        rec_h >= 0.0 ||
+            error("[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $rec_h).")
+        sev = TelemetryCore.checked_number(
+            get(e, "severity", 1.0),
+            "disruption.events[$i].severity",
+        )
+        0.0 <= sev <= 1.0 ||
+            error("[CONFIG] disruption.events[$i].severity = $sev outside [0, 1].")
+        mult = TelemetryCore.checked_number(
+            get(e, "loss_multiplier", 1.0),
+            "disruption.events[$i].loss_multiplier",
+        )
+        mult >= 1.0 ||
+            @warn "[CONFIG] disruption.events[$i].loss_multiplier < 1 reduces loss during the event."
 
         t0 = start_sim + Millisecond(round(Int, start_day * 86_400_000))
         t1 = t0 + Millisecond(round(Int, dur_h * 3_600_000))
         t2 = t1 + Millisecond(round(Int, rec_h * 3_600_000))
-        push!(events, DisruptionEvent(TelemetryCore.checked_string(get(e, "type", "link_disruption"), "disruption.events[$i].type"),
-                                      TelemetryCore.checked_string(get(e, "label", ""), "disruption.events[$i].label"),
-                                      t0, t1, t2, sev, mult))
+        push!(
+            events,
+            DisruptionEvent(
+                TelemetryCore.checked_string(
+                    get(e, "type", "link_disruption"),
+                    "disruption.events[$i].type",
+                ),
+                TelemetryCore.checked_string(
+                    get(e, "label", ""),
+                    "disruption.events[$i].label",
+                ),
+                t0,
+                t1,
+                t2,
+                sev,
+                mult,
+            ),
+        )
     end
     sort!(events, by = ev -> ev.start_time)
     return DisruptionTimeline(events)
@@ -333,7 +397,8 @@ function build_link_model(cfg::AbstractDict)
     vis = TelemetryCore.VisibilityModel(
         Time(cfg["telemetry"]["session_start"]),
         Second(round(Int, Float64(cfg["telemetry"]["session_duration_hours"]) * 3600)),
-        String(get(cfg["telemetry"], "bandwidth_profile", "sine")))
+        String(get(cfg["telemetry"], "bandwidth_profile", "sine")),
+    )
     start_sim = DateTime(cfg["simulation"]["start_sim_time"])
     return LinkModel(vis, build_disruption_timeline(cfg, start_sim))
 end

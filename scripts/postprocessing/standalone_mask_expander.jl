@@ -22,8 +22,10 @@ Example:
 try
     using CSV, DataFrames
 catch
-    println("Missing required packages (CSV, DataFrames). Install them into " *
-            "your active environment first:")
+    println(
+        "Missing required packages (CSV, DataFrames). Install them into " *
+        "your active environment first:",
+    )
     println("    julia -e 'using Pkg; Pkg.add([\"CSV\", \"DataFrames\"])'")
     exit(1)
 end
@@ -39,33 +41,42 @@ were still onboard/in transit (1, 2), not yet generated (0), or permanently
 lost to packet loss (4) stay 0.
 Saves the resulting integer array to `output_path`.
 """
-function expand_mask(matrix_path::String, points_per_batch::Int, event_idx::Int, output_path::String)
+function expand_mask(
+    matrix_path::String,
+    points_per_batch::Int,
+    event_idx::Int,
+    output_path::String,
+)
     if !isfile(matrix_path)
         error("Telemetry matrix not found at: $matrix_path")
     end
 
     println("Loading mask timeline from: $matrix_path")
     mask_df = CSV.read(matrix_path, DataFrame)
-    
+
     target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
-    
+
     if target_idx < 1 || target_idx > nrow(mask_df)
-        error("Event index $target_idx is out of bounds. The timeline has $(nrow(mask_df)) events.")
+        error(
+            "Event index $target_idx is out of bounds. The timeline has $(nrow(mask_df)) events.",
+        )
     end
-    
+
     event_row = mask_df[target_idx, :]
     event_time = event_row.SimTime
     println("Selected Telemetry Event: $event_time (Row $target_idx)")
-    
+
     # Isolate just the batch columns (drop 'SimTime')
     batch_statuses = Vector(event_row[2:end])
-    
+
     total_points = length(batch_statuses) * points_per_batch
-    println("Expanding $(length(batch_statuses)) batches into a point-wise 0/1 array for $total_points points...")
-    
+    println(
+        "Expanding $(length(batch_statuses)) batches into a point-wise 0/1 array for $total_points points...",
+    )
+
     # 0 = Unavailable, 1 = Available on Ground
     point_mask = zeros(Int8, total_points)
-    
+
     for (batch_idx_zero_based, status) in enumerate(batch_statuses)
         # Status 3 means 'Ground Archive' (Successfully downlinked).
         # 0/1/2 (not yet down) and 4 (Lost) stay masked.
@@ -75,7 +86,7 @@ function expand_mask(matrix_path::String, points_per_batch::Int, event_idx::Int,
             point_mask[start_idx:end_idx] .= 1
         end
     end
-    
+
     println("Saving pointwise mask to: $output_path")
     # Rotate any pre-existing output to name#k.csv instead of overwriting
     # (mirrors TelemetryCore.safe_csv_write without requiring the package).
@@ -92,7 +103,7 @@ function expand_mask(matrix_path::String, points_per_batch::Int, event_idx::Int,
     CSV.write(output_path, output_df)
 
     available_pts = count(x -> x == 1, point_mask)
-    avail_pct = round((available_pts / total_points) * 100, digits=2)
+    avail_pct = round((available_pts / total_points) * 100, digits = 2)
 
     println("\n=== MASK EXPANSION COMPLETE ===")
     println("Total Data Points:     $total_points")
@@ -102,17 +113,21 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     if length(ARGS) != 4
-        println("Usage: julia standalone_mask_expander.jl <matrix.csv> <points_per_batch> <target_row_idx> <output.csv>")
+        println(
+            "Usage: julia standalone_mask_expander.jl <matrix.csv> <points_per_batch> <target_row_idx> <output.csv>",
+        )
         exit(1)
     end
-    
+
     mat_csv = ARGS[1]
     ppb = tryparse(Int, ARGS[2])
     idx = tryparse(Int, ARGS[3])
     out_csv = ARGS[4]
     if ppb === nothing || idx === nothing
-        println("Error: <points_per_batch> and <target_row_idx> must be integers " *
-                "(got \"$(ARGS[2])\", \"$(ARGS[3])\").")
+        println(
+            "Error: <points_per_batch> and <target_row_idx> must be integers " *
+            "(got \"$(ARGS[2])\", \"$(ARGS[3])\").",
+        )
         exit(1)
     end
     if !isfile(mat_csv)
