@@ -156,6 +156,35 @@ function normalize_target_rows(raw)
 end
 
 # --- Configuration Validation ---
+
+# Schema of recognized sections and keys. Anything outside it draws a
+# warning in validate_config: a typo'd key silently falling back to a
+# default is the quietest failure mode a config can carry.
+const KNOWN_CONFIG_KEYS = Dict(
+    "simulation" => ["speed_up", "start_sim_time", "test_duration_sec",
+                     "initial_downtime_days", "rng_seed", "max_storage_gb"],
+    "storage" => ["max_storage_gb", "max_file_count", "bytes_per_sample",
+                  "bytes_batch_metadata", "bytes_event_row", "bytes_metrics_row",
+                  "bytes_mask_cell", "bytes_pointwise_cell", "bytes_plot",
+                  "bytes_log_per_batch"],
+    "retention" => ["enabled", "grace_hours", "high_watermark_gb", "log_rotate_mb"],
+    "telemetry" => ["session_start", "session_duration_hours",
+                    "max_batches_per_hour", "bandwidth_profile"],
+    "physics" => ["data_source", "external_data_path", "sample_rate",
+                  "segment_duration_sec", "batch_size"],
+    "packet_loss" => ["enabled", "model", "p_loss", "p_good_to_bad",
+                      "p_bad_to_good", "p_loss_good", "p_loss_bad", "on_loss",
+                      "max_retries"],
+    "disruption" => ["events"],
+    "disaster" => ["events"],
+    "dashboard" => ["open_live_viewer", "open_receiver_log", "open_emitter_log"],
+    "post_processing" => ["generate_batch_matrix", "expand_to_pointwise_masks",
+                          "target_event_rows"],
+    "provenance" => String[], # pipeline-generated; free-form by design
+)
+const KNOWN_EVENT_KEYS = ["type", "label", "start_day", "duration_hours",
+                          "severity", "recovery_hours", "loss_multiplier"]
+
 """
     validate_config(cfg::AbstractDict)
 
@@ -189,12 +218,37 @@ Warnings (runnable but likely unintended):
   - unknown `bandwidth_profile` (falls back to `"sine"`)
   - non-integer `sample_rate * segment_duration_sec` (rounded)
   - Gilbert–Elliott `p_bad_to_good = 0` (the channel never recovers)
-  - disruption events starting after mission end, or blackouts spanning the
-    entire remaining mission
+  - disruption events starting at or after mission end (never fire), events
+    whose blackout + recovery tail is truncated by mission end, blackouts
+    spanning the entire remaining mission, and events overlapping in time
+    (capacity composes as the minimum, loss multiplier as the maximum)
+  - unrecognized sections or keys anywhere in the config (typo guard — an
+    unknown key would otherwise silently fall back to its default)
   - `p_loss·multiplier ≥ 1` in a blackout-free config region (every transfer
     fails until retry exhaustion)
 """
 function validate_config(cfg::AbstractDict)
+    # Unrecognized-key sweep (silent-failure guard): a mistyped key would
+    # otherwise fall back to a default without a trace.
+    for (section, content) in cfg
+        if !haskey(KNOWN_CONFIG_KEYS, section)
+            @warn "[CONFIG] Unrecognized section [$section] — its keys are ignored (typo?)."
+        elseif section != "provenance" && content isa AbstractDict
+            for key in keys(content)
+                key in KNOWN_CONFIG_KEYS[section] ||
+                    @warn "[CONFIG] Unrecognized key $section.$key — ignored (typo?)."
+            end
+        end
+    end
+    for (i, e) in enumerate(get(get(cfg, "disruption", get(cfg, "disaster", Dict{String, Any}())),
+                                "events", Any[]))
+        e isa AbstractDict || continue
+        for key in keys(e)
+            key in KNOWN_EVENT_KEYS ||
+                @warn "[CONFIG] Unrecognized key disruption.events[$i].$key — ignored (typo?)."
+        end
+    end
+
     sim = get(cfg, "simulation", Dict{String, Any}())
     tel = get(cfg, "telemetry", Dict{String, Any}())
     phy = get(cfg, "physics", Dict{String, Any}())
@@ -206,8 +260,10 @@ function validate_config(cfg::AbstractDict)
     test_dur > 0.0 || error("[CONFIG] simulation.test_duration_sec must be > 0 (got $test_dur).")
     downtime = checked_number(get(sim, "initial_downtime_days", 0.0), "simulation.initial_downtime_days")
     downtime >= 0.0 || error("[CONFIG] simulation.initial_downtime_days must be ≥ 0 (got $downtime).")
-    max_gb = checked_number(get(sim, "max_storage_gb", 5.0), "simulation.max_storage_gb")
-    max_gb > 0.0 || error("[CONFIG] simulation.max_storage_gb must be > 0 (got $max_gb).")
+    # Budget positivity is checked through storage_budget so both the
+    # [storage] location and the deprecated [simulation] fallback are covered.
+    max_gb = storage_budget(cfg).max_gb
+    max_gb > 0.0 || error("[CONFIG] storage.max_storage_gb must be > 0 (got $max_gb).")
     haskey(sim, "start_sim_time") || error("[CONFIG] simulation.start_sim_time is required.")
     try
         DateTime(sim["start_sim_time"])
@@ -304,6 +360,7 @@ function validate_config(cfg::AbstractDict)
         @warn "[CONFIG] The [disaster] section name is deprecated — rename it to [disruption]."
     d = get(cfg, "disruption", get(cfg, "disaster", Dict{String, Any}()))
     mission_days = test_dur * speed_up / 86_400.0
+    event_windows = Tuple{Float64, Float64, Int}[] # (start_h, end_h incl. ramp, event index)
     for (i, e) in enumerate(get(d, "events", Any[]))
         start_day = checked_number(get(e, "start_day", -1.0), "disruption.events[$i].start_day")
         start_day >= 0.0 || error("[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).")
@@ -313,10 +370,23 @@ function validate_config(cfg::AbstractDict)
         rec_h >= 0.0 || error("[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $rec_h).")
         sev = checked_number(get(e, "severity", 1.0), "disruption.events[$i].severity")
         0.0 <= sev <= 1.0 || error("[CONFIG] disruption.events[$i].severity = $sev outside [0, 1].")
-        if start_day > mission_days
+        if start_day >= mission_days
+            # Inclusive boundary: an event at the exact final instant is
+            # never simulated either.
             @warn "[CONFIG] disruption.events[$i] starts on mission day $start_day but the mission spans only $(round(mission_days, digits=2)) days: the event never fires."
         elseif sev >= 1.0 && start_day * 24.0 + dur_h >= mission_days * 24.0
             @warn "[CONFIG] disruption.events[$i] blacks out the link from day $start_day to mission end: no batch after the event onset will ever reach the ground."
+        elseif start_day * 24.0 + dur_h + rec_h > mission_days * 24.0
+            @warn "[CONFIG] disruption.events[$i] extends beyond mission end (blackout + recovery reach day $(round((start_day * 24.0 + dur_h + rec_h) / 24.0, digits=2)) of $(round(mission_days, digits=2))): the tail is truncated and never observed."
+        end
+        push!(event_windows, (start_day * 24.0, start_day * 24.0 + dur_h + rec_h, i))
+    end
+    sort!(event_windows, by = first)
+    for k in 2:length(event_windows)
+        (_, end_prev, i_prev) = event_windows[k - 1]
+        (start_k, _, i_k) = event_windows[k]
+        if start_k < end_prev
+            @warn "[CONFIG] disruption.events[$i_prev] and disruption.events[$i_k] overlap in time: link capacity composes as the minimum over active events and the loss multiplier as their maximum — verify this is the intended physics."
         end
     end
 
@@ -804,6 +874,11 @@ backup rotation) so every run's exact parameters remain reproducible after
 """
 function setup_run_dir(run_id::String; cfg::Union{AbstractDict, Nothing}=nothing)
     base_dir = DrWatson.datadir("runs", run_id)
+    # Run-ID reuse guard (silent-failure mode): a reused ID would interleave
+    # two missions' rows in mission_profile.csv and truncate the prior logs.
+    if isdir(base_dir) && !isempty(filter(f -> !startswith(f, "."), readdir(base_dir)))
+        error("[RUN] Run directory $base_dir already exists and is non-empty — run IDs must be unique. Choose a new run ID or purge the previous run (scripts/maintenance/cleanup.jl).")
+    end
     paths = [
         joinpath(base_dir, "onboard"),
         joinpath(base_dir, "link"),

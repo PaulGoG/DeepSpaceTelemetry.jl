@@ -26,8 +26,8 @@ Exactly one configuration ships with the repository. Per the
 configuration-comment policy, the TOML file carries only per-key descriptions,
 admissible choices, and safe intervals — the scenario rationale lives here.
 
-`config.toml` — **"complex disruption & bursty loss"** scenario (~2 min wall
-time, 5.0 mission days). The mission opens with a 2-day blind-spot backlog
+`config.toml` — **"complex disruption & bursty loss"** scenario (~3 min wall
+time, 7.0 mission days). The mission opens with a 2-day blind-spot backlog
 (288 batches at the shipped physics rates: 60 s segments, 10 segments per
 batch → 144 batches/day) draining against a Gaussian pass profile with peak
 capacity 60 batches/h. The downlink runs over a bursty Gilbert–Elliott
@@ -35,7 +35,8 @@ channel (sticky BAD state, 50 % loss while BAD) throughout, and two
 scheduled disruption events stress the link: a day-2.5 solar-flare-class
 full blackout (18 h, then a 12 h linear recovery ramp with 5× elevated
 loss) and a day-5.0 partial DSN outage (severity 0.8, 12 h, 6 h ramp,
-3× loss) — note the latter coincides with the end of the simulated span.
+3× loss), leaving a 1.25-day nominal tail after the second recovery
+completes on day 5.75.
 
 Alternative scenario configurations (e.g. multi-week recovery studies or
 lossless baselines) are maintained outside the repository and passed by

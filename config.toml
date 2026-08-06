@@ -3,7 +3,7 @@
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.
 start_sim_time = "2035-01-01T06:00:00" # Mission epoch. SAFE: ISO-8601 datetime.
-test_duration_sec = 120.0            # Wall-clock simulation span [s]. SAFE: > 0.
+test_duration_sec = 168.0            # Wall-clock simulation span [s]. SAFE: > 0.
 initial_downtime_days = 2.0          # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
 rng_seed = 2035                      # Seeds physics and packet-loss RNGs. SAFE: integer.
 

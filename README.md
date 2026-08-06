@@ -175,8 +175,8 @@ The framework is driven entirely by TOML files, free of hardcoded parameters.
 `config.toml`** and enforced at startup by `validate_config` (hard `error`
 for code-breaking values, `@warn` for suspicious ones). Exactly one
 configuration ships with the repository — `config.toml`, the "complex
-disruption & bursty loss" scenario (5.0 mission days, 2-day launch backlog,
-Gilbert–Elliott bursty loss, two scheduled disruption events, ~2 min wall
+disruption & bursty loss" scenario (7.0 mission days, 2-day launch backlog,
+Gilbert–Elliott bursty loss, two scheduled disruption events, ~3 min wall
 time; rationale in `docs/src/usage.md` §Shipped Scenario). Alternative
 scenario configs are kept outside the repository and passed by path on the
 CLI; each run archives the exact configuration it used as

@@ -159,6 +159,48 @@ end
     @test_logs (:warn,) match_mode=:any TelemetryCore.validate_config(cfg)
 end
 
+@testset "Silent-failure guards" begin
+    # Unrecognized keys and sections warn instead of silently defaulting
+    cfg = valid_test_cfg()
+    cfg["simulation"]["speedup"] = 7200.0 # typo'd key
+    @test_logs (:warn, r"Unrecognized key simulation\.speedup") match_mode = :any TelemetryCore.validate_config(cfg)
+    cfg = valid_test_cfg()
+    cfg["simulaton"] = Dict{String, Any}("speed_up" => 2.0) # typo'd section
+    @test_logs (:warn, r"Unrecognized section") match_mode = :any TelemetryCore.validate_config(cfg)
+    cfg = valid_test_cfg()
+    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}(
+        "start_day" => 0.1, "duration_hurs" => 5.0)]) # typo'd event key
+    @test_logs (:warn, r"Unrecognized key disruption\.events\[1\]\.duration_hurs") match_mode = :any TelemetryCore.validate_config(cfg)
+
+    # Never-fires boundary is inclusive: an event at the exact final instant warns
+    cfg = valid_test_cfg() # 10 s × 3600 → 10 mission hours
+    mission_days = 10.0 * 3600.0 / 86_400.0
+    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}("start_day" => mission_days)])
+    @test_logs (:warn, r"never fires") match_mode = :any TelemetryCore.validate_config(cfg)
+
+    # Blackout + recovery tail truncated by mission end warns
+    cfg = valid_test_cfg()
+    cfg["disruption"] = Dict{String, Any}("events" => [Dict{String, Any}(
+        "start_day" => 0.2, "duration_hours" => 2.0, "recovery_hours" => 24.0, "severity" => 0.5)])
+    @test_logs (:warn, r"truncated") match_mode = :any TelemetryCore.validate_config(cfg)
+
+    # Overlapping events warn and state the composition semantics
+    cfg = valid_test_cfg()
+    cfg["disruption"] = Dict{String, Any}("events" => [
+        Dict{String, Any}("start_day" => 0.05, "duration_hours" => 3.0, "severity" => 0.5),
+        Dict{String, Any}("start_day" => 0.1, "duration_hours" => 2.0, "severity" => 0.9)])
+    @test_logs (:warn, r"overlap") match_mode = :any TelemetryCore.validate_config(cfg)
+
+    # Run-ID reuse guard: a second setup on a non-empty run directory refuses
+    reuse_id = "TEST_RUN_reuse_pid$(getpid())"
+    run_dir = TelemetryCore.setup_run_dir(reuse_id)
+    try
+        @test_throws ErrorException TelemetryCore.setup_run_dir(reuse_id)
+    finally
+        rm(run_dir; recursive = true, force = true)
+    end
+end
+
 @testset "Storage governance (estimator + mitigation-aware gate)" begin
     base = Dict{String, Any}(
         "simulation" => Dict{String, Any}("speed_up" => 1.0, "test_duration_sec" => 100.0,

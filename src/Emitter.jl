@@ -56,7 +56,11 @@ function pre_populate(start_sim_time::DateTime, run_id::String;
         push!(current_batch_segs, seg)
 
         if length(current_batch_segs) >= batch_size
-            batch = TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs), now())
+            # created_at carries mission time (the generation epoch of the
+            # batch's first segment), never wall-clock time: metadata.json is
+            # persisted provenance and must live on the mission timeline.
+            batch = TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs),
+                                            current_batch_segs[1].timestamp)
             batch_name = "ARCH_batch_$batch_counter"
             batch_dir = joinpath(buffer_path, batch_name)
 
@@ -116,7 +120,9 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
     # Initialize queues from pre-population
     all_onboard = filter(f -> isdir(joinpath(buffer_path, f)), readdir(buffer_path))
     archived = filter(f -> startswith(f, "ARCH_batch_"), all_onboard)
-    sort!(archived, by = x -> parse(Int, split(x, "_")[end]), rev=true) # LIFO internal
+    # tryparse tolerates stray directories that merely share the prefix; a
+    # non-numeric suffix sorts to the LIFO tail instead of aborting the loop.
+    sort!(archived, by = x -> something(tryparse(Int, split(x, "_")[end]), 0), rev=true) # LIFO internal
     append!(onboard_arch_queue, archived)
 
     batch_counter = length(archived) + 1
@@ -141,7 +147,8 @@ function run_emitter(clock::TelemetryCore.SimulationClock, link::ChannelEffects.
         # 2. Batch Finalization
         if length(current_batch_segs) >= batch_size
             is_live = ChannelEffects.is_transmittable(link, sim_t)
-            batch = TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs), now())
+            # Mission-time provenance, matching the pre-population path.
+            batch = TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs), sim_t)
             prefix = is_live ? "LIVE_" : "ARCH_"
             batch_name = "$(prefix)batch_$batch_counter"
             batch_dir = joinpath(buffer_path, batch_name)
