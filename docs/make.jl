@@ -7,7 +7,8 @@ using DeepSpaceTelemetry
 
 makedocs(
     sitename = "DeepSpaceTelemetry",
-    remotes = nothing,
+    authors = "Paul-Adrian Gogîță <gogitapaul@yahoo.ro>",
+    repo = Documenter.Remotes.GitHub("PaulGoG", "DeepSpaceTelemetry.jl"),
     format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
     modules = [
         DeepSpaceTelemetry,

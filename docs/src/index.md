@@ -5,6 +5,17 @@ A Julia framework simulating the telemetry environment of deep-space science mis
 ## Overview
 Deep-space missions communicate on asymmetric duty cycles: a daily ground-station contact window followed by a long blind spot in which science data accumulates onboard. This framework simulates the physics, link constraints, and queuing logic of that regime end to end. The shipped configuration models LISA — orbiting the Sun 50 million kilometers behind Earth, with an 8-hour DSN window against a 16-hour blind spot, and amplitude-calibrated gravitational-wave strain as the payload — while the telemetry, channel, and queuing layers remain mission-agnostic.
 
+## Installation
+
+Requires Julia ≥ 1.12. The package is not yet registered; add it by URL, or
+clone the repository for the full pipeline workflow (scripts, shipped
+scenario, benchmarks):
+
+```julia
+using Pkg
+Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl")
+```
+
 ## Capabilities
 * **Continuous Physics Engine**: Natively generates amplitude-calibrated, phase-continuous synthetic LISA strain, or ingests external continuous CSV time-series arrays.
 * **Dynamic Bandwidth**: Models the horizon-to-horizon satellite pass using `sine`, `sigmoid`, `gaussian`, or `flat` curves.
