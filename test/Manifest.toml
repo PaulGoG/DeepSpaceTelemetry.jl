@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "ef1c7f504434de99f8a69b17a3c2414205e34f26"
+project_hash = "cec001b42369781b1bb497e738bddbe1e5e55036"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -351,7 +351,7 @@ version = "1.11.0"
 deps = ["CSV", "CairoMakie", "DataFrames", "Dates", "DrWatson", "FFTW", "FileWatching", "JSON3", "MathTeXEngine", "PrecompileTools", "ProgressMeter", "Random", "TOML"]
 path = ".."
 uuid = "d178d3ae-5836-4a75-9bfd-2e34bfeccb6b"
-version = "1.0.0"
+version = "0.9.0"
 
 [[deps.DelaunayTriangulation]]
 deps = ["AdaptivePredicates", "EnumX", "ExactPredicates", "Random"]
