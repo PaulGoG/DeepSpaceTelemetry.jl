@@ -1,7 +1,21 @@
+"""
+    TelemetryCore
+
+Shared infrastructure of the simulation: configuration loading, schema-aware
+validation, storage governance (artifact estimation, budgets, retention
+settings), the accelerated mission clock and its persisted anchor, run
+provenance (event logs, snapshots, `safesave` rotation), and batch/segment
+I/O. Contains no routing logic — the queuing doctrine lives in `Emitter`
+and `Receiver`.
+"""
 module TelemetryCore
 
-using Dates, JSON3, CSV, DataFrames, TOML
-using DrWatson
+using CSV: CSV
+using DataFrames: DataFrames, DataFrame
+using Dates: Dates, DateTime, Millisecond, Second, Time, now
+using DrWatson: DrWatson
+using JSON3: JSON3
+using TOML: TOML
 
 # --- Constants ---
 """
@@ -1268,17 +1282,21 @@ function save_segment(path::String, seg::DataSegment)
 end
 
 """
-    load_segment(path::String)
+    load_segment(path::String; timestamp::DateTime = DateTime(0))
 
-Loads a 1D CSV time series back into a `DataSegment` object.
+Loads a 1D CSV time series back into a `DataSegment`. Segment CSVs persist
+only amplitudes, so the mission timestamp cannot be recovered from the file:
+callers that know the epoch (e.g. from `metadata.json`'s `created_at`) pass
+it via `timestamp`; otherwise the `DateTime(0)` sentinel marks it unknown —
+never a fabricated wall-clock time.
 """
-function load_segment(path::String)
+function load_segment(path::String; timestamp::DateTime = DateTime(0))
     df = CSV.read(path, DataFrame)
     id_match = match(r"seg_(\d+)\.csv", basename(path))
     # The capture is a Union{Nothing, SubString}: guard the full chain so a
     # nonconforming filename degrades to id 0 instead of throwing.
     id = id_match !== nothing ? something(tryparse(Int, something(id_match[1], "")), 0) : 0
-    return DataSegment(id, now(), Vector{Float32}(df.Amplitude), false)
+    return DataSegment(id, timestamp, Vector{Float32}(df.Amplitude), false)
 end
 
 # --- Visibility & Bandwidth ---

@@ -1,10 +1,25 @@
+"""
+    Receiver
+
+The ground-station loop and post-processing: bandwidth-paced ingestion with
+stochastic loss and retransmission, the retention custodian, metrics and
+`events_rx.csv` recording, and the derived products (mission/session
+figures, the 2D batch-state mask timeline, batch epoch map). Re-entrant: a
+restarted receiver reseeds retry and custodial state from the event log.
+"""
 module Receiver
 
 using ..TelemetryCore
 using ..ChannelEffects
 using ..PlotTheme
-using CairoMakie
-using Dates, CSV, DataFrames, FileWatching
+using CSV: CSV
+using CairoMakie: CairoMakie,
+    Auto, Axis, Figure, Legend, LineElement, LinearTicks, MarkerElement, PolyElement,
+    band!, hidespines!, hidexdecorations!, lines!, linkxaxes!, rowsize!, save, scatter!,
+    stairs!, text!, translate!, vlines!, vspan!, with_theme, xlims!, ylims!
+using DataFrames: DataFrames, DataFrame, nrow
+using Dates: Dates, Date, DateTime, Day, Hour, Millisecond, Second, Time, now
+using FileWatching: FileWatching, watch_folder
 
 """
     generate_mission_plots(run_dir::String)

@@ -26,9 +26,7 @@ end
 
 @testset "Static QA (ExplicitImports)" begin
     @test ExplicitImports.check_no_stale_explicit_imports(DeepSpaceTelemetry) === nothing
-    # The implicit-`using` blocks in src/ are a tracked migration (remedial
-    # plan P1); the check is asserted broken until that lands.
-    @test_broken ExplicitImports.check_no_implicit_imports(DeepSpaceTelemetry) === nothing
+    @test ExplicitImports.check_no_implicit_imports(DeepSpaceTelemetry) === nothing
 end
 
 @testset "Static QA (JET)" begin

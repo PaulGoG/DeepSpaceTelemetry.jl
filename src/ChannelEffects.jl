@@ -1,8 +1,16 @@
+"""
+    ChannelEffects
+
+Downlink channel models: stochastic packet loss (`NoLoss`, `BernoulliLoss`,
+two-state `GilbertElliottLoss` with its analytic stationary rate), scheduled
+disruption events (blackout, linear recovery ramp, elevated loss), and the
+composite `LinkModel` (visibility × disruption) gating both pipeline loops.
+"""
 module ChannelEffects
 
 using ..TelemetryCore
-using Dates
-using Random
+using Dates: Dates, DateTime, Millisecond, Second, Time
+using Random: Random, Xoshiro
 
 export LossModel,
     NoLoss,

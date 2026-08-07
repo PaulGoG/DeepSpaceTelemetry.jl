@@ -1,8 +1,18 @@
+"""
+    VirtualInstrument
+
+Science-payload data source: amplitude-calibrated synthetic LISA strain via
+windowed overlap-add FFT synthesis against the analytic one-sided noise PSD,
+or gapless chunked ingestion of an external CSV time series.
+"""
 module VirtualInstrument
 
 using ..TelemetryCore
-using FFTW, Dates, CSV, DataFrames
-using Random
+using CSV: CSV
+using DataFrames: DataFrames, DataFrame
+using Dates: Dates, DateTime, Second
+using FFTW: FFTW, irfft, rfftfreq
+using Random: Random, AbstractRNG, Xoshiro
 
 export InstrumentState, lisa_noise_psd, next_segment!
 

@@ -1,7 +1,12 @@
 # API Reference
 
+```@docs
+DeepSpaceTelemetry
+```
+
 ## TelemetryCore
 ```@docs
+DeepSpaceTelemetry.TelemetryCore
 DeepSpaceTelemetry.TelemetryCore.L_ARM
 DeepSpaceTelemetry.TelemetryCore.C_LIGHT
 DeepSpaceTelemetry.TelemetryCore.F_STAR
@@ -19,6 +24,7 @@ DeepSpaceTelemetry.TelemetryCore.estimate_artifacts
 DeepSpaceTelemetry.TelemetryCore.storage_budget
 DeepSpaceTelemetry.TelemetryCore.retention_settings
 DeepSpaceTelemetry.TelemetryCore.RECEIVER_POLL_INTERVAL_SEC
+DeepSpaceTelemetry.TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC
 DeepSpaceTelemetry.TelemetryCore.METRICS_BANDWIDTH_HYSTERESIS_PCT
 DeepSpaceTelemetry.TelemetryCore.generate_run_id
 DeepSpaceTelemetry.TelemetryCore.setup_run_dir
@@ -46,6 +52,7 @@ DeepSpaceTelemetry.TelemetryCore.get_bandwidth_factor
 
 ## ChannelEffects
 ```@docs
+DeepSpaceTelemetry.ChannelEffects
 DeepSpaceTelemetry.ChannelEffects.LossModel
 DeepSpaceTelemetry.ChannelEffects.NoLoss
 DeepSpaceTelemetry.ChannelEffects.BernoulliLoss
@@ -68,6 +75,7 @@ DeepSpaceTelemetry.ChannelEffects.loss_retry_limit
 
 ## VirtualInstrument
 ```@docs
+DeepSpaceTelemetry.VirtualInstrument
 DeepSpaceTelemetry.VirtualInstrument.InstrumentState
 DeepSpaceTelemetry.VirtualInstrument.lisa_noise_psd
 DeepSpaceTelemetry.VirtualInstrument.synth_windowed_block
@@ -76,12 +84,14 @@ DeepSpaceTelemetry.VirtualInstrument.next_segment!
 
 ## Emitter
 ```@docs
+DeepSpaceTelemetry.Emitter
 DeepSpaceTelemetry.Emitter.pre_populate
 DeepSpaceTelemetry.Emitter.run_emitter
 ```
 
 ## Receiver
 ```@docs
+DeepSpaceTelemetry.Receiver
 DeepSpaceTelemetry.Receiver.generate_mission_plots
 DeepSpaceTelemetry.Receiver.BatchStates
 DeepSpaceTelemetry.Receiver.reconstruct_batch_states
@@ -93,6 +103,7 @@ DeepSpaceTelemetry.Receiver.run_receiver
 
 ## PlotTheme
 ```@docs
+DeepSpaceTelemetry.PlotTheme
 DeepSpaceTelemetry.PlotTheme.telemetry_theme
 DeepSpaceTelemetry.PlotTheme.COLOR_LIVE
 DeepSpaceTelemetry.PlotTheme.COLOR_ARCHIVE
@@ -100,4 +111,9 @@ DeepSpaceTelemetry.PlotTheme.COLOR_BANDWIDTH
 DeepSpaceTelemetry.PlotTheme.COLOR_ONBOARD
 DeepSpaceTelemetry.PlotTheme.COLOR_LOST
 DeepSpaceTelemetry.PlotTheme.COLOR_DISRUPTION
+DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SUMMARY
+DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SESSION
+DeepSpaceTelemetry.PlotTheme.LINEWIDTH_DATA
+DeepSpaceTelemetry.PlotTheme.MARKERSIZE_DATA
+DeepSpaceTelemetry.PlotTheme.FONTSIZE_ANNOTATION
 ```

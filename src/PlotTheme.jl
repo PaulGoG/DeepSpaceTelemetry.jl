@@ -1,6 +1,13 @@
+"""
+    PlotTheme
+
+Publication plotting standards shared by every figure: the Okabe–Ito
+semantic palette, journal-width figure geometry, print-scale typography, and
+the CairoMakie theme ([`telemetry_theme`](@ref)).
+"""
 module PlotTheme
 
-using CairoMakie
+using CairoMakie: CairoMakie, @colorant_str, Theme
 using MathTeXEngine: texfont
 
 export telemetry_theme,
