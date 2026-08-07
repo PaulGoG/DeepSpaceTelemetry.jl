@@ -29,6 +29,7 @@ function pre_populate(
     data_source::String = "synthetic",
     ext_path::String = "",
     rng::Random.AbstractRNG = Xoshiro(0),
+    signal_injection_probability::Float64 = 0.02,
 )
     downtime_ms = max(0, round(Int, initial_downtime_days * 86_400_000))
     downtime_start = start_sim_time - Millisecond(downtime_ms)
@@ -40,6 +41,7 @@ function pre_populate(
         data_source,
         ext_path;
         rng = rng,
+        signal_injection_probability = signal_injection_probability,
     )
     current_batch_segs = TelemetryCore.DataSegment[]
 
@@ -127,6 +129,8 @@ function run_emitter(
     deadline::Union{DateTime,Nothing} = nothing,
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
     heartbeat_path::Union{String,Nothing} = nothing,
+    max_inflight_batches::Int = 5,
+    signal_injection_probability::Float64 = 0.02,
 )
     # A fresh instrument anchors at the *current* mission time, not the
     # mission epoch: on a mid-mission restart the outage becomes an honest
@@ -140,6 +144,7 @@ function run_emitter(
             data_source,
             ext_path;
             rng = rng,
+            signal_injection_probability = signal_injection_probability,
         ) : instrument
     run_dir = TelemetryCore.run_directory(run_id)
     buffer_path = joinpath(run_dir, "onboard")
@@ -250,7 +255,7 @@ function run_emitter(
             link_count =
                 length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
 
-            if link_count < 5
+            if link_count < max_inflight_batches
                 next_batch = ""
                 reason = ""
                 if !isempty(onboard_live_queue)
@@ -261,11 +266,8 @@ function run_emitter(
                     reason = "Backfill"
                 end
                 if !isempty(next_batch)
-                    mv(
-                        joinpath(buffer_path, next_batch),
-                        joinpath(link_path, next_batch),
-                        force = true,
-                    )
+                    TelemetryCore.backup_existing_dir(joinpath(link_path, next_batch))
+                    mv(joinpath(buffer_path, next_batch), joinpath(link_path, next_batch))
                     @info "[EMITTER] Tx ->| $next_batch ($reason)"
                     TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
                 end

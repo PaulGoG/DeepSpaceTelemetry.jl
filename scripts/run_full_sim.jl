@@ -90,6 +90,9 @@ const RNG_SEED = Int(get(cfg["simulation"], "rng_seed", 0))
 const MAX_BATCHES_PER_HOUR = Float64(cfg["telemetry"]["max_batches_per_hour"])
 
 const DATA_SOURCE = get(cfg["physics"], "data_source", "synthetic")
+const SIGNAL_INJECTION_P = Float64(get(cfg["physics"], "signal_injection_probability", 0.02))
+const MAX_INFLIGHT = Int(get(cfg["telemetry"], "max_inflight_batches", 5))
+const MIN_LINK_FACTOR = Float64(get(cfg["telemetry"], "min_link_factor", 0.05))
 const EXT_PATH = get(cfg["physics"], "external_data_path", "")
 const SAMPLE_RATE = Float64(cfg["physics"]["sample_rate"])
 const SEG_DUR = Float64(cfg["physics"]["segment_duration_sec"])
@@ -171,6 +174,7 @@ instrument, leftover_segs =
             data_source = DATA_SOURCE,
             ext_path = EXT_PATH,
             rng = instrument_rng,
+            signal_injection_probability = SIGNAL_INJECTION_P,
         )
     end
 
@@ -225,6 +229,8 @@ function run_emitter_logged(attempt::Int = 0)
             initial_segments = attempt == 0 ? leftover_segs :
                                DeepSpaceTelemetry.TelemetryCore.DataSegment[],
             rng = attempt == 0 ? instrument_rng : Xoshiro(RNG_SEED + 100 + attempt),
+            signal_injection_probability = SIGNAL_INJECTION_P,
+            max_inflight_batches = MAX_INFLIGHT,
             deadline = mission_deadline,
             stop = stop_flag,
             heartbeat_path = heartbeats[:emitter],
@@ -245,6 +251,7 @@ function run_receiver_logged(attempt::Int = 0)
             loss_model = loss_model,
             max_retries = max_retries,
             retention = retention,
+            min_link_factor = MIN_LINK_FACTOR,
             deadline = mission_deadline,
             stop = stop_flag,
             heartbeat_path = heartbeats[:receiver],

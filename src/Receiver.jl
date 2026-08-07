@@ -967,6 +967,7 @@ function run_receiver(
     deadline::Union{DateTime,Nothing} = nothing,
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
     heartbeat_path::Union{String,Nothing} = nothing,
+    min_link_factor::Float64 = 0.05,
 )
     run_dir = TelemetryCore.run_directory(run_id)
     link_path = joinpath(run_dir, "link")
@@ -1186,7 +1187,7 @@ function run_receiver(
                 readdir(link_path),
             )
 
-            if !isempty(pending_batches) && bw_factor > 0.05
+            if !isempty(pending_batches) && bw_factor > min_link_factor
                 # LIVE before ARCH; within LIVE oldest-first (FIFO), within ARCH
                 # newest-first (LIFO). Plain lexicographic readdir order would
                 # scramble numeric IDs (e.g. batch_29 before batch_31).
@@ -1201,7 +1202,7 @@ function run_receiver(
 
                 base_dl_time = (3600.0 / max_batches_per_hour)
                 surge_dl_time = base_dl_time / (bw_factor * clock.speed_up)
-                sleep(max(0.001, surge_dl_time))
+                sleep(max(TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC, surge_dl_time))
 
                 loss_mult =
                     ChannelEffects.disruption_loss_multiplier(link.disruptions, sim_t)
@@ -1212,11 +1213,8 @@ function run_receiver(
                     if attempts > max_retries
                         # Retry budget exhausted: preserve the data in lost/,
                         # ack so the emitter frees the window slot.
-                        mv(
-                            joinpath(link_path, batch_name),
-                            joinpath(lost_path, batch_name),
-                            force = true,
-                        )
+                        TelemetryCore.backup_existing_dir(joinpath(lost_path, batch_name))
+                        mv(joinpath(link_path, batch_name), joinpath(lost_path, batch_name))
                         touch(joinpath(link_path, "$(batch_name).ack"))
                         delete!(retry_counts, batch_name)
                         lost_count += 1
@@ -1243,11 +1241,8 @@ function run_receiver(
                     @info "Bandwidth: $(round(bandwidth_pct))% | Batches buffered: $onboard_count | Total Data Batches: $ground_count"
 
                     prior_attempts = get(retry_counts, batch_name, 0)
-                    mv(
-                        joinpath(link_path, batch_name),
-                        joinpath(ground_path, batch_name),
-                        force = true,
-                    )
+                    TelemetryCore.backup_existing_dir(joinpath(ground_path, batch_name))
+                    mv(joinpath(link_path, batch_name), joinpath(ground_path, batch_name))
                     touch(joinpath(link_path, "$(batch_name).ack"))
                     delete!(retry_counts, batch_name)
                     if startswith(batch_name, "LIVE_")

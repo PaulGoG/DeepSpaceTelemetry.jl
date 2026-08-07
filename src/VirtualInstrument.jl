@@ -47,6 +47,7 @@ mutable struct InstrumentState
     ext_data::Vector{Float32}
     ext_index::Int
     rng::Random.AbstractRNG
+    signal_injection_probability::Float64
 
     function InstrumentState(
         start_t::DateTime,
@@ -55,6 +56,7 @@ mutable struct InstrumentState
         data_source::String,
         ext_path::String;
         rng::Random.AbstractRNG = Xoshiro(0),
+        signal_injection_probability::Float64 = 0.02,
     )
         n_samples = round(Int, sample_rate * seg_dur)
         if data_source == "external"
@@ -96,6 +98,7 @@ mutable struct InstrumentState
                 ext_data,
                 1,
                 rng,
+                signal_injection_probability,
             )
         else
             block_len = 2 * n_samples
@@ -121,6 +124,7 @@ mutable struct InstrumentState
                 Float32[],
                 1,
                 rng,
+                signal_injection_probability,
             )
         end
     end
@@ -212,7 +216,9 @@ function next_segment!(vi::InstrumentState)
         block = synth_windowed_block(vi.rng, vi.noise_amp, vi.window)
         data = Float32.(vi.carry .+ view(block, 1:n_samples))
         vi.carry = block[(n_samples+1):end]
-        is_sig = rand(vi.rng) > 0.98
+        # Stream-preserving form: rand > 1 - p reproduces the historical
+        # realization exactly at the default p = 0.02.
+        is_sig = rand(vi.rng) > 1.0 - vi.signal_injection_probability
     end
 
     seg = TelemetryCore.DataSegment(vi.id_counter, vi.last_t, data, is_sig)

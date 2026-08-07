@@ -394,10 +394,13 @@ visibility from `[telemetry]`, disruptions from `[disruption]` anchored at
 `simulation.start_sim_time`.
 """
 function build_link_model(cfg::AbstractDict)
+    tel = cfg["telemetry"]
     vis = TelemetryCore.VisibilityModel(
-        Time(cfg["telemetry"]["session_start"]),
-        Second(round(Int, Float64(cfg["telemetry"]["session_duration_hours"]) * 3600)),
-        String(get(cfg["telemetry"], "bandwidth_profile", "sine")),
+        Time(tel["session_start"]),
+        Second(round(Int, Float64(tel["session_duration_hours"]) * 3600)),
+        String(get(tel, "bandwidth_profile", "sine")),
+        Float64(get(tel, "sigmoid_steepness", 10.0)),
+        Float64(get(tel, "gaussian_sigma", 0.15)),
     )
     start_sim = DateTime(cfg["simulation"]["start_sim_time"])
     return LinkModel(vis, build_disruption_timeline(cfg, start_sim))

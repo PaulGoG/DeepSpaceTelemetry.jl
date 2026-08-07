@@ -207,6 +207,10 @@ const KNOWN_CONFIG_KEYS = Dict(
         "session_duration_hours",
         "max_batches_per_hour",
         "bandwidth_profile",
+        "max_inflight_batches",
+        "min_link_factor",
+        "sigmoid_steepness",
+        "gaussian_sigma",
     ],
     "physics" => [
         "data_source",
@@ -214,6 +218,7 @@ const KNOWN_CONFIG_KEYS = Dict(
         "sample_rate",
         "segment_duration_sec",
         "batch_size",
+        "signal_injection_probability",
     ],
     "packet_loss" => [
         "enabled",
@@ -317,6 +322,26 @@ function validate_config(cfg::AbstractDict)
     tel = get(cfg, "telemetry", Dict{String,Any}())
     phy = get(cfg, "physics", Dict{String,Any}())
 
+    # Required keys (R1 policy): a missing core tunable is a configuration
+    # error, never a silently invented default.
+    for (section, sec_name, required) in (
+        (sim, "simulation", ("speed_up", "start_sim_time", "test_duration_sec")),
+        (
+            tel,
+            "telemetry",
+            ("session_start", "session_duration_hours", "max_batches_per_hour"),
+        ),
+        (
+            phy,
+            "physics",
+            ("data_source", "sample_rate", "segment_duration_sec", "batch_size"),
+        ),
+    )
+        for key in required
+            haskey(section, key) || error("[CONFIG] Missing required key $sec_name.$key.")
+        end
+    end
+
     # -- [simulation] --
     speed_up = checked_number(get(sim, "speed_up", 0.0), "simulation.speed_up")
     speed_up > 0.0 || error("[CONFIG] simulation.speed_up must be > 0 (got $speed_up).")
@@ -405,6 +430,21 @@ function validate_config(cfg::AbstractDict)
     mbph > 0.0 || error("[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $mbph).")
     profile =
         checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
+    mib = checked_integer(get(tel, "max_inflight_batches", 5), "telemetry.max_inflight_batches")
+    mib >= 1 || error("[CONFIG] telemetry.max_inflight_batches must be ≥ 1 (got $mib).")
+    mlf = checked_number(get(tel, "min_link_factor", 0.05), "telemetry.min_link_factor")
+    0.0 <= mlf < 1.0 ||
+        error("[CONFIG] telemetry.min_link_factor = $mlf outside [0, 1).")
+    for (key, default) in (("sigmoid_steepness", 10.0), ("gaussian_sigma", 0.15))
+        v = checked_number(get(tel, key, default), "telemetry.$key")
+        v > 0.0 || error("[CONFIG] telemetry.$key must be > 0 (got $v).")
+    end
+    sip = checked_number(
+        get(phy, "signal_injection_probability", 0.02),
+        "physics.signal_injection_probability",
+    )
+    0.0 <= sip <= 1.0 ||
+        error("[CONFIG] physics.signal_injection_probability = $sip outside [0, 1].")
     profile in ("sine", "sigmoid", "gaussian", "flat") ||
         @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$profile\"; falling back to \"sine\"."
 
@@ -419,7 +459,7 @@ function validate_config(cfg::AbstractDict)
     rx_slot_ms = 3600.0 / (mbph * speed_up) * 1000.0
     if rx_slot_ms < 2.0
         @warn "[CONFIG] Receiver download slot is $(round(rx_slot_ms, digits=2)) ms " *
-              "(3600 / (max_batches_per_hour × speed_up)). The 1 ms sleep floor distorts " *
+              "(3600 / (max_batches_per_hour × speed_up)). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
               "the effective downlink rate. Decrease speed_up or max_batches_per_hour."
     end
 
@@ -586,6 +626,15 @@ estimator so the metrics-row bound and the realized sampling cadence cannot
 drift apart.
 """
 const METRICS_BANDWIDTH_HYSTERESIS_PCT = 0.1
+
+"""
+    RECEIVER_SLEEP_FLOOR_SEC
+
+Minimum receiver download-slot sleep [s] — an OS scheduler property, not a
+tunable. Shared between the receiver loop and the validator warning about
+download-rate distortion so the two can never drift apart.
+"""
+const RECEIVER_SLEEP_FLOOR_SEC = 0.001
 
 """
     storage_budget(cfg::AbstractDict) -> (max_gb, max_files)
@@ -1076,6 +1125,26 @@ function max_logged_batch_id(run_dir::String)
     )
 end
 
+"""
+    backup_existing_dir(path::String) -> Union{String, Nothing}
+
+Directory counterpart of [`backup_existing`](@ref): renames an existing
+directory to `<name>#<k>` (smallest unused `k`) so a same-named arrival never
+silently overwrites recorded data. Returns the backup path, or `nothing` when
+`path` did not exist.
+"""
+function backup_existing_dir(path::String)
+    isdir(path) || return nothing
+    k = 1
+    while ispath("$(path)#$(k)")
+        k += 1
+    end
+    backup = "$(path)#$(k)"
+    mv(path, backup)
+    @warn "[SAFESAVE] Existing directory backed up to: $backup"
+    return backup
+end
+
 # --- Safe File Writing (DrWatson `safesave` semantics for CSV/TOML) ---
 """
     backup_existing(path::String) -> Union{String, Nothing}
@@ -1217,6 +1286,13 @@ struct VisibilityModel
     session_start::Time
     session_duration::Second
     profile::String
+    sigmoid_steepness::Float64
+    gaussian_sigma::Float64
+end
+
+# Backward-compatible constructor with the documented default profile shapes.
+function VisibilityModel(session_start::Time, session_duration::Second, profile::String)
+    return VisibilityModel(session_start, session_duration, profile, 10.0, 0.15)
 end
 
 """
@@ -1255,10 +1331,11 @@ function get_bandwidth_factor(model::VisibilityModel, t::DateTime)
     if model.profile == "sine"
         return sin(pi * progress)^2
     elseif model.profile == "sigmoid"
-        return (tanh(10 * progress) + tanh(10 * (1 - progress))) / 2.0
+        k = model.sigmoid_steepness
+        return (tanh(k * progress) + tanh(k * (1 - progress))) / 2.0
     elseif model.profile == "gaussian"
         # centered at 0.5, stdev roughly 0.15
-        return exp(-((progress - 0.5)^2) / (2 * 0.15^2))
+        return exp(-((progress - 0.5)^2) / (2 * model.gaussian_sigma^2))
     elseif model.profile == "flat"
         return 1.0
     else

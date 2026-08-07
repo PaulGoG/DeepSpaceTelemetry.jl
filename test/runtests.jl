@@ -168,10 +168,22 @@ end
         ("physics", "segment_duration_sec", 0.0),
         ("physics", "batch_size", 0),
         ("physics", "data_source", "unsupported_source"),
+        ("telemetry", "max_inflight_batches", 0),
+        ("telemetry", "min_link_factor", 1.0),
+        ("telemetry", "sigmoid_steepness", 0.0),
+        ("physics", "signal_injection_probability", 1.5),
     ]
     for (section, key, val) in broken
         cfg = valid_test_cfg()
         cfg[section][key] = val
+        @test_throws ErrorException TelemetryCore.validate_config(cfg)
+    end
+
+    # Missing required keys are configuration errors, never invented defaults
+    for (section, key) in
+        [("simulation", "speed_up"), ("telemetry", "session_start"), ("physics", "batch_size")]
+        cfg = valid_test_cfg()
+        delete!(cfg[section], key)
         @test_throws ErrorException TelemetryCore.validate_config(cfg)
     end
 

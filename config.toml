@@ -27,6 +27,10 @@ session_start = "08:00:00"           # Daily DSN window start time. SAFE: HH:MM:
 session_duration_hours = 8.0         # Daily DSN window duration [h]. SAFE: (0, 24].
 max_batches_per_hour = 60.0          # Peak DSN transmission capacity [batches/h]. SAFE: > 0.
 bandwidth_profile = "gaussian"       # Downlink profile. One of: "sine" | "sigmoid" | "gaussian" | "flat".
+max_inflight_batches = 5             # Concurrent batches allowed on the downlink. SAFE: >= 1.
+min_link_factor = 0.05               # Capacity floor below which no transfer is attempted. SAFE: [0, 1).
+sigmoid_steepness = 10.0             # Sigmoid profile edge steepness. SAFE: > 0.
+gaussian_sigma = 0.15                # Gaussian profile standard deviation. SAFE: > 0.
 
 [physics]
 data_source = "synthetic"            # Data stream mode. One of: "synthetic" | "external".
@@ -34,6 +38,7 @@ external_data_path = "data/example_external_strain.csv" # File path when data_so
 sample_rate = 4.0                    # Strain sampling frequency [Hz]. SAFE: > 0.
 segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
 batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
+signal_injection_probability = 0.02  # Per-segment synthetic signal-flag probability. SAFE: [0, 1].
 
 [packet_loss]
 enabled = true                       # Packet loss toggle. One of: true | false.
