@@ -1,5 +1,9 @@
 # DeepSpaceTelemetry
 
+[![CI](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml)
+[![Coverage](https://codecov.io/gh/PaulGoG/DeepSpaceTelemetry.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/PaulGoG/DeepSpaceTelemetry.jl)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A Julia framework simulating the telemetry environment of deep-space science
 missions: duty-cycled Deep Space Network (DSN) contact windows, prioritized
 near-real-time (FIFO) transmission with LIFO archival backfill, stochastic
@@ -65,9 +69,30 @@ DeepSpaceTelemetry/
 
 ---
 
+## Obtaining the Package
+
+Requires Julia ≥ 1.11 ([juliaup](https://github.com/JuliaLang/juliaup) is the
+recommended installer). Clone the repository:
+
+```bash
+git clone git@github.com:PaulGoG/DeepSpaceTelemetry.jl.git
+cd DeepSpaceTelemetry.jl
+```
+
+To consume the package as a library from another environment instead
+(registration in General is pending):
+
+```julia
+using Pkg
+Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl")
+```
+
+---
+
 ## Environment Setup
 
-All commands below are executed **from the package root** (this directory).
+All commands below are executed **from the package root** (the cloned
+repository directory).
 Relative config paths also resolve against the package root, so the scripts
 work unmodified from any working directory.
 

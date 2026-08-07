@@ -37,5 +37,5 @@ _Nothing yet._
 - Static QA shipped with the tests: Aqua, ExplicitImports, and JET alongside
   unit, physics-validation, and three end-to-end integration suites.
 
-[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry/compare/v0.9.0...HEAD
-[0.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry/releases/tag/v0.9.0
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/releases/tag/v0.9.0
