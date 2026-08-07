@@ -1,13 +1,8 @@
 using Pkg;
-Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
+Pkg.activate(@__DIR__, io = devnull);
 Pkg.instantiate(io = devnull)
 
-# Guarded include: launch_dashboard.jl loads the module before including this
-# script, and re-including would replace the module mid-flight.
-if !isdefined(Main, :DeepSpaceTelemetry)
-    include("../src/DeepSpaceTelemetry.jl")
-end
-using .DeepSpaceTelemetry
+using DeepSpaceTelemetry
 using Dates, CSV, DataFrames
 using Logging, LoggingExtras, TerminalLoggers
 using Random

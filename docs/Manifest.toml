@@ -112,12 +112,6 @@ git-tree-sha1 = "8c290a1b223deaeea9aea44b235d24546da8eb98"
 uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
 version = "1.4.0"
 
-[[deps.BenchmarkTools]]
-deps = ["Compat", "JSON", "Logging", "PrecompileTools", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "9670d3febc2b6da60a0ae57846ba74670290653f"
-uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.8.0"
-
 [[deps.Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "1b96ea4a01afe0ea4090c5c8039690672dd13f2e"
@@ -342,7 +336,7 @@ uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 version = "1.11.0"
 
 [[deps.DeepSpaceTelemetry]]
-deps = ["BenchmarkTools", "CSV", "CairoMakie", "DataFrames", "Dates", "DrWatson", "FFTW", "FileWatching", "JSON3", "Logging", "LoggingExtras", "MathTeXEngine", "ProgressMeter", "Random", "SHA", "TOML", "TerminalLoggers", "UnicodePlots"]
+deps = ["CSV", "CairoMakie", "DataFrames", "Dates", "DrWatson", "FFTW", "FileWatching", "JSON3", "MathTeXEngine", "ProgressMeter", "Random", "TOML"]
 path = ".."
 uuid = "d178d3ae-5836-4a75-9bfd-2e34bfeccb6b"
 version = "1.0.0"
@@ -912,12 +906,6 @@ git-tree-sha1 = "a560dd966b386ac9ae60bdd3a3d3a326062d3c3e"
 uuid = "8cdb02fc-e678-4876-92c5-9defec4f444e"
 version = "0.3.1"
 
-[[deps.LeftChildRightSiblingTrees]]
-deps = ["AbstractTrees"]
-git-tree-sha1 = "95ba48564903b43b2462318aa243ee79d81135ff"
-uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
-version = "0.2.1"
-
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
@@ -1008,12 +996,6 @@ version = "1.0.1"
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 version = "1.11.0"
 
-[[deps.LoggingExtras]]
-deps = ["Dates", "Logging"]
-git-tree-sha1 = "f00544d95982ea270145636c181ceda21c4e2575"
-uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
-version = "1.2.0"
-
 [[deps.MKL_jll]]
 deps = ["Artifacts", "IntelOpenMP_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "oneTBB_jll"]
 git-tree-sha1 = "282cadc186e7b2ae0eeadbd7a4dffed4196ae2aa"
@@ -1041,12 +1023,6 @@ version = "0.24.13"
 git-tree-sha1 = "0ee4497a4e80dbd29c058fcee6493f5219556f40"
 uuid = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
 version = "0.4.3"
-
-[[deps.MarchingCubes]]
-deps = ["PrecompileTools", "StaticArrays"]
-git-tree-sha1 = "0e893025924b6becbae4109f8020ac0e12674b01"
-uuid = "299715c1-40a9-479a-aaf9-4a633d36f717"
-version = "0.1.11"
 
 [[deps.Markdown]]
 deps = ["Base64", "JuliaSyntaxHighlighting", "StyledStrings"]
@@ -1302,17 +1278,6 @@ version = "0.5.7"
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 version = "1.11.0"
-
-[[deps.Profile]]
-deps = ["StyledStrings"]
-uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
-version = "1.11.0"
-
-[[deps.ProgressLogging]]
-deps = ["Logging", "SHA", "UUIDs"]
-git-tree-sha1 = "f0803bc1171e455a04124affa9c21bba5ac4db32"
-uuid = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
-version = "0.1.6"
 
 [[deps.ProgressMeter]]
 deps = ["Distributed", "Printf"]
@@ -1667,12 +1632,6 @@ git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
 uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
 version = "0.1.1"
 
-[[deps.TerminalLoggers]]
-deps = ["LeftChildRightSiblingTrees", "Logging", "Markdown", "Printf", "ProgressLogging", "UUIDs"]
-git-tree-sha1 = "f133fab380933d042f6796eda4e130272ba520ca"
-uuid = "5d786b92-1e48-4d6f-9151-6b4477ca9bed"
-version = "0.1.7"
-
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
@@ -1713,27 +1672,6 @@ deps = ["REPL"]
 git-tree-sha1 = "53915e50200959667e78a92a418594b428dffddf"
 uuid = "1cfade01-22cf-5700-b092-accc4b62d6e1"
 version = "0.4.1"
-
-[[deps.UnicodePlots]]
-deps = ["ColorSchemes", "ColorTypes", "Contour", "Crayons", "Dates", "LinearAlgebra", "MarchingCubes", "NaNMath", "PrecompileTools", "Printf", "SparseArrays", "StaticArrays", "StatsBase"]
-git-tree-sha1 = "24d2e39c49110ffe5ab6b298a9b53a56f3ac57eb"
-uuid = "b8865327-cd53-5732-bb35-84acbb429228"
-version = "3.8.4"
-
-    [deps.UnicodePlots.extensions]
-    FreeTypeExt = ["FileIO", "FreeType"]
-    ImageInTerminalExt = "ImageInTerminal"
-    IntervalSetsExt = "IntervalSets"
-    TermExt = "Term"
-    UnitfulExt = "Unitful"
-
-    [deps.UnicodePlots.weakdeps]
-    FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-    FreeType = "b38be410-82b0-50bf-ab77-7b57e271db43"
-    ImageInTerminal = "d8c32880-2388-543b-8c61-d9f865259254"
-    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
-    Term = "22787eb5-b846-44ae-b979-8e399b8463ab"
-    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.Unitful]]
 deps = ["Dates", "LinearAlgebra", "Random"]

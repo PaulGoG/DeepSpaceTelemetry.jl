@@ -1,5 +1,5 @@
 using Pkg;
-Pkg.activate(joinpath(@__DIR__, "..", ".."), io = devnull);
+Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
 Pkg.instantiate(io = devnull)
 
 """

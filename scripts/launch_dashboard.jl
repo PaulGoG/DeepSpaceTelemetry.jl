@@ -1,8 +1,8 @@
 using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."), io = devnull)
+Pkg.activate(@__DIR__, io = devnull)
 Pkg.instantiate(io = devnull)
 
-include("../src/DeepSpaceTelemetry.jl")
+using DeepSpaceTelemetry
 
 function launch_terminal(title::String, cmd::String)
     if Sys.islinux()

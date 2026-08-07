@@ -1,8 +1,7 @@
 using Pkg;
-Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
+Pkg.activate(@__DIR__, io = devnull);
 Pkg.instantiate(io = devnull)
-include("../src/DeepSpaceTelemetry.jl")
-using .DeepSpaceTelemetry
+using DeepSpaceTelemetry
 using UnicodePlots, Dates
 
 """

@@ -15,7 +15,7 @@ Usage:
 """
 
 using Pkg;
-Pkg.activate(joinpath(@__DIR__, "..", ".."), io = devnull);
+Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
 Pkg.instantiate(io = devnull)
 using CSV, DataFrames, TOML
 # Reuse the already-loaded module when included from run_full_sim.jl (where

@@ -18,22 +18,10 @@ using DeepSpaceTelemetry:
 TelemetryCore.DATA_ROOT[] = mktempdir()
 
 @testset "Static QA (Aqua)" begin
-    # Script-only dependencies (consumed by scripts/ and bench/, which share
-    # the package environment) are exempted from the stale-deps check; their
-    # relocation into dedicated environments is tracked in the remedial plan.
-    Aqua.test_all(
-        DeepSpaceTelemetry;
-        stale_deps = (
-            ignore = [
-                :BenchmarkTools,
-                :Logging,
-                :LoggingExtras,
-                :SHA,
-                :TerminalLoggers,
-                :UnicodePlots,
-            ],
-        ),
-    )
+    # Scripts and benchmarks carry their own environments (scripts/Project.toml,
+    # bench/Project.toml), so the package dependency graph is exactly what
+    # src/ loads and the stale-deps check runs unexempted.
+    Aqua.test_all(DeepSpaceTelemetry)
 end
 
 @testset "Static QA (ExplicitImports)" begin

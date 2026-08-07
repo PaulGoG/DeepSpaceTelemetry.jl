@@ -3,8 +3,7 @@ Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
 Pkg.instantiate(io = devnull)
 using BenchmarkTools
 using Dates, Random, CSV, DataFrames, Logging
-include("../src/DeepSpaceTelemetry.jl")
-using .DeepSpaceTelemetry
+using DeepSpaceTelemetry
 
 const suite = BenchmarkGroup()
 

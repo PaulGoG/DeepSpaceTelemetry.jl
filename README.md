@@ -25,6 +25,8 @@ DeepSpaceTelemetry/
 │   ├── Emitter.jl               # Satellite state machine (payload/queues)
 │   └── Receiver.jl              # DSN ground station, loss handling, post-processing
 ├── scripts/
+│   ├── Project.toml             # Script environment (UI/log deps; parent package dev'ed)
+│   ├── Manifest.toml            # Resolved script environment (committed for portability)
 │   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
 │   ├── run_full_sim.jl          # Headless simulation engine ([run_id] [config.toml])
 │   ├── live_viewer.jl           # Terminal UI thread (incl. Lost row)
@@ -40,6 +42,8 @@ DeepSpaceTelemetry/
 │   ├── Manifest.toml            # Resolved test environment (committed for portability)
 │   └── runtests.jl              # Static QA + unit + physics + 3 integration suites
 ├── bench/
+│   ├── Project.toml             # Benchmark environment (BenchmarkTools; parent dev'ed)
+│   ├── Manifest.toml            # Resolved benchmark environment
 │   └── benchmarks.jl            # Performance benchmarks (incl. channel hot paths)
 ├── docs/
 │   ├── make.jl                  # Documenter.jl build script

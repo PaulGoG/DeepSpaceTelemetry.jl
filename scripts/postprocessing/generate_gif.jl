@@ -1,8 +1,7 @@
 using Pkg;
-Pkg.activate(joinpath(@__DIR__, "..", ".."), io = devnull);
+Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
 Pkg.instantiate(io = devnull)
-include("../../src/DeepSpaceTelemetry.jl")
-using .DeepSpaceTelemetry
+using DeepSpaceTelemetry
 using CairoMakie, CSV, DataFrames, Dates
 
 function create_telemetry_gif(run_id::String)

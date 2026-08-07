@@ -1,9 +1,9 @@
 using Pkg;
-Pkg.activate(joinpath(@__DIR__, "..", ".."), io = devnull);
+Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
 Pkg.instantiate(io = devnull)
 using CSV, DataFrames
-include(joinpath(@__DIR__, "..", "..", "src", "TelemetryCore.jl"))
-using .TelemetryCore
+using DeepSpaceTelemetry
+using DeepSpaceTelemetry: TelemetryCore
 
 sample_rate = 16.0    # [Hz]
 duration_hours = 75.0 # Covers 3.125 days of simulation
