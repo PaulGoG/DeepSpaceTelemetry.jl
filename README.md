@@ -54,6 +54,8 @@ DeepSpaceTelemetry/
 │       └── <RUN_ID>/            # onboard/ link/ ground/ lost/ plots/ masks/
 │                                # + mission_profile.csv, events_tx.csv, events_rx.csv,
 │                                #   config_snapshot.toml, emitter.log, receiver.log
+├── .github/workflows/CI.yml     # Test matrix + formatter + docs build (activates on remote)
+├── CHANGELOG.md                 # Notable changes (Keep a Changelog format)
 ├── config.toml                  # The shipped config — safe intervals documented per key
 ├── Project.toml                 # Package metadata, deps, compat bounds
 ├── Manifest.toml                # Resolved dependency graph (committed for portability)
