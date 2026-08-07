@@ -71,7 +71,7 @@ DeepSpaceTelemetry/
 
 ## Obtaining the Package
 
-Requires Julia ≥ 1.11 ([juliaup](https://github.com/JuliaLang/juliaup) is the
+Requires Julia ≥ 1.12 ([juliaup](https://github.com/JuliaLang/juliaup) is the
 recommended installer). Clone the repository:
 
 ```bash

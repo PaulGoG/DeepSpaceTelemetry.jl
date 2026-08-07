@@ -13,10 +13,32 @@ using ..TelemetryCore
 using ..ChannelEffects
 using ..PlotTheme
 using CSV: CSV
-using CairoMakie: CairoMakie,
-    Auto, Axis, Figure, Legend, LineElement, LinearTicks, MarkerElement, PolyElement,
-    band!, hidespines!, hidexdecorations!, lines!, linkxaxes!, rowsize!, save, scatter!,
-    stairs!, text!, translate!, vlines!, vspan!, with_theme, xlims!, ylims!
+using CairoMakie:
+    CairoMakie,
+    Auto,
+    Axis,
+    Figure,
+    Legend,
+    LineElement,
+    LinearTicks,
+    MarkerElement,
+    PolyElement,
+    band!,
+    hidespines!,
+    hidexdecorations!,
+    lines!,
+    linkxaxes!,
+    rowsize!,
+    save,
+    scatter!,
+    stairs!,
+    text!,
+    translate!,
+    vlines!,
+    vspan!,
+    with_theme,
+    xlims!,
+    ylims!
 using DataFrames: DataFrames, DataFrame, nrow
 using Dates: Dates, Date, DateTime, Day, Hour, Millisecond, Second, Time, now
 using FileWatching: FileWatching, watch_folder
@@ -212,15 +234,31 @@ function generate_mission_plots(run_dir::String)
                     ),
                 )
                 push!(labels, "Nominal capacity")
-                push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 2 * PlotTheme.LINEWIDTH_DATA))
+                push!(
+                    elems,
+                    LineElement(
+                        color = COLOR_BANDWIDTH,
+                        linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                    ),
+                )
                 push!(labels, "Effective capacity")
             else
-                push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 2 * PlotTheme.LINEWIDTH_DATA))
+                push!(
+                    elems,
+                    LineElement(
+                        color = COLOR_BANDWIDTH,
+                        linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                    ),
+                )
                 push!(labels, "Link capacity")
             end
             push!(
                 elems,
-                LineElement(color = COLOR_ONBOARD, linewidth = 2 * PlotTheme.LINEWIDTH_DATA, linestyle = :dash),
+                LineElement(
+                    color = COLOR_ONBOARD,
+                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                    linestyle = :dash,
+                ),
             )
             push!(labels, "Onboard buffer")
             push!(
@@ -245,7 +283,10 @@ function generate_mission_plots(run_dir::String)
                 push!(
                     elems,
                     [
-                        LineElement(color = COLOR_LOST, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
+                        LineElement(
+                            color = COLOR_LOST,
+                            linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                        ),
                         MarkerElement(
                             marker = :xcross,
                             color = COLOR_LOST,
@@ -257,7 +298,11 @@ function generate_mission_plots(run_dir::String)
             elseif lost === :marks
                 push!(
                     elems,
-                    MarkerElement(marker = :xcross, color = COLOR_LOST, markersize = PlotTheme.MARKERSIZE_DATA),
+                    MarkerElement(
+                        marker = :xcross,
+                        color = COLOR_LOST,
+                        markersize = PlotTheme.MARKERSIZE_DATA,
+                    ),
                 )
                 push!(labels, "Lost")
             end
@@ -306,13 +351,14 @@ function generate_mission_plots(run_dir::String)
     tick_labels = ["Day $(Int(floor(v/24)))" for v in tick_vals_h]
 
     with_theme(telemetry_theme()) do
-        fig_global =
-            Figure(
-                size = (PlotTheme.FIG_SIZE_SUMMARY[1],
-                        show_lost_panel ? PlotTheme.FIG_SIZE_SUMMARY[2] + 90 :
-                        PlotTheme.FIG_SIZE_SUMMARY[2]),
-                figure_padding = 10,
-            )
+        fig_global = Figure(
+            size = (
+                PlotTheme.FIG_SIZE_SUMMARY[1],
+                show_lost_panel ? PlotTheme.FIG_SIZE_SUMMARY[2] + 90 :
+                PlotTheme.FIG_SIZE_SUMMARY[2],
+            ),
+            figure_padding = 10,
+        )
 
         # Dual Y-axis for global plot 1
         ax1 = Axis(
@@ -414,7 +460,7 @@ function generate_mission_plots(run_dir::String)
             lost_curve = has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
             ylims!(ax3, 0, max(4.0, 1.35 * maximum(lost_curve)))
             shade_disruptions!(ax3, 0.0, max_x_h)
-        shade_outages!(ax3, 0.0, max_x_h)
+            shade_outages!(ax3, 0.0, max_x_h)
             stairs!(ax3, df_x, lost_curve, color = COLOR_LOST)
             inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
             scatter!(
@@ -545,7 +591,7 @@ function generate_mission_plots(run_dir::String)
             ylims!(ax_s1_twin, 0, max(10.0, 1.3 * max_sess_onb))
 
             shade_disruptions!(ax_s1, min_sess_h, max_sess_h)
-        shade_outages!(ax_s1, min_sess_h, max_sess_h)
+            shade_outages!(ax_s1, min_sess_h, max_sess_h)
             if sess_degraded
                 lines!(
                     ax_s1,
@@ -580,7 +626,7 @@ function generate_mission_plots(run_dir::String)
             ylims!(ax_s2, 0, y_max_s2)
 
             shade_disruptions!(ax_s2, min_sess_h, max_sess_h)
-        shade_outages!(ax_s2, min_sess_h, max_sess_h)
+            shade_outages!(ax_s2, min_sess_h, max_sess_h)
 
             band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd, color = (COLOR_LIVE, 0.4))
             stairs!(ax_s2, plot_x, plot_gnd, color = COLOR_LIVE)
@@ -946,10 +992,13 @@ function generate_telemetry_masks(run_dir::String)
     tx_path = joinpath(run_dir, "events_tx.csv")
     if isfile(tx_path)
         tx_events = CSV.read(tx_path, DataFrame)
-        gens = tx_events[tx_events.Event.=="gen", :]
+        gens = tx_events[tx_events.Event .== "gen", :]
         if !isempty(gens)
             epochs = DataFrame(Batch = gens.Batch, GenSimTime = gens.SimTime)
-            TelemetryCore.safe_csv_write(joinpath(run_dir, "masks", "batch_epochs.csv"), epochs)
+            TelemetryCore.safe_csv_write(
+                joinpath(run_dir, "masks", "batch_epochs.csv"),
+                epochs,
+            )
         end
     end
 end
@@ -1052,10 +1101,8 @@ function run_receiver(
             )
             unrecorded = setdiff(Set(ground_seed), keys(ingested_t))
             isempty(unrecorded) ||
-                @warn "[RECEIVER] Re-attach: $(length(unrecorded)) batches in ground/ lack an ingested record (crash window between delivery and logging); the mask replay shows them in transit." batches = first(
-                    sort!(collect(unrecorded)),
-                    min(5, length(unrecorded)),
-                )
+                @warn "[RECEIVER] Re-attach: $(length(unrecorded)) batches in ground/ lack an ingested record (crash window between delivery and logging); the mask replay shows them in transit." batches =
+                    first(sort!(collect(unrecorded)), min(5, length(unrecorded)))
             if retention.enabled
                 pruned_set =
                     Set(String(r.Batch) for r in eachrow(rx_hist) if r.Event == "pruned")
@@ -1066,7 +1113,8 @@ function run_receiver(
                 for b in survivors
                     bdir = joinpath(ground_path, b)
                     payload = sum(
-                        f -> startswith(f, "seg_") ? Int(filesize(joinpath(bdir, f))) : 0,
+                        f ->
+                            startswith(f, "seg_") ? Int(filesize(joinpath(bdir, f))) : 0,
                         readdir(bdir);
                         init = 0,
                     )

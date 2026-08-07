@@ -5,8 +5,7 @@ using DeepSpaceTelemetry
 using CairoMakie, CSV, DataFrames, Dates
 
 function create_telemetry_gif(run_id::String)
-    run_dir =
-        DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
+    run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
     log_path = joinpath(run_dir, "mission_profile.csv")
 
     if !isfile(log_path)

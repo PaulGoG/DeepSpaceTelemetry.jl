@@ -85,7 +85,8 @@ const RNG_SEED = Int(get(cfg["simulation"], "rng_seed", 0))
 const MAX_BATCHES_PER_HOUR = Float64(cfg["telemetry"]["max_batches_per_hour"])
 
 const DATA_SOURCE = get(cfg["physics"], "data_source", "synthetic")
-const SIGNAL_INJECTION_P = Float64(get(cfg["physics"], "signal_injection_probability", 0.02))
+const SIGNAL_INJECTION_P =
+    Float64(get(cfg["physics"], "signal_injection_probability", 0.02))
 const MAX_INFLIGHT = Int(get(cfg["telemetry"], "max_inflight_batches", 5))
 const MIN_LINK_FACTOR = Float64(get(cfg["telemetry"], "min_link_factor", 0.05))
 const EXT_PATH = get(cfg["physics"], "external_data_path", "")
@@ -298,13 +299,17 @@ while !all(istaskdone, values(tasks))
                 # No live events_tx writer exists at this instant: record the
                 # generation gap bounds before the replacement starts.
                 tx_p = joinpath(run_dir, "events_tx.csv")
-                last_gen = isfile(tx_p) ?
-                           maximum(
-                    CSV.read(tx_p, DataFrame).SimTime;
-                    init = clock.start_sim_time,
-                ) : clock.start_sim_time
+                last_gen =
+                    isfile(tx_p) ?
+                    maximum(
+                        CSV.read(tx_p, DataFrame).SimTime;
+                        init = clock.start_sim_time,
+                    ) : clock.start_sim_time
                 DeepSpaceTelemetry.TelemetryCore.log_tx_event(
-                    run_dir, last_gen, "STREAM", "gap_start",
+                    run_dir,
+                    last_gen,
+                    "STREAM",
+                    "gap_start",
                 )
                 DeepSpaceTelemetry.TelemetryCore.log_tx_event(
                     run_dir,
@@ -325,7 +330,10 @@ while !all(istaskdone, values(tasks))
         else
             push!(failure_handled, name)
             stop_flag[] = true
-            println(orig_stdout, "[SUPERVISOR] Policy abort: stopping the partner component.")
+            println(
+                orig_stdout,
+                "[SUPERVISOR] Policy abort: stopping the partner component.",
+            )
         end
     end
     # Watchdog: a hung (not dead) component stops heartbeating.

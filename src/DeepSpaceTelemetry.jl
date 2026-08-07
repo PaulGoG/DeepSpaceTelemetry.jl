@@ -20,7 +20,6 @@ include("Receiver.jl")
 
 export TelemetryCore, ChannelEffects, VirtualInstrument, PlotTheme, Emitter, Receiver
 
-
 using PrecompileTools: @setup_workload, @compile_workload
 using Dates: DateTime, Time, Second
 
@@ -61,9 +60,7 @@ using Dates: DateTime, Time, Second
         TelemetryCore.get_bandwidth_factor(vis, DateTime(2035, 1, 1, 12))
         loss = ChannelEffects.build_loss_model(precompile_cfg, 1)
         ChannelEffects.sample_loss!(loss)
-        vi = VirtualInstrument.InstrumentState(
-            DateTime(2035), 4.0, 60.0, "synthetic", "",
-        )
+        vi = VirtualInstrument.InstrumentState(DateTime(2035), 4.0, 60.0, "synthetic", "")
         VirtualInstrument.next_segment!(vi)
     end
 end

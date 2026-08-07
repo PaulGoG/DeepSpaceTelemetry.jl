@@ -166,8 +166,11 @@ end
     end
 
     # Missing required keys are configuration errors, never invented defaults
-    for (section, key) in
-        [("simulation", "speed_up"), ("telemetry", "session_start"), ("physics", "batch_size")]
+    for (section, key) in [
+        ("simulation", "speed_up"),
+        ("telemetry", "session_start"),
+        ("physics", "batch_size"),
+    ]
         cfg = valid_test_cfg()
         delete!(cfg[section], key)
         @test_throws ErrorException TelemetryCore.validate_config(cfg)

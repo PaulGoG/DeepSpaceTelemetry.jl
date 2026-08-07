@@ -41,8 +41,7 @@ Runs an active terminal UI visualization using UnicodePlots to track the LIFO/FI
 progression of telemetry batches across the mission lifecycle.
 """
 function run_viewer(run_id::String)
-    run_dir =
-        DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
+    run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
     onboard_path = joinpath(run_dir, "onboard")
     link_path = joinpath(run_dir, "link")
     ground_path = joinpath(run_dir, "ground")

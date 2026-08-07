@@ -449,11 +449,13 @@ function validate_config(cfg::AbstractDict)
     mbph > 0.0 || error("[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $mbph).")
     profile =
         checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
-    mib = checked_integer(get(tel, "max_inflight_batches", 5), "telemetry.max_inflight_batches")
+    mib = checked_integer(
+        get(tel, "max_inflight_batches", 5),
+        "telemetry.max_inflight_batches",
+    )
     mib >= 1 || error("[CONFIG] telemetry.max_inflight_batches must be ≥ 1 (got $mib).")
     mlf = checked_number(get(tel, "min_link_factor", 0.05), "telemetry.min_link_factor")
-    0.0 <= mlf < 1.0 ||
-        error("[CONFIG] telemetry.min_link_factor = $mlf outside [0, 1).")
+    0.0 <= mlf < 1.0 || error("[CONFIG] telemetry.min_link_factor = $mlf outside [0, 1).")
     for (key, default) in (("sigmoid_steepness", 10.0), ("gaussian_sigma", 0.15))
         v = checked_number(get(tel, key, default), "telemetry.$key")
         v > 0.0 || error("[CONFIG] telemetry.$key must be > 0 (got $v).")
