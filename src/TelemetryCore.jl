@@ -25,13 +25,11 @@ Characteristic transfer frequency of the LISA arm (Hz).
 """
 const F_STAR = C_LIGHT / (2π * L_ARM)
 
-const PROJECT_ROOT = let
-    try
-        DrWatson.projectdir()
-    catch
-        abspath(joinpath(@__DIR__, ".."))
-    end
-end
+# Source-anchored package root: @__DIR__ is stable across precompilation and
+# relocation. (The previous DrWatson.projectdir() resolution was evaluated at
+# precompile time and baked whichever environment precompiled last into the
+# cache — docs/ or test/ paths could silently become the data root.)
+const PROJECT_ROOT = abspath(joinpath(@__DIR__, ".."))
 
 """
     DATA_ROOT
@@ -40,7 +38,14 @@ Base directory for run storage (a `Ref`; default `<PROJECT_ROOT>/data`).
 Every run-directory path resolves through [`run_directory`](@ref); tests and
 embedding applications may redirect it (e.g. to a temporary directory).
 """
-const DATA_ROOT = Ref(joinpath(PROJECT_ROOT, "data"))
+const DATA_ROOT = Ref{String}("")
+
+function __init__()
+    # Runtime (not precompile-time) initialization; tests and embedding
+    # applications may redirect after loading.
+    DATA_ROOT[] = joinpath(PROJECT_ROOT, "data")
+    return nothing
+end
 
 """
     run_directory(run_id::String) -> String

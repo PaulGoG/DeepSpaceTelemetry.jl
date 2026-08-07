@@ -192,20 +192,20 @@ function generate_mission_plots(run_dir::String)
                     elems,
                     LineElement(
                         color = (COLOR_BANDWIDTH, 0.5),
-                        linewidth = 3,
+                        linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
                         linestyle = :dot,
                     ),
                 )
                 push!(labels, "Nominal capacity")
-                push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 3))
+                push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 2 * PlotTheme.LINEWIDTH_DATA))
                 push!(labels, "Effective capacity")
             else
-                push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 3))
+                push!(elems, LineElement(color = COLOR_BANDWIDTH, linewidth = 2 * PlotTheme.LINEWIDTH_DATA))
                 push!(labels, "Link capacity")
             end
             push!(
                 elems,
-                LineElement(color = COLOR_ONBOARD, linewidth = 3, linestyle = :dash),
+                LineElement(color = COLOR_ONBOARD, linewidth = 2 * PlotTheme.LINEWIDTH_DATA, linestyle = :dash),
             )
             push!(labels, "Onboard buffer")
             push!(
@@ -230,11 +230,11 @@ function generate_mission_plots(run_dir::String)
                 push!(
                     elems,
                     [
-                        LineElement(color = COLOR_LOST, linewidth = 3),
+                        LineElement(color = COLOR_LOST, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
                         MarkerElement(
                             marker = :xcross,
                             color = COLOR_LOST,
-                            markersize = 14,
+                            markersize = PlotTheme.MARKERSIZE_DATA,
                         ),
                     ],
                 )
@@ -242,7 +242,7 @@ function generate_mission_plots(run_dir::String)
             elseif lost === :marks
                 push!(
                     elems,
-                    MarkerElement(marker = :xcross, color = COLOR_LOST, markersize = 14),
+                    MarkerElement(marker = :xcross, color = COLOR_LOST, markersize = PlotTheme.MARKERSIZE_DATA),
                 )
                 push!(labels, "Lost")
             end
@@ -263,7 +263,7 @@ function generate_mission_plots(run_dir::String)
                 elems,
                 labels;
                 orientation = :horizontal,
-                nbanks = length(elems) > 5 ? 2 : 1,
+                nbanks = length(elems) > 3 ? 2 : 1,
                 framevisible = false,
                 backgroundcolor = :transparent,
                 colgap = 28,
@@ -292,7 +292,12 @@ function generate_mission_plots(run_dir::String)
 
     with_theme(telemetry_theme()) do
         fig_global =
-            Figure(size = (1400, show_lost_panel ? 1250 : 1050), figure_padding = 30)
+            Figure(
+                size = (PlotTheme.FIG_SIZE_SUMMARY[1],
+                        show_lost_panel ? PlotTheme.FIG_SIZE_SUMMARY[2] + 90 :
+                        PlotTheme.FIG_SIZE_SUMMARY[2]),
+                figure_padding = 10,
+            )
 
         # Dual Y-axis for global plot 1
         ax1 = Axis(
@@ -403,7 +408,7 @@ function generate_mission_plots(run_dir::String)
                 lost_curve[inc],
                 marker = :xcross,
                 color = COLOR_LOST,
-                markersize = 16,
+                markersize = PlotTheme.MARKERSIZE_DATA,
             )
             if lost_curve[end] > 0
                 pct =
@@ -416,7 +421,7 @@ function generate_mission_plots(run_dir::String)
                     text = "$(Int(lost_curve[end])) lost ($(round(pct, digits=2)) %)",
                     space = :relative,
                     align = (:right, :top),
-                    fontsize = 20,
+                    fontsize = PlotTheme.FONTSIZE_ANNOTATION,
                     color = COLOR_LOST,
                 )
             end
@@ -428,7 +433,7 @@ function generate_mission_plots(run_dir::String)
         # One aligned label column: reserve equal tick-label width on all
         # stacked axes (the Lost strip's 1-digit ticks would otherwise pull
         # its ylabel inward relative to the 4-digit panels above).
-        foreach(ax -> ax.yticklabelspace = 68.0, axes_to_link)
+        foreach(ax -> ax.yticklabelspace = 34.0, axes_to_link)
 
         add_figure_legend!(
             fig_global;
@@ -442,6 +447,7 @@ function generate_mission_plots(run_dir::String)
 
         global_path = joinpath(run_dir, "plots", "mission_summary_global.png")
         save(global_path, fig_global, px_per_unit = 4)
+        save(splitext(global_path)[1] * ".pdf", fig_global)
         @info "[RECEIVER] Saved Global Summary Plot: $(relpath(global_path, run_dir))"
 
         # 2. One session plot per mission day, enumerated from the NOMINAL
@@ -499,7 +505,7 @@ function generate_mission_plots(run_dir::String)
                 sdf.Ground_Arch[end] - sdf.Ground_Arch[1]
             ]
 
-            fig_sess = Figure(size = (1400, 1050), figure_padding = 30)
+            fig_sess = Figure(size = PlotTheme.FIG_SIZE_SESSION, figure_padding = 10)
 
             ax_s1 = Axis(
                 fig_sess[1, 1],
@@ -548,6 +554,10 @@ function generate_mission_plots(run_dir::String)
                 xlabel = "Mission time",
                 ylabel = "Received data batches",
                 xticks = (session_tick_vals_h, session_tick_labels),
+                # HH:MM labels crowd at session resolution; rotation is
+                # applied here rather than in the global theme (§10:
+                # rotate crowded labels only).
+                xticklabelrotation = π / 4,
             )
             xlims!(ax_s2, min_sess_h, max_sess_h)
             max_sess_gnd = maximum(plot_gnd)
@@ -582,7 +592,7 @@ function generate_mission_plots(run_dir::String)
                     fill(0.93 * y_max_s2, length(inc)),
                     marker = :xcross,
                     color = COLOR_LOST,
-                    markersize = 16,
+                    markersize = PlotTheme.MARKERSIZE_DATA,
                 )
                 text!(
                     ax_s2,
@@ -591,13 +601,13 @@ function generate_mission_plots(run_dir::String)
                     text = "$n_lost_sess lost this session",
                     space = :relative,
                     align = (:right, :top),
-                    fontsize = 20,
+                    fontsize = PlotTheme.FONTSIZE_ANNOTATION,
                     color = COLOR_LOST,
                 )
             end
 
             hidexdecorations!(ax_s1, grid = false, ticks = false)
-            foreach(ax -> ax.yticklabelspace = 68.0, (ax_s1, ax_s2))
+            foreach(ax -> ax.yticklabelspace = 34.0, (ax_s1, ax_s2))
 
             add_figure_legend!(
                 fig_sess;
@@ -612,6 +622,7 @@ function generate_mission_plots(run_dir::String)
             session_path =
                 joinpath(run_dir, "plots", "session_day$(lpad(day_k, 2, '0'))_detail.png")
             save(session_path, fig_sess, px_per_unit = 4)
+            save(splitext(session_path)[1] * ".pdf", fig_sess)
         end
         @info "[RECEIVER] Saved Session-specific plots."
     end
