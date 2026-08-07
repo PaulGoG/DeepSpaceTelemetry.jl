@@ -6,6 +6,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.9.0] - 2026-08-07
+
 ### Added
 - End-to-end telemetry simulation: satellite emitter and ground-station
   receiver exchanging batch directories over a simulated deep-space link,
@@ -33,4 +37,5 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - Static QA shipped with the tests: Aqua, ExplicitImports, and JET alongside
   unit, physics-validation, and three end-to-end integration suites.
 
-[Unreleased]: local repository — no remote tags yet
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry/releases/tag/v0.9.0
