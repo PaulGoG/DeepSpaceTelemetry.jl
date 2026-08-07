@@ -47,7 +47,7 @@ function pre_populate(
         return vi, current_batch_segs
     end
 
-    run_dir = joinpath(TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
+    run_dir = TelemetryCore.run_directory(run_id)
     buffer_path = joinpath(run_dir, "onboard")
 
     batch_counter = 1
@@ -141,7 +141,7 @@ function run_emitter(
             ext_path;
             rng = rng,
         ) : instrument
-    run_dir = joinpath(TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
+    run_dir = TelemetryCore.run_directory(run_id)
     buffer_path = joinpath(run_dir, "onboard")
     link_path = joinpath(run_dir, "link")
     foreach(mkpath, (buffer_path, link_path)) # idempotent: standalone/restart entry
@@ -209,6 +209,12 @@ function run_emitter(
 
         # 2. Batch Finalization
         if length(current_batch_segs) >= batch_size
+            # Classification ruling (remedial item 27): LIVE/ARCH follows the
+            # link state at finalization time — flight software marks data
+            # near-real-time only if the link is up when it is ready to send.
+            # The payload's content epoch is preserved independently
+            # (created_at + masks/batch_epochs.csv), so emitter pacing lag can
+            # shift classification but never science provenance.
             is_live = ChannelEffects.is_transmittable(link, sim_t)
             # Mission-time provenance, matching the pre-population path.
             batch = TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs), sim_t)
@@ -274,6 +280,9 @@ function run_emitter(
             sleep(wait_time)
         end
     end
+    # Heartbeat exists only while the loop runs: removing it tells the
+    # watchdog this component finished rather than stalled.
+    heartbeat_path !== nothing && rm(heartbeat_path; force = true)
 end
 
 end # module Emitter

@@ -5,6 +5,8 @@
 DeepSpaceTelemetry.TelemetryCore.L_ARM
 DeepSpaceTelemetry.TelemetryCore.C_LIGHT
 DeepSpaceTelemetry.TelemetryCore.F_STAR
+DeepSpaceTelemetry.TelemetryCore.DATA_ROOT
+DeepSpaceTelemetry.TelemetryCore.run_directory
 DeepSpaceTelemetry.TelemetryCore.load_config
 DeepSpaceTelemetry.TelemetryCore.load_run_config
 DeepSpaceTelemetry.TelemetryCore.checked_number

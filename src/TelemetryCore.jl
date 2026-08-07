@@ -33,6 +33,23 @@ const PROJECT_ROOT = let
     end
 end
 
+"""
+    DATA_ROOT
+
+Base directory for run storage (a `Ref`; default `<PROJECT_ROOT>/data`).
+Every run-directory path resolves through [`run_directory`](@ref); tests and
+embedding applications may redirect it (e.g. to a temporary directory).
+"""
+const DATA_ROOT = Ref(joinpath(PROJECT_ROOT, "data"))
+
+"""
+    run_directory(run_id::String) -> String
+
+Canonical run-directory path `<DATA_ROOT>/runs/<run_id>` — the single source
+of the run layout for components, scripts, and post-processing tools.
+"""
+run_directory(run_id::String) = joinpath(DATA_ROOT[], "runs", run_id)
+
 # --- Configuration Management ---
 """
     load_config(path::String="")
@@ -1117,7 +1134,7 @@ backup rotation) so every run's exact parameters remain reproducible after
 `config.toml` changes.
 """
 function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothing)
-    base_dir = DrWatson.datadir("runs", run_id)
+    base_dir = run_directory(run_id)
     # Run-ID reuse guard (silent-failure mode): a reused ID would interleave
     # two missions' rows in mission_profile.csv and truncate the prior logs.
     if isdir(base_dir) && !isempty(filter(f -> !startswith(f, "."), readdir(base_dir)))

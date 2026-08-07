@@ -81,6 +81,51 @@ function generate_mission_plots(run_dir::String)
         ev in disruptions.events
     ]
 
+    # Component-outage spans from the supervisor's lifecycle record: each
+    # `down` opens a window closed by the next `restart` of the same
+    # component (or mission end). Shaded distinctly from configured
+    # disruption events — these are unscheduled infrastructure outages.
+    outage_spans = Tuple{Float64,Float64}[]
+    comp_events_path = joinpath(run_dir, "component_events.csv")
+    if isfile(comp_events_path)
+        ce = CSV.read(comp_events_path, DataFrame)
+        open_down = Dict{String,DateTime}()
+        for r in eachrow(ce)
+            comp = String(r.Component)
+            if r.Event == "down"
+                open_down[comp] = r.SimTime
+            elseif r.Event == "restart" && haskey(open_down, comp)
+                push!(outage_spans, (to_h(pop!(open_down, comp)), to_h(r.SimTime)))
+            end
+        end
+        for (_, t_down) in open_down
+            push!(outage_spans, (to_h(t_down), maximum(df_x)))
+        end
+    end
+    shade_outages! =
+        (ax, x_lo, x_hi) -> begin
+            for (o0, o1) in outage_spans
+                o0c, o1c = max(o0, x_lo), min(o1, x_hi)
+                if o0c < o1c
+                    v = vspan!(ax, o0c, o1c, color = (:black, 0.10))
+                    translate!(v, 0, 0, -99)
+                    for x_edge in (o0, o1)
+                        if x_lo <= x_edge <= x_hi
+                            l = vlines!(
+                                ax,
+                                [x_edge],
+                                color = (:gray40, 0.8),
+                                linestyle = :dot,
+                                linewidth = 1.5,
+                            )
+                            translate!(l, 0, 0, -98)
+                        end
+                    end
+                end
+            end
+        end
+    outage_in = (x_lo, x_hi) -> any(s -> s[1] < x_hi && s[2] > x_lo, outage_spans)
+
     # Shades every disruption event onto `ax`, clamped to the plotted range:
     # a uniform dark wash over the blackout, fading linearly to zero alpha
     # across the recovery ramp (mirroring the capacity ramp), with dashed
@@ -139,7 +184,7 @@ function generate_mission_plots(run_dir::String)
     # Blackout/Recovery patches, `lost` is :strip (summary stairs+marks),
     # :marks (session ✕ pins), or :none.
     add_figure_legend! =
-        (fig; degraded, blackout, ramp, lost) -> begin
+        (fig; degraded, blackout, ramp, lost, outage = false) -> begin
             elems = Any[]
             labels = String[]
             if degraded
@@ -209,6 +254,10 @@ function generate_mission_plots(run_dir::String)
                 push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.08)))
                 push!(labels, "Recovery ramp")
             end
+            if outage
+                push!(elems, PolyElement(color = (:black, 0.10)))
+                push!(labels, "Component outage")
+            end
             Legend(
                 fig[0, 1],
                 elems,
@@ -269,6 +318,7 @@ function generate_mission_plots(run_dir::String)
         ylims!(ax1_twin, 0, max(10.0, 1.3 * max_onb))
 
         shade_disruptions!(ax1, 0.0, max_x_h)
+        shade_outages!(ax1, 0.0, max_x_h)
 
         # Nominal (visibility-only) capacity behind the effective curve when a
         # disruption degraded the link somewhere in the run.
@@ -305,6 +355,7 @@ function generate_mission_plots(run_dir::String)
         ylims!(ax2, 0, max(10.0, 1.2 * max_gnd))
 
         shade_disruptions!(ax2, 0.0, max_x_h)
+        shade_outages!(ax2, 0.0, max_x_h)
 
         band!(
             ax2,
@@ -343,6 +394,7 @@ function generate_mission_plots(run_dir::String)
             lost_curve = has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
             ylims!(ax3, 0, max(4.0, 1.35 * maximum(lost_curve)))
             shade_disruptions!(ax3, 0.0, max_x_h)
+        shade_outages!(ax3, 0.0, max_x_h)
             stairs!(ax3, df_x, lost_curve, color = COLOR_LOST)
             inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
             scatter!(
@@ -383,6 +435,7 @@ function generate_mission_plots(run_dir::String)
             degraded = show_nominal,
             blackout = blackout_in(0.0, max_x_h),
             ramp = ramp_in(0.0, max_x_h),
+            outage = outage_in(0.0, max_x_h),
             lost = show_lost_panel ? :strip : :none,
         )
         linkxaxes!(axes_to_link...)
@@ -471,6 +524,7 @@ function generate_mission_plots(run_dir::String)
             ylims!(ax_s1_twin, 0, max(10.0, 1.3 * max_sess_onb))
 
             shade_disruptions!(ax_s1, min_sess_h, max_sess_h)
+        shade_outages!(ax_s1, min_sess_h, max_sess_h)
             if sess_degraded
                 lines!(
                     ax_s1,
@@ -501,6 +555,7 @@ function generate_mission_plots(run_dir::String)
             ylims!(ax_s2, 0, y_max_s2)
 
             shade_disruptions!(ax_s2, min_sess_h, max_sess_h)
+        shade_outages!(ax_s2, min_sess_h, max_sess_h)
 
             band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd, color = (COLOR_LIVE, 0.4))
             stairs!(ax_s2, plot_x, plot_gnd, color = COLOR_LIVE)
@@ -549,6 +604,7 @@ function generate_mission_plots(run_dir::String)
                 degraded = sess_degraded,
                 blackout = blackout_in(min_sess_h, max_sess_h),
                 ramp = ramp_in(min_sess_h, max_sess_h),
+                outage = outage_in(min_sess_h, max_sess_h),
                 lost = n_lost_sess > 0 ? :marks : :none,
             )
             linkxaxes!(ax_s1, ax_s2)
@@ -912,7 +968,7 @@ function run_receiver(
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
     heartbeat_path::Union{String,Nothing} = nothing,
 )
-    run_dir = joinpath(TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
+    run_dir = TelemetryCore.run_directory(run_id)
     link_path = joinpath(run_dir, "link")
     onboard_path = joinpath(run_dir, "onboard")
     ground_path = joinpath(run_dir, "ground")
@@ -1224,6 +1280,10 @@ function run_receiver(
             end
         end
     finally
+        # Heartbeat exists only while the loop runs: removing it before the
+        # (potentially slow) plot rendering tells the watchdog this component
+        # finished rather than stalled.
+        heartbeat_path !== nothing && rm(heartbeat_path; force = true)
         println(orig_stdout, "\n")
         # A plotting failure must never cost a completed run: the CSVs and
         # batch directories are already on disk and plots can be regenerated.

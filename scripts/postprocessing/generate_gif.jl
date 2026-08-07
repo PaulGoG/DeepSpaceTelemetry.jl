@@ -7,7 +7,7 @@ using CairoMakie, CSV, DataFrames, Dates
 
 function create_telemetry_gif(run_id::String)
     run_dir =
-        joinpath(DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
+        DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
     log_path = joinpath(run_dir, "mission_profile.csv")
 
     if !isfile(log_path)
@@ -239,7 +239,7 @@ end
 if length(ARGS) > 0
     create_telemetry_gif(ARGS[1])
 else
-    runs_dir = joinpath(DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT, "data", "runs")
+    runs_dir = joinpath(DeepSpaceTelemetry.TelemetryCore.DATA_ROOT[], "runs")
     if isdir(runs_dir)
         runs = filter(x -> startswith(x, "RUN_"), readdir(runs_dir))
         if !isempty(runs)

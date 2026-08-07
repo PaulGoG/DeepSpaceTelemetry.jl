@@ -43,7 +43,7 @@ progression of telemetry batches across the mission lifecycle.
 """
 function run_viewer(run_id::String)
     run_dir =
-        joinpath(DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT, "data", "runs", run_id)
+        DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
     onboard_path = joinpath(run_dir, "onboard")
     link_path = joinpath(run_dir, "link")
     ground_path = joinpath(run_dir, "ground")
@@ -192,7 +192,7 @@ end
 if length(ARGS) > 0
     run_viewer(ARGS[1])
 else
-    runs_dir = joinpath(DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT, "data", "runs")
+    runs_dir = joinpath(DeepSpaceTelemetry.TelemetryCore.DATA_ROOT[], "runs")
     if isdir(runs_dir)
         runs = filter(x -> startswith(x, "RUN_"), readdir(runs_dir))
         if !isempty(runs)

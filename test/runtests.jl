@@ -13,6 +13,10 @@ using DeepSpaceTelemetry
 using DeepSpaceTelemetry:
     TelemetryCore, ChannelEffects, VirtualInstrument, Emitter, Receiver, PlotTheme
 
+# The entire suite writes its runs into a disposable data root (§8): the real
+# data/ tree stays untouched even if the process is killed mid-suite.
+TelemetryCore.DATA_ROOT[] = mktempdir()
+
 @testset "Static QA (Aqua)" begin
     # Script-only dependencies (consumed by scripts/ and bench/, which share
     # the package environment) are exempted from the stale-deps check; their
