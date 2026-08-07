@@ -408,6 +408,252 @@ end
     end
 end
 
+@testset "Queuing parameters (in-flight cap and link floor)" begin
+    # Emitter alone: no receiver ever ACKs, so link/ must saturate at exactly
+    # the configured in-flight cap.
+    cap_id = "TEST_RUN_cap_pid$(getpid())"
+    mktempdir() do tmp
+        ext_path = joinpath(tmp, "ext.csv")
+        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:20_000)))
+        cap_dir = TelemetryCore.setup_run_dir(
+            cap_id;
+            cfg = Dict{String,Any}(
+                "simulation" => Dict{String,Any}(
+                    "speed_up" => 1800.0,
+                    "start_sim_time" => "2035-01-01T10:00:00",
+                ),
+            ),
+        )
+        try
+            start_sim = DateTime(2035, 1, 1, 10)
+            link = ChannelEffects.LinkModel(
+                TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat"),
+            )
+            vi, leftover = with_logger(NullLogger()) do
+                Emitter.pre_populate(
+                    start_sim,
+                    cap_id;
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    initial_downtime_days = 0.01,
+                    data_source = "external",
+                    ext_path = ext_path,
+                )
+            end
+            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
+            with_logger(NullLogger()) do
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    cap_id;
+                    test_duration_sec = 3.0,
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    data_source = "external",
+                    ext_path = ext_path,
+                    instrument = vi,
+                    initial_segments = leftover,
+                    max_inflight_batches = 2,
+                )
+            end
+            n_link = length(
+                filter(
+                    f -> isdir(joinpath(cap_dir, "link", f)),
+                    readdir(joinpath(cap_dir, "link")),
+                ),
+            )
+            @test n_link == 2
+        finally
+            rm(cap_dir; recursive = true, force = true)
+        end
+    end
+
+    # Receiver refuses transfers while effective capacity sits below the
+    # configured floor: on the Gaussian wings nothing may reach ground/.
+    floor_id = "TEST_RUN_floor_pid$(getpid())"
+    mktempdir() do tmp
+        ext_path = joinpath(tmp, "ext.csv")
+        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:20_000)))
+        floor_dir = TelemetryCore.setup_run_dir(
+            floor_id;
+            cfg = Dict{String,Any}(
+                "simulation" => Dict{String,Any}(
+                    "speed_up" => 1800.0,
+                    "start_sim_time" => "2035-01-01T08:00:00",
+                ),
+            ),
+        )
+        try
+            start_sim = DateTime(2035, 1, 1, 8) # session start: deep Gaussian wing
+            link = ChannelEffects.LinkModel(
+                TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "gaussian"),
+            )
+            vi, leftover = with_logger(NullLogger()) do
+                Emitter.pre_populate(
+                    start_sim,
+                    floor_id;
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    initial_downtime_days = 0.01,
+                    data_source = "external",
+                    ext_path = ext_path,
+                )
+            end
+            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
+            em = Threads.@spawn with_logger(NullLogger()) do
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    floor_id;
+                    test_duration_sec = 4.0,
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    data_source = "external",
+                    ext_path = ext_path,
+                    instrument = vi,
+                    initial_segments = leftover,
+                )
+            end
+            rx = Threads.@spawn with_logger(NullLogger()) do
+                Receiver.run_receiver(
+                    clock,
+                    link,
+                    floor_id;
+                    test_duration_sec = 4.0,
+                    orig_stdout = devnull,
+                    max_batches_per_hour = 1800.0,
+                    min_link_factor = 0.6,
+                )
+            end
+            wait(em)
+            wait(rx)
+            ground = filter(
+                f -> isdir(joinpath(floor_dir, "ground", f)),
+                readdir(joinpath(floor_dir, "ground")),
+            )
+            pending = filter(
+                f -> isdir(joinpath(floor_dir, "link", f)),
+                readdir(joinpath(floor_dir, "link")),
+            )
+            @test isempty(ground)   # floor blocked every transfer
+            @test !isempty(pending) # while the emitter kept pushing to the link
+        finally
+            rm(floor_dir; recursive = true, force = true)
+        end
+    end
+end
+
+@testset "Component re-attachment (restart contracts)" begin
+    ra_id = "TEST_RUN_reattach_pid$(getpid())"
+    mktempdir() do tmp
+        ext_path = joinpath(tmp, "ext.csv")
+        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:60_000)))
+        ra_dir = TelemetryCore.setup_run_dir(
+            ra_id;
+            cfg = Dict{String,Any}(
+                "simulation" => Dict{String,Any}(
+                    "speed_up" => 1800.0,
+                    "start_sim_time" => "2035-01-01T10:00:00",
+                ),
+            ),
+        )
+        try
+            start_sim = DateTime(2035, 1, 1, 10)
+            link = ChannelEffects.LinkModel(
+                TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat"),
+            )
+            vi, leftover = with_logger(NullLogger()) do
+                Emitter.pre_populate(
+                    start_sim,
+                    ra_id;
+                    sample_rate = 4.0,
+                    seg_dur = 60.0,
+                    batch_size = 3,
+                    initial_downtime_days = 0.01,
+                    data_source = "external",
+                    ext_path = ext_path,
+                )
+            end
+            clock1 = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
+            TelemetryCore.save_clock_anchor(ra_dir, clock1, now() + Second(120))
+
+            run_phase =
+                (clk, instrument, segs, rng) -> begin
+                    em = Threads.@spawn with_logger(NullLogger()) do
+                        Emitter.run_emitter(
+                            clk,
+                            link,
+                            ra_id;
+                            test_duration_sec = 3.0,
+                            sample_rate = 4.0,
+                            seg_dur = 60.0,
+                            batch_size = 3,
+                            data_source = "external",
+                            ext_path = ext_path,
+                            instrument = instrument,
+                            initial_segments = segs,
+                            rng = rng,
+                        )
+                    end
+                    rx = Threads.@spawn with_logger(NullLogger()) do
+                        Receiver.run_receiver(
+                            clk,
+                            link,
+                            ra_id;
+                            test_duration_sec = 3.0,
+                            orig_stdout = devnull,
+                            max_batches_per_hour = 1800.0,
+                        )
+                    end
+                    wait(em)
+                    wait(rx)
+                end
+
+            run_phase(clock1, vi, leftover, StableRNG(1))
+            tx1 = CSV.read(joinpath(ra_dir, "events_tx.csv"), DataFrame)
+            gens1 = [
+                parse(Int, String(last(split(String(b), "_")))) for
+                b in tx1[tx1.Event .== "gen", :Batch]
+            ]
+            max_phase1 = maximum(gens1)
+
+            # Simulated component outage: supervisor-style gap bounds, then a
+            # cold re-attachment that reconstructs the clock from the anchor
+            # and takes a fresh instrument at the current mission time.
+            restored = TelemetryCore.load_clock_anchor(ra_dir)
+            TelemetryCore.log_tx_event(ra_dir, maximum(tx1.SimTime), "STREAM", "gap_start")
+            TelemetryCore.log_tx_event(
+                ra_dir,
+                TelemetryCore.get_current_sim_time(restored.clock),
+                "STREAM",
+                "gap_end",
+            )
+            run_phase(restored.clock, nothing, TelemetryCore.DataSegment[], StableRNG(99))
+
+            tx2 = CSV.read(joinpath(ra_dir, "events_tx.csv"), DataFrame)
+            gen_rows = tx2[tx2.Event .== "gen", :]
+            gens = [parse(Int, String(last(split(String(b), "_")))) for b in gen_rows.Batch]
+            @test length(gens) == length(unique(gens)) # no batch-ID collisions
+            @test maximum(gens) > max_phase1           # generation resumed past phase 1
+            @test issorted(gen_rows.SimTime)           # mission time continuous across the outage
+            @test count(==("gap_start"), tx2.Event) == 1
+            @test count(==("gap_end"), tx2.Event) == 1
+
+            # Post-processing remains coherent with the gap events present.
+            with_logger(NullLogger()) do
+                Receiver.generate_telemetry_masks(ra_dir)
+            end
+            @test isfile(joinpath(ra_dir, "masks", "telemetry_mask_timeline.csv"))
+        finally
+            rm(ra_dir; recursive = true, force = true)
+        end
+    end
+end
+
 @testset "Storage governance (estimator + mitigation-aware gate)" begin
     base = Dict{String,Any}(
         "simulation" => Dict{String,Any}(
@@ -992,6 +1238,38 @@ end
     )
 end
 
+@testset "Bandwidth profile shapes and edges" begin
+    start = Time(8, 0, 0)
+    dur = Second(8 * 3600)
+    mid = DateTime(2030, 1, 1, 12, 0, 0)
+    edge = DateTime(2030, 1, 1, 8, 0, 0)
+
+    # Documented sigmoid property: the profile does NOT vanish at the session
+    # boundary — it opens at ≈ 0.5 (tanh(0) + tanh(k))/2.
+    sig = TelemetryCore.VisibilityModel(start, dur, "sigmoid")
+    @test isapprox(TelemetryCore.get_bandwidth_factor(sig, edge), 0.5, atol = 0.01)
+
+    # Steepness monotonicity: a steeper sigmoid is closer to saturation at
+    # quarter-session than a shallow one.
+    quarter = DateTime(2030, 1, 1, 10, 0, 0)
+    shallow = TelemetryCore.VisibilityModel(start, dur, "sigmoid", 3.0, 0.15)
+    steep = TelemetryCore.VisibilityModel(start, dur, "sigmoid", 50.0, 0.15)
+    @test TelemetryCore.get_bandwidth_factor(steep, quarter) >
+          TelemetryCore.get_bandwidth_factor(shallow, quarter)
+
+    # Gaussian: unit peak at mid-session; smaller sigma → narrower pass.
+    narrow = TelemetryCore.VisibilityModel(start, dur, "gaussian", 10.0, 0.05)
+    wide = TelemetryCore.VisibilityModel(start, dur, "gaussian", 10.0, 0.30)
+    @test isapprox(TelemetryCore.get_bandwidth_factor(narrow, mid), 1.0, atol = 1e-6)
+    @test TelemetryCore.get_bandwidth_factor(narrow, quarter) <
+          TelemetryCore.get_bandwidth_factor(wide, quarter)
+
+    # Three-argument constructor carries the documented default shapes.
+    default_model = TelemetryCore.VisibilityModel(start, dur, "gaussian")
+    @test default_model.sigmoid_steepness == 10.0
+    @test default_model.gaussian_sigma == 0.15
+end
+
 @testset "Safe CSV write (backup rotation)" begin
     mktempdir() do tmp
         p = joinpath(tmp, "res.csv")
@@ -1205,6 +1483,43 @@ end
                 col == "SimTime" && continue
                 @test issorted(mask_df[!, col])
             end
+
+            # Estimator upper bounds hold against the realized artifacts of
+            # this very mission (§7: a safety gate that undercounts is worse
+            # than none).
+            est = TelemetryCore.estimate_artifacts(
+                Dict{String,Any}(
+                    "simulation" => Dict{String,Any}(
+                        "speed_up" => 1800.0,
+                        "test_duration_sec" => 6.0,
+                        "initial_downtime_days" => 0.02,
+                        "start_sim_time" => "2035-01-01T10:00:00",
+                    ),
+                    "storage" => Dict{String,Any}("max_storage_gb" => 10.0),
+                    "physics" => Dict{String,Any}(
+                        "data_source" => "external",
+                        "sample_rate" => 4.0,
+                        "segment_duration_sec" => 60.0,
+                        "batch_size" => 3,
+                    ),
+                    "post_processing" => Dict{String,Any}(
+                        "generate_batch_matrix" => true,
+                        "expand_to_pointwise_masks" => false,
+                    ),
+                ),
+            )
+            realized_files =
+                sum(length(fs) + length(ds) for (_, ds, fs) in walkdir(run_dir))
+            realized_payload = sum(
+                filesize(joinpath(root, f)) for (root, _, fs) in walkdir(run_dir) for
+                f in fs if startswith(f, "seg_");
+                init = 0,
+            )
+            profile_rows =
+                nrow(CSV.read(joinpath(run_dir, "mission_profile.csv"), DataFrame))
+            @test realized_files <= est.file_count
+            @test realized_payload <= est.payload_bytes
+            @test profile_rows <= est.metrics_rows
         finally
             rm(run_dir; recursive = true, force = true)
         end

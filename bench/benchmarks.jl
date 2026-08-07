@@ -1,5 +1,5 @@
 using Pkg;
-Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
+Pkg.activate(@__DIR__, io = devnull);
 Pkg.instantiate(io = devnull)
 using BenchmarkTools
 using Dates, Random, CSV, DataFrames, Logging
@@ -32,20 +32,26 @@ suite["core"]["bandwidth"] =
 
 # Benchmark Batch I/O
 suite["io"] = BenchmarkGroup()
+# Directory creation and fixture construction live in the setup phase so the
+# measured region is exactly the save + load I/O.
 suite["io"]["batch_save_load"] = @benchmarkable begin
-    mktempdir() do tmp
-        seg = DeepSpaceTelemetry.TelemetryCore.DataSegment(
-            1,
-            Dates.DateTime(2035, 1, 1),
-            Float32[1.0, 2.0, 3.0],
-            false,
-        )
-        batch = DeepSpaceTelemetry.TelemetryCore.DataBatch(1, [seg], Dates.now())
-        path = joinpath(tmp, "batch_1")
-        DeepSpaceTelemetry.TelemetryCore.save_batch(path, batch)
-        DeepSpaceTelemetry.TelemetryCore.load_segment(joinpath(path, "seg_1.csv"))
-    end
-end
+    DeepSpaceTelemetry.TelemetryCore.save_batch(path, batch)
+    DeepSpaceTelemetry.TelemetryCore.load_segment(joinpath(path, "seg_1.csv"))
+end setup = (
+    tmp = mktempdir();
+    path = joinpath(tmp, "batch_1");
+    seg = DeepSpaceTelemetry.TelemetryCore.DataSegment(
+        1,
+        Dates.DateTime(2035, 1, 1),
+        Float32[1.0, 2.0, 3.0],
+        false,
+    );
+    batch = DeepSpaceTelemetry.TelemetryCore.DataBatch(
+        1,
+        [seg],
+        Dates.DateTime(2035, 1, 1),
+    )
+) teardown = (rm(tmp; recursive = true, force = true))
 
 # Benchmark Pre-Run Safety Check
 suite["storage"] = BenchmarkGroup()
@@ -184,13 +190,18 @@ suite["postproc"]["exact_reconstruction"] =
         $bench_profile,
     ) samples = 10 evals = 1
 
-# Run benchmarks (suppress @info chatter from the benchmarked functions;
-# BenchmarkTools progress goes through println and stays visible)
-println("Running benchmarks...")
-results = with_logger(NullLogger()) do
-    run(suite, verbose = true)
+# Run benchmarks only when invoked as a script (suppress @info chatter from
+# the benchmarked functions; BenchmarkTools progress stays visible). The
+# fixture directory is removed even when the run throws.
+if abspath(PROGRAM_FILE) == @__FILE__
+    println("Running benchmarks...")
+    try
+        results = with_logger(NullLogger()) do
+            run(suite, verbose = true)
+        end
+        display(results)
+        println()
+    finally
+        rm(bench_dir; recursive = true, force = true)
+    end
 end
-display(results)
-println()
-
-rm(bench_dir; recursive = true, force = true)
