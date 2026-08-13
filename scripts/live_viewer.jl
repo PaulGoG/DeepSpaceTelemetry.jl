@@ -93,7 +93,7 @@ function run_viewer(run_id::String)
                     "\e[H\e[J" *
                     "="^border_w *
                     "\n" *
-                    lpad("TELEMETRY PACKET TRACKER", 54) *
+                    lpad("TELEMETRY BATCH TRACKER", 54) *
                     "\n" *
                     "="^border_w *
                     "\n" *
@@ -111,7 +111,7 @@ function run_viewer(run_id::String)
                     [y_lo, 3],
                     xlim = (view_lo, max_id+2),
                     ylim = (y_lo, 3),
-                    title = "Telemetry Packet Distribution",
+                    title = "Telemetry batch distribution",
                     xlabel = "Batch ID",
                     ylabel = "",
                     yticks = false,
@@ -166,7 +166,7 @@ function run_viewer(run_id::String)
                 if !isempty(lost_ids)
                     print("  LOST: ")
                     printstyled(
-                        "$(length(lost_ids)) batch(es) dropped after retry exhaustion (bottom row)",
+                        "$(length(lost_ids)) batch(es) lost after retry exhaustion (bottom row)",
                         color = :white,
                     )
                     println()

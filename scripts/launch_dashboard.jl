@@ -61,7 +61,7 @@ run_dir = DeepSpaceTelemetry.TelemetryCore.setup_run_dir(run_id; cfg = cfg)
 touch(joinpath(run_dir, "receiver.log"))
 touch(joinpath(run_dir, "emitter.log"))
 
-println("Launching Dashboard Terminals for Run: $run_id...")
+println("Launching dashboard terminals for run: $run_id...")
 
 # Commands to run in the new windows
 live_viewer_cmd = "julia --project=. scripts/live_viewer.jl $run_id"
@@ -82,7 +82,7 @@ end
 
 println("Dashboard launched: live viewer and log-tail terminals spawned.")
 println(
-    "Starting Main Simulation (Duration: $(cfg["simulation"]["test_duration_sec"])s)...",
+    "Starting main simulation (duration: $(cfg["simulation"]["test_duration_sec"]) s)...",
 )
 println("="^55)
 

@@ -13,7 +13,7 @@ using MathTeXEngine: texfont
 export telemetry_theme,
     COLOR_LIVE, COLOR_ARCHIVE, COLOR_BANDWIDTH, COLOR_ONBOARD, COLOR_LOST, COLOR_DISRUPTION
 
-# Okabe–Ito colorblind-safe palette (§10): one semantic color per quantity,
+# Okabe–Ito colorblind-safe palette: one semantic color per quantity,
 # consistent across every figure and the animation.
 
 """
@@ -65,7 +65,7 @@ neutral so it never competes with the series palette.
 """
 const COLOR_DISRUPTION = :black
 
-# --- Journal sizing (§10): design at the final printed width. ---
+# --- Journal sizing: design at the final printed width. ---
 # Makie layout units are 1/96 inch; a PDF exported at these sizes enters
 # LaTeX at native scale (178 mm double-column ≈ 673 units), and PNG at
 # px_per_unit = 4 renders ≥ 380 dpi.
@@ -89,7 +89,7 @@ const FIG_SIZE_SESSION = (673, 420)
 """
     LINEWIDTH_DATA
 
-Data-series line width in Makie units (≈ 1.1 pt at final print scale, §10).
+Data-series line width in Makie units (≈ 1.1 pt at final print scale).
 """
 const LINEWIDTH_DATA = 1.5
 
@@ -97,7 +97,7 @@ const LINEWIDTH_DATA = 1.5
     MARKERSIZE_DATA
 
 Marker size in Makie units for event pins and legend glyphs — one size
-everywhere, per the §10 cross-figure consistency rule.
+everywhere, so every figure of the project draws it identically.
 """
 const MARKERSIZE_DATA = 8
 
@@ -112,7 +112,7 @@ const FONTSIZE_ANNOTATION = 10
     telemetry_theme()
 
 Returns a CairoMakie Theme configured for publication-quality telemetry plots
-at the final printed width (§10): (New) Computer Modern faces via
+at the final printed width: (New) Computer Modern faces via
 MathTeXEngine (a plain `font = "Computer Modern"` string is ignored by
 current Makie and silently falls back to DejaVu), ≈ 9 pt body text at
 double-column scale, boxed axes with inward ticks, no titles, no minor
@@ -151,7 +151,7 @@ function telemetry_theme()
             ylabelsize = 13,
             xticklabelsize = 11,
             yticklabelsize = 11,
-            # Clearance between tick labels and axis labels (§10 spacing
+            # Clearance between tick labels and axis labels (spacing
             # discipline).
             xlabelpadding = 8,
             ylabelpadding = 6,

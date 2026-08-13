@@ -13,7 +13,7 @@ using DeepSpaceTelemetry
 using DeepSpaceTelemetry:
     TelemetryCore, ChannelEffects, VirtualInstrument, Emitter, Receiver, PlotTheme
 
-# The entire suite writes its runs into a disposable data root (§8): the real
+# The entire suite writes its runs into a disposable data root: the real
 # data/ tree stays untouched even if the process is killed mid-suite.
 TelemetryCore.DATA_ROOT[] = mktempdir()
 
@@ -1485,7 +1485,7 @@ end
             end
 
             # Estimator upper bounds hold against the realized artifacts of
-            # this very mission (§7: a safety gate that undercounts is worse
+            # this very mission (a safety gate that undercounts is worse
             # than none).
             est = TelemetryCore.estimate_artifacts(
                 Dict{String,Any}(

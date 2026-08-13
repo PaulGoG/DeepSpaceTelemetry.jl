@@ -33,7 +33,7 @@ DeepSpaceTelemetry/
 │   ├── Manifest.toml            # Resolved script environment (committed for portability)
 │   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
 │   ├── run_full_sim.jl          # Headless simulation engine ([run_id] [config.toml])
-│   ├── live_viewer.jl           # Terminal UI thread (incl. Lost row)
+│   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
 │   ├── postprocessing/
 │   │   ├── apply_telemetry_mask.jl      # Point-wise mask expansion (snapshot-aware)
 │   │   ├── generate_gif.jl              # Batch-routing animation engine
@@ -50,6 +50,8 @@ DeepSpaceTelemetry/
 │   ├── Manifest.toml            # Resolved benchmark environment
 │   └── benchmarks.jl            # Performance benchmarks (incl. channel hot paths)
 ├── docs/
+│   ├── Project.toml             # Docs environment (Documenter; parent package dev'ed)
+│   ├── Manifest.toml            # Resolved docs environment (committed for portability)
 │   ├── make.jl                  # Documenter.jl build script
 │   └── src/                     # Manual pages (index, physics, usage, interfaces, api)
 ├── data/
@@ -57,8 +59,13 @@ DeepSpaceTelemetry/
 │   └── runs/                    # Ephemeral run directories (gitignored)
 │       └── <RUN_ID>/            # onboard/ link/ ground/ lost/ plots/ masks/
 │                                # + mission_profile.csv, events_tx.csv, events_rx.csv,
-│                                #   config_snapshot.toml, emitter.log, receiver.log
+│                                #   component_events.csv, config_snapshot.toml,
+│                                #   clock_anchor.toml, emitter.log, receiver.log,
+│                                #   heartbeats and RUN_ACTIVE/RUN_COMPLETE/RUN_ABORTED
+│                                #   sentinels (interfaces.md documents the full contract)
 ├── .github/workflows/CI.yml     # Test matrix + formatter + docs build (activates on remote)
+├── .gitignore                   # Excludes run data and generated artifacts
+├── .JuliaFormatter.toml         # Committed formatter configuration
 ├── CHANGELOG.md                 # Notable changes (Keep a Changelog format)
 ├── config.toml                  # The shipped config — safe intervals documented per key
 ├── Project.toml                 # Package metadata, deps, compat bounds
@@ -287,7 +294,8 @@ freely — e.g. `[-1, "10:20", 45]`.
     (`UnicodePlots.jl`) with live disruption/loss status lines, alongside
     background `.log` tracking (`TerminalLoggers` + `LoggingExtras`, file logs
     ANSI-sanitized).
-*   **Publication-oriented outputs**: static `.png` graphs (nominal vs
+*   **Publication-oriented outputs**: static figures as vector `.pdf` plus
+    raster `.png` (nominal vs
     effective bandwidth, disruption-window shading fading across the recovery
     ramp, a lost-batch strip on the mission summary, ✕ loss pins with count
     badges on lossy session plots, one frameless figure-level legend

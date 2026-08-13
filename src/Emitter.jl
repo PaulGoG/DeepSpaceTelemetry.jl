@@ -100,7 +100,7 @@ function pre_populate(
         end
     end
 
-    @info "[EMITTER] Pre-population complete. Buffered $(batch_counter-1) ARCH_ Data Batches."
+    @info "[EMITTER] Pre-population complete. Buffered $(batch_counter-1) ARCH_ data batches."
     return vi, current_batch_segs
 end
 
@@ -108,7 +108,7 @@ end
 """
     run_emitter(clock, link, run_id; ...)
 
-The main Satellite payload loop. Continuously generates scientific data (or reads from external CSV),
+The main satellite payload loop. Continuously generates scientific data (or reads from external CSV),
 packages it into batches, and manages the DSN transmission queue using strict priority logic
 (Live FIFO > Archive LIFO).
 
@@ -188,7 +188,7 @@ function run_emitter(
     halt_path = joinpath(run_dir, "HALT")
     last_heartbeat = now() - Second(2)
 
-    @info "[EMITTER] Logic: NRT Priority + Archive Gap-fill (LIFO). Run: $run_id"
+    @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $run_id"
 
     start_wall_t = now()
     next_wall_t = start_wall_t
@@ -223,7 +223,7 @@ function run_emitter(
 
         # 2. Batch Finalization
         if length(current_batch_segs) >= batch_size
-            # Classification ruling (remedial item 27): LIVE/ARCH follows the
+            # Classification ruling: LIVE/ARCH follows the
             # link state at finalization time — flight software marks data
             # near-real-time only if the link is up when it is ready to send.
             # The payload's content epoch is preserved independently

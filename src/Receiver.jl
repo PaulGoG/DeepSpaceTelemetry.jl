@@ -51,7 +51,7 @@ for the global mission state and individual session telemetry events using Cairo
 Outputs are saved into the `<run_dir>/plots` directory.
 """
 function generate_mission_plots(run_dir::String)
-    @info "[RECEIVER] Generating Mission & Session Plots..."
+    @info "[RECEIVER] Generating mission and session plots..."
 
     log_path = joinpath(run_dir, "mission_profile.csv")
     if !isfile(log_path)
@@ -616,7 +616,7 @@ function generate_mission_plots(run_dir::String)
                 ylabel = "Received data batches",
                 xticks = (session_tick_vals_h, session_tick_labels),
                 # HH:MM labels crowd at session resolution; rotation is
-                # applied here rather than in the global theme (§10:
+                # applied here rather than in the global theme (rule:
                 # rotate crowded labels only).
                 xticklabelrotation = π / 4,
             )
@@ -984,7 +984,7 @@ function generate_telemetry_masks(run_dir::String)
 
     mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
     TelemetryCore.safe_csv_write(mask_path, mask_df)
-    @info "[RECEIVER] Saved 2D Telemetry Data Masks to: $(relpath(mask_path, run_dir))"
+    @info "[RECEIVER] Saved 2D telemetry data masks to: $(relpath(mask_path, run_dir))"
 
     # Batch → generation-epoch sidecar: the point-wise mask's row-index
     # contract assumes a contiguous series, which emitter outages break; this
@@ -1007,7 +1007,7 @@ end
 """
     run_receiver(clock, link, run_id; ...)
 
-The main Ground Station loop. It continually checks the `link/` directory for
+The main ground-station loop. It continually checks the `link/` directory for
 incoming data batches, simulates a delay based on the effective link capacity
 (visibility profile × disruption factor), draws a stochastic loss realization
 per transfer attempt from `loss_model`, moves successful batches to `ground/`
@@ -1247,8 +1247,8 @@ function run_receiver(
                 "$(round(hours_elapsed / 24.0, digits=2))\n" *
                 rpad("Current Status:", 20) *
                 "$status_text\n" *
-                rpad("Ground Archive:", 20) *
-                "$ground_count Received data batches\n" *
+                rpad("Ground total:", 20) *
+                "$ground_count received data batches\n" *
                 rpad("Lost Batches:", 20) *
                 "$lost_count ($total_retries failed transfers)\n" *
                 "="^55 *

@@ -77,11 +77,11 @@ function expand_mask(
     # 0 = Unavailable, 1 = Available on Ground
     point_mask = zeros(Int8, total_points)
 
-    for (batch_idx_zero_based, status) in enumerate(batch_statuses)
+    for (batch_index, status) in enumerate(batch_statuses)
         # Status 3 means 'Ground Archive' (Successfully downlinked).
         # 0/1/2 (not yet down) and 4 (Lost) stay masked.
         if status == 3
-            start_idx = (batch_idx_zero_based - 1) * points_per_batch + 1
+            start_idx = (batch_index - 1) * points_per_batch + 1
             end_idx = start_idx + points_per_batch - 1
             point_mask[start_idx:end_idx] .= 1
         end

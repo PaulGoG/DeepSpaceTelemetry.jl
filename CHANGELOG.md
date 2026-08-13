@@ -6,7 +6,22 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+- `generate_gif.jl` failed with an `UndefVarError` after the explicit-import
+  migration: `with_theme` is now taken from `CairoMakie` rather than through
+  `PlotTheme`.
+- Corrected identifiers and labels that contradicted their semantics: the
+  dashboard "Ground Archive" line (the counter is the live + archive total),
+  a 1-based mask-expansion index named `_zero_based`, and "packet" wording in
+  the live viewer for what are batches.
+- Documentation currency: README project tree (docs environment files,
+  repository dotfiles, full run-directory contract) and the figure-export
+  description (vector PDF alongside raster PNG).
+
+### Changed
+- Renamed (2026-08-02, recorded here for consumers): the package, module, and
+  repository **SpaceTelemetrySim → DeepSpaceTelemetry** — a breaking change
+  for any code `using` the old module name.
 
 ## [0.9.0] - 2026-08-07
 

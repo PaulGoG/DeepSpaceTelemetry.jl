@@ -62,7 +62,7 @@ loss_multiplier = 5.0                # Loss probability multiplier during event.
 
 [[disruption.events]]
 type = "dsn_outage"                  # Event type identifier.
-label = "dsn outage"                 # Display label for logs and viewer.
+label = "DSN outage"                 # Display label for logs and viewer.
 start_day = 5.0                      # Event onset time [mission days]. SAFE: >= 0.
 duration_hours = 12.0                # Duration of partial blackout phase [h]. SAFE: > 0.
 severity = 0.8                       # Link capacity reduction factor. SAFE: [0, 1].

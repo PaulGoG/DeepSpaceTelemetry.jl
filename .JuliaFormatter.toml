@@ -1,4 +1,4 @@
-# JuliaFormatter configuration (CLAUDE.md §5: run over touched files before
+# JuliaFormatter configuration (run over touched files before
 # committing). Default style; spaced keyword arguments match the canonical
 # environment-activation form (`io = devnull`).
 style = "default"

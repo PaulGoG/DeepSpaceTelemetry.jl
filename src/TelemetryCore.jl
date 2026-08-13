@@ -21,7 +21,7 @@ using TOML: TOML
 """
     L_ARM
 
-Length of the LISA constellation arms (2.5 million kilometers).
+Length of the LISA constellation arms [m]: 2.5e9 m (2.5 million km).
 """
 const L_ARM = 2.5e9
 

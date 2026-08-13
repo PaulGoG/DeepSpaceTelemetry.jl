@@ -84,12 +84,12 @@ function apply_mask(run_id::String, total_points::Int, event_idx::Int, output_pa
     println("Expanding batch masks to point-wise 0/1 array for $total_points points...")
     point_mask = zeros(Int8, total_points)
 
-    for (batch_idx_zero_based, status) in enumerate(batch_statuses)
+    for (batch_index, status) in enumerate(batch_statuses)
         # Status 3 means 'Ground Archive' (Successfully downlinked).
         # 0 (Future), 1 (Onboard), 2 (Link) and 4 (Lost) all stay masked:
         # a lost batch never becomes available on the ground.
         if status == 3
-            start_idx = (batch_idx_zero_based - 1) * points_per_batch + 1
+            start_idx = (batch_index - 1) * points_per_batch + 1
             end_idx = min(start_idx + points_per_batch - 1, total_points)
 
             if start_idx <= total_points
