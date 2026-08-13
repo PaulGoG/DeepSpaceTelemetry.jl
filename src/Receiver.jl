@@ -70,7 +70,13 @@ function generate_mission_plots(run_dir::String)
     session_dur =
         Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
     bw_profile = String(get(tel, "bandwidth_profile", "sine"))
-    vis_model = TelemetryCore.VisibilityModel(session_start_time, session_dur, bw_profile)
+    vis_model = TelemetryCore.VisibilityModel(
+        session_start_time,
+        session_dur,
+        bw_profile,
+        Float64(get(tel, "sigmoid_steepness", 10.0)),
+        Float64(get(tel, "gaussian_sigma", 0.15)),
+    )
 
     # Disruption timeline from the run snapshot (empty for legacy/stub
     # configs). A malformed snapshot must not abort post-processing of an
@@ -944,7 +950,13 @@ function generate_telemetry_masks(run_dir::String)
     session_dur =
         Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
     bw_profile = String(get(tel, "bandwidth_profile", "sine"))
-    vis_model = TelemetryCore.VisibilityModel(session_start_time, session_dur, bw_profile)
+    vis_model = TelemetryCore.VisibilityModel(
+        session_start_time,
+        session_dur,
+        bw_profile,
+        Float64(get(tel, "sigmoid_steepness", 10.0)),
+        Float64(get(tel, "gaussian_sigma", 0.15)),
+    )
 
     states = batch_states(run_dir, df, vis_model)
     max_id_ever = isempty(states) ? 0 : sum(length, last(states))

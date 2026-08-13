@@ -53,13 +53,15 @@ config_idx = findfirst(a -> endswith(a, ".toml"), ARGS)
 config_arg = config_idx === nothing ? "" : ARGS[config_idx]
 cfg = DeepSpaceTelemetry.TelemetryCore.load_config(config_arg)
 
-# Generate a Run ID and setup directories
-run_id = DeepSpaceTelemetry.TelemetryCore.generate_run_id()
-run_dir = DeepSpaceTelemetry.TelemetryCore.setup_run_dir(run_id; cfg = cfg)
+# Fail fast on an invalid configuration before any terminal is spawned.
+DeepSpaceTelemetry.TelemetryCore.validate_config(cfg)
 
-# Touch log files to prevent `tail` errors
-touch(joinpath(run_dir, "receiver.log"))
-touch(joinpath(run_dir, "emitter.log"))
+# Generate a run ID. The run directory itself is created exactly once, by
+# run_full_sim.jl below — pre-creating it here would trip the run-ID reuse
+# guard in setup_run_dir. The viewer tolerates the not-yet-existing
+# directory and `tail -F` retries absent log files until they appear.
+run_id = DeepSpaceTelemetry.TelemetryCore.generate_run_id()
+run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
 
 println("Launching dashboard terminals for run: $run_id...")
 

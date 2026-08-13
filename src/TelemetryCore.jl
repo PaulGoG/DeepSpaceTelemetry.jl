@@ -1305,7 +1305,7 @@ end
 """
     VisibilityModel
 
-Maintains parameters for the DSN connectivity profile over a given planetary transit.
+Maintains parameters for the DSN connectivity profile over a ground-station pass.
 """
 struct VisibilityModel
     session_start::Time

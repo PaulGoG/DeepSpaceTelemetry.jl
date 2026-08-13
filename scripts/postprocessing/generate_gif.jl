@@ -32,12 +32,13 @@ function create_telemetry_gif(run_id::String)
         session_start_time,
         session_dur,
         bw_profile,
+        Float64(get(tel, "sigmoid_steepness", 10.0)),
+        Float64(get(tel, "gaussian_sigma", 0.15)),
     )
 
     # Shared state-machine replay (exact event-log reconstruction when the run
     # carries events_tx.csv / events_rx.csv; heuristic fallback otherwise)
     row_states = DeepSpaceTelemetry.Receiver.batch_states(run_dir, df, vis_model)
-    last_total = isempty(row_states) ? 0 : sum(length, last(row_states))
     show_lost = !isempty(row_states) && !isempty(last(row_states).lost)
 
     n_frames = min(nrow(df), 800)
