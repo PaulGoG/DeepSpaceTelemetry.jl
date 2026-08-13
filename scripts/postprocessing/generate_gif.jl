@@ -109,9 +109,7 @@ function create_telemetry_gif(run_id::String)
             )
         end
 
-    DeepSpaceTelemetry.PlotTheme.with_theme(
-        DeepSpaceTelemetry.PlotTheme.telemetry_theme(),
-    ) do
+    CairoMakie.with_theme(DeepSpaceTelemetry.PlotTheme.telemetry_theme()) do
         fig = Figure(size = (1400, 780), figure_padding = 20)
 
         frame_iterator = 1:step_size:nrow(df)
