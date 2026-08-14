@@ -11,3 +11,6 @@ SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 TerminalLoggers = "5d786b92-1e48-4d6f-9151-6b4477ca9bed"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
+
+[sources]
+DeepSpaceTelemetry = {path = ".."}
