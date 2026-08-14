@@ -11,8 +11,10 @@ using ..TelemetryCore
 using CSV: CSV
 using DataFrames: DataFrames, DataFrame
 using Dates: Dates, DateTime, Second
-using FFTW: FFTW, irfft, rfftfreq
-using Random: Random, AbstractRNG, Xoshiro
+using AbstractFFTs: AbstractFFTs, Plan
+using FFTW: FFTW, plan_irfft, rfftfreq
+using LinearAlgebra: LinearAlgebra, mul!
+using Random: Random, AbstractRNG, Xoshiro, randn!
 
 export InstrumentState, lisa_noise_psd, next_segment!
 
@@ -54,6 +56,14 @@ mutable struct InstrumentState
     noise_amp::Vector{Float64}   # scaled amplitude spectrum of one 2N synthesis block
     window::Vector{Float64}      # periodic sqrt-Hann window of length 2N
     carry::Vector{Float64}       # overlap-add tail carried into the next segment
+    # Cached inverse-FFT plan and reusable draw/output buffers of the
+    # synthesis hot path (R17). The plan field is annotated with the abstract
+    # `AbstractFFTs.Plan` — the concrete FFTW plan type is an implementation
+    # detail, and the single dynamic dispatch per block is negligible against
+    # the transform itself.
+    irfft_plan::Plan{ComplexF64}
+    z_buffer::Vector{ComplexF64}     # spectral draw, refilled per block
+    block_buffer::Vector{Float64}    # windowed block, rewritten per block
     ext_data::Vector{Float32}
     ext_index::Int
     rng::Random.AbstractRNG
@@ -76,23 +86,26 @@ mutable struct InstrumentState
                 isabspath(ext_path) ? ext_path :
                 joinpath(TelemetryCore.PROJECT_ROOT, ext_path)
             if !isfile(resolved)
-                error("External data source specified but file not found at: $resolved")
+                TelemetryCore.config_error(
+                    "[CONFIG] External data source specified but file not found at: $resolved",
+                )
             end
             df = try
                 CSV.read(resolved, DataFrame)
             catch e
-                error(
+                TelemetryCore.config_error(
                     "[CONFIG] Failed to parse external data CSV at $resolved: $(sprint(showerror, e))",
                 )
             end
-            isempty(df) &&
-                error("[CONFIG] External data CSV at $resolved contains no rows.")
+            isempty(df) && TelemetryCore.config_error(
+                "[CONFIG] External data CSV at $resolved contains no rows.",
+            )
             # Assume single column or column named 'Amplitude'
             ext_col = hasproperty(df, :Amplitude) ? df.Amplitude : df[:, 1]
             ext_data = try
                 Float32.(ext_col)
             catch
-                error(
+                TelemetryCore.config_error(
                     "[CONFIG] External data column in $resolved must be numeric with no missing values (got eltype $(eltype(ext_col))).",
                 )
             end
@@ -104,6 +117,9 @@ mutable struct InstrumentState
                 true,
                 Float64[],
                 Float64[],
+                Float64[],
+                plan_irfft(ComplexF64[0.0im], 1),
+                ComplexF64[],
                 Float64[],
                 ext_data,
                 1,
@@ -120,8 +136,19 @@ mutable struct InstrumentState
             # Periodic sqrt-Hann: w²(n) + w²(n + M/2) = 1, so 50%-overlapped
             # independent blocks sum to a stationary stream with exact variance.
             window = [sqrt(0.5 * (1 - cos(2π * (n - 1) / block_len))) for n in 1:block_len]
+            irfft_plan = plan_irfft(Vector{ComplexF64}(undef, length(noise_amp)), block_len)
+            z_buffer = Vector{ComplexF64}(undef, length(noise_amp))
+            block_buffer = Vector{Float64}(undef, block_len)
             # Warm-up block so the very first segment is already stationary
-            carry = synth_windowed_block(rng, noise_amp, window)[(n_samples+1):end]
+            synth_windowed_block!(
+                block_buffer,
+                z_buffer,
+                irfft_plan,
+                rng,
+                noise_amp,
+                window,
+            )
+            carry = block_buffer[(n_samples+1):end]
             new(
                 start_t,
                 1,
@@ -131,6 +158,9 @@ mutable struct InstrumentState
                 noise_amp,
                 window,
                 carry,
+                irfft_plan,
+                z_buffer,
+                block_buffer,
                 Float32[],
                 1,
                 rng,
@@ -141,25 +171,49 @@ mutable struct InstrumentState
 end
 
 """
+    synth_windowed_block!(block, z, irfft_plan, rng, noise_amp, window)
+
+In-place core of [`synth_windowed_block`](@ref): draws the spectral
+realization into `z`, applies the cached `irfft_plan`, and writes the
+windowed block into `block`. Allocation-free apart from the transform's
+internal workspace; the RNG draw order is identical to the allocating form,
+so seeded streams are unchanged.
+"""
+function synth_windowed_block!(
+    block::Vector{Float64},
+    z::Vector{ComplexF64},
+    irfft_plan::Plan{ComplexF64},
+    rng::AbstractRNG,
+    noise_amp::Vector{Float64},
+    window::Vector{Float64},
+)
+    randn!(rng, z)
+    z[1] = 0.0 + 0.0im               # zero-mean stream: no DC power
+    z[end] = sqrt(2) * real(z[end])  # Nyquist bin of a real signal is real
+    z .*= noise_amp
+    mul!(block, irfft_plan, z)
+    block .*= window
+    return block
+end
+
+"""
     synth_windowed_block(rng::AbstractRNG, noise_amp::Vector{Float64}, window::Vector{Float64})
 
 Synthesizes one sqrt-Hann-windowed block of amplitude-calibrated colored noise
 of `length(window)` samples from the scaled amplitude spectrum `noise_amp`
 (see [`InstrumentState`](@ref)), drawing phases from `rng`. The DC bin is
 zeroed and the Nyquist bin is forced real, as required for a real-valued
-signal.
+signal. Allocating convenience form of [`synth_windowed_block!`](@ref).
 """
 function synth_windowed_block(
     rng::AbstractRNG,
     noise_amp::Vector{Float64},
     window::Vector{Float64},
 )
-    z = randn(rng, ComplexF64, length(noise_amp))
-    z[1] = 0.0 + 0.0im               # zero-mean stream: no DC power
-    z[end] = sqrt(2) * real(z[end])  # Nyquist bin of a real signal is real
-    block = irfft(z .* noise_amp, length(window))
-    block .*= window
-    return block
+    block = Vector{Float64}(undef, length(window))
+    z = Vector{ComplexF64}(undef, length(noise_amp))
+    plan = plan_irfft(z, length(window))
+    return synth_windowed_block!(block, z, plan, rng, noise_amp, window)
 end
 
 """
@@ -223,9 +277,16 @@ function next_segment!(vi::InstrumentState)
         vi.ext_index += n_samples
         is_sig = false # External data carries its own signal content; no injection.
     else
-        block = synth_windowed_block(vi.rng, vi.noise_amp, vi.window)
+        block = synth_windowed_block!(
+            vi.block_buffer,
+            vi.z_buffer,
+            vi.irfft_plan,
+            vi.rng,
+            vi.noise_amp,
+            vi.window,
+        )
         data = Float32.(vi.carry .+ view(block, 1:n_samples))
-        vi.carry = block[(n_samples+1):end]
+        copyto!(vi.carry, 1, block, n_samples + 1, n_samples)
         # Stream-preserving form: rand > 1 - p reproduces the historical
         # realization exactly at the default p = 0.02.
         is_sig = rand(vi.rng) > 1.0 - vi.signal_injection_probability
