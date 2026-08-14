@@ -6,7 +6,7 @@
 using Pkg;
 Pkg.activate(@__DIR__; io = devnull);
 Pkg.instantiate(; io = devnull)
-using Test, Dates, Statistics, CSV, DataFrames, Logging, Random, FFTW
+using Test, Dates, Statistics, CSV, DataFrames, Logging, Random, FFTW, TOML
 using StableRNGs
 using Aqua, JET, ExplicitImports
 using DeepSpaceTelemetry
@@ -162,7 +162,7 @@ end
     for (section, key, val) in broken
         cfg = valid_test_cfg()
         cfg[section][key] = val
-        @test_throws ErrorException TelemetryCore.validate_config(cfg)
+        @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
 
     # Missing required keys are configuration errors, never invented defaults
@@ -173,34 +173,34 @@ end
     ]
         cfg = valid_test_cfg()
         delete!(cfg[section], key)
-        @test_throws ErrorException TelemetryCore.validate_config(cfg)
+        @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
 
     # FFT synthesis needs ≥ 2 samples per segment
     cfg = valid_test_cfg()
     cfg["physics"]["sample_rate"] = 0.01
-    @test_throws ErrorException TelemetryCore.validate_config(cfg)
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
 
     # external source requires an existing file
     cfg = valid_test_cfg()
     cfg["physics"]["data_source"] = "external"
     cfg["physics"]["external_data_path"] = "definitely/not/a/file.csv"
-    @test_throws ErrorException TelemetryCore.validate_config(cfg)
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
 
     # packet-loss corner cases
     for (key, val) in [("p_loss", 1.5), ("p_loss", -0.1), ("max_retries", -1)]
         cfg = valid_test_cfg()
         cfg["packet_loss"] =
             Dict{String,Any}("enabled" => true, "model" => "bernoulli", key => val)
-        @test_throws ErrorException TelemetryCore.validate_config(cfg)
+        @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
     cfg = valid_test_cfg()
     cfg["packet_loss"] = Dict{String,Any}("enabled" => true, "model" => "unsupported_model")
-    @test_throws ErrorException TelemetryCore.validate_config(cfg)
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     cfg = valid_test_cfg()
     cfg["packet_loss"] =
         Dict{String,Any}("enabled" => true, "on_loss" => "unsupported_policy")
-    @test_throws ErrorException TelemetryCore.validate_config(cfg)
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
 
     # disruption corner cases
     for ev in [
@@ -211,19 +211,20 @@ end
     ]
         cfg = valid_test_cfg()
         cfg["disruption"] = Dict{String,Any}("events" => [ev])
-        @test_throws ErrorException TelemetryCore.validate_config(cfg)
+        @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
 
     # legacy [disaster] section still validated (deprecation warning + same rules)
     cfg = valid_test_cfg()
     cfg["disaster"] = Dict{String,Any}("events" => [Dict("start_day" => -1.0)])
-    @test_throws ErrorException TelemetryCore.validate_config(cfg)
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
 
-    # disabled packet loss skips model validation entirely
+    # a malformed [packet_loss] section is rejected even while disabled:
+    # types, enumerations, and bounds must fail fast, never lie dormant
     cfg = valid_test_cfg()
     cfg["packet_loss"] =
         Dict{String,Any}("enabled" => false, "model" => "unsupported_model")
-    @test TelemetryCore.validate_config(cfg) isa AbstractDict
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
 end
 
 @testset "Config validation: warnings" begin
@@ -313,11 +314,34 @@ end
     )
     @test_logs (:warn, r"overlap") match_mode = :any TelemetryCore.validate_config(cfg)
 
+    # Loss saturation: worst-state per-attempt loss × largest disruption
+    # multiplier ≥ 1 warns (0.4 × 3 ≥ 1 here)
+    cfg = valid_test_cfg()
+    cfg["packet_loss"] =
+        Dict{String,Any}("enabled" => true, "model" => "bernoulli", "p_loss" => 0.4)
+    cfg["disruption"] = Dict{String,Any}(
+        "events" => [
+            Dict{String,Any}(
+                "start_day" => 0.01,
+                "duration_hours" => 1.0,
+                "loss_multiplier" => 3.0,
+            ),
+        ],
+    )
+    @test_logs (:warn, r"Loss saturation") match_mode = :any TelemetryCore.validate_config(
+        cfg,
+    )
+
     # Run-ID reuse guard: a second setup on a non-empty run directory refuses
     reuse_id = "TEST_RUN_reuse_pid$(getpid())"
-    run_dir = TelemetryCore.setup_run_dir(reuse_id)
+    run_dir = TelemetryCore.setup_run_dir(reuse_id; cfg = valid_test_cfg())
     try
         @test_throws ErrorException TelemetryCore.setup_run_dir(reuse_id)
+        # Platform provenance is stamped into every snapshot
+        snap = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
+        @test haskey(snap, "provenance") && haskey(snap["provenance"], "platform")
+        @test haskey(snap["provenance"]["platform"], "hostname")
+        @test snap["provenance"]["platform"]["julia_version"] == string(VERSION)
     finally
         rm(run_dir; recursive = true, force = true)
     end
@@ -632,7 +656,17 @@ end
                 "STREAM",
                 "gap_end",
             )
+            # Reconciliation seed: a batch delivered to ground/ whose
+            # ingested record was lost to a crash window — the phase-2
+            # receiver must synthesize the missing record at re-attach.
+            orphan = joinpath(ra_dir, "ground", "ARCH_batch_500")
+            mkpath(orphan)
+            write(joinpath(orphan, "seg_1.csv"), "Amplitude\n0.0\n")
+
             run_phase(restored.clock, nothing, TelemetryCore.DataSegment[], StableRNG(99))
+
+            rx2 = CSV.read(joinpath(ra_dir, "events_rx.csv"), DataFrame)
+            @test any((rx2.Event .== "ingested") .& (rx2.Batch .== "ARCH_batch_500"))
 
             tx2 = CSV.read(joinpath(ra_dir, "events_tx.csv"), DataFrame)
             gen_rows = tx2[tx2.Event .== "gen", :]
@@ -724,15 +758,16 @@ end
 
     # retention_settings defaults (disabled custodian, 75 % watermark)
     r = TelemetryCore.retention_settings(base)
+    @test r isa TelemetryCore.RetentionPolicy
     @test r.enabled == false
-    @test r.grace_hours == 24.0
+    @test r.grace == Millisecond(Dates.Hour(24))
     @test r.watermark_bytes ≈ 0.75 * 10.0 * 1024^3 rtol = 1e-12
 
     # validate_config rejects a watermark above the storage budget
     bad = valid_test_cfg()
     bad["storage"] = Dict{String,Any}("max_storage_gb" => 1.0)
     bad["retention"] = Dict{String,Any}("enabled" => true, "high_watermark_gb" => 2.0)
-    @test_throws ErrorException TelemetryCore.validate_config(bad)
+    @test_throws ArgumentError TelemetryCore.validate_config(bad)
 end
 
 @testset "Config guardrails (malformed inputs)" begin
@@ -747,15 +782,15 @@ end
     ]
         cfg = valid_test_cfg()
         cfg[sec][key] = val
-        @test_throws ErrorException TelemetryCore.validate_config(cfg)
+        @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
     cfg = valid_test_cfg()
     cfg["packet_loss"] = Dict{String,Any}("enabled" => true, "p_loss" => "high")
-    @test_throws ErrorException TelemetryCore.validate_config(cfg)
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     cfg = valid_test_cfg()
     cfg["disruption"] =
         Dict{String,Any}("events" => [Dict{String,Any}("start_day" => "ten")])
-    @test_throws ErrorException TelemetryCore.validate_config(cfg)
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
 
     # The builders re-check defensively (reachable via legacy run snapshots
     # that never pass through validate_config)
@@ -764,8 +799,8 @@ end
         "disruption" =>
             Dict{String,Any}("events" => [Dict{String,Any}("start_day" => "ten")]),
     )
-    @test_throws ErrorException ChannelEffects.build_disruption_timeline(bad_ev, start)
-    @test_throws ErrorException ChannelEffects.build_loss_model(
+    @test_throws ArgumentError ChannelEffects.build_disruption_timeline(bad_ev, start)
+    @test_throws ArgumentError ChannelEffects.build_loss_model(
         Dict{String,Any}(
             "packet_loss" => Dict{String,Any}("enabled" => true, "p_loss" => "high"),
         ),
@@ -919,7 +954,7 @@ end
         "disruption" =>
             Dict{String,Any}("events" => [Dict{String,Any}("start_day" => -1.0)]),
     )
-    @test_throws ErrorException ChannelEffects.build_disruption_timeline(bad, start)
+    @test_throws ArgumentError ChannelEffects.build_disruption_timeline(bad, start)
 end
 
 @testset "ChannelEffects: LinkModel composition" begin
@@ -984,14 +1019,14 @@ end
           ge.p_loss_bad == 0.5 &&
           !ge.in_bad_state
 
-    @test_throws ErrorException ChannelEffects.build_loss_model(
+    @test_throws ArgumentError ChannelEffects.build_loss_model(
         Dict{String,Any}(
             "packet_loss" =>
                 Dict{String,Any}("enabled" => true, "model" => "unsupported_model"),
         ),
         1,
     )
-    @test_throws ErrorException ChannelEffects.build_loss_model(
+    @test_throws ArgumentError ChannelEffects.build_loss_model(
         Dict{String,Any}(
             "packet_loss" => Dict{String,Any}("enabled" => true, "p_loss" => 1.5),
         ),
@@ -1008,7 +1043,7 @@ end
     @test ChannelEffects.loss_retry_limit(
         Dict{String,Any}("packet_loss" => Dict{String,Any}("max_retries" => 7)),
     ) == 7
-    @test_throws ErrorException ChannelEffects.loss_retry_limit(
+    @test_throws ArgumentError ChannelEffects.loss_retry_limit(
         Dict{String,Any}(
             "packet_loss" => Dict{String,Any}("on_loss" => "unsupported_policy"),
         ),
@@ -1150,7 +1185,7 @@ end
     mktempdir() do tmp
         txt_csv = joinpath(tmp, "text.csv")
         CSV.write(txt_csv, DataFrame(Amplitude = ["a", "b"]))
-        @test_throws ErrorException VirtualInstrument.InstrumentState(
+        @test_throws ArgumentError VirtualInstrument.InstrumentState(
             DateTime(2030, 1, 1),
             2.0,
             2.0,
@@ -1160,7 +1195,7 @@ end
 
         empty_csv = joinpath(tmp, "empty.csv")
         CSV.write(empty_csv, DataFrame(Amplitude = Float32[]))
-        @test_throws ErrorException VirtualInstrument.InstrumentState(
+        @test_throws ArgumentError VirtualInstrument.InstrumentState(
             DateTime(2030, 1, 1),
             2.0,
             2.0,
@@ -1347,6 +1382,37 @@ end
         @test length(states) == 1
         @test states[1].gnd_live == [1]  # delivery state unperturbed
         @test isempty(states[1].lost)
+    end
+
+    # Cross-component timestamp skew: emitter and receiver stamp milestones
+    # from separate clock reads, so an `ingested` record can carry an earlier
+    # timestamp than its own `tx` record at high speed-up. Per-batch causal
+    # order must win: the state sequence never regresses.
+    mktempdir() do tmp
+        t0 = DateTime(2035, 1, 1, 8, 0, 0)
+        tx = DataFrame(
+            SimTime = [t0, t0 + Minute(5)],
+            Batch = ["LIVE_batch_1", "LIVE_batch_1"],
+            Event = ["gen", "tx"], # tx recorded AFTER the receiver's ingested
+        )
+        rx = DataFrame(
+            SimTime = [t0 + Minute(3)],
+            Batch = ["LIVE_batch_1"],
+            Event = ["ingested"],
+            Attempt = [0],
+        )
+        CSV.write(joinpath(tmp, "events_tx.csv"), tx)
+        CSV.write(joinpath(tmp, "events_rx.csv"), rx)
+        df = DataFrame(
+            SimTime = [t0 + Minute(1), t0 + Minute(4), t0 + Minute(6), t0 + Minute(8)],
+        )
+        states = with_logger(NullLogger()) do
+            Receiver.reconstruct_batch_states_exact(tmp, df)
+        end
+        @test states[2].gnd_live == [1] # delivered at the ingested record
+        @test states[3].gnd_live == [1] # the late-stamped tx cannot regress it
+        @test states[4].gnd_live == [1]
+        @test isempty(states[3].lnk_live)
     end
 end
 
@@ -1559,11 +1625,11 @@ end
                 )
             end
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
-            retention = (
-                enabled = true,
-                grace_hours = 0.25,
-                watermark_bytes = 0.0,
-                log_rotate_bytes = 64.0 * 1024^2,
+            retention = TelemetryCore.RetentionPolicy(
+                true,
+                Millisecond(round(Int, 0.25 * 3_600_000)),
+                0.0,
+                64.0 * 1024^2,
             )
             em = Threads.@spawn with_logger(NullLogger()) do
                 Emitter.run_emitter(

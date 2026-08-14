@@ -807,7 +807,11 @@ state-preserving `retry` events are skipped). Returns one [`BatchStates`](@ref)
 record per `mission_profile.csv` row, evaluated at that row's `SimTime`.
 
 Unlike the count-delta heuristic this attributes each packet loss to its exact
-batch ID, which is what makes mask state `4 = Lost` possible.
+batch ID, which is what makes mask state `4 = Lost` possible. Emitter and
+receiver stamp milestones from separate clock reads, so recorded timestamps
+can invert within a batch at high speed-up; the replay enforces per-batch
+causal order (`gen` → `tx` → terminal) with later stages absorbing, keeping
+every batch's state sequence monotone.
 """
 function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
@@ -844,13 +848,63 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     end
     sort!(events, by = e -> (e[1], e[2]))
 
-    onb_live = Int[]
-    onb_arch = Int[]
-    lnk_live = Int[]
-    lnk_arch = Int[]
-    gnd_live = Int[]
-    gnd_arch = Int[]
-    lost = Int[]
+    # Category vectors plus a batch-ID → (category, index) position map:
+    # every event application is O(1) via swap-remove, replacing the former
+    # per-event `filter!` scans that made the replay quadratic over a
+    # mission. Order within a category is not part of the contract (masks
+    # index by batch ID; scatters are unordered).
+    category = Dict(
+        :onb_live => Int[],
+        :onb_arch => Int[],
+        :lnk_live => Int[],
+        :lnk_arch => Int[],
+        :gnd_live => Int[],
+        :gnd_arch => Int[],
+        :lost => Int[],
+    )
+    position = Dict{Int,Tuple{Symbol,Int}}()
+
+    # Swap-remove `id` from its current category (no-op for an unseen ID,
+    # e.g. a truncated log whose `gen` row is missing).
+    displace! = id -> begin
+        loc = get(position, id, nothing)
+        loc === nothing && return nothing
+        (cat, idx) = loc
+        v = category[cat]
+        moved = v[end]
+        v[idx] = moved
+        position[moved] = (cat, idx)
+        pop!(v)
+        delete!(position, id)
+        return nothing
+    end
+    # Causal stage rank: emitter and receiver stamp events from separate
+    # clock reads, so at high speed-up a batch's `ingested` record can carry
+    # an earlier timestamp than its own `tx` record. Per-batch causality
+    # (gen < tx < terminal) outranks recorded timestamps: a later-stage
+    # placement is absorbing and an earlier-stage event arriving late is
+    # dropped.
+    stage_rank = Dict(
+        :onb_live => 1,
+        :onb_arch => 1,
+        :lnk_live => 2,
+        :lnk_arch => 2,
+        :gnd_live => 3,
+        :gnd_arch => 3,
+        :lost => 4,
+    )
+    # Move `id` into `cat`; self-cleaning, so a duplicated log row can
+    # never strand a stale copy in a previous category.
+    place! =
+        (id, cat) -> begin
+            loc = get(position, id, nothing)
+            loc !== nothing && stage_rank[loc[1]] >= stage_rank[cat] && return nothing
+            displace!(id)
+            v = category[cat]
+            push!(v, id)
+            position[id] = (cat, length(v))
+            return nothing
+        end
 
     states = Vector{BatchStates}(undef, 0)
     sizehint!(states, nrow(df))
@@ -863,40 +917,26 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
             id = something(tryparse(Int, split(name, "_")[end]), 0)
             is_live = startswith(name, "LIVE_")
             if kind == "gen"
-                is_live ? push!(onb_live, id) : push!(onb_arch, id)
+                place!(id, is_live ? :onb_live : :onb_arch)
             elseif kind == "tx"
-                if is_live
-                    filter!(!=(id), onb_live)
-                    push!(lnk_live, id)
-                else
-                    filter!(!=(id), onb_arch)
-                    push!(lnk_arch, id)
-                end
+                place!(id, is_live ? :lnk_live : :lnk_arch)
             elseif kind == "ingested"
-                if is_live
-                    filter!(!=(id), lnk_live)
-                    push!(gnd_live, id)
-                else
-                    filter!(!=(id), lnk_arch)
-                    push!(gnd_arch, id)
-                end
+                place!(id, is_live ? :gnd_live : :gnd_arch)
             elseif kind == "lost"
-                filter!(!=(id), lnk_live)
-                filter!(!=(id), lnk_arch)
-                push!(lost, id)
+                place!(id, :lost)
             end
             ev_idx += 1
         end
         push!(
             states,
             (
-                onb_live = copy(onb_live),
-                onb_arch = copy(onb_arch),
-                lnk_live = copy(lnk_live),
-                lnk_arch = copy(lnk_arch),
-                gnd_live = copy(gnd_live),
-                gnd_arch = copy(gnd_arch),
-                lost = copy(lost),
+                onb_live = copy(category[:onb_live]),
+                onb_arch = copy(category[:onb_arch]),
+                lnk_live = copy(category[:lnk_live]),
+                lnk_arch = copy(category[:lnk_arch]),
+                gnd_live = copy(category[:gnd_live]),
+                gnd_arch = copy(category[:gnd_arch]),
+                lost = copy(category[:lost]),
             ),
         )
     end
@@ -959,32 +999,27 @@ function generate_telemetry_masks(run_dir::String)
     )
 
     states = batch_states(run_dir, df, vis_model)
-    max_id_ever = isempty(states) ? 0 : sum(length, last(states))
+    # True maximum batch ID, not the batch count: the ID space may carry
+    # holes (truncated logs, hand-assembled or reconciled run directories),
+    # and a count-sized matrix would fault on the first such hole.
+    max_id_ever =
+        isempty(states) ? 0 : maximum(cat -> isempty(cat) ? 0 : maximum(cat), last(states))
 
     # 0 = Future, 1 = Onboard, 2 = Link, 3 = Ground, 4 = Lost
     mask_matrix = zeros(Int8, nrow(df), max_id_ever)
 
-    for (i, st) in enumerate(states)
-        for id in st.onb_live
-            mask_matrix[i, id] = 1
-        end
-        for id in st.onb_arch
-            mask_matrix[i, id] = 1
-        end
-        for id in st.lnk_live
-            mask_matrix[i, id] = 2
-        end
-        for id in st.lnk_arch
-            mask_matrix[i, id] = 2
-        end
-        for id in st.gnd_live
-            mask_matrix[i, id] = 3
-        end
-        for id in st.gnd_arch
-            mask_matrix[i, id] = 3
-        end
-        for id in st.lost
-            mask_matrix[i, id] = 4
+    for (i, st) in enumerate(states),
+        (code, cats) in (
+            (Int8(1), (st.onb_live, st.onb_arch)),
+            (Int8(2), (st.lnk_live, st.lnk_arch)),
+            (Int8(3), (st.gnd_live, st.gnd_arch)),
+            (Int8(4), (st.lost,)),
+        )
+
+        for cat in cats, id in cat
+            # Unparsable batch names replay as ID 0 — excluded from the
+            # matrix rather than faulting the whole product.
+            1 <= id <= max_id_ever && (mask_matrix[i, id] = code)
         end
     end
 
@@ -1015,6 +1050,44 @@ function generate_telemetry_masks(run_dir::String)
     end
 end
 
+"""
+    delivered_payload_queue(run_dir::String, ground_path::String)
+        -> Vector{Tuple{DateTime,String,Int}}
+
+Materializes the retention custodian's pruning queue from the run's ground
+census and `events_rx.csv`: delivered (`ingested`) batches whose payload has
+not been `pruned`, oldest-ingested first, each with its current `seg_*.csv`
+payload size in bytes. Consulted at startup for the payload tally and lazily
+on watermark breach, so the in-memory queue stays empty outside breach
+episodes.
+"""
+function delivered_payload_queue(run_dir::String, ground_path::String)
+    rx_log_path = joinpath(run_dir, "events_rx.csv")
+    isfile(rx_log_path) || return Tuple{DateTime,String,Int}[]
+    rx_hist = CSV.read(rx_log_path, DataFrame)
+    isempty(rx_hist) && return Tuple{DateTime,String,Int}[]
+    ingested_t = Dict(
+        String(r.Batch) => r.SimTime for r in eachrow(rx_hist) if r.Event == "ingested"
+    )
+    pruned_set = Set(String(r.Batch) for r in eachrow(rx_hist) if r.Event == "pruned")
+    ground_names = filter(f -> isdir(joinpath(ground_path, f)), readdir(ground_path))
+    survivors = sort!(
+        [b for b in ground_names if haskey(ingested_t, b) && !(b in pruned_set)];
+        by = b -> ingested_t[b],
+    )
+    queue = Tuple{DateTime,String,Int}[]
+    for b in survivors
+        bdir = joinpath(ground_path, b)
+        payload = sum(
+            f -> startswith(f, "seg_") ? Int(filesize(joinpath(bdir, f))) : 0,
+            readdir(bdir);
+            init = 0,
+        )
+        push!(queue, (ingested_t[b], b, payload))
+    end
+    return queue
+end
+
 # --- Receiver Main Loop ---
 """
     run_receiver(clock, link, run_id; ...)
@@ -1031,15 +1104,32 @@ property of priority downlink protocols) and is retried on the next pass; after
 `max_retries` failed attempts the batch is moved to `lost/` — never deleted —
 and acknowledged so the emitter frees its transmission window slot. Every
 milestone is appended to `events_rx.csv` for exact post-processing
-reconstruction.
+reconstruction. At startup, a re-attaching receiver reseeds retry and
+custodial state from the event log and synthesizes `ingested` records (at the
+re-attach instant) for batches delivered to `ground/` whose record was lost
+to a crash between the delivery move and the log append.
 
-When `retention.enabled` (see `TelemetryCore.retention_settings`) the loop
-also runs the retention custodian: once the delivered-payload tally exceeds
-`watermark_bytes`, the oldest-ingested batches beyond the `grace_hours`
-mission-time guarantee have their `seg_*.csv` payload files deleted — the
-batch directory keeps `metadata.json`, gains a `PRUNED` marker, and a
-`pruned` event is appended to `events_rx.csv`. Event logs, metrics, masks,
-and `lost/` are never pruned.
+When `retention.enabled` the loop also runs the retention custodian: once the
+delivered-payload tally exceeds `watermark_bytes`, the oldest-ingested batches
+beyond the `grace` mission-time guarantee have their `seg_*.csv` payload
+files deleted — the batch directory keeps `metadata.json`, gains a `PRUNED`
+marker, and a `pruned` event is appended to `events_rx.csv`. Event logs,
+metrics, masks, and `lost/` are never pruned. The pruning queue is
+materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
+
+# Keyword arguments
+
+  - `test_duration_sec`: wall-clock stop after this many seconds (`0.0`
+    disables; tests only — production uses `deadline`).
+  - `orig_stdout`: stream receiving the dashboard rendering.
+  - `max_batches_per_hour`: peak DSN service capacity [batches/h].
+  - `loss_model`: stochastic packet-loss channel (`ChannelEffects.LossModel`).
+  - `max_retries`: failed attempts before a batch moves to `lost/`.
+  - `retention`: the custodian's [`TelemetryCore.RetentionPolicy`](@ref).
+  - `deadline`: absolute wall-clock stop shared by both components.
+  - `stop`: cooperative stop flag raised by the supervisor.
+  - `heartbeat_path`: liveness file touched once per second when set.
+  - `min_link_factor`: capacity floor below which no transfer is attempted.
 """
 function run_receiver(
     clock::TelemetryCore.SimulationClock,
@@ -1050,7 +1140,9 @@ function run_receiver(
     max_batches_per_hour::Float64 = 20.0,
     loss_model::ChannelEffects.LossModel = ChannelEffects.NoLoss(),
     max_retries::Int = 3,
-    retention::NamedTuple = TelemetryCore.retention_settings(Dict{String,Any}()),
+    retention::TelemetryCore.RetentionPolicy = TelemetryCore.retention_settings(
+        Dict{String,Any}(),
+    ),
     deadline::Union{DateTime,Nothing} = nothing,
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
     heartbeat_path::Union{String,Nothing} = nothing,
@@ -1111,28 +1203,31 @@ function run_receiver(
                 String(r.Batch) => r.SimTime for
                 r in eachrow(rx_hist) if r.Event == "ingested"
             )
-            unrecorded = setdiff(Set(ground_seed), keys(ingested_t))
-            isempty(unrecorded) ||
-                @warn "[RECEIVER] Re-attach: $(length(unrecorded)) batches in ground/ lack an ingested record (crash window between delivery and logging); the mask replay shows them in transit." batches =
-                    first(sort!(collect(unrecorded)), min(5, length(unrecorded)))
-            if retention.enabled
-                pruned_set =
-                    Set(String(r.Batch) for r in eachrow(rx_hist) if r.Event == "pruned")
-                survivors = sort!(
-                    [b for b in ground_seed if haskey(ingested_t, b) && !(b in pruned_set)];
-                    by = b -> ingested_t[b],
-                )
-                for b in survivors
-                    bdir = joinpath(ground_path, b)
-                    payload = sum(
-                        f ->
-                            startswith(f, "seg_") ? Int(filesize(joinpath(bdir, f))) : 0,
-                        readdir(bdir);
-                        init = 0,
-                    )
-                    push!(prune_queue, (ingested_t[b], b, payload))
-                    ground_payload_bytes += payload
+            unrecorded = sort!(collect(setdiff(Set(ground_seed), keys(ingested_t))))
+            if !isempty(unrecorded)
+                # Reconciliation synthesis: a batch present in ground/ without
+                # an ingested record witnesses a crash between the delivery
+                # move and the log append. The actual delivery time is
+                # unrecoverable, so the record is synthesized at the re-attach
+                # instant — masks, custodian, and consumers then agree the
+                # batch is delivered.
+                reconcile_t = TelemetryCore.get_current_sim_time(clock)
+                for b in unrecorded
+                    TelemetryCore.log_rx_event(run_dir, reconcile_t, b, "ingested", 0)
+                    ingested_t[b] = reconcile_t
                 end
+                @warn "[RECEIVER] Re-attach: synthesized ingested records at $reconcile_t for $(length(unrecorded)) batches present in ground/ without a delivery record (crash window between delivery and logging)." batches =
+                    first(unrecorded, min(5, length(unrecorded)))
+            end
+            if retention.enabled
+                # Tally only: the prune queue itself is materialized lazily on
+                # watermark breach (see the custodian block below), so it stays
+                # empty on missions whose watermark is never reached.
+                ground_payload_bytes = sum(
+                    entry -> entry[3],
+                    delivered_payload_queue(run_dir, ground_path);
+                    init = 0,
+                )
             end
         end
     end
@@ -1211,11 +1306,14 @@ function run_receiver(
             # rely on (docs/src/interfaces.md). Only seg_*.csv files are
             # deleted; metadata.json stays and a PRUNED marker plus a `pruned`
             # event record the action.
-            if retention.enabled
-                grace_ms = retention.grace_hours * 3.6e6
+            if retention.enabled && ground_payload_bytes > retention.watermark_bytes
+                # Materialized on breach and refreshed when exhausted
+                # mid-breach; empty between breach episodes (bounded growth).
+                isempty(prune_queue) &&
+                    append!(prune_queue, delivered_payload_queue(run_dir, ground_path))
                 while ground_payload_bytes > retention.watermark_bytes &&
                       !isempty(prune_queue) &&
-                      (sim_t - prune_queue[1][1]).value >= grace_ms
+                      (sim_t - prune_queue[1][1]) >= retention.grace
                     (ingest_t, pruned_name, payload_bytes) = popfirst!(prune_queue)
                     batch_dir = joinpath(ground_path, pruned_name)
                     try
@@ -1352,7 +1450,8 @@ function run_receiver(
                             readdir(batch_dir);
                             init = 0,
                         )
-                        push!(prune_queue, (sim_t, batch_name, payload))
+                        # Tally only — the prune queue is materialized lazily
+                        # on watermark breach (custodian block).
                         ground_payload_bytes += payload
                     end
                 end

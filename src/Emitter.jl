@@ -193,107 +193,115 @@ function run_emitter(
     start_wall_t = now()
     next_wall_t = start_wall_t
 
-    while true
-        if stop !== nothing && stop[]
-            @info "[EMITTER] Stop signal received. Shutting down."
-            break
-        end
-        if isfile(halt_path)
-            @info "[EMITTER] HALT sentinel detected. Shutting down."
-            break
-        end
-        if deadline !== nothing && now() >= deadline
-            @info "[EMITTER] Mission deadline reached. Shutting down."
-            break
-        end
-        if test_duration_sec > 0.0 &&
-           (now() - start_wall_t).value / 1000.0 > test_duration_sec
-            @info "[EMITTER] Test duration reached. Shutting down."
-            break
-        end
-        if heartbeat_path !== nothing && (now() - last_heartbeat).value >= 1000
-            touch(heartbeat_path)
-            last_heartbeat = now()
-        end
-
-        # 1. Generation
-        sim_t = TelemetryCore.get_current_sim_time(clock)
-        seg = VirtualInstrument.next_segment!(vi)
-        push!(current_batch_segs, seg)
-
-        # 2. Batch Finalization
-        if length(current_batch_segs) >= batch_size
-            # Classification ruling: LIVE/ARCH follows the
-            # link state at finalization time — flight software marks data
-            # near-real-time only if the link is up when it is ready to send.
-            # The payload's content epoch is preserved independently
-            # (created_at + masks/batch_epochs.csv), so emitter pacing lag can
-            # shift classification but never science provenance.
-            is_live = ChannelEffects.is_transmittable(link, sim_t)
-            # Mission-time provenance, matching the pre-population path.
-            batch = TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs), sim_t)
-            prefix = is_live ? "LIVE_" : "ARCH_"
-            batch_name = "$(prefix)batch_$batch_counter"
-            batch_dir = joinpath(buffer_path, batch_name)
-
-            TelemetryCore.save_batch(batch_dir, batch)
-
-            # Add to internal queue
-            if is_live
-                # LIVE queue is FIFO: append at the tail, drain from the head.
-                push!(onboard_live_queue, batch_name)
-            else
-                # ARCH queue is LIFO: insert at the head so popfirst! yields newest-first.
-                pushfirst!(onboard_arch_queue, batch_name)
+    try
+        while true
+            if stop !== nothing && stop[]
+                @info "[EMITTER] Stop signal received. Shutting down."
+                break
+            end
+            if isfile(halt_path)
+                @info "[EMITTER] HALT sentinel detected. Shutting down."
+                break
+            end
+            if deadline !== nothing && now() >= deadline
+                @info "[EMITTER] Mission deadline reached. Shutting down."
+                break
+            end
+            if test_duration_sec > 0.0 &&
+               (now() - start_wall_t).value / 1000.0 > test_duration_sec
+                @info "[EMITTER] Test duration reached. Shutting down."
+                break
+            end
+            if heartbeat_path !== nothing && (now() - last_heartbeat).value >= 1000
+                touch(heartbeat_path)
+                last_heartbeat = now()
             end
 
-            @info "[EMITTER] Gen  | $batch_name @ SimTime: $(batch.segments[1].timestamp)"
-            TelemetryCore.log_tx_event(run_dir, sim_t, batch_name, "gen")
-            empty!(current_batch_segs)
-            batch_counter += 1
-        end
+            # 1. Generation
+            sim_t = TelemetryCore.get_current_sim_time(clock)
+            seg = VirtualInstrument.next_segment!(vi)
+            push!(current_batch_segs, seg)
 
-        # 3. Transmission — gated on the effective link (visibility AND no blackout)
-        if ChannelEffects.is_transmittable(link, sim_t)
-            # Process ACKs efficiently
-            acks = filter(f -> endswith(f, ".ack"), readdir(link_path))
-            for ack in acks
-                rm(joinpath(link_path, ack))
-            end
+            # 2. Batch Finalization
+            if length(current_batch_segs) >= batch_size
+                # Classification ruling: LIVE/ARCH follows the
+                # link state at finalization time — flight software marks data
+                # near-real-time only if the link is up when it is ready to send.
+                # The payload's content epoch is preserved independently
+                # (created_at + masks/batch_epochs.csv), so emitter pacing lag can
+                # shift classification but never science provenance.
+                is_live = ChannelEffects.is_transmittable(link, sim_t)
+                # Mission-time provenance, matching the pre-population path.
+                batch =
+                    TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs), sim_t)
+                prefix = is_live ? "LIVE_" : "ARCH_"
+                batch_name = "$(prefix)batch_$batch_counter"
+                batch_dir = joinpath(buffer_path, batch_name)
 
-            link_count =
-                length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
+                TelemetryCore.save_batch(batch_dir, batch)
 
-            if link_count < max_inflight_batches
-                next_batch = ""
-                reason = ""
-                if !isempty(onboard_live_queue)
-                    next_batch = popfirst!(onboard_live_queue) # FIFO for Live
-                    reason = "Priority"
-                elseif !isempty(onboard_arch_queue)
-                    next_batch = popfirst!(onboard_arch_queue) # LIFO for Arch (since we pushfirst!)
-                    reason = "Backfill"
+                # Add to internal queue
+                if is_live
+                    # LIVE queue is FIFO: append at the tail, drain from the head.
+                    push!(onboard_live_queue, batch_name)
+                else
+                    # ARCH queue is LIFO: insert at the head so popfirst! yields newest-first.
+                    pushfirst!(onboard_arch_queue, batch_name)
                 end
-                if !isempty(next_batch)
-                    TelemetryCore.backup_existing_dir(joinpath(link_path, next_batch))
-                    mv(joinpath(buffer_path, next_batch), joinpath(link_path, next_batch))
-                    @info "[EMITTER] Tx ->| $next_batch ($reason)"
-                    TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
+
+                @info "[EMITTER] Gen  | $batch_name @ SimTime: $(batch.segments[1].timestamp)"
+                TelemetryCore.log_tx_event(run_dir, sim_t, batch_name, "gen")
+                empty!(current_batch_segs)
+                batch_counter += 1
+            end
+
+            # 3. Transmission — gated on the effective link (visibility AND no blackout)
+            if ChannelEffects.is_transmittable(link, sim_t)
+                # Process ACKs efficiently
+                acks = filter(f -> endswith(f, ".ack"), readdir(link_path))
+                for ack in acks
+                    rm(joinpath(link_path, ack))
+                end
+
+                link_count =
+                    length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
+
+                if link_count < max_inflight_batches
+                    next_batch = ""
+                    reason = ""
+                    if !isempty(onboard_live_queue)
+                        next_batch = popfirst!(onboard_live_queue) # FIFO for Live
+                        reason = "Priority"
+                    elseif !isempty(onboard_arch_queue)
+                        next_batch = popfirst!(onboard_arch_queue) # LIFO for Arch (since we pushfirst!)
+                        reason = "Backfill"
+                    end
+                    if !isempty(next_batch)
+                        TelemetryCore.backup_existing_dir(joinpath(link_path, next_batch))
+                        mv(
+                            joinpath(buffer_path, next_batch),
+                            joinpath(link_path, next_batch),
+                        )
+                        @info "[EMITTER] Tx ->| $next_batch ($reason)"
+                        TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
+                    end
                 end
             end
-        end
 
-        # 4. Precision Timing
-        next_wall_t += Millisecond(round(Int, (vi.seg_dur / clock.speed_up) * 1000.0))
-        wait_time = (next_wall_t - now()).value / 1000.0
+            # 4. Precision Timing
+            next_wall_t += Millisecond(round(Int, (vi.seg_dur / clock.speed_up) * 1000.0))
+            wait_time = (next_wall_t - now()).value / 1000.0
 
-        if wait_time > 0
-            sleep(wait_time)
+            if wait_time > 0
+                sleep(wait_time)
+            end
         end
+    finally
+        # Heartbeat exists only while the loop runs — removed on every exit
+        # path (including a throw), so the watchdog reads "finished", never a
+        # stale "stalled".
+        heartbeat_path !== nothing && rm(heartbeat_path; force = true)
     end
-    # Heartbeat exists only while the loop runs: removing it tells the
-    # watchdog this component finished rather than stalled.
-    heartbeat_path !== nothing && rm(heartbeat_path; force = true)
 end
 
 end # module Emitter

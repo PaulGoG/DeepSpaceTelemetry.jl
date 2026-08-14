@@ -6,7 +6,41 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- `[storage] max_ram_gb`: the pre-run gate now estimates the post-processing
+  replay RAM (new `replay_ram_bytes` field and `bytes_replay_cell`
+  calibration key) and refuses configurations exceeding the budget.
+- `RetentionPolicy`: the retention custodian's parameters are a typed
+  immutable struct (grace window held as a `Millisecond` period); the
+  pruning queue is materialized lazily on watermark breach, bounding its
+  growth on missions that never reach the watermark.
+- Receiver re-attach synthesizes `ingested` records for batches present in
+  `ground/` without a delivery record (crash-window reconciliation; formerly
+  warning-only).
+- Platform provenance: every `config_snapshot.toml` now carries
+  `[provenance.platform]` — hostname, OS, CPU model and core count, memory,
+  Julia version, thread and BLAS-thread counts.
+
+### Changed
+- Exact batch-state replay rewritten around a batch-ID position map: event
+  application is O(1) (formerly quadratic `filter!` scans) and per-batch
+  causal order (`gen` → `tx` → terminal) is enforced, so cross-component
+  timestamp skew can no longer regress a batch's mask state.
+- Strain synthesis caches its inverse-FFT plan and reuses draw/output
+  buffers; seeded streams are unchanged.
+- Configuration rejections throw `ArgumentError` uniformly (via
+  `config_error`); a malformed `[packet_loss]` section is rejected even
+  while disabled; `[dashboard]` and `[post_processing]` values are
+  type-checked at validation time; the loss-saturation warning composes the
+  worst-channel-state loss with the largest disruption `loss_multiplier`.
+- Storage estimator counts the vector-PDF twin of every figure (bytes and
+  file count) and uses named constants for its margins and slacks.
+
 ### Fixed
+- Emitter heartbeat removal is exception-safe (`try`/`finally`, matching the
+  receiver); the mask timeline sizes by the true maximum batch ID so holes
+  in the ID space no longer fault post-processing; the storage estimator
+  compares loss-model names case-insensitively.
 - `generate_gif.jl` failed with an `UndefVarError` after the explicit-import
   migration: `with_theme` is now taken from `CairoMakie` rather than through
   `PlotTheme`.

@@ -274,13 +274,16 @@ function build_loss_model(cfg::AbstractDict, seed::Integer)
     getp =
         key -> begin
             v = TelemetryCore.checked_number(get(pl, key, 0.0), "packet_loss.$key")
-            0.0 <= v <= 1.0 || error("[CONFIG] packet_loss.$key = $v outside [0, 1].")
+            0.0 <= v <= 1.0 || TelemetryCore.config_error(
+                "[CONFIG] packet_loss.$key = $v outside [0, 1].",
+            )
             v
         end
 
     if model == "bernoulli"
         p = TelemetryCore.checked_number(get(pl, "p_loss", 0.05), "packet_loss.p_loss")
-        0.0 <= p <= 1.0 || error("[CONFIG] packet_loss.p_loss = $p outside [0, 1].")
+        0.0 <= p <= 1.0 ||
+            TelemetryCore.config_error("[CONFIG] packet_loss.p_loss = $p outside [0, 1].")
         return BernoulliLoss(p, rng)
     elseif model == "gilbert_elliott"
         return GilbertElliottLoss(
@@ -292,7 +295,7 @@ function build_loss_model(cfg::AbstractDict, seed::Integer)
             rng,
         )
     else
-        error(
+        TelemetryCore.config_error(
             "[CONFIG] Unknown packet_loss.model = \"$model\" (expected \"bernoulli\" or \"gilbert_elliott\").",
         )
     end
@@ -313,13 +316,15 @@ function loss_retry_limit(cfg::AbstractDict)
             "packet_loss.on_loss",
         ),
     )
-    on_loss in ("retransmit", "drop") || error(
+    on_loss in ("retransmit", "drop") || TelemetryCore.config_error(
         "[CONFIG] Unknown packet_loss.on_loss = \"$on_loss\" (expected \"retransmit\" or \"drop\").",
     )
     on_loss == "drop" && return 0
     retries =
         TelemetryCore.checked_integer(get(pl, "max_retries", 3), "packet_loss.max_retries")
-    retries >= 0 || error("[CONFIG] packet_loss.max_retries must be ≥ 0 (got $retries).")
+    retries >= 0 || TelemetryCore.config_error(
+        "[CONFIG] packet_loss.max_retries must be ≥ 0 (got $retries).",
+    )
     return retries
 end
 
@@ -341,26 +346,30 @@ function build_disruption_timeline(cfg::AbstractDict, start_sim::DateTime)
             get(e, "start_day", -1.0),
             "disruption.events[$i].start_day",
         )
-        start_day >= 0.0 ||
-            error("[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).")
+        start_day >= 0.0 || TelemetryCore.config_error(
+            "[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).",
+        )
         dur_h = TelemetryCore.checked_number(
             get(e, "duration_hours", 24.0),
             "disruption.events[$i].duration_hours",
         )
-        dur_h > 0.0 ||
-            error("[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $dur_h).")
+        dur_h > 0.0 || TelemetryCore.config_error(
+            "[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $dur_h).",
+        )
         rec_h = TelemetryCore.checked_number(
             get(e, "recovery_hours", 0.0),
             "disruption.events[$i].recovery_hours",
         )
-        rec_h >= 0.0 ||
-            error("[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $rec_h).")
+        rec_h >= 0.0 || TelemetryCore.config_error(
+            "[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $rec_h).",
+        )
         sev = TelemetryCore.checked_number(
             get(e, "severity", 1.0),
             "disruption.events[$i].severity",
         )
-        0.0 <= sev <= 1.0 ||
-            error("[CONFIG] disruption.events[$i].severity = $sev outside [0, 1].")
+        0.0 <= sev <= 1.0 || TelemetryCore.config_error(
+            "[CONFIG] disruption.events[$i].severity = $sev outside [0, 1].",
+        )
         mult = TelemetryCore.checked_number(
             get(e, "loss_multiplier", 1.0),
             "disruption.events[$i].loss_multiplier",
