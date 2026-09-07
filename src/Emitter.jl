@@ -86,7 +86,7 @@ function pre_populate(
                 copy(current_batch_segs),
                 finalized_at,
             )
-            batch_name = "ARCH_batch_$batch_counter"
+            batch_name = TelemetryCore.batch_name(batch_counter, false)
             batch_dir = joinpath(buffer_path, batch_name)
 
             TelemetryCore.save_batch(batch_dir, batch)
@@ -178,21 +178,20 @@ function run_emitter(
     # Re-entrant census: rebuild BOTH queues (a restarted emitter must not
     # orphan LIVE batches stranded onboard at the crash) and resume the
     # batch counter from the ground-truth event log — directory counts alone
-    # would collide with batches already delivered downstream. tryparse
-    # tolerates stray directories that merely share the prefix.
-    batch_id = x -> something(tryparse(Int, split(x, "_")[end]), 0)
+    # would collide with batches already delivered downstream. Stray
+    # directories that merely share the prefix parse to ID 0.
     all_onboard = filter(f -> isdir(joinpath(buffer_path, f)), readdir(buffer_path))
-    archived = filter(f -> startswith(f, "ARCH_batch_"), all_onboard)
-    sort!(archived, by = batch_id, rev = true) # LIFO internal
+    archived = filter(TelemetryCore.is_archive_batch, all_onboard)
+    sort!(archived, by = TelemetryCore.batch_id, rev = true) # LIFO internal
     append!(onboard_arch_queue, archived)
-    stranded_live = filter(f -> startswith(f, "LIVE_batch_"), all_onboard)
-    sort!(stranded_live, by = batch_id) # FIFO
+    stranded_live = filter(TelemetryCore.is_live_batch, all_onboard)
+    sort!(stranded_live, by = TelemetryCore.batch_id) # FIFO
     append!(onboard_live_queue, stranded_live)
     isempty(stranded_live) ||
         @info "[EMITTER] Re-attach: recovered $(length(stranded_live)) stranded LIVE batches."
     batch_counter =
         1 + max(
-            isempty(all_onboard) ? 0 : maximum(batch_id, all_onboard),
+            isempty(all_onboard) ? 0 : maximum(TelemetryCore.batch_id, all_onboard),
             TelemetryCore.max_logged_batch_id(run_dir),
         )
     current_batch_segs = copy(initial_segments)
@@ -269,8 +268,7 @@ function run_emitter(
                 # created_at = finalization instant on the mission timeline.
                 batch =
                     TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs), sim_t)
-                prefix = is_live ? "LIVE_" : "ARCH_"
-                batch_name = "$(prefix)batch_$batch_counter"
+                batch_name = TelemetryCore.batch_name(batch_counter, is_live)
                 batch_dir = joinpath(buffer_path, batch_name)
 
                 TelemetryCore.save_batch(batch_dir, batch)
@@ -311,12 +309,8 @@ function run_emitter(
 
             # 4. Transmission — gated on the effective link (visibility AND no blackout)
             if ChannelEffects.is_transmittable(link, sim_t)
-                # Process ACKs efficiently
-                acks = filter(f -> endswith(f, ".ack"), readdir(link_path))
-                for ack in acks
-                    rm(joinpath(link_path, ack))
-                end
-
+                # In-flight occupancy is the link/ directory listing: a slot
+                # frees the moment the receiver moves a batch out.
                 link_count =
                     length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
 

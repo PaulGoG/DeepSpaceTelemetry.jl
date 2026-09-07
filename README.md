@@ -330,8 +330,8 @@ file-system broker, coordinated only by the shared accelerated clock:
 2. **Receiver** (`src/Receiver.jl`) — polls `link/`, applies the download
    delay implied by the current effective bandwidth, draws one stochastic
    loss realization per transfer attempt, and moves batches to `ground/`
-   (or, after retry exhaustion, to `lost/`), acknowledging each slot back to
-   the emitter via `.ack` markers.
+   (or, after retry exhaustion, to `lost/`); leaving `link/` frees the
+   emitter's in-flight slot.
 
 The routing invariant mirrors the LISA operational concept: **live data is
 transmitted FIFO with absolute priority; residual bandwidth backfills the

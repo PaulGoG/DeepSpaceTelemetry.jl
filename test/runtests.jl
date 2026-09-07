@@ -1973,3 +1973,36 @@ end
         @test occursin("single Julia thread", advisory)
     end
 end
+
+@testset "Batch wire format and run discovery" begin
+    @test TelemetryCore.batch_name(7, true) == "LIVE_batch_7"
+    @test TelemetryCore.batch_name(1200, false) == "ARCH_batch_1200"
+    @test TelemetryCore.batch_id("LIVE_batch_42") == 42
+    @test TelemetryCore.batch_id("ARCH_batch_9#1") == 0 # backup copy: not a batch
+    @test TelemetryCore.batch_id("stray") == 0
+    @test TelemetryCore.is_live_batch("LIVE_batch_3")
+    @test !TelemetryCore.is_live_batch("ARCH_batch_3")
+    @test TelemetryCore.is_archive_batch("ARCH_batch_3")
+    @test TelemetryCore.is_batch_name("LIVE_batch_3") &&
+          TelemetryCore.is_batch_name("ARCH_batch_3")
+    @test !TelemetryCore.is_batch_name("events_tx.csv")
+
+    # latest_run_id: only directories carrying a snapshot count; newest by mtime wins.
+    saved_root = TelemetryCore.DATA_ROOT[]
+    mktempdir() do tmp
+        TelemetryCore.DATA_ROOT[] = tmp
+        try
+            @test TelemetryCore.latest_run_id() === nothing
+            root = TelemetryCore.runs_root()
+            mkpath(joinpath(root, "stray_dir")) # no snapshot: never a candidate
+            for name in ("RUN_old", "RUN_new")
+                mkpath(joinpath(root, name))
+                touch(joinpath(root, name, "config_snapshot.toml"))
+                sleep(0.05) # distinct directory mtimes
+            end
+            @test TelemetryCore.latest_run_id() == "RUN_new"
+        finally
+            TelemetryCore.DATA_ROOT[] = saved_root
+        end
+    end
+end

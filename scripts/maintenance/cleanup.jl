@@ -1,17 +1,19 @@
 using Pkg;
 Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
 Pkg.instantiate(io = devnull)
+using DeepSpaceTelemetry
 
 """
     cleanup_runs(; assume_yes::Bool = false)
 
-Delete all previous simulation run directories from `data/runs`. Lists the
-deletion candidates and asks for interactive confirmation first; pass
+Delete all previous simulation run directories from the runs root
+(`TelemetryCore.runs_root()`, i.e. `<DATA_ROOT>/runs`). Lists the deletion
+candidates and asks for interactive confirmation first; pass
 `assume_yes = true` (CLI flag `--yes`) to skip the prompt in non-interactive
 contexts.
 """
 function cleanup_runs(; assume_yes::Bool = false)
-    run_path = abspath(joinpath(@__DIR__, "..", "..", "data", "runs"))
+    run_path = DeepSpaceTelemetry.TelemetryCore.runs_root()
     if !isdir(run_path)
         println("Run directory not found. Nothing to clean.")
         return

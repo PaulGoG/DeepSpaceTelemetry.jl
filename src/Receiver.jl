@@ -914,8 +914,8 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
         t = df.SimTime[i]
         while ev_idx <= length(events) && events[ev_idx][1] <= t
             (_, _, name, kind) = events[ev_idx]
-            id = something(tryparse(Int, split(name, "_")[end]), 0)
-            is_live = startswith(name, "LIVE_")
+            id = TelemetryCore.batch_id(name)
+            is_live = TelemetryCore.is_live_batch(name)
             if kind == "gen"
                 place!(id, is_live ? :onb_live : :onb_arch)
             elseif kind == "tx"
@@ -1110,7 +1110,8 @@ directly to the `stdout` buffer.
 A lost transfer leaves the batch on the link (head-of-line blocking, a real
 property of priority downlink protocols) and is retried on the next pass; after
 `max_retries` failed attempts the batch is moved to `lost/` — never deleted —
-and acknowledged so the emitter frees its transmission window slot. Every
+which frees the emitter's transmission window slot (in-flight occupancy is
+the `link/` listing). Every
 milestone is appended to `events_rx.csv` for exact post-processing
 reconstruction. At startup, a re-attaching receiver reseeds retry and
 custodial state from the event log and synthesizes `ingested` records (at the
@@ -1181,8 +1182,8 @@ function run_receiver(
     # startup census: a per-tick readdir over ground/ is O(archive size) and
     # measurably throttles the ingest rate on long missions.
     ground_seed = filter(f -> isdir(joinpath(ground_path, f)), readdir(ground_path))
-    ground_live = length(filter(f -> startswith(f, "LIVE_"), ground_seed))
-    ground_arch = length(filter(f -> startswith(f, "ARCH_"), ground_seed))
+    ground_live = count(TelemetryCore.is_live_batch, ground_seed)
+    ground_arch = count(TelemetryCore.is_archive_batch, ground_seed)
     lost_count = length(filter(f -> isdir(joinpath(lost_path, f)), readdir(lost_path)))
 
     # Retention custodian state: FIFO of delivered batches (ingest sim-time,
@@ -1375,7 +1376,7 @@ function run_receiver(
             flush(orig_stdout)
 
             pending_batches = filter(
-                f -> contains(f, "batch_") && isdir(joinpath(link_path, f)),
+                f -> TelemetryCore.is_batch_name(f) && isdir(joinpath(link_path, f)),
                 readdir(link_path),
             )
 
@@ -1386,8 +1387,8 @@ function run_receiver(
                 sort!(
                     pending_batches,
                     by = x -> begin
-                        id = something(tryparse(Int, split(x, "_")[end]), 0)
-                        startswith(x, "LIVE_") ? (0, id) : (1, -id)
+                        id = TelemetryCore.batch_id(x)
+                        TelemetryCore.is_live_batch(x) ? (0, id) : (1, -id)
                     end,
                 )
                 batch_name = first(pending_batches)
@@ -1403,11 +1404,10 @@ function run_receiver(
                     retry_counts[batch_name] = attempts
                     total_retries += 1
                     if attempts > max_retries
-                        # Retry budget exhausted: preserve the data in lost/,
-                        # ack so the emitter frees the window slot.
+                        # Retry budget exhausted: preserve the data in lost/;
+                        # leaving link/ frees the emitter's window slot.
                         TelemetryCore.backup_existing_dir(joinpath(lost_path, batch_name))
                         mv(joinpath(link_path, batch_name), joinpath(lost_path, batch_name))
-                        touch(joinpath(link_path, "$(batch_name).ack"))
                         delete!(retry_counts, batch_name)
                         lost_count += 1
                         TelemetryCore.log_rx_event(
@@ -1435,9 +1435,8 @@ function run_receiver(
                     prior_attempts = get(retry_counts, batch_name, 0)
                     TelemetryCore.backup_existing_dir(joinpath(ground_path, batch_name))
                     mv(joinpath(link_path, batch_name), joinpath(ground_path, batch_name))
-                    touch(joinpath(link_path, "$(batch_name).ack"))
                     delete!(retry_counts, batch_name)
-                    if startswith(batch_name, "LIVE_")
+                    if TelemetryCore.is_live_batch(batch_name)
                         ground_live += 1
                     else
                         ground_arch += 1

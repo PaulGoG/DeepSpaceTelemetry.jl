@@ -33,7 +33,21 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `[provenance.platform]` — hostname, OS, CPU model and core count, memory,
   Julia version, thread and BLAS-thread counts.
 
+### Removed
+- The `.ack` marker files in `link/`: the receiver created them and the
+  emitter only deleted them, while in-flight occupancy has always been the
+  `link/` directory listing. Consumers never depended on them (`link/` is
+  off-limits by contract).
+
 ### Changed
+- Batch directory names are a single wire format: `batch_name`, `batch_id`,
+  `is_live_batch`, `is_archive_batch`, and `is_batch_name` replace the
+  parsing idioms scattered over the emitter, the receiver, the replay, and
+  the terminal viewer. `runs_root` and `latest_run_id` single-source the
+  run-directory discovery of the scripts; `cleanup.jl` and
+  `apply_telemetry_mask.jl` resolve paths through `run_directory` (they
+  honour a redirected `DATA_ROOT`), and the latter loads the package instead
+  of including a second copy of `TelemetryCore`.
 - Pre-populated batches stamp `created_at` and their `gen` event at the
   finalization instant (end of the last segment's content), consistently
   with mission-phase batches; the content epoch is recorded separately.

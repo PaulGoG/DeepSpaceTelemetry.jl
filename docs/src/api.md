@@ -12,6 +12,13 @@ DeepSpaceTelemetry.TelemetryCore.C_LIGHT
 DeepSpaceTelemetry.TelemetryCore.F_STAR
 DeepSpaceTelemetry.TelemetryCore.DATA_ROOT
 DeepSpaceTelemetry.TelemetryCore.run_directory
+DeepSpaceTelemetry.TelemetryCore.runs_root
+DeepSpaceTelemetry.TelemetryCore.latest_run_id
+DeepSpaceTelemetry.TelemetryCore.batch_name
+DeepSpaceTelemetry.TelemetryCore.batch_id
+DeepSpaceTelemetry.TelemetryCore.is_live_batch
+DeepSpaceTelemetry.TelemetryCore.is_archive_batch
+DeepSpaceTelemetry.TelemetryCore.is_batch_name
 DeepSpaceTelemetry.TelemetryCore.load_config
 DeepSpaceTelemetry.TelemetryCore.load_run_config
 DeepSpaceTelemetry.TelemetryCore.checked_number

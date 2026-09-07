@@ -68,7 +68,76 @@ end
 Canonical run-directory path `<DATA_ROOT>/runs/<run_id>` — the single source
 of the run layout for components, scripts, and post-processing tools.
 """
-run_directory(run_id::String) = joinpath(DATA_ROOT[], "runs", run_id)
+run_directory(run_id::String) = joinpath(runs_root(), run_id)
+
+"""
+    runs_root() -> String
+
+Directory holding every run directory (`<DATA_ROOT>/runs`).
+"""
+runs_root() = joinpath(DATA_ROOT[], "runs")
+
+"""
+    latest_run_id() -> Union{Nothing, String}
+
+ID of the most recently modified run directory under [`runs_root`](@ref) that
+carries a `config_snapshot.toml`, or `nothing` when no run exists. Used by
+the post-processing scripts when no run ID is given on the command line.
+"""
+function latest_run_id()
+    root = runs_root()
+    isdir(root) || return nothing
+    runs = filter(readdir(root)) do name
+        isfile(joinpath(root, name, "config_snapshot.toml"))
+    end
+    isempty(runs) && return nothing
+    return last(sort(runs; by = name -> mtime(joinpath(root, name))))
+end
+
+# --- Batch wire format ---
+# The on-disk batch naming is an interface shared by both components, the
+# post-processing replay, and the terminal viewer; these helpers are its
+# single definition.
+
+"""
+    batch_name(id::Integer, live::Bool) -> String
+
+Directory name of batch `id`: `LIVE_batch_<id>` for a batch finalized while
+the link was transmittable, `ARCH_batch_<id>` otherwise.
+"""
+batch_name(id::Integer, live::Bool) = string(live ? "LIVE_batch_" : "ARCH_batch_", id)
+
+"""
+    batch_id(name::AbstractString) -> Int
+
+Numeric ID parsed from a batch directory name (the trailing `_<id>` field);
+`0` for a name that does not carry one, so directory sweeps tolerate stray
+entries instead of throwing.
+"""
+batch_id(name::AbstractString) = something(tryparse(Int, String(last(split(name, '_')))), 0)
+
+"""
+    is_live_batch(name::AbstractString) -> Bool
+
+`true` for a `LIVE_batch_<id>` directory name (finalized while the link was
+transmittable).
+"""
+is_live_batch(name::AbstractString) = startswith(name, "LIVE_batch_")
+
+"""
+    is_archive_batch(name::AbstractString) -> Bool
+
+`true` for an `ARCH_batch_<id>` directory name (blind-spot or blackout
+generation, delivered by the LIFO backfill).
+"""
+is_archive_batch(name::AbstractString) = startswith(name, "ARCH_batch_")
+
+"""
+    is_batch_name(name::AbstractString) -> Bool
+
+`true` for either batch class; `false` for any other directory entry.
+"""
+is_batch_name(name::AbstractString) = is_live_batch(name) || is_archive_batch(name)
 
 # --- Configuration Management ---
 """
@@ -1381,9 +1450,7 @@ function max_logged_batch_id(run_dir::String)
     isfile(path) || return 0
     df = CSV.read(path, DataFrame)
     isempty(df) && return 0
-    return maximum(
-        something(tryparse(Int, String(last(split(String(b), "_")))), 0) for b in df.Batch
-    )
+    return maximum(batch_id(String(b)) for b in df.Batch)
 end
 
 """

@@ -43,7 +43,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map: `GenSimTime` (finalization instant from the event log) and `ContentEpoch` (first-sample timestamp from the batch metadata); re-anchors point-wise mask rows on the mission timeline across generation gaps. |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline consumes the file at lifecycle end. |
 | `emitter.log`, `receiver.log` | logger | Read. Human diagnostics; not machine-parsed interfaces. |
-| `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; `link/*.ack` files are the emitter–receiver acknowledgement protocol. |
+| `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; the emitter counts in-flight batches from the `link/` listing, so a slot frees when the receiver moves a batch out. |
 
 A batch directory contains `metadata.json` and one `seg_<id>.csv` per segment
 (single `Amplitude` column). The metadata keys are `batch_id`,

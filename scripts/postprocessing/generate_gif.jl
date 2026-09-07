@@ -236,16 +236,10 @@ end
 if length(ARGS) > 0
     create_telemetry_gif(ARGS[1])
 else
-    runs_dir = joinpath(DeepSpaceTelemetry.TelemetryCore.DATA_ROOT[], "runs")
-    if isdir(runs_dir)
-        runs = filter(x -> startswith(x, "RUN_"), readdir(runs_dir))
-        if !isempty(runs)
-            latest_run = last(sort(runs, by = x -> mtime(joinpath(runs_dir, x))))
-            create_telemetry_gif(latest_run)
-        else
-            println("No runs found.")
-        end
+    latest_run = DeepSpaceTelemetry.TelemetryCore.latest_run_id()
+    if latest_run === nothing
+        println("No runs found under $(DeepSpaceTelemetry.TelemetryCore.runs_root()).")
     else
-        println("Runs directory not found.")
+        create_telemetry_gif(latest_run)
     end
 end

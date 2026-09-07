@@ -14,21 +14,16 @@ function get_batch_info(path)
     if !isdir(path)
         return Int[], Int[]
     end
-    items = filter(f -> startswith(f, "LIVE_") || startswith(f, "ARCH_"), readdir(path))
+    items = filter(DeepSpaceTelemetry.TelemetryCore.is_batch_name, readdir(path))
     live_ids = Int[]
     arch_ids = Int[]
     for item in items
-        parts = split(item, "_")
-        if length(parts) >= 3
-            try
-                id = parse(Int, parts[3])
-                if startswith(item, "LIVE_")
-                    push!(live_ids, id)
-                else
-                    push!(arch_ids, id)
-                end
-            catch
-            end
+        id = DeepSpaceTelemetry.TelemetryCore.batch_id(item)
+        id == 0 && continue # non-conforming entry
+        if DeepSpaceTelemetry.TelemetryCore.is_live_batch(item)
+            push!(live_ids, id)
+        else
+            push!(arch_ids, id)
         end
     end
     return live_ids, arch_ids
@@ -190,16 +185,10 @@ end
 if length(ARGS) > 0
     run_viewer(ARGS[1])
 else
-    runs_dir = joinpath(DeepSpaceTelemetry.TelemetryCore.DATA_ROOT[], "runs")
-    if isdir(runs_dir)
-        runs = filter(x -> startswith(x, "RUN_"), readdir(runs_dir))
-        if !isempty(runs)
-            latest_run = last(sort(runs, by = x -> mtime(joinpath(runs_dir, x))))
-            run_viewer(latest_run)
-        else
-            println("No runs found.")
-        end
+    latest_run = DeepSpaceTelemetry.TelemetryCore.latest_run_id()
+    if latest_run === nothing
+        println("No runs found under $(DeepSpaceTelemetry.TelemetryCore.runs_root()).")
     else
-        println("Runs directory not found.")
+        run_viewer(latest_run)
     end
 end

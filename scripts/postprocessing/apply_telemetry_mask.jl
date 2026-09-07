@@ -17,13 +17,10 @@ Usage:
 using Pkg;
 Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
 Pkg.instantiate(io = devnull)
-using CSV, DataFrames, TOML
-# Reuse the already-loaded module when included from run_full_sim.jl (where
-# `using .DeepSpaceTelemetry` exports TelemetryCore into Main); load it directly
-# when running standalone.
-if !isdefined(Main, :TelemetryCore)
-    include(joinpath(@__DIR__, "..", "..", "src", "TelemetryCore.jl"))
-end
+using CSV, DataFrames
+# Idempotent whether run standalone or included from run_full_sim.jl: the
+# package export brings `TelemetryCore` into Main either way.
+using DeepSpaceTelemetry
 
 """
     apply_mask(run_id::String, total_points::Int, event_idx::Int, output_path::String)
@@ -35,25 +32,16 @@ and saves it to `output_path`.
 """
 function apply_mask(run_id::String, total_points::Int, event_idx::Int, output_path::String)
     # 1. Locate Run Directory & Files. Physics parameters come from the run's
-    # own config snapshot so the expansion stays correct after config.toml
-    # edits; the project config is only a fallback for legacy runs.
-    project_root = abspath(joinpath(@__DIR__, "..", ".."))
-    run_dir = joinpath(project_root, "data", "runs", run_id)
+    # own config snapshot (load_run_config falls back to the project config,
+    # with a warning, only for legacy runs without a snapshot).
+    run_dir = TelemetryCore.run_directory(run_id)
     mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
-    config_path = joinpath(run_dir, "config_snapshot.toml")
-    if !isfile(config_path)
-        config_path = joinpath(project_root, "config.toml")
-    end
-
     if !isfile(mask_path)
         error("Telemetry mask not found at: $mask_path")
     end
-    if !isfile(config_path)
-        error("No config_snapshot.toml in run dir and no project config.toml found.")
-    end
 
     # 2. Parse Physical Parameters from Config
-    cfg = TOML.parsefile(config_path)
+    cfg = TelemetryCore.load_run_config(run_dir)
     sample_rate = Float64(cfg["physics"]["sample_rate"])
     seg_dur = Float64(cfg["physics"]["segment_duration_sec"])
     batch_size = Int(cfg["physics"]["batch_size"])
