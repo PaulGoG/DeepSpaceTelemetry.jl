@@ -40,15 +40,698 @@ using CairoMakie:
     xlims!,
     ylims!
 using DataFrames: DataFrames, DataFrame, nrow
-using Dates: Dates, Date, DateTime, Day, Hour, Millisecond, Second, now
+using Dates: Dates, Date, DateTime, Day, Hour, Millisecond, Second, Time, now
 using FileWatching: FileWatching, watch_folder
+
+"""
+    hours_since(t::DateTime, t0::DateTime) -> Float64
+
+Elapsed mission hours from `t0` to `t` — the plot-coordinate transform of
+every figure (time axes are anchored at `start_sim_time`, 0-based days).
+"""
+hours_since(t::DateTime, t0::DateTime) = Float64((t - t0).value) / (1000 * 3600)
+
+"""
+    PlotContext
+
+Per-run inputs shared by the mission summary and the session figures: the
+metrics frame with its elapsed-hour axis, the mission epoch, the nominal
+session window, the visibility and link models, the disruption and
+component-outage spans in plot coordinates, and the loss-panel policy.
+Built once by [`plot_context`](@ref).
+"""
+struct PlotContext
+    run_dir::String
+    df::DataFrame
+    df_x::Vector{Float64}
+    t_start::DateTime
+    session_start::Time
+    session_duration::Second
+    vis_model::TelemetryCore.VisibilityModel
+    link_model::ChannelEffects.LinkModel
+    disruption_spans::Vector{NTuple{3,Float64}} # (blackout start, blackout end, recovery end)
+    outage_spans::Vector{NTuple{2,Float64}}     # component down → restart (or mission end)
+    has_loss_cols::Bool
+    show_lost_panel::Bool
+end
+
+"""
+    component_outage_spans(run_dir, t_start, x_end) -> Vector{NTuple{2,Float64}}
+
+Component-outage windows from the supervisor's `component_events.csv`: each
+`down` opens a window closed by the next `restart` of the same component,
+or by the mission end `x_end` [h]. Empty when the record is absent.
+"""
+function component_outage_spans(run_dir::String, t_start::DateTime, x_end::Float64)
+    spans = NTuple{2,Float64}[]
+    path = joinpath(run_dir, "component_events.csv")
+    isfile(path) || return spans
+    events = CSV.read(path, DataFrame)
+    open_down = Dict{String,DateTime}()
+    for r in eachrow(events)
+        comp = String(r.Component)
+        if r.Event == "down"
+            open_down[comp] = r.SimTime
+        elseif r.Event == "restart" && haskey(open_down, comp)
+            push!(
+                spans,
+                (
+                    hours_since(pop!(open_down, comp), t_start),
+                    hours_since(r.SimTime, t_start),
+                ),
+            )
+        end
+    end
+    for (_, t_down) in open_down
+        push!(spans, (hours_since(t_down, t_start), x_end))
+    end
+    return spans
+end
+
+"""
+    plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict) -> PlotContext
+
+Assembles the [`PlotContext`](@ref) of a run from its metrics frame and its
+configuration snapshot. The time axis is anchored at `start_sim_time` — not
+at the first metrics row, which lands whenever the receiver first flushes —
+so day ticks and disruption shading sit exactly on mission-day boundaries;
+a legacy or corrupt snapshot falls back to the first row. A malformed
+disruption section warns and yields an empty timeline rather than aborting
+the post-processing of an otherwise complete run.
+"""
+function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
+    tel_settings = TelemetryCore.telemetry_settings(cfg)
+    vis_model = TelemetryCore.visibility_model(cfg)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    disruptions = try
+        haskey(sim, "start_sim_time") ?
+        ChannelEffects.build_disruption_timeline(cfg, DateTime(sim["start_sim_time"])) :
+        ChannelEffects.DisruptionTimeline()
+    catch e
+        @warn "[RECEIVER] Could not parse disruption events from the run snapshot; plotting without disruption shading." exception =
+            e
+        ChannelEffects.DisruptionTimeline()
+    end
+    sim_start = try
+        DateTime(get(sim, "start_sim_time", ""))
+    catch
+        nothing
+    end
+    t_start = something(sim_start, df.SimTime[1])
+    df_x = [hours_since(t, t_start) for t in df.SimTime]
+    disruption_spans = [
+        (
+            hours_since(ev.start_time, t_start),
+            hours_since(ev.blackout_end, t_start),
+            hours_since(ev.recovery_end, t_start),
+        ) for ev in disruptions.events
+    ]
+    has_loss_cols = hasproperty(df, :Lost_Count)
+    any_lost = has_loss_cols && maximum(df.Lost_Count) > 0
+    # The dedicated Lost strip renders whenever the loss channel was enabled —
+    # an empty strip honestly reports "no losses" — and for legacy runs that
+    # recorded losses without a config snapshot.
+    loss_enabled = Bool(get(get(cfg, "packet_loss", Dict{String,Any}()), "enabled", false))
+    return PlotContext(
+        run_dir,
+        df,
+        df_x,
+        t_start,
+        tel_settings.session_start,
+        tel_settings.session_duration,
+        vis_model,
+        ChannelEffects.LinkModel(vis_model, disruptions),
+        disruption_spans,
+        component_outage_spans(run_dir, t_start, maximum(df_x)),
+        has_loss_cols,
+        (loss_enabled && has_loss_cols) || any_lost,
+    )
+end
+
+"""
+    spans_overlap(spans, x_lo, x_hi, lo, hi) -> Bool
+
+`true` when any span's `[s[lo], s[hi]]` phase intersects the plotted window
+`[x_lo, x_hi]`. Legends must only advertise what their own figure draws, so
+blackout (`lo = 1, hi = 2`) and recovery-ramp (`lo = 2, hi = 3`) phases are
+gated independently.
+"""
+spans_overlap(spans, x_lo::Float64, x_hi::Float64, lo::Int, hi::Int) =
+    any(s -> s[lo] < x_hi && s[hi] > x_lo, spans)
+
+"""
+    shade_outages!(ax, x_lo, x_hi, outage_spans)
+
+Shades component-outage windows onto `ax`, clamped to the plotted range: a
+neutral grey wash with dotted edge lines, pushed behind the data. Distinct
+from the configured disruption shading — these are unscheduled
+infrastructure outages.
+"""
+function shade_outages!(ax, x_lo::Float64, x_hi::Float64, outage_spans)
+    for (o0, o1) in outage_spans
+        o0c, o1c = max(o0, x_lo), min(o1, x_hi)
+        o0c < o1c || continue
+        v = vspan!(ax, o0c, o1c, color = (:black, 0.10))
+        translate!(v, 0, 0, -99)
+        for x_edge in (o0, o1)
+            if x_lo <= x_edge <= x_hi
+                l = vlines!(
+                    ax,
+                    [x_edge],
+                    color = (:gray40, 0.8),
+                    linestyle = :dot,
+                    linewidth = 1.5,
+                )
+                translate!(l, 0, 0, -98)
+            end
+        end
+    end
+    return ax
+end
+
+"""
+    shade_disruptions!(ax, x_lo, x_hi, disruption_spans)
+
+Shades every disruption event onto `ax`, clamped to the plotted range: a
+uniform wash over the blackout, fading linearly to zero alpha across the
+recovery ramp (mirroring the capacity ramp), with dashed lines delimiting
+event start and full recovery. All shading is pushed far back along z so it
+renders behind the data identically on every panel — but strictly above
+z = -100, where the white background of a twin axis (dual-y panels) would
+cover it.
+"""
+function shade_disruptions!(ax, x_lo::Float64, x_hi::Float64, disruption_spans)
+    for (b0, b1, r1) in disruption_spans
+        b0c, b1c = max(b0, x_lo), min(b1, x_hi)
+        if b0c < b1c
+            v = vspan!(ax, b0c, b1c, color = (COLOR_DISRUPTION, 0.18))
+            translate!(v, 0, 0, -99)
+        end
+        r0c, r1c = max(b1, x_lo), min(r1, x_hi)
+        if r0c < r1c
+            edges = collect(range(r0c, r1c, length = 25))
+            for k in 1:(length(edges)-1)
+                mid = (edges[k] + edges[k+1]) / 2
+                fade = 0.18 * (1.0 - (mid - b1) / (r1 - b1))
+                v = vspan!(ax, edges[k], edges[k+1], color = (COLOR_DISRUPTION, fade))
+                translate!(v, 0, 0, -99)
+            end
+        end
+        for x_edge in (b0, r1)
+            if x_lo <= x_edge <= x_hi
+                l = vlines!(
+                    ax,
+                    [x_edge],
+                    color = (:gray30, 0.8),
+                    linestyle = :dash,
+                    linewidth = 1.5,
+                )
+                translate!(l, 0, 0, -98)
+            end
+        end
+    end
+    return ax
+end
+
+"""
+    add_figure_legend!(fig; degraded, blackout, ramp, lost, outage = false)
+
+One frameless horizontal legend strip above the panels of `fig`, with
+composite fill+edge patches for the band+stair pairs. Entries are strictly
+limited to what that figure draws: `degraded` swaps the single capacity
+entry for the nominal/effective pair, `blackout`/`ramp`/`outage` gate the
+shading patches, and `lost` is `:strip` (summary stairs + marks), `:marks`
+(session ✕ pins), or `:none`.
+"""
+function add_figure_legend!(
+    fig;
+    degraded::Bool,
+    blackout::Bool,
+    ramp::Bool,
+    lost::Symbol,
+    outage::Bool = false,
+)
+    elems = Any[]
+    labels = String[]
+    if degraded
+        push!(
+            elems,
+            LineElement(
+                color = (COLOR_BANDWIDTH, 0.5),
+                linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                linestyle = :dot,
+            ),
+        )
+        push!(labels, "Nominal capacity")
+        push!(
+            elems,
+            LineElement(color = COLOR_BANDWIDTH, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
+        )
+        push!(labels, "Effective capacity")
+    else
+        push!(
+            elems,
+            LineElement(color = COLOR_BANDWIDTH, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
+        )
+        push!(labels, "Link capacity")
+    end
+    push!(
+        elems,
+        LineElement(
+            color = COLOR_ONBOARD,
+            linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+            linestyle = :dash,
+        ),
+    )
+    push!(labels, "Onboard buffer")
+    push!(
+        elems,
+        PolyElement(color = (COLOR_LIVE, 0.4), strokecolor = COLOR_LIVE, strokewidth = 3),
+    )
+    push!(labels, "Total received (live + archive)")
+    push!(
+        elems,
+        PolyElement(
+            color = (COLOR_ARCHIVE, 0.4),
+            strokecolor = COLOR_ARCHIVE,
+            strokewidth = 3,
+        ),
+    )
+    push!(labels, "Archive backfill (LIFO)")
+    if lost === :strip
+        push!(
+            elems,
+            [
+                LineElement(color = COLOR_LOST, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
+                MarkerElement(
+                    marker = :xcross,
+                    color = COLOR_LOST,
+                    markersize = PlotTheme.MARKERSIZE_DATA,
+                ),
+            ],
+        )
+        push!(labels, "Lost")
+    elseif lost === :marks
+        push!(
+            elems,
+            MarkerElement(
+                marker = :xcross,
+                color = COLOR_LOST,
+                markersize = PlotTheme.MARKERSIZE_DATA,
+            ),
+        )
+        push!(labels, "Lost")
+    end
+    if blackout
+        push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.18)))
+        push!(labels, "Blackout")
+    end
+    if ramp
+        push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.08)))
+        push!(labels, "Recovery ramp")
+    end
+    if outage
+        push!(elems, PolyElement(color = (:black, 0.10)))
+        push!(labels, "Component outage")
+    end
+    Legend(
+        fig[0, 1],
+        elems,
+        labels;
+        orientation = :horizontal,
+        nbanks = length(elems) > 3 ? 2 : 1,
+        framevisible = false,
+        backgroundcolor = :transparent,
+        colgap = 28,
+    )
+    return fig
+end
+
+"""
+    summary_tick_step_hours(total_days) -> Float64
+
+Day-tick spacing of the mission summary [h]: daily up to 10 days, every
+other day up to 45, monthly up to 200, bi-monthly beyond.
+"""
+function summary_tick_step_hours(total_days::Float64)
+    total_days <= 10 && return 24.0
+    total_days <= 45 && return 24.0 * 2
+    total_days <= 200 && return 24.0 * 30
+    return 24.0 * 60
+end
+
+"""
+    plot_mission_summary(ctx::PlotContext) -> String
+
+Renders the mission summary — capacity with the onboard buffer on a twin
+axis, cumulative received batches (total and archive share), and, when the
+loss channel was active, the Lost strip — to
+`<run_dir>/plots/mission_summary_global.png` with a vector PDF twin. Must
+run inside the telemetry theme. Returns the PNG path.
+"""
+function plot_mission_summary(ctx::PlotContext)
+    df, df_x = ctx.df, ctx.df_x
+    # Floor at one hour: a single-row (or sub-hour) profile would otherwise
+    # produce degenerate axis limits and crash the renderer.
+    max_x_h = max(df_x[end], 1.0)
+    tick_vals_h = collect(0.0:summary_tick_step_hours(max_x_h/24.0):max_x_h)
+    tick_labels = ["Day $(Int(floor(v/24)))" for v in tick_vals_h]
+
+    fig = Figure(
+        size = (
+            PlotTheme.FIG_SIZE_SUMMARY[1],
+            ctx.show_lost_panel ? PlotTheme.FIG_SIZE_SUMMARY[2] + 90 :
+            PlotTheme.FIG_SIZE_SUMMARY[2],
+        ),
+        figure_padding = 10,
+    )
+
+    ax1 = Axis(
+        fig[1, 1],
+        xlabel = "",
+        ylabel = "Bandwidth [%]",
+        xticks = (tick_vals_h, tick_labels),
+    )
+    xlims!(ax1, 0, max_x_h)
+    ylims!(ax1, 0, 105)
+
+    ax1_twin = Axis(
+        fig[1, 1],
+        yaxisposition = :right,
+        ylabel = "Buffered data batches",
+        yticklabelcolor = COLOR_ONBOARD,
+    )
+    hidespines!(ax1_twin)
+    hidexdecorations!(ax1_twin)
+    xlims!(ax1_twin, 0, max_x_h)
+    ylims!(ax1_twin, 0, max(10.0, 1.3 * maximum(df.Onboard_Buffer)))
+
+    shade_disruptions!(ax1, 0.0, max_x_h, ctx.disruption_spans)
+    shade_outages!(ax1, 0.0, max_x_h, ctx.outage_spans)
+
+    # Nominal (visibility-only) capacity behind the effective curve when a
+    # disruption degraded the link somewhere in the run.
+    show_nominal =
+        hasproperty(df, :Nominal_Bandwidth_Pct) &&
+        maximum(abs.(df.Nominal_Bandwidth_Pct .- df.Bandwidth_Pct)) > 0.1
+    if show_nominal
+        lines!(
+            ax1,
+            df_x,
+            Float64.(df.Nominal_Bandwidth_Pct),
+            color = (COLOR_BANDWIDTH, 0.35),
+            linestyle = :dot,
+        )
+    end
+    lines!(ax1, df_x, Float64.(df.Bandwidth_Pct), color = COLOR_BANDWIDTH)
+    lines!(
+        ax1_twin,
+        df_x,
+        Float64.(df.Onboard_Buffer),
+        color = COLOR_ONBOARD,
+        linestyle = :dash,
+    )
+
+    ax2 = Axis(
+        fig[2, 1],
+        xlabel = ctx.show_lost_panel ? "" : "Mission time",
+        ylabel = "Received data batches",
+        xticks = (tick_vals_h, tick_labels),
+    )
+    xlims!(ax2, 0, max_x_h)
+    ylims!(ax2, 0, max(10.0, 1.2 * maximum(df.Ground_Archive)))
+
+    shade_disruptions!(ax2, 0.0, max_x_h, ctx.disruption_spans)
+    shade_outages!(ax2, 0.0, max_x_h, ctx.outage_spans)
+
+    band!(
+        ax2,
+        df_x,
+        zeros(length(df_x)),
+        Float64.(df.Ground_Archive),
+        color = (COLOR_LIVE, 0.4),
+    )
+    stairs!(ax2, df_x, Float64.(df.Ground_Archive), color = COLOR_LIVE)
+    band!(
+        ax2,
+        df_x,
+        zeros(length(df_x)),
+        Float64.(df.Ground_Arch),
+        color = (COLOR_ARCHIVE, 0.4),
+    )
+    stairs!(ax2, df_x, Float64.(df.Ground_Arch), color = COLOR_ARCHIVE)
+
+    # Dedicated Lost strip: rare discrete events get their own small linear
+    # axis instead of an invisible flat line under the received bands.
+    axes_to_link = [ax1, ax2]
+    if ctx.show_lost_panel
+        # LinearTicks(3): the strip is ~1/3 panel height, so the default
+        # automatic ticks crowd together once losses reach double digits.
+        ax3 = Axis(
+            fig[3, 1],
+            xlabel = "Mission time",
+            ylabel = "Lost",
+            xticks = (tick_vals_h, tick_labels),
+            yticks = LinearTicks(3),
+        )
+        rowsize!(fig.layout, 3, Auto(0.32))
+        xlims!(ax3, 0, max_x_h)
+        lost_curve = ctx.has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
+        ylims!(ax3, 0, max(4.0, 1.35 * maximum(lost_curve)))
+        shade_disruptions!(ax3, 0.0, max_x_h, ctx.disruption_spans)
+        shade_outages!(ax3, 0.0, max_x_h, ctx.outage_spans)
+        stairs!(ax3, df_x, lost_curve, color = COLOR_LOST)
+        inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
+        scatter!(
+            ax3,
+            df_x[inc],
+            lost_curve[inc],
+            marker = :xcross,
+            color = COLOR_LOST,
+            markersize = PlotTheme.MARKERSIZE_DATA,
+        )
+        if lost_curve[end] > 0
+            pct =
+                100 * lost_curve[end] /
+                max(1.0, Float64(df.Ground_Archive[end]) + lost_curve[end])
+            text!(
+                ax3,
+                0.985,
+                0.88,
+                text = "$(Int(lost_curve[end])) lost ($(round(pct, digits=2)) %)",
+                space = :relative,
+                align = (:right, :top),
+                fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+                color = COLOR_LOST,
+            )
+        end
+        push!(axes_to_link, ax3)
+        hidexdecorations!(ax2, grid = false, ticks = false)
+    end
+    hidexdecorations!(ax1, grid = false, ticks = false)
+
+    # One aligned label column: reserve equal tick-label width on all
+    # stacked axes (the Lost strip's 1-digit ticks would otherwise pull
+    # its ylabel inward relative to the 4-digit panels above).
+    foreach(ax -> ax.yticklabelspace = 34.0, axes_to_link)
+
+    add_figure_legend!(
+        fig;
+        degraded = show_nominal,
+        blackout = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 1, 2),
+        ramp = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 2, 3),
+        outage = spans_overlap(ctx.outage_spans, 0.0, max_x_h, 1, 2),
+        lost = ctx.show_lost_panel ? :strip : :none,
+    )
+    linkxaxes!(axes_to_link...)
+
+    path = joinpath(ctx.run_dir, "plots", "mission_summary_global.png")
+    save(path, fig, px_per_unit = 4)
+    save(splitext(path)[1] * ".pdf", fig)
+    return path
+end
+
+"""
+    plot_session(ctx::PlotContext, day_k::Int) -> Union{Nothing,String}
+
+Renders the session figure of mission day `day_k` (0-based) — the nominal
+DSN window of that day: smooth nominal and effective capacity with the
+onboard buffer on a twin axis, and the batches received within the window
+(total and archive share) with ✕ pins and a count badge for any losses —
+to `<run_dir>/plots/session_day<kk>_detail.png` with a vector PDF twin.
+Returns `nothing` when the window lies outside the recorded span or holds
+fewer than two metrics rows. Must run inside the telemetry theme.
+"""
+function plot_session(ctx::PlotContext, day_k::Int)
+    df = ctx.df
+    max_x_h = max(ctx.df_x[end], 1.0)
+    min_sess_dt = DateTime(Date(ctx.t_start + Day(day_k)), ctx.session_start)
+    max_sess_dt = min_sess_dt + ctx.session_duration
+    min_sess_h = hours_since(min_sess_dt, ctx.t_start)
+    max_sess_h = hours_since(max_sess_dt, ctx.t_start)
+    # Windows entirely outside the recorded mission span produce nothing.
+    (max_sess_h <= 0.0 || min_sess_h >= max_x_h) && return nothing
+
+    in_window = (df.SimTime .>= min_sess_dt) .& (df.SimTime .<= max_sess_dt)
+    session_df = df[in_window, :]
+    length(session_df.SimTime) < 2 && return nothing
+
+    t_smooth_dt = [
+        min_sess_dt +
+        Millisecond(round(Int, (j-1) * ctx.session_duration.value * 1000 / 199)) for
+        j in 1:200
+    ]
+    t_smooth_h = [hours_since(t, ctx.t_start) for t in t_smooth_dt]
+    bw_smooth = Float64[
+        100.0 * ChannelEffects.effective_bandwidth(ctx.link_model, t) for t in t_smooth_dt
+    ]
+    bw_nominal_smooth = Float64[
+        100.0 * TelemetryCore.get_bandwidth_factor(ctx.vis_model, t) for t in t_smooth_dt
+    ]
+    sess_degraded = maximum(abs.(bw_nominal_smooth .- bw_smooth)) > 0.1
+
+    tick_start_dt = Dates.floor(min_sess_dt, Hour(1))
+    session_tick_vals_dt = collect(tick_start_dt:Hour(1):max_sess_dt)
+    session_tick_vals_h = [hours_since(t, ctx.t_start) for t in session_tick_vals_dt]
+    session_tick_labels = [Dates.format(t, "HH:MM") for t in session_tick_vals_dt]
+
+    session_hours = [hours_since(t, ctx.t_start) for t in session_df.SimTime]
+    plot_x = Float64[min_sess_h; session_hours; max_sess_h]
+    plot_gnd = Float64[
+        0.0;
+        session_df.Ground_Archive .- session_df.Ground_Archive[1];
+        session_df.Ground_Archive[end] - session_df.Ground_Archive[1]
+    ]
+    plot_gnd_arch = Float64[
+        0.0;
+        session_df.Ground_Arch .- session_df.Ground_Arch[1];
+        session_df.Ground_Arch[end] - session_df.Ground_Arch[1]
+    ]
+
+    fig = Figure(size = PlotTheme.FIG_SIZE_SESSION, figure_padding = 10)
+
+    ax_s1 = Axis(
+        fig[1, 1],
+        xlabel = "",
+        ylabel = "Bandwidth [%]",
+        xticks = (session_tick_vals_h, session_tick_labels),
+    )
+    xlims!(ax_s1, min_sess_h, max_sess_h)
+    ylims!(ax_s1, 0, 105)
+
+    ax_s1_twin = Axis(
+        fig[1, 1],
+        yaxisposition = :right,
+        ylabel = "Buffered data batches",
+        yticklabelcolor = COLOR_ONBOARD,
+    )
+    hidespines!(ax_s1_twin)
+    hidexdecorations!(ax_s1_twin)
+    xlims!(ax_s1_twin, min_sess_h, max_sess_h)
+    ylims!(ax_s1_twin, 0, max(10.0, 1.3 * maximum(session_df.Onboard_Buffer)))
+
+    shade_disruptions!(ax_s1, min_sess_h, max_sess_h, ctx.disruption_spans)
+    shade_outages!(ax_s1, min_sess_h, max_sess_h, ctx.outage_spans)
+    if sess_degraded
+        lines!(
+            ax_s1,
+            t_smooth_h,
+            bw_nominal_smooth,
+            color = (COLOR_BANDWIDTH, 0.35),
+            linestyle = :dot,
+        )
+    end
+    lines!(ax_s1, t_smooth_h, bw_smooth, color = COLOR_BANDWIDTH)
+    lines!(
+        ax_s1_twin,
+        session_hours,
+        Float64.(session_df.Onboard_Buffer),
+        color = COLOR_ONBOARD,
+        linestyle = :dash,
+    )
+
+    ax_s2 = Axis(
+        fig[2, 1],
+        xlabel = "Mission time",
+        ylabel = "Received data batches",
+        xticks = (session_tick_vals_h, session_tick_labels),
+        # HH:MM labels crowd at session resolution; rotation is applied
+        # here rather than in the global theme (rule: rotate crowded labels
+        # only).
+        xticklabelrotation = π / 4,
+    )
+    xlims!(ax_s2, min_sess_h, max_sess_h)
+    y_max_s2 = max(10.0, 1.2 * maximum(plot_gnd))
+    ylims!(ax_s2, 0, y_max_s2)
+
+    shade_disruptions!(ax_s2, min_sess_h, max_sess_h, ctx.disruption_spans)
+    shade_outages!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans)
+
+    band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd, color = (COLOR_LIVE, 0.4))
+    stairs!(ax_s2, plot_x, plot_gnd, color = COLOR_LIVE)
+    band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd_arch, color = (COLOR_ARCHIVE, 0.4))
+    stairs!(ax_s2, plot_x, plot_gnd_arch, color = COLOR_ARCHIVE)
+
+    # Session losses: no dedicated panel (it would sit empty on loss-free
+    # days) — ✕ markers along the top edge at the loss instants plus a
+    # corner count annotation, and no elements at all when the session lost
+    # nothing.
+    n_lost_sess =
+        ctx.has_loss_cols ? Int(session_df.Lost_Count[end] - session_df.Lost_Count[1]) : 0
+    if n_lost_sess > 0
+        inc = [
+            j for j in 2:nrow(session_df) if
+            session_df.Lost_Count[j] > session_df.Lost_Count[j-1]
+        ]
+        scatter!(
+            ax_s2,
+            session_hours[inc],
+            fill(0.93 * y_max_s2, length(inc)),
+            marker = :xcross,
+            color = COLOR_LOST,
+            markersize = PlotTheme.MARKERSIZE_DATA,
+        )
+        text!(
+            ax_s2,
+            0.985,
+            0.985,
+            text = "$n_lost_sess lost this session",
+            space = :relative,
+            align = (:right, :top),
+            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+            color = COLOR_LOST,
+        )
+    end
+
+    hidexdecorations!(ax_s1, grid = false, ticks = false)
+    foreach(ax -> ax.yticklabelspace = 34.0, (ax_s1, ax_s2))
+
+    add_figure_legend!(
+        fig;
+        degraded = sess_degraded,
+        blackout = spans_overlap(ctx.disruption_spans, min_sess_h, max_sess_h, 1, 2),
+        ramp = spans_overlap(ctx.disruption_spans, min_sess_h, max_sess_h, 2, 3),
+        outage = spans_overlap(ctx.outage_spans, min_sess_h, max_sess_h, 1, 2),
+        lost = n_lost_sess > 0 ? :marks : :none,
+    )
+    linkxaxes!(ax_s1, ax_s2)
+
+    path = joinpath(ctx.run_dir, "plots", "session_day$(lpad(day_k, 2, '0'))_detail.png")
+    save(path, fig, px_per_unit = 4)
+    save(splitext(path)[1] * ".pdf", fig)
+    return path
+end
 
 """
     generate_mission_plots(run_dir::String)
 
-Reads the `mission_profile.csv` and generates publication-quality dual-axis plots
-for the global mission state and individual session telemetry events using CairoMakie.
-Outputs are saved into the `<run_dir>/plots` directory.
+Reads `mission_profile.csv` and renders the mission summary
+([`plot_mission_summary`](@ref)) and one session figure per mission day
+([`plot_session`](@ref)) into `<run_dir>/plots`, all under the telemetry
+theme. Sessions are enumerated from the nominal daily DSN window — not
+detected from the effective bandwidth — so a fully blacked-out day still
+receives its zero-throughput figure and file names share the summary's
+0-based day coordinates.
 """
 function generate_mission_plots(run_dir::String)
     @info "[RECEIVER] Generating mission and session plots..."
@@ -58,635 +741,16 @@ function generate_mission_plots(run_dir::String)
         @warn "[POST] mission_profile.csv missing in $run_dir — the receiver produced no metrics (component never ran?); skipping this product."
         return
     end
-
     df = CSV.read(log_path, DataFrame)
-    if isempty(df)
-        return
-    end
+    isempty(df) && return
 
-    cfg = TelemetryCore.load_run_config(run_dir)
-    tel_settings = TelemetryCore.telemetry_settings(cfg)
-    session_start_time = tel_settings.session_start
-    session_dur = tel_settings.session_duration
-    vis_model = TelemetryCore.visibility_model(cfg)
-
-    # Disruption timeline from the run snapshot (empty for legacy/stub
-    # configs). A malformed snapshot must not abort post-processing of an
-    # otherwise complete run: warn and plot without disruption shading.
-    disruptions = try
-        haskey(get(cfg, "simulation", Dict{String,Any}()), "start_sim_time") ?
-        ChannelEffects.build_disruption_timeline(
-            cfg,
-            DateTime(cfg["simulation"]["start_sim_time"]),
-        ) : ChannelEffects.DisruptionTimeline()
-    catch e
-        @warn "[RECEIVER] Could not parse disruption events from the run snapshot; plotting without disruption shading." exception =
-            e
-        ChannelEffects.DisruptionTimeline()
-    end
-    link_model = ChannelEffects.LinkModel(vis_model, disruptions)
-
-    has_loss_cols = hasproperty(df, :Lost_Count)
-    any_lost = has_loss_cols && maximum(df.Lost_Count) > 0
-    # The dedicated Lost strip renders whenever the loss channel was enabled —
-    # an empty strip honestly reports "no losses" — and for legacy runs that
-    # recorded losses without a config snapshot.
-    loss_enabled = Bool(get(get(cfg, "packet_loss", Dict{String,Any}()), "enabled", false))
-    show_lost_panel = (loss_enabled && has_loss_cols) || any_lost
-
-    # Anchor the time axis at start_sim_time — NOT at the first metrics row,
-    # which lands whenever the receiver first flushes (minutes to hours into
-    # the mission) and would shift every gridline by that accident. With this
-    # anchor, day ticks and disruption shading sit exactly on mission-day
-    # boundaries. Convention: 0-based elapsed days — "Day k" = start + k·24 h —
-    # matching disruption.start_day and the t₀-anchored elapsed-time axes of
-    # detection/estimation pipelines.
-    sim_start = try
-        DateTime(get(get(cfg, "simulation", Dict{String,Any}()), "start_sim_time", ""))
-    catch
-        nothing # legacy/corrupt snapshot: fall back to the first metrics row
-    end
-    t_start_dt = something(sim_start, df.SimTime[1])
-    to_h = d -> Float64((d - t_start_dt).value) / (1000 * 3600)
-    df_x = to_h.(df.SimTime)
-
-    # Disruption spans in plot coordinates: (blackout_start, blackout_end, recovery_end)
-    disruption_spans = [
-        (to_h(ev.start_time), to_h(ev.blackout_end), to_h(ev.recovery_end)) for
-        ev in disruptions.events
-    ]
-
-    # Component-outage spans from the supervisor's lifecycle record: each
-    # `down` opens a window closed by the next `restart` of the same
-    # component (or mission end). Shaded distinctly from configured
-    # disruption events — these are unscheduled infrastructure outages.
-    outage_spans = Tuple{Float64,Float64}[]
-    comp_events_path = joinpath(run_dir, "component_events.csv")
-    if isfile(comp_events_path)
-        ce = CSV.read(comp_events_path, DataFrame)
-        open_down = Dict{String,DateTime}()
-        for r in eachrow(ce)
-            comp = String(r.Component)
-            if r.Event == "down"
-                open_down[comp] = r.SimTime
-            elseif r.Event == "restart" && haskey(open_down, comp)
-                push!(outage_spans, (to_h(pop!(open_down, comp)), to_h(r.SimTime)))
-            end
-        end
-        for (_, t_down) in open_down
-            push!(outage_spans, (to_h(t_down), maximum(df_x)))
-        end
-    end
-    shade_outages! =
-        (ax, x_lo, x_hi) -> begin
-            for (o0, o1) in outage_spans
-                o0c, o1c = max(o0, x_lo), min(o1, x_hi)
-                if o0c < o1c
-                    v = vspan!(ax, o0c, o1c, color = (:black, 0.10))
-                    translate!(v, 0, 0, -99)
-                    for x_edge in (o0, o1)
-                        if x_lo <= x_edge <= x_hi
-                            l = vlines!(
-                                ax,
-                                [x_edge],
-                                color = (:gray40, 0.8),
-                                linestyle = :dot,
-                                linewidth = 1.5,
-                            )
-                            translate!(l, 0, 0, -98)
-                        end
-                    end
-                end
-            end
-        end
-    outage_in = (x_lo, x_hi) -> any(s -> s[1] < x_hi && s[2] > x_lo, outage_spans)
-
-    # Shades every disruption event onto `ax`, clamped to the plotted range:
-    # a uniform dark wash over the blackout, fading linearly to zero alpha
-    # across the recovery ramp (mirroring the capacity ramp), with dashed
-    # vlines delimiting event start and full recovery. All shading is pushed
-    # far back along z so it renders behind the data identically on every
-    # panel of every figure — but strictly above z = -100, where the white
-    # background of a twin Axis (dual-y panels) would cover it.
-    shade_disruptions! =
-        (ax, x_lo, x_hi) -> begin
-            for (b0, b1, r1) in disruption_spans
-                b0c, b1c = max(b0, x_lo), min(b1, x_hi)
-                if b0c < b1c
-                    v = vspan!(ax, b0c, b1c, color = (COLOR_DISRUPTION, 0.18))
-                    translate!(v, 0, 0, -99)
-                end
-                r0c, r1c = max(b1, x_lo), min(r1, x_hi)
-                if r0c < r1c
-                    edges = collect(range(r0c, r1c, length = 25))
-                    for k in 1:(length(edges)-1)
-                        mid = (edges[k] + edges[k+1]) / 2
-                        fade = 0.18 * (1.0 - (mid - b1) / (r1 - b1))
-                        v = vspan!(
-                            ax,
-                            edges[k],
-                            edges[k+1],
-                            color = (COLOR_DISRUPTION, fade),
-                        )
-                        translate!(v, 0, 0, -99)
-                    end
-                end
-                for x_edge in (b0, r1)
-                    if x_lo <= x_edge <= x_hi
-                        l = vlines!(
-                            ax,
-                            [x_edge],
-                            color = (:gray30, 0.8),
-                            linestyle = :dash,
-                            linewidth = 1.5,
-                        )
-                        translate!(l, 0, 0, -98)
-                    end
-                end
-            end
-        end
-
-    # True when any blackout / recovery-ramp phase overlaps the plotted
-    # x-window — legends must only advertise what their own figure actually
-    # draws, and the two phases are gated independently (a pure-blackout
-    # session must not list a ramp patch, and vice versa).
-    blackout_in = (x_lo, x_hi) -> any(s -> s[1] < x_hi && s[2] > x_lo, disruption_spans)
-    ramp_in = (x_lo, x_hi) -> any(s -> s[2] < x_hi && s[3] > x_lo, disruption_spans)
-
-    # One frameless horizontal legend strip per figure, above the panels, with
-    # composite fill+edge patches for the band+stair pairs. Entries are
-    # strictly limited to what that specific figure draws: `shading` gates the
-    # Blackout/Recovery patches, `lost` is :strip (summary stairs+marks),
-    # :marks (session ✕ pins), or :none.
-    add_figure_legend! =
-        (fig; degraded, blackout, ramp, lost, outage = false) -> begin
-            elems = Any[]
-            labels = String[]
-            if degraded
-                push!(
-                    elems,
-                    LineElement(
-                        color = (COLOR_BANDWIDTH, 0.5),
-                        linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                        linestyle = :dot,
-                    ),
-                )
-                push!(labels, "Nominal capacity")
-                push!(
-                    elems,
-                    LineElement(
-                        color = COLOR_BANDWIDTH,
-                        linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                    ),
-                )
-                push!(labels, "Effective capacity")
-            else
-                push!(
-                    elems,
-                    LineElement(
-                        color = COLOR_BANDWIDTH,
-                        linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                    ),
-                )
-                push!(labels, "Link capacity")
-            end
-            push!(
-                elems,
-                LineElement(
-                    color = COLOR_ONBOARD,
-                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                    linestyle = :dash,
-                ),
-            )
-            push!(labels, "Onboard buffer")
-            push!(
-                elems,
-                PolyElement(
-                    color = (COLOR_LIVE, 0.4),
-                    strokecolor = COLOR_LIVE,
-                    strokewidth = 3,
-                ),
-            )
-            push!(labels, "Total received (live + archive)")
-            push!(
-                elems,
-                PolyElement(
-                    color = (COLOR_ARCHIVE, 0.4),
-                    strokecolor = COLOR_ARCHIVE,
-                    strokewidth = 3,
-                ),
-            )
-            push!(labels, "Archive backfill (LIFO)")
-            if lost === :strip
-                push!(
-                    elems,
-                    [
-                        LineElement(
-                            color = COLOR_LOST,
-                            linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                        ),
-                        MarkerElement(
-                            marker = :xcross,
-                            color = COLOR_LOST,
-                            markersize = PlotTheme.MARKERSIZE_DATA,
-                        ),
-                    ],
-                )
-                push!(labels, "Lost")
-            elseif lost === :marks
-                push!(
-                    elems,
-                    MarkerElement(
-                        marker = :xcross,
-                        color = COLOR_LOST,
-                        markersize = PlotTheme.MARKERSIZE_DATA,
-                    ),
-                )
-                push!(labels, "Lost")
-            end
-            if blackout
-                push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.18)))
-                push!(labels, "Blackout")
-            end
-            if ramp
-                push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.08)))
-                push!(labels, "Recovery ramp")
-            end
-            if outage
-                push!(elems, PolyElement(color = (:black, 0.10)))
-                push!(labels, "Component outage")
-            end
-            Legend(
-                fig[0, 1],
-                elems,
-                labels;
-                orientation = :horizontal,
-                nbanks = length(elems) > 3 ? 2 : 1,
-                framevisible = false,
-                backgroundcolor = :transparent,
-                colgap = 28,
-            )
-        end
-
-    # 1. Generate Global Summary Plot
-    # Floor at one hour: a single-row (or sub-hour) profile would otherwise
-    # produce degenerate axis limits and crash the renderer.
-    max_x_h = max(df_x[end], 1.0)
-    total_days = max_x_h / 24.0
-
-    # Dynamic tick step based on mission duration
-    if total_days <= 10
-        tick_step_h = 24.0
-    elseif total_days <= 45
-        tick_step_h = 24.0 * 2 # Every other day
-    elseif total_days <= 200
-        tick_step_h = 24.0 * 30 # Monthly
-    else
-        tick_step_h = 24.0 * 60 # Bi-monthly
-    end
-
-    tick_vals_h = collect(0.0:tick_step_h:max_x_h)
-    tick_labels = ["Day $(Int(floor(v/24)))" for v in tick_vals_h]
-
+    ctx = plot_context(run_dir, df, TelemetryCore.load_run_config(run_dir))
     with_theme(telemetry_theme()) do
-        fig_global = Figure(
-            size = (
-                PlotTheme.FIG_SIZE_SUMMARY[1],
-                show_lost_panel ? PlotTheme.FIG_SIZE_SUMMARY[2] + 90 :
-                PlotTheme.FIG_SIZE_SUMMARY[2],
-            ),
-            figure_padding = 10,
-        )
-
-        # Dual Y-axis for global plot 1
-        ax1 = Axis(
-            fig_global[1, 1],
-            xlabel = "",
-            ylabel = "Bandwidth [%]",
-            xticks = (tick_vals_h, tick_labels),
-        )
-        xlims!(ax1, 0, max_x_h)
-        ylims!(ax1, 0, 105)
-
-        ax1_twin = Axis(
-            fig_global[1, 1],
-            yaxisposition = :right,
-            ylabel = "Buffered data batches",
-            yticklabelcolor = COLOR_ONBOARD,
-        )
-        hidespines!(ax1_twin)
-        hidexdecorations!(ax1_twin)
-        xlims!(ax1_twin, 0, max_x_h)
-
-        max_onb = maximum(df.Onboard_Buffer)
-        ylims!(ax1_twin, 0, max(10.0, 1.3 * max_onb))
-
-        shade_disruptions!(ax1, 0.0, max_x_h)
-        shade_outages!(ax1, 0.0, max_x_h)
-
-        # Nominal (visibility-only) capacity behind the effective curve when a
-        # disruption degraded the link somewhere in the run.
-        show_nominal =
-            hasproperty(df, :Nominal_Bandwidth_Pct) &&
-            maximum(abs.(df.Nominal_Bandwidth_Pct .- df.Bandwidth_Pct)) > 0.1
-        if show_nominal
-            lines!(
-                ax1,
-                df_x,
-                Float64.(df.Nominal_Bandwidth_Pct),
-                color = (COLOR_BANDWIDTH, 0.35),
-                linestyle = :dot,
-            )
-        end
-        lines!(ax1, df_x, Float64.(df.Bandwidth_Pct), color = COLOR_BANDWIDTH)
-        lines!(
-            ax1_twin,
-            df_x,
-            Float64.(df.Onboard_Buffer),
-            color = COLOR_ONBOARD,
-            linestyle = :dash,
-        )
-
-        # Global plot 2
-        ax2 = Axis(
-            fig_global[2, 1],
-            xlabel = show_lost_panel ? "" : "Mission time",
-            ylabel = "Received data batches",
-            xticks = (tick_vals_h, tick_labels),
-        )
-        xlims!(ax2, 0, max_x_h)
-        max_gnd = maximum(df.Ground_Archive)
-        ylims!(ax2, 0, max(10.0, 1.2 * max_gnd))
-
-        shade_disruptions!(ax2, 0.0, max_x_h)
-        shade_outages!(ax2, 0.0, max_x_h)
-
-        band!(
-            ax2,
-            df_x,
-            zeros(length(df_x)),
-            Float64.(df.Ground_Archive),
-            color = (COLOR_LIVE, 0.4),
-        )
-        stairs!(ax2, df_x, Float64.(df.Ground_Archive), color = COLOR_LIVE)
-
-        band!(
-            ax2,
-            df_x,
-            zeros(length(df_x)),
-            Float64.(df.Ground_Arch),
-            color = (COLOR_ARCHIVE, 0.4),
-        )
-        stairs!(ax2, df_x, Float64.(df.Ground_Arch), color = COLOR_ARCHIVE)
-
-        # Dedicated Lost strip: rare discrete events get their own small
-        # linear axis instead of an invisible flat line under the received
-        # bands.
-        axes_to_link = [ax1, ax2]
-        if show_lost_panel
-            # LinearTicks(3): the strip is ~1/3 panel height, so the default
-            # automatic ticks crowd together once losses reach double digits.
-            ax3 = Axis(
-                fig_global[3, 1],
-                xlabel = "Mission time",
-                ylabel = "Lost",
-                xticks = (tick_vals_h, tick_labels),
-                yticks = LinearTicks(3),
-            )
-            rowsize!(fig_global.layout, 3, Auto(0.32))
-            xlims!(ax3, 0, max_x_h)
-            lost_curve = has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
-            ylims!(ax3, 0, max(4.0, 1.35 * maximum(lost_curve)))
-            shade_disruptions!(ax3, 0.0, max_x_h)
-            shade_outages!(ax3, 0.0, max_x_h)
-            stairs!(ax3, df_x, lost_curve, color = COLOR_LOST)
-            inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
-            scatter!(
-                ax3,
-                df_x[inc],
-                lost_curve[inc],
-                marker = :xcross,
-                color = COLOR_LOST,
-                markersize = PlotTheme.MARKERSIZE_DATA,
-            )
-            if lost_curve[end] > 0
-                pct =
-                    100 * lost_curve[end] /
-                    max(1.0, Float64(df.Ground_Archive[end]) + lost_curve[end])
-                text!(
-                    ax3,
-                    0.985,
-                    0.88,
-                    text = "$(Int(lost_curve[end])) lost ($(round(pct, digits=2)) %)",
-                    space = :relative,
-                    align = (:right, :top),
-                    fontsize = PlotTheme.FONTSIZE_ANNOTATION,
-                    color = COLOR_LOST,
-                )
-            end
-            push!(axes_to_link, ax3)
-            hidexdecorations!(ax2, grid = false, ticks = false)
-        end
-        hidexdecorations!(ax1, grid = false, ticks = false)
-
-        # One aligned label column: reserve equal tick-label width on all
-        # stacked axes (the Lost strip's 1-digit ticks would otherwise pull
-        # its ylabel inward relative to the 4-digit panels above).
-        foreach(ax -> ax.yticklabelspace = 34.0, axes_to_link)
-
-        add_figure_legend!(
-            fig_global;
-            degraded = show_nominal,
-            blackout = blackout_in(0.0, max_x_h),
-            ramp = ramp_in(0.0, max_x_h),
-            outage = outage_in(0.0, max_x_h),
-            lost = show_lost_panel ? :strip : :none,
-        )
-        linkxaxes!(axes_to_link...)
-
-        global_path = joinpath(run_dir, "plots", "mission_summary_global.png")
-        save(global_path, fig_global, px_per_unit = 4)
-        save(splitext(global_path)[1] * ".pdf", fig_global)
+        global_path = plot_mission_summary(ctx)
         @info "[RECEIVER] Saved Global Summary Plot: $(relpath(global_path, run_dir))"
-
-        # 2. One session plot per mission day, enumerated from the NOMINAL
-        # daily DSN window — not detected from effective bandwidth. A fully
-        # blacked-out session therefore still receives its zero-throughput
-        # plot — dotted nominal vs flat-zero effective, full shading, rising
-        # buffer — so multi-day downtime spans the same days here as on the
-        # summary, and file names share the summary's 0-based day coordinates.
-        n_days = ceil(Int, max_x_h / 24.0)
+        n_days = ceil(Int, max(ctx.df_x[end], 1.0) / 24.0)
         for day_k in 0:(n_days-1)
-            min_sess_dt = DateTime(Date(t_start_dt + Day(day_k)), session_start_time)
-            max_sess_dt = min_sess_dt + session_dur
-            # Skip windows entirely outside the recorded mission span
-            (to_h(max_sess_dt) <= 0.0 || to_h(min_sess_dt) >= max_x_h) && continue
-
-            in_window = (df.SimTime .>= min_sess_dt) .& (df.SimTime .<= max_sess_dt)
-            session_df = df[in_window, :]
-            if length(session_df.SimTime) < 2
-                continue
-            end
-
-            min_sess_h = to_h(min_sess_dt)
-            max_sess_h = to_h(max_sess_dt)
-
-            t_smooth_dt = [
-                min_sess_dt + Millisecond(round(Int, (j-1)*session_dur.value*1000/199))
-                for j in 1:200
-            ]
-            t_smooth_h = to_h.(t_smooth_dt)
-            bw_smooth = Float64[
-                100.0 * ChannelEffects.effective_bandwidth(link_model, t) for
-                t in t_smooth_dt
-            ]
-            bw_nominal_smooth = Float64[
-                100.0 * TelemetryCore.get_bandwidth_factor(vis_model, t) for
-                t in t_smooth_dt
-            ]
-            sess_degraded = maximum(abs.(bw_nominal_smooth .- bw_smooth)) > 0.1
-
-            tick_start_dt = Dates.floor(min_sess_dt, Hour(1))
-            session_tick_vals_dt = collect(tick_start_dt:Hour(1):max_sess_dt)
-            session_tick_vals_h = to_h.(session_tick_vals_dt)
-            session_tick_labels = [Dates.format(t, "HH:MM") for t in session_tick_vals_dt]
-
-            session_hours = to_h.(session_df.SimTime)
-            plot_x = Float64[min_sess_h; session_hours; max_sess_h]
-            plot_gnd = Float64[
-                0.0;
-                session_df.Ground_Archive .- session_df.Ground_Archive[1];
-                session_df.Ground_Archive[end] - session_df.Ground_Archive[1]
-            ]
-            plot_gnd_arch = Float64[
-                0.0;
-                session_df.Ground_Arch .- session_df.Ground_Arch[1];
-                session_df.Ground_Arch[end] - session_df.Ground_Arch[1]
-            ]
-
-            fig_sess = Figure(size = PlotTheme.FIG_SIZE_SESSION, figure_padding = 10)
-
-            ax_s1 = Axis(
-                fig_sess[1, 1],
-                xlabel = "",
-                ylabel = "Bandwidth [%]",
-                xticks = (session_tick_vals_h, session_tick_labels),
-            )
-            xlims!(ax_s1, min_sess_h, max_sess_h)
-            ylims!(ax_s1, 0, 105)
-
-            ax_s1_twin = Axis(
-                fig_sess[1, 1],
-                yaxisposition = :right,
-                ylabel = "Buffered data batches",
-                yticklabelcolor = COLOR_ONBOARD,
-            )
-            hidespines!(ax_s1_twin)
-            hidexdecorations!(ax_s1_twin)
-            xlims!(ax_s1_twin, min_sess_h, max_sess_h)
-
-            max_sess_onb = maximum(session_df.Onboard_Buffer)
-            ylims!(ax_s1_twin, 0, max(10.0, 1.3 * max_sess_onb))
-
-            shade_disruptions!(ax_s1, min_sess_h, max_sess_h)
-            shade_outages!(ax_s1, min_sess_h, max_sess_h)
-            if sess_degraded
-                lines!(
-                    ax_s1,
-                    t_smooth_h,
-                    bw_nominal_smooth,
-                    color = (COLOR_BANDWIDTH, 0.35),
-                    linestyle = :dot,
-                )
-            end
-            lines!(ax_s1, t_smooth_h, bw_smooth, color = COLOR_BANDWIDTH)
-            lines!(
-                ax_s1_twin,
-                session_hours,
-                Float64.(session_df.Onboard_Buffer),
-                color = COLOR_ONBOARD,
-                linestyle = :dash,
-            )
-
-            ax_s2 = Axis(
-                fig_sess[2, 1],
-                xlabel = "Mission time",
-                ylabel = "Received data batches",
-                xticks = (session_tick_vals_h, session_tick_labels),
-                # HH:MM labels crowd at session resolution; rotation is
-                # applied here rather than in the global theme (rule:
-                # rotate crowded labels only).
-                xticklabelrotation = π / 4,
-            )
-            xlims!(ax_s2, min_sess_h, max_sess_h)
-            max_sess_gnd = maximum(plot_gnd)
-            y_max_s2 = max(10.0, 1.2 * max_sess_gnd)
-            ylims!(ax_s2, 0, y_max_s2)
-
-            shade_disruptions!(ax_s2, min_sess_h, max_sess_h)
-            shade_outages!(ax_s2, min_sess_h, max_sess_h)
-
-            band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd, color = (COLOR_LIVE, 0.4))
-            stairs!(ax_s2, plot_x, plot_gnd, color = COLOR_LIVE)
-
-            band!(
-                ax_s2,
-                plot_x,
-                zeros(length(plot_x)),
-                plot_gnd_arch,
-                color = (COLOR_ARCHIVE, 0.4),
-            )
-            stairs!(ax_s2, plot_x, plot_gnd_arch, color = COLOR_ARCHIVE)
-
-            # Session losses: no dedicated panel (it would sit empty on
-            # loss-free days) — ✕ markers along the top edge at the loss
-            # instants plus a corner count annotation, and no elements at all
-            # when the session lost nothing.
-            n_lost_sess =
-                has_loss_cols ? Int(session_df.Lost_Count[end] - session_df.Lost_Count[1]) :
-                0
-            if n_lost_sess > 0
-                inc = [
-                    j for j in 2:nrow(session_df) if
-                    session_df.Lost_Count[j] > session_df.Lost_Count[j-1]
-                ]
-                scatter!(
-                    ax_s2,
-                    session_hours[inc],
-                    fill(0.93 * y_max_s2, length(inc)),
-                    marker = :xcross,
-                    color = COLOR_LOST,
-                    markersize = PlotTheme.MARKERSIZE_DATA,
-                )
-                text!(
-                    ax_s2,
-                    0.985,
-                    0.985,
-                    text = "$n_lost_sess lost this session",
-                    space = :relative,
-                    align = (:right, :top),
-                    fontsize = PlotTheme.FONTSIZE_ANNOTATION,
-                    color = COLOR_LOST,
-                )
-            end
-
-            hidexdecorations!(ax_s1, grid = false, ticks = false)
-            foreach(ax -> ax.yticklabelspace = 34.0, (ax_s1, ax_s2))
-
-            add_figure_legend!(
-                fig_sess;
-                degraded = sess_degraded,
-                blackout = blackout_in(min_sess_h, max_sess_h),
-                ramp = ramp_in(min_sess_h, max_sess_h),
-                outage = outage_in(min_sess_h, max_sess_h),
-                lost = n_lost_sess > 0 ? :marks : :none,
-            )
-            linkxaxes!(ax_s1, ax_s2)
-
-            session_path =
-                joinpath(run_dir, "plots", "session_day$(lpad(day_k, 2, '0'))_detail.png")
-            save(session_path, fig_sess, px_per_unit = 4)
-            save(splitext(session_path)[1] * ".pdf", fig_sess)
+            plot_session(ctx, day_k)
         end
         @info "[RECEIVER] Saved Session-specific plots."
     end

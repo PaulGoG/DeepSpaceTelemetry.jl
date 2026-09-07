@@ -123,6 +123,17 @@ DeepSpaceTelemetry.Emitter.run_emitter
 ```@docs
 DeepSpaceTelemetry.Receiver
 DeepSpaceTelemetry.Receiver.generate_mission_plots
+DeepSpaceTelemetry.Receiver.PlotContext
+DeepSpaceTelemetry.Receiver.plot_context
+DeepSpaceTelemetry.Receiver.plot_mission_summary
+DeepSpaceTelemetry.Receiver.plot_session
+DeepSpaceTelemetry.Receiver.hours_since
+DeepSpaceTelemetry.Receiver.component_outage_spans
+DeepSpaceTelemetry.Receiver.spans_overlap
+DeepSpaceTelemetry.Receiver.shade_disruptions!
+DeepSpaceTelemetry.Receiver.shade_outages!
+DeepSpaceTelemetry.Receiver.add_figure_legend!
+DeepSpaceTelemetry.Receiver.summary_tick_step_hours
 DeepSpaceTelemetry.Receiver.BatchStates
 DeepSpaceTelemetry.Receiver.reconstruct_batch_states
 DeepSpaceTelemetry.Receiver.reconstruct_batch_states_exact

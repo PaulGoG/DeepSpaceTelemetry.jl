@@ -43,6 +43,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   off-limits by contract).
 
 ### Changed
+- `generate_mission_plots` is decomposed into a `PlotContext` built once per
+  run and named components (`plot_mission_summary`, `plot_session`, the
+  shading and legend helpers); the rendered figures are pixel-identical.
 - Configuration accessors `telemetry_settings`, `visibility_model`,
   `loss_channel_settings`, and `disruption_event_settings` single-source the
   types, defaults, and bounds of `[telemetry]`, `[packet_loss]`, and
