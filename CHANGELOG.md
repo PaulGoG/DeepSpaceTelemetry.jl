@@ -65,6 +65,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - Mask state 2 is named "Link" everywhere (manual, terminal viewer,
   animation); `generate_telemetry_gif` and `expand_pointwise_mask` replace
   `create_telemetry_gif` and `apply_mask`/`expand_mask`.
+- The batch-routing animation adopts the Okabe–Ito palette of the static
+  figures — color encodes the stage (onboard orange, link blue, ground sky
+  blue / green), marker shape the family (circle live, diamond archive) —
+  and derives its marker size from the theme constant.
 - `generate_mission_plots` is decomposed into a `PlotContext` built once per
   run and named components (`plot_mission_summary`, `plot_session`, the
   shading and legend helpers); the rendered figures are pixel-identical.

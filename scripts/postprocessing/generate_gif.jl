@@ -27,9 +27,22 @@ function generate_telemetry_gif(run_id::String)
     row_states = DeepSpaceTelemetry.Receiver.batch_states(run_dir, df)
     show_lost = !isempty(row_states) && !isempty(last(row_states).lost)
 
-    n_frames = min(nrow(df), 800)
-    step_size = max(1, floor(Int, nrow(df) / n_frames))
-    msize = 10
+    # Frame budget: at most `max_frames` snapshots, sampled uniformly.
+    max_frames = min(nrow(df), 800)
+    step_size = max(1, floor(Int, nrow(df) / max_frames))
+    # Marker sizes derive from the print-scale theme constant; the animation
+    # canvas (1400 × 780 units) is wider than the static figures, hence the
+    # scale factor. Batches on the link are drawn slightly larger.
+    marker_size = round(Int, 1.25 * DeepSpaceTelemetry.PlotTheme.MARKERSIZE_DATA)
+    marker_size_link = marker_size + 2
+    # Okabe–Ito semantics shared with the static figures: color encodes the
+    # stage (onboard buffer, link, ground), marker shape encodes the family
+    # (circle = live/FIFO, diamond = archive/LIFO).
+    color_onboard = DeepSpaceTelemetry.PlotTheme.COLOR_ONBOARD
+    color_link = DeepSpaceTelemetry.PlotTheme.COLOR_BANDWIDTH
+    color_ground_live = DeepSpaceTelemetry.PlotTheme.COLOR_LIVE
+    color_ground_archive = DeepSpaceTelemetry.PlotTheme.COLOR_ARCHIVE
+    color_lost = DeepSpaceTelemetry.PlotTheme.COLOR_LOST
 
     gif_path = joinpath(run_dir, "plots", "telemetry_animation.gif")
     mkpath(dirname(gif_path)) # legacy/interrupted runs may lack plots/
@@ -52,28 +65,19 @@ function generate_telemetry_gif(run_id::String)
             groups = [
                 [
                     MarkerElement(marker = :circle, color = c, markersize = 14) for
-                    c in (:red, :yellow, :cyan)
+                    c in (color_onboard, color_link, color_ground_live)
                 ],
                 [
                     MarkerElement(marker = :diamond, color = c, markersize = 14) for
-                    c in (:magenta, :blue, :green)
+                    c in (color_onboard, color_link, color_ground_archive)
                 ],
             ]
-            glabels = [
-                ["Satellite", "In-Transit", "Ground"],
-                ["Satellite", "In-Transit", "Ground"],
-            ]
+            glabels = [["Satellite", "Link", "Ground"], ["Satellite", "Link", "Ground"]]
             gtitles = ["Live (FIFO):", "Archive (LIFO):"]
             if show_lost
                 push!(
                     groups,
-                    [
-                        MarkerElement(
-                            marker = :xcross,
-                            color = DeepSpaceTelemetry.PlotTheme.COLOR_LOST,
-                            markersize = 14,
-                        ),
-                    ],
+                    [MarkerElement(marker = :xcross, color = color_lost, markersize = 14)],
                 )
                 push!(glabels, ["Retry-exhausted"])
                 push!(gtitles, "Lost:")
@@ -127,8 +131,8 @@ function generate_telemetry_gif(run_id::String)
 
             ytick_vals = show_lost ? [0, 1, 2, 3] : [1, 2, 3]
             ytick_labels =
-                show_lost ? ["Lost", "Satellite", "In-Transit", "Ground Archive"] :
-                ["Satellite", "In-Transit", "Ground Archive"]
+                show_lost ? ["Lost", "Satellite", "Link", "Ground"] :
+                ["Satellite", "Link", "Ground"]
             ax = Axis(
                 fig[1, 1],
                 xlabel = "Batch ID",
@@ -144,9 +148,9 @@ function generate_telemetry_gif(run_id::String)
                     ax,
                     x_onb_l,
                     fill(1, length(x_onb_l)),
-                    color = :red,
+                    color = color_onboard,
                     marker = :circle,
-                    markersize = msize,
+                    markersize = marker_size,
                 )
             end
             if !isempty(x_lnk_l)
@@ -154,9 +158,9 @@ function generate_telemetry_gif(run_id::String)
                     ax,
                     x_lnk_l,
                     fill(2, length(x_lnk_l)),
-                    color = :yellow,
+                    color = color_link,
                     marker = :circle,
-                    markersize = msize+2,
+                    markersize = marker_size_link,
                 )
             end
             if !isempty(x_gnd_l)
@@ -164,9 +168,9 @@ function generate_telemetry_gif(run_id::String)
                     ax,
                     x_gnd_l,
                     fill(3, length(x_gnd_l)),
-                    color = :cyan,
+                    color = color_ground_live,
                     marker = :circle,
-                    markersize = msize,
+                    markersize = marker_size,
                 )
             end
 
@@ -176,9 +180,9 @@ function generate_telemetry_gif(run_id::String)
                     ax,
                     x_onb_a,
                     fill(1, length(x_onb_a)),
-                    color = :magenta,
+                    color = color_onboard,
                     marker = :diamond,
-                    markersize = msize,
+                    markersize = marker_size,
                 )
             end
             if !isempty(x_lnk_a)
@@ -186,9 +190,9 @@ function generate_telemetry_gif(run_id::String)
                     ax,
                     x_lnk_a,
                     fill(2, length(x_lnk_a)),
-                    color = :blue,
+                    color = color_link,
                     marker = :diamond,
-                    markersize = msize+2,
+                    markersize = marker_size_link,
                 )
             end
             if !isempty(x_gnd_a)
@@ -196,9 +200,9 @@ function generate_telemetry_gif(run_id::String)
                     ax,
                     x_gnd_a,
                     fill(3, length(x_gnd_a)),
-                    color = :green,
+                    color = color_ground_archive,
                     marker = :diamond,
-                    markersize = msize,
+                    markersize = marker_size,
                 )
             end
 
@@ -208,9 +212,9 @@ function generate_telemetry_gif(run_id::String)
                     ax,
                     x_lost,
                     fill(0, length(x_lost)),
-                    color = DeepSpaceTelemetry.PlotTheme.COLOR_LOST,
+                    color = color_lost,
                     marker = :xcross,
-                    markersize = msize+2,
+                    markersize = marker_size_link,
                 )
             end
         end
