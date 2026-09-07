@@ -85,7 +85,7 @@ end
 
 println("Dashboard launched: live viewer and log-tail terminals spawned.")
 println(
-    "Starting main simulation (duration: $(cfg["simulation"]["test_duration_sec"]) s)...",
+    "Starting main simulation (span: $(DeepSpaceTelemetry.TelemetryCore.mission_wall_seconds(cfg)) wall-clock s)...",
 )
 println("="^55)
 

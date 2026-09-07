@@ -84,7 +84,7 @@ end
 
 const SPEED_UP = Float64(cfg["simulation"]["speed_up"])
 const START_SIM = DateTime(cfg["simulation"]["start_sim_time"])
-const TEST_DURATION_SEC = Float64(cfg["simulation"]["test_duration_sec"])
+const MISSION_WALL_SECONDS = DeepSpaceTelemetry.TelemetryCore.mission_wall_seconds(cfg)
 const INITIAL_DOWNTIME_DAYS = Float64(cfg["simulation"]["initial_downtime_days"])
 const RNG_SEED = Int(get(cfg["simulation"], "rng_seed", 0))
 
@@ -121,7 +121,7 @@ if DATA_SOURCE == "external"
         joinpath(DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT, EXT_PATH)
     ext_rows = max(countlines(ext_resolved) - 1, 0) # header-inclusive count; ≈ for headerless files
     ext_sha = open(io -> bytes2hex(sha256(io)), ext_resolved)
-    needed_days = (TEST_DURATION_SEC * SPEED_UP / 86_400.0) + INITIAL_DOWNTIME_DAYS
+    needed_days = (MISSION_WALL_SECONDS * SPEED_UP / 86_400.0) + INITIAL_DOWNTIME_DAYS
     covered_days = ext_rows / SAMPLE_RATE / 86_400.0
     if covered_days + 1e-9 < needed_days
         @warn "[INPUT] External data covers ≈ $(round(covered_days, digits=2)) of $(round(needed_days, digits=2)) mission days at the declared $(SAMPLE_RATE) Hz — the stream zero-pads from day $(round(covered_days, digits=2)) on."
@@ -187,7 +187,8 @@ clock = DeepSpaceTelemetry.TelemetryCore.SimulationClock(now(), START_SIM, SPEED
 # same wall instant regardless of spawn jitter, and a re-attaching component
 # reconstructs the identical mission clock (component outages simply elapse
 # as mission time).
-mission_deadline = clock.start_real_time + Millisecond(round(Int, TEST_DURATION_SEC * 1000))
+mission_deadline =
+    clock.start_real_time + Millisecond(round(Int, MISSION_WALL_SECONDS * 1000))
 DeepSpaceTelemetry.TelemetryCore.save_clock_anchor(run_dir, clock, mission_deadline)
 
 # Supervision policy
@@ -205,7 +206,7 @@ println("="^55)
 println(lpad("DEEP-SPACE TELEMETRY MISSION START", 44))
 println("="^55)
 println(rpad("Run ID:", 20), run_id)
-println(rpad("Test Duration:", 20), "$TEST_DURATION_SEC seconds")
+println(rpad("Mission span:", 20), "$MISSION_WALL_SECONDS wall-clock seconds")
 println(rpad("Speed-up:", 20), "$(SPEED_UP)x")
 println(rpad("Logs:", 20), "$run_dir/*.log")
 println("="^55)
@@ -376,7 +377,13 @@ rm(joinpath(run_dir, "HALT"), force = true) # consumed if an operator halted the
 # scripts/postprocessing tools).
 
 # Generate the 2D batch-state matrix (masks/telemetry_mask_timeline.csv)
-if get(cfg, "post_processing", Dict()) |> pp -> get(pp, "generate_batch_matrix", true)
+if DeepSpaceTelemetry.TelemetryCore.aliased_value(
+    get(cfg, "post_processing", Dict{String,Any}()),
+    "post_processing",
+    "generate_mask_timeline",
+    "generate_batch_matrix",
+    true,
+)
     println(orig_stdout, "\nGenerating Post-Processing Telemetry Masks...")
     try
         DeepSpaceTelemetry.Receiver.generate_telemetry_masks(run_dir)
@@ -391,7 +398,8 @@ if get(cfg, "post_processing", Dict()) |> pp -> get(pp, "expand_to_pointwise_mas
     try
         include(joinpath("postprocessing", "apply_telemetry_mask.jl"))
 
-        total_sim_sec = TEST_DURATION_SEC * SPEED_UP + (INITIAL_DOWNTIME_DAYS * 24 * 3600)
+        total_sim_sec =
+            MISSION_WALL_SECONDS * SPEED_UP + (INITIAL_DOWNTIME_DAYS * 24 * 3600)
         total_segs = ceil(Int, total_sim_sec / SEG_DUR)
         total_pts = round(Int, total_segs * SEG_DUR * SAMPLE_RATE)
 
@@ -411,7 +419,7 @@ if get(cfg, "post_processing", Dict()) |> pp -> get(pp, "expand_to_pointwise_mas
                 "pointwise_mask_t$(row_idx).csv"
             out_path = joinpath(run_dir, "masks", out_name)
             try
-                apply_mask(run_id, total_pts, row_idx, out_path)
+                expand_pointwise_mask(run_id, total_pts, row_idx, out_path)
             catch e
                 @error "[POST] Point-wise expansion failed for row $row_idx — continuing with the remaining rows." exception =
                     (e, catch_backtrace())

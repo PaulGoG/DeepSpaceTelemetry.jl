@@ -16,8 +16,6 @@ using FFTW: FFTW, plan_irfft, rfftfreq
 using LinearAlgebra: LinearAlgebra, mul!
 using Random: Random, AbstractRNG, Xoshiro, randn!
 
-export InstrumentState, lisa_noise_psd, next_segment!
-
 """
     InstrumentState
 

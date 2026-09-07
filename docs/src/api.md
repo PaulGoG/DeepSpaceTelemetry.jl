@@ -28,6 +28,9 @@ DeepSpaceTelemetry.TelemetryCore.checked_flag
 DeepSpaceTelemetry.TelemetryCore.config_error
 DeepSpaceTelemetry.TelemetryCore.required_value
 DeepSpaceTelemetry.TelemetryCore.normalize_target_rows
+DeepSpaceTelemetry.TelemetryCore.aliased_value
+DeepSpaceTelemetry.TelemetryCore.mission_wall_seconds
+DeepSpaceTelemetry.TelemetryCore.normalize_profile!
 DeepSpaceTelemetry.TelemetryCore.telemetry_settings
 DeepSpaceTelemetry.TelemetryCore.visibility_model
 DeepSpaceTelemetry.TelemetryCore.loss_channel_settings
@@ -136,7 +139,6 @@ DeepSpaceTelemetry.Receiver.add_figure_legend!
 DeepSpaceTelemetry.Receiver.summary_tick_step_hours
 DeepSpaceTelemetry.Receiver.BatchStates
 DeepSpaceTelemetry.Receiver.reconstruct_batch_states
-DeepSpaceTelemetry.Receiver.reconstruct_batch_states_exact
 DeepSpaceTelemetry.Receiver.batch_states
 DeepSpaceTelemetry.Receiver.generate_telemetry_masks
 DeepSpaceTelemetry.Receiver.delivered_payload_queue

@@ -10,9 +10,6 @@ module PlotTheme
 using CairoMakie: CairoMakie, @colorant_str, Theme
 using MathTeXEngine: texfont
 
-export telemetry_theme,
-    COLOR_LIVE, COLOR_ARCHIVE, COLOR_BANDWIDTH, COLOR_ONBOARD, COLOR_LOST, COLOR_DISRUPTION
-
 # Okabe–Ito colorblind-safe palette: one semantic color per quantity,
 # consistent across every figure and the animation.
 

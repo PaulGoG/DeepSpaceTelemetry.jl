@@ -31,7 +31,7 @@ catch
 end
 
 """
-    expand_mask(matrix_path::String, points_per_batch::Int, event_idx::Int, output_path::String)
+    expand_pointwise_mask(matrix_path::String, points_per_batch::Int, event_idx::Int, output_path::String)
 
 Reads a given `telemetry_mask_timeline.csv` matrix and extracts a single row 
 (specified by `event_idx`). It then expands each batch status (0-4) into a 
@@ -41,7 +41,7 @@ were still onboard/in transit (1, 2), not yet generated (0), or permanently
 lost to packet loss (4) stay 0.
 Saves the resulting integer array to `output_path`.
 """
-function expand_mask(
+function expand_pointwise_mask(
     matrix_path::String,
     points_per_batch::Int,
     event_idx::Int,
@@ -135,5 +135,5 @@ if abspath(PROGRAM_FILE) == @__FILE__
         exit(1)
     end
 
-    expand_mask(mat_csv, ppb, idx, out_csv)
+    expand_pointwise_mask(mat_csv, ppb, idx, out_csv)
 end

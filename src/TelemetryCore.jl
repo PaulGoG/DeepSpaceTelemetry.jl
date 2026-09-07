@@ -326,7 +326,8 @@ const KNOWN_CONFIG_KEYS = Dict(
     "simulation" => [
         "speed_up",
         "start_sim_time",
-        "test_duration_sec",
+        "mission_wall_seconds",
+        "test_duration_sec", # deprecated alias of mission_wall_seconds
         "initial_downtime_days",
         "rng_seed",
         "max_storage_gb",
@@ -368,8 +369,12 @@ const KNOWN_CONFIG_KEYS = Dict(
     "disruption" => ["events"],
     "disaster" => ["events"],
     "dashboard" => ["open_live_viewer", "open_receiver_log", "open_emitter_log"],
-    "post_processing" =>
-        ["generate_batch_matrix", "expand_to_pointwise_masks", "target_event_rows"],
+    "post_processing" => [
+        "generate_mask_timeline",
+        "generate_batch_matrix", # deprecated alias of generate_mask_timeline
+        "expand_to_pointwise_masks",
+        "target_event_rows",
+    ],
     "provenance" => String[], # pipeline-generated; free-form by design
     "supervision" => ["on_component_failure", "max_restarts", "watchdog_sec"],
 )
@@ -384,6 +389,66 @@ const KNOWN_EVENT_KEYS = [
 ]
 
 # --- Configuration accessors ---
+"""
+    aliased_value(section, sec_name, key, legacy_key, default)
+
+Reads `key` from `section`, falling back to the deprecated `legacy_key` with
+a one-time warning, or to `default` when neither is present. Deprecated
+keys are accepted until 1.0.0.
+"""
+function aliased_value(
+    section::AbstractDict,
+    sec_name::String,
+    key::String,
+    legacy_key::String,
+    default,
+)
+    haskey(section, key) && return section[key]
+    if haskey(section, legacy_key)
+        @warn "[CONFIG] $sec_name.$legacy_key is deprecated — rename it to $sec_name.$key (the alias is removed at 1.0.0)." maxlog =
+            1
+        return section[legacy_key]
+    end
+    return default
+end
+
+"""
+    mission_wall_seconds(cfg::AbstractDict) -> Float64
+
+Validated wall-clock mission span `simulation.mission_wall_seconds` (> 0);
+the deprecated `simulation.test_duration_sec` is accepted with a warning.
+"""
+function mission_wall_seconds(cfg::AbstractDict)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    raw = aliased_value(
+        sim,
+        "simulation",
+        "mission_wall_seconds",
+        "test_duration_sec",
+        nothing,
+    )
+    raw === nothing &&
+        config_error("[CONFIG] Missing required key simulation.mission_wall_seconds.")
+    v = checked_number(raw, "simulation.mission_wall_seconds")
+    v > 0.0 ||
+        config_error("[CONFIG] simulation.mission_wall_seconds must be > 0 (got $v).")
+    return v
+end
+
+"""
+    normalize_profile!(df::DataFrame) -> DataFrame
+
+Brings a `mission_profile.csv` frame to the current column schema: the
+pre-0.10 `Ground_Archive` column (the live + archive total) is renamed
+`Ground_Total`. Every reader of the profile passes through here.
+"""
+function normalize_profile!(df::DataFrame)
+    if !hasproperty(df, :Ground_Total) && hasproperty(df, :Ground_Archive)
+        DataFrames.rename!(df, :Ground_Archive => :Ground_Total)
+    end
+    return df
+end
+
 # Validated, typed views of the configuration sections consumed by more than
 # one component. The validator, the channel builders, the storage estimator,
 # the post-processing tools, and the entry-point script all read through
@@ -611,7 +676,7 @@ termination); suspicious but
 runnable values emit a `@warn`. Returns `cfg` for chaining.
 
 Hard errors (would break the pipeline):
-  - non-positive `speed_up`, `test_duration_sec`, `sample_rate`,
+  - non-positive `speed_up`, `mission_wall_seconds`, `sample_rate`,
     `segment_duration_sec`, `max_batches_per_hour`, `max_storage_gb`
   - `batch_size < 1`, `initial_downtime_days < 0`
   - `session_duration_hours` outside `(0, 24]` (the daily session scheduler
@@ -679,7 +744,7 @@ function validate_config(cfg::AbstractDict)
     # Required keys (R1 policy): a missing core tunable is a configuration
     # error, never a silently invented default.
     for (section, sec_name, required) in (
-        (sim, "simulation", ("speed_up", "start_sim_time", "test_duration_sec")),
+        (sim, "simulation", ("speed_up", "start_sim_time")),
         (
             tel,
             "telemetry",
@@ -701,10 +766,7 @@ function validate_config(cfg::AbstractDict)
     speed_up = checked_number(get(sim, "speed_up", 0.0), "simulation.speed_up")
     speed_up > 0.0 ||
         config_error("[CONFIG] simulation.speed_up must be > 0 (got $speed_up).")
-    test_dur =
-        checked_number(get(sim, "test_duration_sec", 0.0), "simulation.test_duration_sec")
-    test_dur > 0.0 ||
-        config_error("[CONFIG] simulation.test_duration_sec must be > 0 (got $test_dur).")
+    mission_wall_sec = mission_wall_seconds(cfg)
     downtime = checked_number(
         get(sim, "initial_downtime_days", 0.0),
         "simulation.initial_downtime_days",
@@ -825,7 +887,7 @@ function validate_config(cfg::AbstractDict)
     haskey(cfg, "disaster") &&
         !haskey(cfg, "disruption") &&
         @warn "[CONFIG] The [disaster] section name is deprecated — rename it to [disruption]."
-    mission_days = test_dur * speed_up / 86_400.0
+    mission_days = mission_wall_sec * speed_up / 86_400.0
     event_windows = Tuple{Float64,Float64,Int}[] # (start_h, end_h incl. ramp, event index)
     for (i, ev) in enumerate(events)
         ev.loss_multiplier >= 1.0 ||
@@ -893,7 +955,8 @@ function validate_config(cfg::AbstractDict)
         haskey(db, key) && checked_flag(db[key], "dashboard.$key")
     end
     pp = get(cfg, "post_processing", Dict{String,Any}())
-    for key in ("generate_batch_matrix", "expand_to_pointwise_masks")
+    for key in
+        ("generate_mask_timeline", "generate_batch_matrix", "expand_to_pointwise_masks")
         haskey(pp, key) && checked_flag(pp[key], "post_processing.$key")
     end
     # Canonicalization warns on unrecognized entries at validation time, not
@@ -1126,10 +1189,7 @@ function estimate_artifacts(cfg::AbstractDict)
 
     speed_up =
         checked_number(required_value(sim, "simulation", "speed_up"), "simulation.speed_up")
-    test_dur = checked_number(
-        required_value(sim, "simulation", "test_duration_sec"),
-        "simulation.test_duration_sec",
-    )
+    mission_wall_sec = mission_wall_seconds(cfg)
     seg_dur = checked_number(
         required_value(phy, "physics", "segment_duration_sec"),
         "physics.segment_duration_sec",
@@ -1149,7 +1209,7 @@ function estimate_artifacts(cfg::AbstractDict)
     cal =
         key -> Float64(get(st, key, getproperty(STORAGE_CALIBRATION_DEFAULTS, Symbol(key))))
 
-    sim_sec = test_dur * speed_up
+    sim_sec = mission_wall_sec * speed_up
     total_sec_gen = sim_sec + downtime_days * 86_400.0
     n_segments = ceil(Int, total_sec_gen / seg_dur)
     n_batches = ceil(Int, n_segments / batch_sz)
@@ -1172,8 +1232,14 @@ function estimate_artifacts(cfg::AbstractDict)
 
     pp = get(cfg, "post_processing", Dict{String,Any}())
     do_matrix = checked_flag(
-        get(pp, "generate_batch_matrix", true),
-        "post_processing.generate_batch_matrix",
+        aliased_value(
+            pp,
+            "post_processing",
+            "generate_mask_timeline",
+            "generate_batch_matrix",
+            true,
+        ),
+        "post_processing.generate_mask_timeline",
     )
     mask_bytes =
         do_matrix ?
@@ -1480,7 +1546,7 @@ struct MissionMetrics
     bandwidth_pct::Float64
     onboard_buffer::Int
     link_buffer::Int
-    ground_archive::Int
+    ground_total::Int
     ground_live::Int
     ground_arch::Int
     nominal_bandwidth_pct::Float64
@@ -1508,7 +1574,7 @@ function save_metrics(run_dir::String, m::MissionMetrics)
         Bandwidth_Pct = round(m.bandwidth_pct, digits = 1),
         Onboard_Buffer = m.onboard_buffer,
         Link_Buffer = m.link_buffer,
-        Ground_Archive = m.ground_archive,
+        Ground_Total = m.ground_total,
         Ground_Live = m.ground_live,
         Ground_Arch = m.ground_arch,
         Nominal_Bandwidth_Pct = round(m.nominal_bandwidth_pct, digits = 1),

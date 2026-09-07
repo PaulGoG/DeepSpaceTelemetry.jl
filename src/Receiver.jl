@@ -224,7 +224,7 @@ function shade_disruptions!(ax, x_lo::Float64, x_hi::Float64, disruption_spans)
     for (b0, b1, r1) in disruption_spans
         b0c, b1c = max(b0, x_lo), min(b1, x_hi)
         if b0c < b1c
-            v = vspan!(ax, b0c, b1c, color = (COLOR_DISRUPTION, 0.18))
+            v = vspan!(ax, b0c, b1c, color = (PlotTheme.COLOR_DISRUPTION, 0.18))
             translate!(v, 0, 0, -99)
         end
         r0c, r1c = max(b1, x_lo), min(r1, x_hi)
@@ -233,7 +233,12 @@ function shade_disruptions!(ax, x_lo::Float64, x_hi::Float64, disruption_spans)
             for k in 1:(length(edges)-1)
                 mid = (edges[k] + edges[k+1]) / 2
                 fade = 0.18 * (1.0 - (mid - b1) / (r1 - b1))
-                v = vspan!(ax, edges[k], edges[k+1], color = (COLOR_DISRUPTION, fade))
+                v = vspan!(
+                    ax,
+                    edges[k],
+                    edges[k+1],
+                    color = (PlotTheme.COLOR_DISRUPTION, fade),
+                )
                 translate!(v, 0, 0, -99)
             end
         end
@@ -277,7 +282,7 @@ function add_figure_legend!(
         push!(
             elems,
             LineElement(
-                color = (COLOR_BANDWIDTH, 0.5),
+                color = (PlotTheme.COLOR_BANDWIDTH, 0.5),
                 linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
                 linestyle = :dot,
             ),
@@ -285,20 +290,26 @@ function add_figure_legend!(
         push!(labels, "Nominal capacity")
         push!(
             elems,
-            LineElement(color = COLOR_BANDWIDTH, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
+            LineElement(
+                color = PlotTheme.COLOR_BANDWIDTH,
+                linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+            ),
         )
         push!(labels, "Effective capacity")
     else
         push!(
             elems,
-            LineElement(color = COLOR_BANDWIDTH, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
+            LineElement(
+                color = PlotTheme.COLOR_BANDWIDTH,
+                linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+            ),
         )
         push!(labels, "Link capacity")
     end
     push!(
         elems,
         LineElement(
-            color = COLOR_ONBOARD,
+            color = PlotTheme.COLOR_ONBOARD,
             linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
             linestyle = :dash,
         ),
@@ -306,14 +317,18 @@ function add_figure_legend!(
     push!(labels, "Onboard buffer")
     push!(
         elems,
-        PolyElement(color = (COLOR_LIVE, 0.4), strokecolor = COLOR_LIVE, strokewidth = 3),
+        PolyElement(
+            color = (PlotTheme.COLOR_LIVE, 0.4),
+            strokecolor = PlotTheme.COLOR_LIVE,
+            strokewidth = 3,
+        ),
     )
     push!(labels, "Total received (live + archive)")
     push!(
         elems,
         PolyElement(
-            color = (COLOR_ARCHIVE, 0.4),
-            strokecolor = COLOR_ARCHIVE,
+            color = (PlotTheme.COLOR_ARCHIVE, 0.4),
+            strokecolor = PlotTheme.COLOR_ARCHIVE,
             strokewidth = 3,
         ),
     )
@@ -322,10 +337,13 @@ function add_figure_legend!(
         push!(
             elems,
             [
-                LineElement(color = COLOR_LOST, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
+                LineElement(
+                    color = PlotTheme.COLOR_LOST,
+                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                ),
                 MarkerElement(
                     marker = :xcross,
-                    color = COLOR_LOST,
+                    color = PlotTheme.COLOR_LOST,
                     markersize = PlotTheme.MARKERSIZE_DATA,
                 ),
             ],
@@ -336,18 +354,18 @@ function add_figure_legend!(
             elems,
             MarkerElement(
                 marker = :xcross,
-                color = COLOR_LOST,
+                color = PlotTheme.COLOR_LOST,
                 markersize = PlotTheme.MARKERSIZE_DATA,
             ),
         )
         push!(labels, "Lost")
     end
     if blackout
-        push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.18)))
+        push!(elems, PolyElement(color = (PlotTheme.COLOR_DISRUPTION, 0.18)))
         push!(labels, "Blackout")
     end
     if ramp
-        push!(elems, PolyElement(color = (COLOR_DISRUPTION, 0.08)))
+        push!(elems, PolyElement(color = (PlotTheme.COLOR_DISRUPTION, 0.08)))
         push!(labels, "Recovery ramp")
     end
     if outage
@@ -419,7 +437,7 @@ function plot_mission_summary(ctx::PlotContext)
         fig[1, 1],
         yaxisposition = :right,
         ylabel = "Buffered data batches",
-        yticklabelcolor = COLOR_ONBOARD,
+        yticklabelcolor = PlotTheme.COLOR_ONBOARD,
     )
     hidespines!(ax1_twin)
     hidexdecorations!(ax1_twin)
@@ -439,16 +457,16 @@ function plot_mission_summary(ctx::PlotContext)
             ax1,
             df_x,
             Float64.(df.Nominal_Bandwidth_Pct),
-            color = (COLOR_BANDWIDTH, 0.35),
+            color = (PlotTheme.COLOR_BANDWIDTH, 0.35),
             linestyle = :dot,
         )
     end
-    lines!(ax1, df_x, Float64.(df.Bandwidth_Pct), color = COLOR_BANDWIDTH)
+    lines!(ax1, df_x, Float64.(df.Bandwidth_Pct), color = PlotTheme.COLOR_BANDWIDTH)
     lines!(
         ax1_twin,
         df_x,
         Float64.(df.Onboard_Buffer),
-        color = COLOR_ONBOARD,
+        color = PlotTheme.COLOR_ONBOARD,
         linestyle = :dash,
     )
 
@@ -459,7 +477,7 @@ function plot_mission_summary(ctx::PlotContext)
         xticks = (tick_vals_h, tick_labels),
     )
     xlims!(ax2, 0, max_x_h)
-    ylims!(ax2, 0, max(10.0, 1.2 * maximum(df.Ground_Archive)))
+    ylims!(ax2, 0, max(10.0, 1.2 * maximum(df.Ground_Total)))
 
     shade_disruptions!(ax2, 0.0, max_x_h, ctx.disruption_spans)
     shade_outages!(ax2, 0.0, max_x_h, ctx.outage_spans)
@@ -468,18 +486,18 @@ function plot_mission_summary(ctx::PlotContext)
         ax2,
         df_x,
         zeros(length(df_x)),
-        Float64.(df.Ground_Archive),
-        color = (COLOR_LIVE, 0.4),
+        Float64.(df.Ground_Total),
+        color = (PlotTheme.COLOR_LIVE, 0.4),
     )
-    stairs!(ax2, df_x, Float64.(df.Ground_Archive), color = COLOR_LIVE)
+    stairs!(ax2, df_x, Float64.(df.Ground_Total), color = PlotTheme.COLOR_LIVE)
     band!(
         ax2,
         df_x,
         zeros(length(df_x)),
         Float64.(df.Ground_Arch),
-        color = (COLOR_ARCHIVE, 0.4),
+        color = (PlotTheme.COLOR_ARCHIVE, 0.4),
     )
-    stairs!(ax2, df_x, Float64.(df.Ground_Arch), color = COLOR_ARCHIVE)
+    stairs!(ax2, df_x, Float64.(df.Ground_Arch), color = PlotTheme.COLOR_ARCHIVE)
 
     # Dedicated Lost strip: rare discrete events get their own small linear
     # axis instead of an invisible flat line under the received bands.
@@ -500,20 +518,20 @@ function plot_mission_summary(ctx::PlotContext)
         ylims!(ax3, 0, max(4.0, 1.35 * maximum(lost_curve)))
         shade_disruptions!(ax3, 0.0, max_x_h, ctx.disruption_spans)
         shade_outages!(ax3, 0.0, max_x_h, ctx.outage_spans)
-        stairs!(ax3, df_x, lost_curve, color = COLOR_LOST)
+        stairs!(ax3, df_x, lost_curve, color = PlotTheme.COLOR_LOST)
         inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
         scatter!(
             ax3,
             df_x[inc],
             lost_curve[inc],
             marker = :xcross,
-            color = COLOR_LOST,
+            color = PlotTheme.COLOR_LOST,
             markersize = PlotTheme.MARKERSIZE_DATA,
         )
         if lost_curve[end] > 0
             pct =
                 100 * lost_curve[end] /
-                max(1.0, Float64(df.Ground_Archive[end]) + lost_curve[end])
+                max(1.0, Float64(df.Ground_Total[end]) + lost_curve[end])
             text!(
                 ax3,
                 0.985,
@@ -522,7 +540,7 @@ function plot_mission_summary(ctx::PlotContext)
                 space = :relative,
                 align = (:right, :top),
                 fontsize = PlotTheme.FONTSIZE_ANNOTATION,
-                color = COLOR_LOST,
+                color = PlotTheme.COLOR_LOST,
             )
         end
         push!(axes_to_link, ax3)
@@ -599,10 +617,10 @@ function plot_session(ctx::PlotContext, day_k::Int)
     plot_x = Float64[min_sess_h; session_hours; max_sess_h]
     plot_gnd = Float64[
         0.0;
-        session_df.Ground_Archive .- session_df.Ground_Archive[1];
-        session_df.Ground_Archive[end] - session_df.Ground_Archive[1]
+        session_df.Ground_Total .- session_df.Ground_Total[1];
+        session_df.Ground_Total[end] - session_df.Ground_Total[1]
     ]
-    plot_gnd_arch = Float64[
+    plot_ground_archive = Float64[
         0.0;
         session_df.Ground_Arch .- session_df.Ground_Arch[1];
         session_df.Ground_Arch[end] - session_df.Ground_Arch[1]
@@ -623,7 +641,7 @@ function plot_session(ctx::PlotContext, day_k::Int)
         fig[1, 1],
         yaxisposition = :right,
         ylabel = "Buffered data batches",
-        yticklabelcolor = COLOR_ONBOARD,
+        yticklabelcolor = PlotTheme.COLOR_ONBOARD,
     )
     hidespines!(ax_s1_twin)
     hidexdecorations!(ax_s1_twin)
@@ -637,16 +655,16 @@ function plot_session(ctx::PlotContext, day_k::Int)
             ax_s1,
             t_smooth_h,
             bw_nominal_smooth,
-            color = (COLOR_BANDWIDTH, 0.35),
+            color = (PlotTheme.COLOR_BANDWIDTH, 0.35),
             linestyle = :dot,
         )
     end
-    lines!(ax_s1, t_smooth_h, bw_smooth, color = COLOR_BANDWIDTH)
+    lines!(ax_s1, t_smooth_h, bw_smooth, color = PlotTheme.COLOR_BANDWIDTH)
     lines!(
         ax_s1_twin,
         session_hours,
         Float64.(session_df.Onboard_Buffer),
-        color = COLOR_ONBOARD,
+        color = PlotTheme.COLOR_ONBOARD,
         linestyle = :dash,
     )
 
@@ -667,10 +685,22 @@ function plot_session(ctx::PlotContext, day_k::Int)
     shade_disruptions!(ax_s2, min_sess_h, max_sess_h, ctx.disruption_spans)
     shade_outages!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans)
 
-    band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd, color = (COLOR_LIVE, 0.4))
-    stairs!(ax_s2, plot_x, plot_gnd, color = COLOR_LIVE)
-    band!(ax_s2, plot_x, zeros(length(plot_x)), plot_gnd_arch, color = (COLOR_ARCHIVE, 0.4))
-    stairs!(ax_s2, plot_x, plot_gnd_arch, color = COLOR_ARCHIVE)
+    band!(
+        ax_s2,
+        plot_x,
+        zeros(length(plot_x)),
+        plot_gnd,
+        color = (PlotTheme.COLOR_LIVE, 0.4),
+    )
+    stairs!(ax_s2, plot_x, plot_gnd, color = PlotTheme.COLOR_LIVE)
+    band!(
+        ax_s2,
+        plot_x,
+        zeros(length(plot_x)),
+        plot_ground_archive,
+        color = (PlotTheme.COLOR_ARCHIVE, 0.4),
+    )
+    stairs!(ax_s2, plot_x, plot_ground_archive, color = PlotTheme.COLOR_ARCHIVE)
 
     # Session losses: no dedicated panel (it would sit empty on loss-free
     # days) — ✕ markers along the top edge at the loss instants plus a
@@ -688,7 +718,7 @@ function plot_session(ctx::PlotContext, day_k::Int)
             session_hours[inc],
             fill(0.93 * y_max_s2, length(inc)),
             marker = :xcross,
-            color = COLOR_LOST,
+            color = PlotTheme.COLOR_LOST,
             markersize = PlotTheme.MARKERSIZE_DATA,
         )
         text!(
@@ -699,7 +729,7 @@ function plot_session(ctx::PlotContext, day_k::Int)
             space = :relative,
             align = (:right, :top),
             fontsize = PlotTheme.FONTSIZE_ANNOTATION,
-            color = COLOR_LOST,
+            color = PlotTheme.COLOR_LOST,
         )
     end
 
@@ -741,11 +771,11 @@ function generate_mission_plots(run_dir::String)
         @warn "[POST] mission_profile.csv missing in $run_dir — the receiver produced no metrics (component never ran?); skipping this product."
         return
     end
-    df = CSV.read(log_path, DataFrame)
+    df = TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
     isempty(df) && return
 
     ctx = plot_context(run_dir, df, TelemetryCore.load_run_config(run_dir))
-    with_theme(telemetry_theme()) do
+    with_theme(PlotTheme.telemetry_theme()) do
         global_path = plot_mission_summary(ctx)
         @info "[RECEIVER] Saved Global Summary Plot: $(relpath(global_path, run_dir))"
         n_days = ceil(Int, max(ctx.df_x[end], 1.0) / 24.0)
@@ -764,102 +794,20 @@ and the GIF animation: batch-ID vectors for every (stage × stream) bucket plus
 the terminal `lost` bucket.
 """
 const BatchStates = NamedTuple{
-    (:onb_live, :onb_arch, :lnk_live, :lnk_arch, :gnd_live, :gnd_arch, :lost),
+    (
+        :onboard_live,
+        :onboard_archive,
+        :link_live,
+        :link_archive,
+        :ground_live,
+        :ground_archive,
+        :lost,
+    ),
     NTuple{7,Vector{Int}},
 }
 
 """
-    reconstruct_batch_states(df::DataFrame, vis_model::TelemetryCore.VisibilityModel)
-
-Replays the LIFO/FIFO transmission state machine over a `mission_profile.csv`
-DataFrame. Returns a vector with one entry per profile row; each entry is a
-[`BatchStates`](@ref) record describing where every batch resided at that
-snapshot.
-
-This reconstruction is heuristic: it infers batch identity from count deltas
-between snapshots and cannot attribute packet losses, so its `lost` bucket is
-always empty. It remains only as a fallback for legacy runs; runs that carry
-`events_tx.csv` / `events_rx.csv` use the exact
-[`reconstruct_batch_states_exact`](@ref) instead (see [`batch_states`](@ref)).
-"""
-function reconstruct_batch_states(df::DataFrame, vis_model::TelemetryCore.VisibilityModel)
-    onb_live = Int[]
-    onb_arch = Int[]
-    lnk_live = Int[]
-    lnk_arch = Int[]
-    gnd_live = Int[]
-    gnd_arch = Int[]
-
-    states = Vector{BatchStates}(undef, 0)
-    sizehint!(states, nrow(df))
-
-    current_total = 0
-    for i in 1:nrow(df)
-        row = df[i, :]
-        is_live = TelemetryCore.is_visible(vis_model, row.SimTime)
-
-        # 1. Generate: new batches appear onboard; everything present in the
-        #    very first snapshot stems from pre-populated (archived) downtime.
-        total_i = row.Onboard_Buffer + row.Link_Buffer + row.Ground_Archive
-        if total_i > current_total
-            for id in (current_total+1):total_i
-                if current_total == 0
-                    push!(onb_arch, id)
-                else
-                    is_live ? push!(onb_live, id) : push!(onb_arch, id)
-                end
-            end
-            current_total = total_i
-        end
-
-        # 2. Reconcile Ground (Live drains FIFO, Archive drains LIFO)
-        while length(gnd_live) < row.Ground_Live
-            if !isempty(lnk_live)
-                push!(gnd_live, popfirst!(lnk_live))
-            elseif !isempty(onb_live)
-                push!(gnd_live, popfirst!(onb_live))
-            else
-                break
-            end
-        end
-        while length(gnd_arch) < row.Ground_Arch
-            if !isempty(lnk_arch)
-                push!(gnd_arch, popfirst!(lnk_arch))
-            elseif !isempty(onb_arch)
-                push!(gnd_arch, pop!(onb_arch)) # LIFO
-            else
-                break
-            end
-        end
-
-        # 3. Reconcile Link
-        needed = row.Link_Buffer - (length(lnk_live) + length(lnk_arch))
-        for _ in 1:needed
-            if !isempty(onb_live)
-                push!(lnk_live, popfirst!(onb_live))
-            elseif !isempty(onb_arch)
-                push!(lnk_arch, pop!(onb_arch)) # LIFO
-            end
-        end
-
-        push!(
-            states,
-            (
-                onb_live = copy(onb_live),
-                onb_arch = copy(onb_arch),
-                lnk_live = copy(lnk_live),
-                lnk_arch = copy(lnk_arch),
-                gnd_live = copy(gnd_live),
-                gnd_arch = copy(gnd_arch),
-                lost = Int[],
-            ),
-        )
-    end
-    return states
-end
-
-"""
-    reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
+    reconstruct_batch_states(run_dir::String, df::DataFrame)
 
 Exact replay of every batch's location from the ground-truth event logs
 (`events_tx.csv`: `gen`/`tx` milestones written by the emitter;
@@ -874,7 +822,7 @@ can invert within a batch at high speed-up; the replay enforces per-batch
 causal order (`gen` → `tx` → terminal) with later stages absorbing, keeping
 every batch's state sequence monotone.
 """
-function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
+function reconstruct_batch_states(run_dir::String, df::DataFrame)
     tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
     rx_path = joinpath(run_dir, "events_rx.csv")
     rx =
@@ -915,12 +863,12 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     # mission. Order within a category is not part of the contract (masks
     # index by batch ID; scatters are unordered).
     category = Dict(
-        :onb_live => Int[],
-        :onb_arch => Int[],
-        :lnk_live => Int[],
-        :lnk_arch => Int[],
-        :gnd_live => Int[],
-        :gnd_arch => Int[],
+        :onboard_live => Int[],
+        :onboard_archive => Int[],
+        :link_live => Int[],
+        :link_archive => Int[],
+        :ground_live => Int[],
+        :ground_archive => Int[],
         :lost => Int[],
     )
     position = Dict{Int,Tuple{Symbol,Int}}()
@@ -946,12 +894,12 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     # placement is absorbing and an earlier-stage event arriving late is
     # dropped.
     stage_rank = Dict(
-        :onb_live => 1,
-        :onb_arch => 1,
-        :lnk_live => 2,
-        :lnk_arch => 2,
-        :gnd_live => 3,
-        :gnd_arch => 3,
+        :onboard_live => 1,
+        :onboard_archive => 1,
+        :link_live => 2,
+        :link_archive => 2,
+        :ground_live => 3,
+        :ground_archive => 3,
         :lost => 4,
     )
     # Move `id` into `cat`; self-cleaning, so a duplicated log row can
@@ -978,11 +926,11 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
             id = TelemetryCore.batch_id(name)
             is_live = TelemetryCore.is_live_batch(name)
             if kind == "gen"
-                place!(id, is_live ? :onb_live : :onb_arch)
+                place!(id, is_live ? :onboard_live : :onboard_archive)
             elseif kind == "tx"
-                place!(id, is_live ? :lnk_live : :lnk_arch)
+                place!(id, is_live ? :link_live : :link_archive)
             elseif kind == "ingested"
-                place!(id, is_live ? :gnd_live : :gnd_arch)
+                place!(id, is_live ? :ground_live : :ground_archive)
             elseif kind == "lost"
                 place!(id, :lost)
             end
@@ -991,12 +939,12 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
         push!(
             states,
             (
-                onb_live = copy(category[:onb_live]),
-                onb_arch = copy(category[:onb_arch]),
-                lnk_live = copy(category[:lnk_live]),
-                lnk_arch = copy(category[:lnk_arch]),
-                gnd_live = copy(category[:gnd_live]),
-                gnd_arch = copy(category[:gnd_arch]),
+                onboard_live = copy(category[:onboard_live]),
+                onboard_archive = copy(category[:onboard_archive]),
+                link_live = copy(category[:link_live]),
+                link_archive = copy(category[:link_archive]),
+                ground_live = copy(category[:ground_live]),
+                ground_archive = copy(category[:ground_archive]),
                 lost = copy(category[:lost]),
             ),
         )
@@ -1005,30 +953,25 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
 end
 
 """
-    batch_states(run_dir::String, df::DataFrame, vis_model::TelemetryCore.VisibilityModel)
+    batch_states(run_dir::String, df::DataFrame) -> Vector{BatchStates}
 
-Dispatcher for the batch-state reconstruction: exact event-log replay
-([`reconstruct_batch_states_exact`](@ref)) whenever `events_tx.csv` exists in
-`run_dir`, count-delta heuristic ([`reconstruct_batch_states`](@ref))
-otherwise (legacy runs).
+Batch-location history of a run: the exact event-log replay
+([`reconstruct_batch_states`](@ref)) over the metrics frame `df`. Runs
+without `events_tx.csv` (pre-0.9 layouts) are not supported and raise an
+error.
 """
-function batch_states(
-    run_dir::String,
-    df::DataFrame,
-    vis_model::TelemetryCore.VisibilityModel,
-)
-    if isfile(joinpath(run_dir, "events_tx.csv"))
-        return reconstruct_batch_states_exact(run_dir, df)
-    end
-    return reconstruct_batch_states(df, vis_model)
+function batch_states(run_dir::String, df::DataFrame)
+    isfile(joinpath(run_dir, "events_tx.csv")) || error(
+        "[POST] events_tx.csv missing in $run_dir — the batch-state replay needs the ground-truth event log; runs without it are not supported.",
+    )
+    return reconstruct_batch_states(run_dir, df)
 end
 
 """
     generate_telemetry_masks(run_dir::String)
 
 A post-processing utility that reconstructs the LIFO/FIFO transmission state
-machine (exactly, from the event logs, when available — see
-[`batch_states`](@ref)). It outputs a 2D matrix `telemetry_mask_timeline.csv`
+machine from the event logs (see [`batch_states`](@ref)). It outputs a 2D matrix `telemetry_mask_timeline.csv`
 where rows are time steps and columns are specific `Batch_ID`s, indicating
 their exact physical location (0=Future, 1=Onboard, 2=Link, 3=Ground,
 4=Lost).
@@ -1040,18 +983,12 @@ function generate_telemetry_masks(run_dir::String)
         return
     end
 
-    df = CSV.read(log_path, DataFrame)
+    df = TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
     if isempty(df)
         return
     end
 
-    cfg = TelemetryCore.load_run_config(run_dir)
-    tel_settings = TelemetryCore.telemetry_settings(cfg)
-    session_start_time = tel_settings.session_start
-    session_dur = tel_settings.session_duration
-    vis_model = TelemetryCore.visibility_model(cfg)
-
-    states = batch_states(run_dir, df, vis_model)
+    states = batch_states(run_dir, df)
     # True maximum batch ID, not the batch count: the ID space may carry
     # holes (truncated logs, hand-assembled or reconciled run directories),
     # and a count-sized matrix would fault on the first such hole.
@@ -1063,9 +1000,9 @@ function generate_telemetry_masks(run_dir::String)
 
     for (i, st) in enumerate(states),
         (code, cats) in (
-            (Int8(1), (st.onb_live, st.onb_arch)),
-            (Int8(2), (st.lnk_live, st.lnk_arch)),
-            (Int8(3), (st.gnd_live, st.gnd_arch)),
+            (Int8(1), (st.onboard_live, st.onboard_archive)),
+            (Int8(2), (st.link_live, st.link_archive)),
+            (Int8(3), (st.ground_live, st.ground_archive)),
             (Int8(4), (st.lost,)),
         )
 
@@ -1245,7 +1182,7 @@ function run_receiver(
     # restarted receiver must not grant fresh retry budgets to in-flight
     # batches nor forget custodial state, and batches present in ground/
     # without an ingested record witness a crash between delivery and
-    # logging (they remain in-transit in the mask replay).
+    # logging (they remain on the link in the mask replay).
     rx_log_path = joinpath(run_dir, "events_rx.csv")
     if isfile(rx_log_path)
         rx_hist = CSV.read(rx_log_path, DataFrame)

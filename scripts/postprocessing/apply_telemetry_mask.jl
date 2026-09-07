@@ -23,14 +23,19 @@ using CSV, DataFrames
 using DeepSpaceTelemetry
 
 """
-    apply_mask(run_id::String, total_points::Int, event_idx::Int, output_path::String)
+    expand_pointwise_mask(run_id::String, total_points::Int, event_idx::Int, output_path::String)
 
 Reads the 2D `telemetry_mask_timeline.csv` for the given `run_id`, locates the 
 requested `event_idx` (row), expands the state machine batch IDs into a high-resolution 
 point-wise boolean mask (1 for Ground availability, 0 otherwise) across `total_points`, 
 and saves it to `output_path`.
 """
-function apply_mask(run_id::String, total_points::Int, event_idx::Int, output_path::String)
+function expand_pointwise_mask(
+    run_id::String,
+    total_points::Int,
+    event_idx::Int,
+    output_path::String,
+)
     # 1. Locate Run Directory & Files. Physics parameters come from the run's
     # own config snapshot (load_run_config falls back to the project config,
     # with a warning, only for legacy runs without a snapshot).
@@ -120,5 +125,5 @@ if abspath(PROGRAM_FILE) == @__FILE__
         exit(1)
     end
 
-    apply_mask(run_id, total_pts, event_idx, out_csv)
+    expand_pointwise_mask(run_id, total_pts, event_idx, out_csv)
 end

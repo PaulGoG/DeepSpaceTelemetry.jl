@@ -32,7 +32,21 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `[provenance.platform]` — hostname, OS, CPU model and core count, memory,
   Julia version, thread and BLAS-thread counts.
 
+### Deprecated
+- Configuration keys `simulation.test_duration_sec` (now
+  `simulation.mission_wall_seconds`) and
+  `post_processing.generate_batch_matrix` (now
+  `post_processing.generate_mask_timeline`), and the `[disaster]` section
+  name: accepted with a one-time warning until 1.0.0.
+
 ### Removed
+- The count-delta heuristic batch-state replay for runs without event logs
+  (`reconstruct_batch_states` now names the exact replay, formerly
+  `reconstruct_batch_states_exact`; `batch_states(run_dir, df)` drops the
+  visibility-model argument and errors on a run without `events_tx.csv`).
+- Submodule `export` lists: every public name is addressed qualified
+  (`TelemetryCore.x`, `ChannelEffects.x`, `PlotTheme.x`, ...), as the code
+  base already did.
 - The `DrWatson` dependency: its only use was `savename` in
   `generate_run_id`, whose `RUN_pid=<pid>_t=<stamp>` layout is now produced
   directly; `safesave`-style backup rotation and snapshot provenance were
@@ -43,6 +57,14 @@ Notable changes to DeepSpaceTelemetry. The format follows
   off-limits by contract).
 
 ### Changed
+- `mission_profile.csv` column `Ground_Archive` (the live + archive total)
+  is `Ground_Total`, matching the renamed `MissionMetrics.ground_total`
+  field; readers normalize legacy files through `normalize_profile!`.
+- `BatchStates` fields are spelled out (`onboard_live`, `onboard_archive`,
+  `link_live`, `link_archive`, `ground_live`, `ground_archive`, `lost`).
+- Mask state 2 is named "Link" everywhere (manual, terminal viewer,
+  animation); `generate_telemetry_gif` and `expand_pointwise_mask` replace
+  `create_telemetry_gif` and `apply_mask`/`expand_mask`.
 - `generate_mission_plots` is decomposed into a `PlotContext` built once per
   run and named components (`plot_mission_summary`, `plot_session`, the
   shading and legend helpers); the rendered figures are pixel-identical.

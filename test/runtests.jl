@@ -92,7 +92,7 @@ end
     cfg_oversized = Dict(
         "simulation" => Dict(
             "speed_up" => 1.0,
-            "test_duration_sec" => 1000000.0,
+            "mission_wall_seconds" => 1000000.0,
             "max_storage_gb" => 0.0001,
         ),
         "physics" => Dict(
@@ -107,7 +107,7 @@ end
     cfg_safe = Dict(
         "simulation" => Dict(
             "speed_up" => 1.0,
-            "test_duration_sec" => 100.0,
+            "mission_wall_seconds" => 100.0,
             "max_storage_gb" => 10.0,
         ),
         "physics" => Dict(
@@ -126,7 +126,7 @@ function valid_test_cfg()
     return Dict{String,Any}(
         "simulation" => Dict{String,Any}(
             "speed_up" => 3600.0,
-            "test_duration_sec" => 10.0,
+            "mission_wall_seconds" => 10.0,
             "initial_downtime_days" => 0.0,
             "max_storage_gb" => 2.0,
             "start_sim_time" => "2035-01-01T06:00:00",
@@ -152,7 +152,7 @@ end
 
     broken = [
         ("simulation", "speed_up", 0.0),
-        ("simulation", "test_duration_sec", -1.0),
+        ("simulation", "mission_wall_seconds", -1.0),
         ("simulation", "initial_downtime_days", -0.5),
         ("simulation", "max_storage_gb", 0.0),
         ("simulation", "rng_seed", "not-an-int"),
@@ -712,7 +712,7 @@ end
     base = Dict{String,Any}(
         "simulation" => Dict{String,Any}(
             "speed_up" => 1.0,
-            "test_duration_sec" => 100.0,
+            "mission_wall_seconds" => 100.0,
             "initial_downtime_days" => 0.0,
         ),
         "physics" => Dict{String,Any}(
@@ -721,7 +721,7 @@ end
             "batch_size" => 5,
         ),
         "post_processing" => Dict{String,Any}(
-            "generate_batch_matrix" => false,
+            "generate_mask_timeline" => false,
             "expand_to_pointwise_masks" => false,
         ),
         "storage" => Dict{String,Any}("max_storage_gb" => 10.0),
@@ -1357,23 +1357,23 @@ end
         CSV.write(joinpath(tmp, "events_rx.csv"), rx)
 
         df = DataFrame(SimTime = [t0, t0 + Minute(2) + Second(30), t0 + Minute(10)])
-        states = Receiver.reconstruct_batch_states_exact(tmp, df)
+        states = Receiver.reconstruct_batch_states(tmp, df)
         @test length(states) == 3
 
         # Row 1 (t0): batch 1 pre-populated onboard, batch 2 not yet generated
-        @test states[1].onb_arch == [1]
-        @test isempty(states[1].onb_live) && isempty(states[1].lost)
+        @test states[1].onboard_archive == [1]
+        @test isempty(states[1].onboard_live) && isempty(states[1].lost)
         # Row 2 (t0+2.5 min): batch 1 on the link, batch 2 onboard (retry events preserve state)
-        @test states[2].lnk_arch == [1]
-        @test states[2].onb_live == [2]
+        @test states[2].link_archive == [1]
+        @test states[2].onboard_live == [2]
         # Row 3 (t0+10 min): batch 1 grounded, batch 2 permanently lost
-        @test states[3].gnd_arch == [1]
+        @test states[3].ground_archive == [1]
         @test states[3].lost == [2]
-        @test isempty(states[3].lnk_live) && isempty(states[3].lnk_arch)
+        @test isempty(states[3].link_live) && isempty(states[3].link_archive)
 
         # The dispatcher picks the exact reconstruction when logs exist
         vis = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "flat")
-        @test Receiver.batch_states(tmp, df, vis) == states
+        @test Receiver.batch_states(tmp, df) == states
     end
 end
 
@@ -1398,10 +1398,10 @@ end
         CSV.write(joinpath(tmp, "events_rx.csv"), rx)
         df = DataFrame(SimTime = [t0 + Minute(30)])
         states = with_logger(NullLogger()) do
-            Receiver.reconstruct_batch_states_exact(tmp, df)
+            Receiver.reconstruct_batch_states(tmp, df)
         end
         @test length(states) == 1
-        @test states[1].gnd_live == [1]  # delivery state unperturbed
+        @test states[1].ground_live == [1]  # delivery state unperturbed
         @test isempty(states[1].lost)
     end
 
@@ -1428,12 +1428,12 @@ end
             SimTime = [t0 + Minute(1), t0 + Minute(4), t0 + Minute(6), t0 + Minute(8)],
         )
         states = with_logger(NullLogger()) do
-            Receiver.reconstruct_batch_states_exact(tmp, df)
+            Receiver.reconstruct_batch_states(tmp, df)
         end
-        @test states[2].gnd_live == [1] # delivered at the ingested record
-        @test states[3].gnd_live == [1] # the late-stamped tx cannot regress it
-        @test states[4].gnd_live == [1]
-        @test isempty(states[3].lnk_live)
+        @test states[2].ground_live == [1] # delivered at the ingested record
+        @test states[3].ground_live == [1] # the late-stamped tx cannot regress it
+        @test states[4].ground_live == [1]
+        @test isempty(states[3].link_live)
     end
 end
 
@@ -1578,7 +1578,7 @@ end
                 Dict{String,Any}(
                     "simulation" => Dict{String,Any}(
                         "speed_up" => 1800.0,
-                        "test_duration_sec" => 6.0,
+                        "mission_wall_seconds" => 6.0,
                         "initial_downtime_days" => 0.02,
                         "start_sim_time" => "2035-01-01T10:00:00",
                     ),
@@ -1590,7 +1590,7 @@ end
                         "batch_size" => 3,
                     ),
                     "post_processing" => Dict{String,Any}(
-                        "generate_batch_matrix" => true,
+                        "generate_mask_timeline" => true,
                         "expand_to_pointwise_masks" => false,
                     ),
                 ),
@@ -2056,4 +2056,27 @@ end
     @test_throws ArgumentError TelemetryCore.disruption_event_settings(
         Dict{String,Any}("disruption" => Dict{String,Any}("events" => Any["not a table"])),
     )
+end
+
+@testset "Deprecated configuration keys (aliases until 1.0.0)" begin
+    cfg = valid_test_cfg()
+    span = pop!(cfg["simulation"], "mission_wall_seconds")
+    cfg["simulation"]["test_duration_sec"] = span
+    @test_logs (:warn, r"deprecated") match_mode = :any TelemetryCore.validate_config(cfg)
+    @test TelemetryCore.mission_wall_seconds(cfg) == span
+    @test_throws ArgumentError TelemetryCore.mission_wall_seconds(
+        Dict{String,Any}("simulation" => Dict{String,Any}()),
+    )
+    pp = Dict{String,Any}("generate_batch_matrix" => false)
+    @test TelemetryCore.aliased_value(
+        pp,
+        "post_processing",
+        "generate_mask_timeline",
+        "generate_batch_matrix",
+        true,
+    ) == false
+    # A legacy profile column is normalized on read.
+    legacy = DataFrame(SimTime = [DateTime(2035)], Ground_Archive = [3], Ground_Live = [1])
+    @test hasproperty(TelemetryCore.normalize_profile!(legacy), :Ground_Total)
+    @test !hasproperty(legacy, :Ground_Archive)
 end

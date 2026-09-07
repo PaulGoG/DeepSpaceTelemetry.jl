@@ -4,7 +4,7 @@ Pkg.instantiate(io = devnull)
 using DeepSpaceTelemetry
 using CairoMakie, CSV, DataFrames, Dates
 
-function create_telemetry_gif(run_id::String)
+function generate_telemetry_gif(run_id::String)
     run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
     log_path = joinpath(run_dir, "mission_profile.csv")
 
@@ -13,7 +13,7 @@ function create_telemetry_gif(run_id::String)
         return
     end
 
-    df = CSV.read(log_path, DataFrame)
+    df = DeepSpaceTelemetry.TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
     if isempty(df)
         println("Error: mission_profile.csv is empty.")
         return
@@ -22,12 +22,9 @@ function create_telemetry_gif(run_id::String)
     println("Generating high-resolution GIF animation for Run $run_id...")
     println("Rendering time scales with the mission length.")
 
-    cfg = DeepSpaceTelemetry.TelemetryCore.load_run_config(run_dir)
-    vis_model = DeepSpaceTelemetry.TelemetryCore.visibility_model(cfg)
-
     # Shared state-machine replay (exact event-log reconstruction when the run
     # carries events_tx.csv / events_rx.csv; heuristic fallback otherwise)
-    row_states = DeepSpaceTelemetry.Receiver.batch_states(run_dir, df, vis_model)
+    row_states = DeepSpaceTelemetry.Receiver.batch_states(run_dir, df)
     show_lost = !isempty(row_states) && !isempty(last(row_states).lost)
 
     n_frames = min(nrow(df), 800)
@@ -110,9 +107,9 @@ function create_telemetry_gif(run_id::String)
 
             state = row_states[i]
 
-            x_onb_l, x_onb_a = state.onb_live, state.onb_arch
-            x_lnk_l, x_lnk_a = state.lnk_live, state.lnk_arch
-            x_gnd_l, x_gnd_a = state.gnd_live, state.gnd_arch
+            x_onb_l, x_onb_a = state.onboard_live, state.onboard_archive
+            x_lnk_l, x_lnk_a = state.link_live, state.link_archive
+            x_gnd_l, x_gnd_a = state.ground_live, state.ground_archive
             x_lost = state.lost
 
             active_x = vcat(x_onb_l, x_onb_a, x_lnk_l, x_lnk_a)
@@ -223,12 +220,12 @@ function create_telemetry_gif(run_id::String)
 end
 
 if length(ARGS) > 0
-    create_telemetry_gif(ARGS[1])
+    generate_telemetry_gif(ARGS[1])
 else
     latest_run = DeepSpaceTelemetry.TelemetryCore.latest_run_id()
     if latest_run === nothing
         println("No runs found under $(DeepSpaceTelemetry.TelemetryCore.runs_root()).")
     else
-        create_telemetry_gif(latest_run)
+        generate_telemetry_gif(latest_run)
     end
 end

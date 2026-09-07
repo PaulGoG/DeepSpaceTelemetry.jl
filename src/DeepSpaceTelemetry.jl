@@ -28,7 +28,7 @@ using Dates: DateTime, Time, Second
         "simulation" => Dict{String,Any}(
             "speed_up" => 3600.0,
             "start_sim_time" => "2035-01-01T06:00:00",
-            "test_duration_sec" => 10.0,
+            "mission_wall_seconds" => 10.0,
             "initial_downtime_days" => 0.0,
             "rng_seed" => 1,
         ),

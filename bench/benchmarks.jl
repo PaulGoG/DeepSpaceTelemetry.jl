@@ -58,7 +58,7 @@ suite["storage"] = BenchmarkGroup()
 cfg_test = Dict(
     "simulation" => Dict(
         "speed_up" => 5000.0,
-        "test_duration_sec" => 10.0,
+        "mission_wall_seconds" => 10.0,
         "max_storage_gb" => 10.0,
     ),
     "physics" => Dict(
@@ -127,7 +127,7 @@ suite["core"]["validate_config"] =
         cfg = Dict{String,Any}(
             "simulation" => Dict{String,Any}(
                 "speed_up" => 3600.0,
-                "test_duration_sec" => 150.0,
+                "mission_wall_seconds" => 150.0,
                 "initial_downtime_days" => 3.0,
                 "max_storage_gb" => 2.0,
                 "start_sim_time" => "2035-01-01T06:00:00",
