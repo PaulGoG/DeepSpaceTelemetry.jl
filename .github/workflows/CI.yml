@@ -11,21 +11,37 @@ jobs:
   test:
     name: Tests — Julia ${{ matrix.version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # "1" is the blocking job on the current stable release (the compat
+    # floor is 1.12); "pre" watches the next prerelease and may fail without
+    # failing the workflow. Coverage runs once: it disables package images
+    # and roughly doubles the precompile time.
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
-        version: ["1.12", "1"]
-        os: [ubuntu-latest]
+        include:
+          - version: "1"
+            os: ubuntu-latest
+            coverage: true
+            experimental: false
+          - version: "pre"
+            os: ubuntu-latest
+            coverage: false
+            experimental: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: ${{ matrix.coverage }}
       - uses: julia-actions/julia-processcoverage@v1
-      - uses: codecov/codecov-action@v4
+        if: matrix.coverage
+      - uses: codecov/codecov-action@v7
+        if: matrix.coverage
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -34,8 +50,8 @@ jobs:
     name: Formatting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: "1"
       - run: |
@@ -45,9 +61,9 @@ jobs:
     name: Documentation build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: "1"
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - run: julia docs/make.jl
