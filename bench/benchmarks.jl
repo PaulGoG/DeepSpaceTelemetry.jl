@@ -73,8 +73,8 @@ suite["storage"]["check_limits"] =
 # Benchmark Channel Effects (hot path: one draw / factor per transfer attempt
 # or loop tick — must stay in the ns regime)
 suite["channel"] = BenchmarkGroup()
-bern = DeepSpaceTelemetry.ChannelEffects.BernoulliLoss(0.1, Xoshiro(1))
-ge = DeepSpaceTelemetry.ChannelEffects.GilbertElliottLoss(
+bernoulli = DeepSpaceTelemetry.ChannelEffects.BernoulliLoss(0.1, Xoshiro(1))
+gilbert_elliott = DeepSpaceTelemetry.ChannelEffects.GilbertElliottLoss(
     0.02,
     0.3,
     0.005,
@@ -83,9 +83,9 @@ ge = DeepSpaceTelemetry.ChannelEffects.GilbertElliottLoss(
     Xoshiro(2),
 )
 suite["channel"]["bernoulli_sample"] =
-    @benchmarkable DeepSpaceTelemetry.ChannelEffects.sample_loss!($bern)
+    @benchmarkable DeepSpaceTelemetry.ChannelEffects.sample_loss!($bernoulli)
 suite["channel"]["gilbert_elliott_sample"] =
-    @benchmarkable DeepSpaceTelemetry.ChannelEffects.sample_loss!($ge)
+    @benchmarkable DeepSpaceTelemetry.ChannelEffects.sample_loss!($gilbert_elliott)
 
 disruption_cfg = Dict{String,Any}(
     "disruption" => Dict{String,Any}(

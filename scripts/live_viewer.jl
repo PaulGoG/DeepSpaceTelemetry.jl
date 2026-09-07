@@ -60,19 +60,27 @@ function run_viewer(run_id::String)
                 continue
             end
 
-            onb_l, onb_a = get_batch_info(onboard_path)
-            lnk_l, lnk_a = get_batch_info(link_path)
-            gnd_l, gnd_a = get_batch_info(ground_path)
-            lst_l, lst_a = get_batch_info(lost_path)
-            lost_ids = vcat(lst_l, lst_a)
+            onboard_live, onboard_arch = get_batch_info(onboard_path)
+            link_live, link_arch = get_batch_info(link_path)
+            ground_live, ground_arch = get_batch_info(ground_path)
+            lost_live, lost_arch = get_batch_info(lost_path)
+            lost_ids = vcat(lost_live, lost_arch)
 
-            current_state_hash = hash((onb_l, onb_a, lnk_l, lnk_a, gnd_l, gnd_a, lost_ids))
+            current_state_hash = hash((
+                onboard_live,
+                onboard_arch,
+                link_live,
+                link_arch,
+                ground_live,
+                ground_arch,
+                lost_ids,
+            ))
 
             if current_state_hash != last_state_hash
                 last_state_hash = current_state_hash
 
-                active_ids = vcat(onb_l, onb_a, lnk_l, lnk_a)
-                all_ids = vcat(active_ids, gnd_l, gnd_a, lost_ids)
+                active_ids = vcat(onboard_live, onboard_arch, link_live, link_arch)
+                all_ids = vcat(active_ids, ground_live, ground_arch, lost_ids)
 
                 max_id = isempty(all_ids) ? 10 : maximum(all_ids)
                 target =
@@ -115,25 +123,45 @@ function run_viewer(run_id::String)
                     color = :black,
                 )
 
-                if !isempty(onb_l)
-                    scatterplot!(p, onb_l, fill(1, length(onb_l)), color = :red)
+                if !isempty(onboard_live)
+                    scatterplot!(
+                        p,
+                        onboard_live,
+                        fill(1, length(onboard_live)),
+                        color = :red,
+                    )
                 end
-                if !isempty(onb_a)
-                    scatterplot!(p, onb_a, fill(1, length(onb_a)), color = :magenta)
+                if !isempty(onboard_arch)
+                    scatterplot!(
+                        p,
+                        onboard_arch,
+                        fill(1, length(onboard_arch)),
+                        color = :magenta,
+                    )
                 end
 
-                if !isempty(lnk_l)
-                    scatterplot!(p, lnk_l, fill(2, length(lnk_l)), color = :yellow)
+                if !isempty(link_live)
+                    scatterplot!(p, link_live, fill(2, length(link_live)), color = :yellow)
                 end
-                if !isempty(lnk_a)
-                    scatterplot!(p, lnk_a, fill(2, length(lnk_a)), color = :blue)
+                if !isempty(link_arch)
+                    scatterplot!(p, link_arch, fill(2, length(link_arch)), color = :blue)
                 end
 
-                if !isempty(gnd_l)
-                    scatterplot!(p, gnd_l, fill(3, length(gnd_l)), color = :cyan)
+                if !isempty(ground_live)
+                    scatterplot!(
+                        p,
+                        ground_live,
+                        fill(3, length(ground_live)),
+                        color = :cyan,
+                    )
                 end
-                if !isempty(gnd_a)
-                    scatterplot!(p, gnd_a, fill(3, length(gnd_a)), color = :green)
+                if !isempty(ground_arch)
+                    scatterplot!(
+                        p,
+                        ground_arch,
+                        fill(3, length(ground_arch)),
+                        color = :green,
+                    )
                 end
 
                 if !isempty(lost_ids)

@@ -531,8 +531,8 @@ function generate_mission_plots(run_dir::String)
             (to_h(max_sess_dt) <= 0.0 || to_h(min_sess_dt) >= max_x_h) && continue
 
             in_window = (df.SimTime .>= min_sess_dt) .& (df.SimTime .<= max_sess_dt)
-            sdf = df[in_window, :]
-            if length(sdf.SimTime) < 2
+            session_df = df[in_window, :]
+            if length(session_df.SimTime) < 2
                 continue
             end
 
@@ -559,17 +559,17 @@ function generate_mission_plots(run_dir::String)
             session_tick_vals_h = to_h.(session_tick_vals_dt)
             session_tick_labels = [Dates.format(t, "HH:MM") for t in session_tick_vals_dt]
 
-            sdf_h = to_h.(sdf.SimTime)
-            plot_x = Float64[min_sess_h; sdf_h; max_sess_h]
+            session_hours = to_h.(session_df.SimTime)
+            plot_x = Float64[min_sess_h; session_hours; max_sess_h]
             plot_gnd = Float64[
                 0.0;
-                sdf.Ground_Archive .- sdf.Ground_Archive[1];
-                sdf.Ground_Archive[end] - sdf.Ground_Archive[1]
+                session_df.Ground_Archive .- session_df.Ground_Archive[1];
+                session_df.Ground_Archive[end] - session_df.Ground_Archive[1]
             ]
             plot_gnd_arch = Float64[
                 0.0;
-                sdf.Ground_Arch .- sdf.Ground_Arch[1];
-                sdf.Ground_Arch[end] - sdf.Ground_Arch[1]
+                session_df.Ground_Arch .- session_df.Ground_Arch[1];
+                session_df.Ground_Arch[end] - session_df.Ground_Arch[1]
             ]
 
             fig_sess = Figure(size = PlotTheme.FIG_SIZE_SESSION, figure_padding = 10)
@@ -593,7 +593,7 @@ function generate_mission_plots(run_dir::String)
             hidexdecorations!(ax_s1_twin)
             xlims!(ax_s1_twin, min_sess_h, max_sess_h)
 
-            max_sess_onb = maximum(sdf.Onboard_Buffer)
+            max_sess_onb = maximum(session_df.Onboard_Buffer)
             ylims!(ax_s1_twin, 0, max(10.0, 1.3 * max_sess_onb))
 
             shade_disruptions!(ax_s1, min_sess_h, max_sess_h)
@@ -610,8 +610,8 @@ function generate_mission_plots(run_dir::String)
             lines!(ax_s1, t_smooth_h, bw_smooth, color = COLOR_BANDWIDTH)
             lines!(
                 ax_s1_twin,
-                sdf_h,
-                Float64.(sdf.Onboard_Buffer),
+                session_hours,
+                Float64.(session_df.Onboard_Buffer),
                 color = COLOR_ONBOARD,
                 linestyle = :dash,
             )
@@ -650,12 +650,17 @@ function generate_mission_plots(run_dir::String)
             # loss-free days) — ✕ markers along the top edge at the loss
             # instants plus a corner count annotation, and no elements at all
             # when the session lost nothing.
-            n_lost_sess = has_loss_cols ? Int(sdf.Lost_Count[end] - sdf.Lost_Count[1]) : 0
+            n_lost_sess =
+                has_loss_cols ? Int(session_df.Lost_Count[end] - session_df.Lost_Count[1]) :
+                0
             if n_lost_sess > 0
-                inc = [j for j in 2:nrow(sdf) if sdf.Lost_Count[j] > sdf.Lost_Count[j-1]]
+                inc = [
+                    j for j in 2:nrow(session_df) if
+                    session_df.Lost_Count[j] > session_df.Lost_Count[j-1]
+                ]
                 scatter!(
                     ax_s2,
-                    sdf_h[inc],
+                    session_hours[inc],
                     fill(0.93 * y_max_s2, length(inc)),
                     marker = :xcross,
                     color = COLOR_LOST,
@@ -826,25 +831,25 @@ function reconstruct_batch_states_exact(run_dir::String, df::DataFrame)
     # the batch stays on the link; `pruned`: delivery already happened) are
     # skipped; unknown event names are tolerated with a warning so a newer
     # run's log never aborts an older toolchain's replay.
-    prio = Dict("gen" => 1, "tx" => 2, "ingested" => 3, "lost" => 3)
+    event_rank = Dict("gen" => 1, "tx" => 2, "ingested" => 3, "lost" => 3)
     events = Vector{Tuple{DateTime,Int,String,String}}()
     for r in eachrow(tx)
         r.Event in ("gap_start", "gap_end") && continue # stream-level outage bounds
-        if !haskey(prio, r.Event)
+        if !haskey(event_rank, r.Event)
             @warn "[POST] Skipping unknown event \"$(r.Event)\" in events_tx.csv." maxlog =
                 1
             continue
         end
-        push!(events, (r.SimTime, prio[r.Event], String(r.Batch), String(r.Event)))
+        push!(events, (r.SimTime, event_rank[r.Event], String(r.Batch), String(r.Event)))
     end
     for r in eachrow(rx)
         r.Event in ("retry", "pruned") && continue
-        if !haskey(prio, r.Event)
+        if !haskey(event_rank, r.Event)
             @warn "[POST] Skipping unknown event \"$(r.Event)\" in events_rx.csv." maxlog =
                 1
             continue
         end
-        push!(events, (r.SimTime, prio[r.Event], String(r.Batch), String(r.Event)))
+        push!(events, (r.SimTime, event_rank[r.Event], String(r.Batch), String(r.Event)))
     end
     sort!(events, by = e -> (e[1], e[2]))
 
@@ -1128,8 +1133,6 @@ materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
 
 # Keyword arguments
 
-  - `test_duration_sec`: wall-clock stop after this many seconds (`0.0`
-    disables; tests only — production uses `deadline`).
   - `orig_stdout`: stream receiving the dashboard rendering.
   - `max_batches_per_hour`: peak DSN service capacity [batches/h].
   - `loss_model`: stochastic packet-loss channel (`ChannelEffects.LossModel`).
@@ -1144,7 +1147,6 @@ function run_receiver(
     clock::TelemetryCore.SimulationClock,
     link::ChannelEffects.LinkModel,
     run_id::String;
-    test_duration_sec::Float64 = 0.0,
     orig_stdout::IO = stdout,
     max_batches_per_hour::Float64 = 20.0,
     loss_model::ChannelEffects.LossModel = ChannelEffects.NoLoss(),
@@ -1164,7 +1166,6 @@ function run_receiver(
     lost_path = joinpath(run_dir, "lost")
     foreach(mkpath, (link_path, onboard_path, ground_path, lost_path)) # idempotent
 
-    start_wall_time = now()
     halt_path = joinpath(run_dir, "HALT")
     last_heartbeat = now() - Second(2)
 
@@ -1256,10 +1257,6 @@ function run_receiver(
             if deadline !== nothing && now() >= deadline
                 break
             end
-            if test_duration_sec > 0.0 &&
-               (now() - start_wall_time).value / 1000.0 > test_duration_sec
-                break
-            end
             if heartbeat_path !== nothing && (now() - last_heartbeat).value >= 1000
                 touch(heartbeat_path)
                 last_heartbeat = now()
@@ -1267,12 +1264,12 @@ function run_receiver(
 
             sim_t = TelemetryCore.get_current_sim_time(clock)
             nominal_factor = TelemetryCore.get_bandwidth_factor(link.visibility, sim_t)
-            dis_factor = ChannelEffects.disruption_factor(link.disruptions, sim_t)
-            bw_factor = nominal_factor * dis_factor
+            disruption_scale = ChannelEffects.disruption_factor(link.disruptions, sim_t)
+            bw_factor = nominal_factor * disruption_scale
             hours_elapsed = (sim_t - clock.start_sim_time).value / (1000 * 3600)
             bandwidth_pct = bw_factor * 100
             nominal_pct = nominal_factor * 100
-            disruption_active = dis_factor < 1.0
+            disruption_active = disruption_scale < 1.0
 
             onboard_count =
                 length(filter(f -> isdir(joinpath(onboard_path, f)), readdir(onboard_path)))
@@ -1347,7 +1344,7 @@ function run_receiver(
             status_text = if disruption_active && nominal_factor > 0.0
                 ev_label = ChannelEffects.active_disruption_label(link.disruptions, sim_t)
                 ev_name = isempty(ev_label) ? "DISRUPTION" : uppercase(ev_label)
-                dis_factor == 0.0 ? "$ev_name (Link down)" :
+                disruption_scale == 0.0 ? "$ev_name (Link down)" :
                 "$ev_name RECOVERY (Link: $(round(bandwidth_pct, digits=1))%)"
             elseif bw_factor > 0.0
                 "ACTIVE (Link: $(round(bandwidth_pct, digits=1))%)"
@@ -1393,9 +1390,9 @@ function run_receiver(
                 )
                 batch_name = first(pending_batches)
 
-                base_dl_time = (3600.0 / max_batches_per_hour)
-                surge_dl_time = base_dl_time / (bw_factor * clock.speed_up)
-                sleep(max(TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC, surge_dl_time))
+                nominal_slot_sec = (3600.0 / max_batches_per_hour)
+                effective_slot_sec = nominal_slot_sec / (bw_factor * clock.speed_up)
+                sleep(max(TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC, effective_slot_sec))
 
                 loss_mult =
                     ChannelEffects.disruption_loss_multiplier(link.disruptions, sim_t)

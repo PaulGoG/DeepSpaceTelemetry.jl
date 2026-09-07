@@ -43,6 +43,13 @@ Notable changes to DeepSpaceTelemetry. The format follows
   off-limits by contract).
 
 ### Changed
+- `run_emitter` keyword `initial_segments` is `pending_segments` (the partial
+  batch carried across `pre_populate` and the loop now has one name); the
+  test-only `test_duration_sec` keyword of `run_emitter`/`run_receiver` is
+  removed — callers pass `deadline`, as production always did.
+- The dashboard launcher spawns a pure-Julia log follower
+  (`scripts/follow_log.jl`) instead of `tail -F`, uses absolute paths, and
+  no longer changes the working directory.
 - `BernoulliLoss`, `GilbertElliottLoss`, and `InstrumentState` carry their
   RNG as a type parameter (`{R<:AbstractRNG}`) instead of an abstract field,
   so the per-attempt and per-segment draws dispatch statically;

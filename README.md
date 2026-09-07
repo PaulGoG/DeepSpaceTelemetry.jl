@@ -34,6 +34,7 @@ DeepSpaceTelemetry/
 │   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
 │   ├── run_full_sim.jl          # Headless simulation engine ([run_id] [config.toml])
 │   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
+│   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
 │   ├── postprocessing/
 │   │   ├── apply_telemetry_mask.jl      # Point-wise mask expansion (snapshot-aware)
 │   │   ├── generate_gif.jl              # Batch-routing animation engine

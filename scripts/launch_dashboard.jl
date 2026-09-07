@@ -44,9 +44,6 @@ end
 
 println("Starting the DeepSpaceTelemetry dashboard.")
 
-# Change to project root so paths are correct
-cd(joinpath(@__DIR__, ".."))
-
 # Load Config — any CLI argument ending in ".toml" selects an alternative
 # config file (forwarded to run_full_sim.jl below).
 config_idx = findfirst(a -> endswith(a, ".toml"), ARGS)
@@ -59,16 +56,20 @@ DeepSpaceTelemetry.TelemetryCore.validate_config(cfg)
 # Generate a run ID. The run directory itself is created exactly once, by
 # run_full_sim.jl below — pre-creating it here would trip the run-ID reuse
 # guard in setup_run_dir. The viewer tolerates the not-yet-existing
-# directory and `tail -F` retries absent log files until they appear.
+# directory and the log follower waits for absent log files to appear.
 run_id = DeepSpaceTelemetry.TelemetryCore.generate_run_id()
 run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
 
 println("Launching dashboard terminals for run: $run_id...")
 
-# Commands to run in the new windows
-live_viewer_cmd = "julia --project=. scripts/live_viewer.jl $run_id"
-tail_rx_cmd = "tail -F $(joinpath("data", "runs", run_id, "receiver.log"))"
-tail_tx_cmd = "tail -F $(joinpath("data", "runs", run_id, "emitter.log"))"
+# Commands to run in the new windows: absolute paths, no working-directory
+# assumption, and a pure-Julia log follower (scripts/follow_log.jl) in place
+# of `tail -F`.
+julia_scripts = "julia --project=\"$(@__DIR__)\""
+live_viewer_cmd = "$julia_scripts \"$(joinpath(@__DIR__, "live_viewer.jl"))\" $run_id"
+follow_log = joinpath(@__DIR__, "follow_log.jl")
+tail_rx_cmd = "$julia_scripts \"$follow_log\" \"$(joinpath(run_dir, "receiver.log"))\""
+tail_tx_cmd = "$julia_scripts \"$follow_log\" \"$(joinpath(run_dir, "emitter.log"))\""
 
 # Choose which windows to open based on config
 db_cfg = get(cfg, "dashboard", Dict())
@@ -95,4 +96,4 @@ sleep(1.5)
 empty!(ARGS)
 push!(ARGS, run_id)
 isempty(config_arg) || push!(ARGS, config_arg)
-include("run_full_sim.jl")
+include(joinpath(@__DIR__, "run_full_sim.jl"))

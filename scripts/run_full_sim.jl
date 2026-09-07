@@ -91,9 +91,9 @@ const RNG_SEED = Int(get(cfg["simulation"], "rng_seed", 0))
 const MAX_BATCHES_PER_HOUR = Float64(cfg["telemetry"]["max_batches_per_hour"])
 
 const DATA_SOURCE = get(cfg["physics"], "data_source", "synthetic")
-const SIGNAL_INJECTION_P =
+const SIGNAL_INJECTION_PROBABILITY =
     Float64(get(cfg["physics"], "signal_injection_probability", 0.02))
-const MAX_INFLIGHT = Int(get(cfg["telemetry"], "max_inflight_batches", 5))
+const MAX_INFLIGHT_BATCHES = Int(get(cfg["telemetry"], "max_inflight_batches", 5))
 const MIN_LINK_FACTOR = Float64(get(cfg["telemetry"], "min_link_factor", 0.05))
 const EXT_PATH = get(cfg["physics"], "external_data_path", "")
 const SAMPLE_RATE = Float64(cfg["physics"]["sample_rate"])
@@ -164,7 +164,7 @@ write(receiver_log, "") # fresh logs for this run
 # The returned instrument (and any partial batch) is handed to the main loop so
 # the data stream continues where pre-population stopped.
 println("Pre-populating onboard buffer for $(INITIAL_DOWNTIME_DAYS) days...")
-instrument, leftover_segs =
+instrument, pending_segments =
     with_logger(get_clean_logger(emitter_log; rotate_bytes = retention.log_rotate_bytes)) do
         DeepSpaceTelemetry.Emitter.pre_populate(
             START_SIM,
@@ -176,7 +176,7 @@ instrument, leftover_segs =
             data_source = DATA_SOURCE,
             ext_path = EXT_PATH,
             rng = instrument_rng,
-            signal_injection_probability = SIGNAL_INJECTION_P,
+            signal_injection_probability = SIGNAL_INJECTION_PROBABILITY,
         )
     end
 
@@ -228,11 +228,11 @@ function run_emitter_logged(attempt::Int = 0)
             data_source = DATA_SOURCE,
             ext_path = EXT_PATH,
             instrument = attempt == 0 ? instrument : nothing,
-            initial_segments = attempt == 0 ? leftover_segs :
+            pending_segments = attempt == 0 ? pending_segments :
                                DeepSpaceTelemetry.TelemetryCore.DataSegment[],
             rng = attempt == 0 ? instrument_rng : Xoshiro(RNG_SEED + 100 + attempt),
-            signal_injection_probability = SIGNAL_INJECTION_P,
-            max_inflight_batches = MAX_INFLIGHT,
+            signal_injection_probability = SIGNAL_INJECTION_PROBABILITY,
+            max_inflight_batches = MAX_INFLIGHT_BATCHES,
             deadline = mission_deadline,
             stop = stop_flag,
             heartbeat_path = heartbeats[:emitter],
@@ -304,11 +304,11 @@ while !all(istaskdone, values(tasks))
             if name == :emitter
                 # No live events_tx writer exists at this instant: record the
                 # generation gap bounds before the replacement starts.
-                tx_p = joinpath(run_dir, "events_tx.csv")
+                tx_log_path = joinpath(run_dir, "events_tx.csv")
                 last_gen =
-                    isfile(tx_p) ?
+                    isfile(tx_log_path) ?
                     maximum(
-                        CSV.read(tx_p, DataFrame).SimTime;
+                        CSV.read(tx_log_path, DataFrame).SimTime;
                         init = clock.start_sim_time,
                     ) : clock.start_sim_time
                 DeepSpaceTelemetry.TelemetryCore.log_tx_event(
@@ -343,10 +343,10 @@ while !all(istaskdone, values(tasks))
         end
     end
     # Watchdog: a hung (not dead) component stops heartbeating.
-    for (name, hb) in heartbeats
+    for (name, heartbeat_file) in heartbeats
         t = tasks[name]
-        (istaskdone(t) || !isfile(hb)) && continue
-        stalled = time() - mtime(hb) > WATCHDOG_SEC
+        (istaskdone(t) || !isfile(heartbeat_file)) && continue
+        stalled = time() - mtime(heartbeat_file) > WATCHDOG_SEC
         if stalled && !(name in watchdog_tripped)
             push!(watchdog_tripped, name)
             log_component_event(name, "stalled")

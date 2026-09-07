@@ -388,7 +388,7 @@ end
             start_sim = DateTime(2035, 1, 1, 10)
             vis = TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat")
             link = ChannelEffects.LinkModel(vis)
-            vi, leftover = with_logger(NullLogger()) do
+            vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
                     start_sim,
                     halt_id;
@@ -406,14 +406,14 @@ end
                     clock,
                     link,
                     halt_id;
-                    test_duration_sec = 30.0,
+                    deadline = now() + Second(30),
                     sample_rate = 4.0,
                     seg_dur = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
                     instrument = vi,
-                    initial_segments = leftover,
+                    pending_segments = pending,
                 )
             end
             rx = Threads.@spawn with_logger(NullLogger()) do
@@ -421,7 +421,7 @@ end
                     clock,
                     link,
                     halt_id;
-                    test_duration_sec = 30.0,
+                    deadline = now() + Second(30),
                     orig_stdout = devnull,
                     max_batches_per_hour = 1800.0,
                 )
@@ -462,7 +462,7 @@ end
             link = ChannelEffects.LinkModel(
                 TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat"),
             )
-            vi, leftover = with_logger(NullLogger()) do
+            vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
                     start_sim,
                     cap_id;
@@ -480,14 +480,14 @@ end
                     clock,
                     link,
                     cap_id;
-                    test_duration_sec = 3.0,
+                    deadline = now() + Second(3),
                     sample_rate = 4.0,
                     seg_dur = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
                     instrument = vi,
-                    initial_segments = leftover,
+                    pending_segments = pending,
                     max_inflight_batches = 2,
                 )
             end
@@ -523,7 +523,7 @@ end
             link = ChannelEffects.LinkModel(
                 TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "gaussian"),
             )
-            vi, leftover = with_logger(NullLogger()) do
+            vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
                     start_sim,
                     floor_id;
@@ -541,14 +541,14 @@ end
                     clock,
                     link,
                     floor_id;
-                    test_duration_sec = 4.0,
+                    deadline = now() + Second(4),
                     sample_rate = 4.0,
                     seg_dur = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
                     instrument = vi,
-                    initial_segments = leftover,
+                    pending_segments = pending,
                 )
             end
             rx = Threads.@spawn with_logger(NullLogger()) do
@@ -556,7 +556,7 @@ end
                     clock,
                     link,
                     floor_id;
-                    test_duration_sec = 4.0,
+                    deadline = now() + Second(4),
                     orig_stdout = devnull,
                     max_batches_per_hour = 1800.0,
                     min_link_factor = 0.6,
@@ -599,7 +599,7 @@ end
             link = ChannelEffects.LinkModel(
                 TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat"),
             )
-            vi, leftover = with_logger(NullLogger()) do
+            vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
                     start_sim,
                     ra_id;
@@ -621,14 +621,14 @@ end
                             clk,
                             link,
                             ra_id;
-                            test_duration_sec = 3.0,
+                            deadline = now() + Second(3),
                             sample_rate = 4.0,
                             seg_dur = 60.0,
                             batch_size = 3,
                             data_source = "external",
                             ext_path = ext_path,
                             instrument = instrument,
-                            initial_segments = segs,
+                            pending_segments = segs,
                             rng = rng,
                         )
                     end
@@ -637,7 +637,7 @@ end
                             clk,
                             link,
                             ra_id;
-                            test_duration_sec = 3.0,
+                            deadline = now() + Second(3),
                             orig_stdout = devnull,
                             max_batches_per_hour = 1800.0,
                         )
@@ -646,7 +646,7 @@ end
                     wait(rx)
                 end
 
-            run_phase(clock1, vi, leftover, StableRNG(1))
+            run_phase(clock1, vi, pending, StableRNG(1))
             tx1 = CSV.read(joinpath(ra_dir, "events_tx.csv"), DataFrame)
             gens1 = [
                 parse(Int, String(last(split(String(b), "_")))) for
@@ -865,11 +865,12 @@ end
     @test !any(ChannelEffects.sample_loss!(m_lo; multiplier = 0.0) for _ in 1:200)
 
     # Gilbert–Elliott: sampled long-run rate matches the analytic stationary rate
-    ge = ChannelEffects.GilbertElliottLoss(0.05, 0.25, 0.01, 0.5, false, StableRNG(11))
-    expected = ChannelEffects.stationary_loss_rate(ge)
+    gilbert_elliott =
+        ChannelEffects.GilbertElliottLoss(0.05, 0.25, 0.01, 0.5, false, StableRNG(11))
+    expected = ChannelEffects.stationary_loss_rate(gilbert_elliott)
     @test isapprox(expected, (0.05 / 0.30) * 0.5 + (0.25 / 0.30) * 0.01; rtol = 1e-12)
     n = 400_000
-    rate = count(_ -> ChannelEffects.sample_loss!(ge), 1:n) / n
+    rate = count(_ -> ChannelEffects.sample_loss!(gilbert_elliott), 1:n) / n
     @test isapprox(rate, expected, rtol = 0.05)
 
     # Determinism: identical seeds → identical realizations
@@ -1034,10 +1035,10 @@ end
             "p_loss_bad" => 0.5,
         ),
     )
-    ge = ChannelEffects.build_loss_model(cfg, 1)
-    @test ge isa ChannelEffects.GilbertElliottLoss &&
-          ge.p_loss_bad == 0.5 &&
-          !ge.in_bad_state
+    gilbert_elliott = ChannelEffects.build_loss_model(cfg, 1)
+    @test gilbert_elliott isa ChannelEffects.GilbertElliottLoss &&
+          gilbert_elliott.p_loss_bad == 0.5 &&
+          !gilbert_elliott.in_bad_state
 
     @test_throws ArgumentError ChannelEffects.build_loss_model(
         Dict{String,Any}(
@@ -1469,8 +1470,8 @@ end
             vis = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "flat")
             link = ChannelEffects.LinkModel(vis)
 
-            # 0.02 days = 1728 s of downtime -> 29 segments -> 9 full batches + 2 leftover
-            vi, leftover = with_logger(NullLogger()) do
+            # 0.02 days = 1728 s of downtime -> 29 segments -> 9 full batches + 2 pending
+            vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
                     start_sim,
                     run_id;
@@ -1492,8 +1493,8 @@ end
             # Stream continuity: instrument consumed exactly 29 segments...
             @test vi.ext_index == 29 * n_per_seg + 1
             # ...and the partial batch carries segments 28-29 for the main loop
-            @test length(leftover) == 2
-            @test leftover[1].data[1] == Float32(27 * n_per_seg + 1)
+            @test length(pending) == 2
+            @test pending[1].data[1] == Float32(27 * n_per_seg + 1)
 
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
             em = Threads.@spawn with_logger(NullLogger()) do
@@ -1501,14 +1502,14 @@ end
                     clock,
                     link,
                     run_id;
-                    test_duration_sec = 6.0,
+                    deadline = now() + Second(6),
                     sample_rate = sample_rate,
                     seg_dur = seg_dur,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
                     instrument = vi,
-                    initial_segments = leftover,
+                    pending_segments = pending,
                 )
             end
             rx = Threads.@spawn with_logger(NullLogger()) do
@@ -1516,7 +1517,7 @@ end
                     clock,
                     link,
                     run_id;
-                    test_duration_sec = 6.0,
+                    deadline = now() + Second(6),
                     orig_stdout = devnull,
                     max_batches_per_hour = 1800.0,
                 )
@@ -1632,7 +1633,7 @@ end
             start_sim = DateTime(2035, 1, 1, 10, 0, 0)
             vis = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "flat")
             link = ChannelEffects.LinkModel(vis)
-            vi, leftover = with_logger(NullLogger()) do
+            vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
                     start_sim,
                     run_id;
@@ -1656,14 +1657,14 @@ end
                     clock,
                     link,
                     run_id;
-                    test_duration_sec = 6.0,
+                    deadline = now() + Second(6),
                     sample_rate = 4.0,
                     seg_dur = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
                     instrument = vi,
-                    initial_segments = leftover,
+                    pending_segments = pending,
                 )
             end
             rx_task = Threads.@spawn with_logger(NullLogger()) do
@@ -1671,7 +1672,7 @@ end
                     clock,
                     link,
                     run_id;
-                    test_duration_sec = 6.0,
+                    deadline = now() + Second(6),
                     orig_stdout = devnull,
                     max_batches_per_hour = 1800.0,
                     retention = retention,
@@ -1756,7 +1757,7 @@ end
             link = ChannelEffects.LinkModel(vis)
             loss = ChannelEffects.BernoulliLoss(1.0, StableRNG(5))
 
-            vi, leftover = with_logger(NullLogger()) do
+            vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
                     start_sim,
                     run_id;
@@ -1775,14 +1776,14 @@ end
                     clock,
                     link,
                     run_id;
-                    test_duration_sec = 6.0,
+                    deadline = now() + Second(6),
                     sample_rate = 4.0,
                     seg_dur = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
                     instrument = vi,
-                    initial_segments = leftover,
+                    pending_segments = pending,
                 )
             end
             rx = Threads.@spawn with_logger(NullLogger()) do
@@ -1790,7 +1791,7 @@ end
                     clock,
                     link,
                     run_id;
-                    test_duration_sec = 6.0,
+                    deadline = now() + Second(6),
                     orig_stdout = devnull,
                     max_batches_per_hour = 1800.0,
                     loss_model = loss,
@@ -1888,7 +1889,7 @@ end
                 TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat"),
             )
             # No pre-population: the instrument anchors at the mission epoch.
-            vi, leftover = with_logger(NullLogger()) do
+            vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
                     start_sim,
                     pace_id;
@@ -1914,7 +1915,7 @@ end
                     data_source = "external",
                     ext_path = ext_path,
                     instrument = vi,
-                    initial_segments = leftover,
+                    pending_segments = pending,
                     deadline = deadline,
                     max_inflight_batches = 1,
                 )

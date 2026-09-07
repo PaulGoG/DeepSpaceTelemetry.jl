@@ -565,33 +565,38 @@ function validate_config(cfg::AbstractDict)
     0.0 < sess_h <= 24.0 || config_error(
         "[CONFIG] telemetry.session_duration_hours must lie in (0, 24] (got $sess_h): the daily scheduler wraps Time arithmetic at 24 h.",
     )
-    mbph = checked_number(
+    max_batches_per_hour = checked_number(
         get(tel, "max_batches_per_hour", 0.0),
         "telemetry.max_batches_per_hour",
     )
-    mbph > 0.0 ||
-        config_error("[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $mbph).")
+    max_batches_per_hour > 0.0 || config_error(
+        "[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $max_batches_per_hour).",
+    )
     profile =
         checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
-    mib = checked_integer(
+    max_inflight = checked_integer(
         get(tel, "max_inflight_batches", 5),
         "telemetry.max_inflight_batches",
     )
-    mib >= 1 ||
-        config_error("[CONFIG] telemetry.max_inflight_batches must be ≥ 1 (got $mib).")
-    mlf = checked_number(get(tel, "min_link_factor", 0.05), "telemetry.min_link_factor")
-    0.0 <= mlf < 1.0 ||
-        config_error("[CONFIG] telemetry.min_link_factor = $mlf outside [0, 1).")
+    max_inflight >= 1 || config_error(
+        "[CONFIG] telemetry.max_inflight_batches must be ≥ 1 (got $max_inflight).",
+    )
+    min_link_factor =
+        checked_number(get(tel, "min_link_factor", 0.05), "telemetry.min_link_factor")
+    0.0 <= min_link_factor < 1.0 || config_error(
+        "[CONFIG] telemetry.min_link_factor = $min_link_factor outside [0, 1).",
+    )
     for (key, default) in (("sigmoid_steepness", 10.0), ("gaussian_sigma", 0.15))
         v = checked_number(get(tel, key, default), "telemetry.$key")
         v > 0.0 || config_error("[CONFIG] telemetry.$key must be > 0 (got $v).")
     end
-    sip = checked_number(
+    injection_probability = checked_number(
         get(phy, "signal_injection_probability", 0.02),
         "physics.signal_injection_probability",
     )
-    0.0 <= sip <= 1.0 ||
-        config_error("[CONFIG] physics.signal_injection_probability = $sip outside [0, 1].")
+    0.0 <= injection_probability <= 1.0 || config_error(
+        "[CONFIG] physics.signal_injection_probability = $injection_probability outside [0, 1].",
+    )
     profile in ("sine", "sigmoid", "gaussian", "flat") ||
         @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$profile\"; falling back to \"sine\"."
 
@@ -603,7 +608,7 @@ function validate_config(cfg::AbstractDict)
               "pace with the accelerated clock and batch timestamps desynchronize. " *
               "Increase segment_duration_sec or decrease speed_up."
     end
-    rx_slot_ms = 3600.0 / (mbph * speed_up) * 1000.0
+    rx_slot_ms = 3600.0 / (max_batches_per_hour * speed_up) * 1000.0
     if rx_slot_ms < 2.0
         @warn "[CONFIG] Receiver download slot is $(round(rx_slot_ms, digits=2)) ms " *
               "(3600 / (max_batches_per_hour × speed_up)). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
@@ -1164,43 +1169,43 @@ function check_storage_limits(cfg::AbstractDict)
     est = estimate_artifacts(cfg)
     budget = storage_budget(cfg)
     ret = retention_settings(cfg)
-    gb = b -> round(b / 1024^3, digits = 4)
+    to_gb = b -> round(b / 1024^3, digits = 4)
 
     @info "[STORAGE] Pre-run artifact estimate ($(est.n_segments) segments, $(est.n_batches) batches, $(est.mission_days) mission days):"
-    @info "  -> Payload segment CSVs: $(gb(est.payload_bytes)) GB ($(est.n_points) samples)"
-    @info "  -> Batch metadata:       $(gb(est.batch_meta_bytes)) GB"
-    @info "  -> Event logs:           $(gb(est.event_bytes)) GB"
-    @info "  -> Metrics profile:      $(gb(est.metrics_bytes)) GB (≤ $(est.metrics_rows) rows)"
-    est.mask_bytes > 0 && @info "  -> Mask timeline:        $(gb(est.mask_bytes)) GB"
+    @info "  -> Payload segment CSVs: $(to_gb(est.payload_bytes)) GB ($(est.n_points) samples)"
+    @info "  -> Batch metadata:       $(to_gb(est.batch_meta_bytes)) GB"
+    @info "  -> Event logs:           $(to_gb(est.event_bytes)) GB"
+    @info "  -> Metrics profile:      $(to_gb(est.metrics_bytes)) GB (≤ $(est.metrics_rows) rows)"
+    est.mask_bytes > 0 && @info "  -> Mask timeline:        $(to_gb(est.mask_bytes)) GB"
     est.pointwise_bytes > 0 &&
-        @info "  -> Point-wise masks:     $(gb(est.pointwise_bytes)) GB"
-    @info "  -> Plots:                $(gb(est.plot_bytes)) GB"
-    @info "  -> Logs:                 $(gb(est.log_bytes)) GB"
-    @info "  -> Total:                $(gb(est.total_bytes)) GB, ≈ $(est.file_count) files (budget: $(budget.max_gb) GB, $(budget.max_files) files)"
+        @info "  -> Point-wise masks:     $(to_gb(est.pointwise_bytes)) GB"
+    @info "  -> Plots:                $(to_gb(est.plot_bytes)) GB"
+    @info "  -> Logs:                 $(to_gb(est.log_bytes)) GB"
+    @info "  -> Total:                $(to_gb(est.total_bytes)) GB, ≈ $(est.file_count) files (budget: $(budget.max_gb) GB, $(budget.max_files) files)"
     est.replay_ram_bytes > 0 &&
-        @info "  -> Replay RAM:           $(gb(est.replay_ram_bytes)) GB (budget: $(budget.max_ram_gb) GB)"
+        @info "  -> Replay RAM:           $(to_gb(est.replay_ram_bytes)) GB (budget: $(budget.max_ram_gb) GB)"
 
     max_ram_bytes = budget.max_ram_gb * 1024^3
     if est.replay_ram_bytes > max_ram_bytes
         error(
-            "[STORAGE] Post-processing replay RAM estimate ($(gb(est.replay_ram_bytes)) GB) exceeds storage.max_ram_gb ($(budget.max_ram_gb) GB). Reduce the mission span, disable post_processing.generate_batch_matrix, or raise storage.max_ram_gb.",
+            "[STORAGE] Post-processing replay RAM estimate ($(to_gb(est.replay_ram_bytes)) GB) exceeds storage.max_ram_gb ($(budget.max_ram_gb) GB). Reduce the mission span, disable post_processing.generate_batch_matrix, or raise storage.max_ram_gb.",
         )
     elseif est.replay_ram_bytes > STORAGE_WARN_FRACTION * max_ram_bytes
-        @warn "[STORAGE] Post-processing replay RAM estimate ($(gb(est.replay_ram_bytes)) GB) is within $(round(Int, 100 * (1 - STORAGE_WARN_FRACTION))) % of storage.max_ram_gb ($(budget.max_ram_gb) GB)."
+        @warn "[STORAGE] Post-processing replay RAM estimate ($(to_gb(est.replay_ram_bytes)) GB) is within $(round(Int, 100 * (1 - STORAGE_WARN_FRACTION))) % of storage.max_ram_gb ($(budget.max_ram_gb) GB)."
     end
 
     max_bytes = budget.max_gb * 1024^3
     if !ret.enabled
         if est.total_bytes > max_bytes
             error(
-                "[STORAGE] Estimated storage ($(gb(est.total_bytes)) GB) exceeds the configured budget ($(budget.max_gb) GB) and no mitigation is active. Enable [retention], reduce the mission span, or raise storage.max_storage_gb.",
+                "[STORAGE] Estimated storage ($(to_gb(est.total_bytes)) GB) exceeds the configured budget ($(budget.max_gb) GB) and no mitigation is active. Enable [retention], reduce the mission span, or raise storage.max_storage_gb.",
             )
         elseif est.file_count > budget.max_files
             error(
                 "[STORAGE] Estimated file count ($(est.file_count)) exceeds storage.max_file_count ($(budget.max_files)) and no mitigation is active. Enable [retention], reduce the mission span, or raise the budget.",
             )
         elseif est.total_bytes > STORAGE_WARN_FRACTION * max_bytes
-            @warn "[STORAGE] Estimated storage ($(gb(est.total_bytes)) GB) is within $(round(Int, 100 * (1 - STORAGE_WARN_FRACTION))) % of the configured budget ($(budget.max_gb) GB)."
+            @warn "[STORAGE] Estimated storage ($(to_gb(est.total_bytes)) GB) is within $(round(Int, 100 * (1 - STORAGE_WARN_FRACTION))) % of the configured budget ($(budget.max_gb) GB)."
         else
             @info "  -> Status: estimated footprint within budget"
         end
@@ -1215,7 +1220,7 @@ function check_storage_limits(cfg::AbstractDict)
 
     if steady_bytes > max_bytes
         error(
-            "[STORAGE] Even with retention active, the steady-state footprint ($(gb(steady_bytes)) GB: non-prunable classes + payload capped at the $(gb(ret.watermark_bytes)) GB watermark) exceeds the configured budget ($(budget.max_gb) GB). Reduce the mission span, lower retention.high_watermark_gb, or raise storage.max_storage_gb.",
+            "[STORAGE] Even with retention active, the steady-state footprint ($(to_gb(steady_bytes)) GB: non-prunable classes + payload capped at the $(to_gb(ret.watermark_bytes)) GB watermark) exceeds the configured budget ($(budget.max_gb) GB). Reduce the mission span, lower retention.high_watermark_gb, or raise storage.max_storage_gb.",
         )
     elseif steady_files > budget.max_files
         error(
@@ -1223,16 +1228,16 @@ function check_storage_limits(cfg::AbstractDict)
         )
     end
     if est.total_bytes > max_bytes
-        @warn "[STORAGE] Unbounded projection ($(gb(est.total_bytes)) GB) exceeds the budget ($(budget.max_gb) GB); retention bounds the steady state to ≈ $(gb(steady_bytes)) GB — proceeding."
+        @warn "[STORAGE] Unbounded projection ($(to_gb(est.total_bytes)) GB) exceeds the budget ($(budget.max_gb) GB); retention bounds the steady state to ≈ $(to_gb(steady_bytes)) GB — proceeding."
     end
     grace_sec = ret.grace.value / 1000.0
     grace_payload =
         est.payload_bytes / max(est.n_segments, 1) *
         (grace_sec / Float64(cfg["physics"]["segment_duration_sec"]))
     if grace_payload > ret.watermark_bytes
-        @warn "[STORAGE] Payload generated within one retention.grace_hours window (≈ $(gb(grace_payload)) GB) exceeds retention.high_watermark_gb ($(gb(ret.watermark_bytes)) GB): the custodian cannot honor the grace guarantee and stay below the watermark; the watermark will be exceeded transiently."
+        @warn "[STORAGE] Payload generated within one retention.grace_hours window (≈ $(to_gb(grace_payload)) GB) exceeds retention.high_watermark_gb ($(to_gb(ret.watermark_bytes)) GB): the custodian cannot honor the grace guarantee and stay below the watermark; the watermark will be exceeded transiently."
     end
-    @info "  -> Status: retention active — steady state ≈ $(gb(steady_bytes)) GB, ≈ $steady_files files"
+    @info "  -> Status: retention active — steady state ≈ $(to_gb(steady_bytes)) GB, ≈ $steady_files files"
     return nothing
 end
 
