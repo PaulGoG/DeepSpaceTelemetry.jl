@@ -11,7 +11,13 @@ using StableRNGs
 using Aqua, JET, ExplicitImports
 using DeepSpaceTelemetry
 using DeepSpaceTelemetry:
-    TelemetryCore, ChannelEffects, VirtualInstrument, Emitter, Receiver, PlotTheme
+    TelemetryCore,
+    ChannelEffects,
+    VirtualInstrument,
+    Emitter,
+    Receiver,
+    PlotTheme,
+    Supervisor
 
 # The entire suite writes its runs into a disposable data root: the real
 # data/ tree stays untouched even if the process is killed mid-suite.
@@ -51,6 +57,7 @@ end
             PlotTheme,
             Emitter,
             Receiver,
+            Supervisor,
         ),
     )
 end
@@ -2079,4 +2086,206 @@ end
     legacy = DataFrame(SimTime = [DateTime(2035)], Ground_Archive = [3], Ground_Live = [1])
     @test hasproperty(TelemetryCore.normalize_profile!(legacy), :Ground_Total)
     @test !hasproperty(legacy, :Ground_Archive)
+end
+
+@testset "Configuration accessors: physics and supervision" begin
+    phys = TelemetryCore.physics_settings(valid_test_cfg())
+    @test phys.data_source == "synthetic" && phys.batch_size == 10
+    @test phys.signal_injection_probability == 0.02
+    bad = valid_test_cfg()
+    bad["physics"]["data_source"] = "tape"
+    @test_throws ArgumentError TelemetryCore.physics_settings(bad)
+    @test_throws ArgumentError TelemetryCore.physics_settings(
+        Dict{String,Any}("physics" => Dict{String,Any}("sample_rate" => 4.0)),
+    ) # required keys
+    sup = TelemetryCore.supervision_settings(Dict{String,Any}())
+    @test sup.on_component_failure == "abort" &&
+          sup.max_restarts == 3 &&
+          sup.watchdog_sec == 30.0
+    @test_throws ArgumentError TelemetryCore.supervision_settings(
+        Dict{String,Any}("supervision" => Dict{String,Any}("watchdog_sec" => 0.0)),
+    )
+end
+
+@testset "CleanFileLogger" begin
+    mktempdir() do tmp
+        path = joinpath(tmp, "component.log")
+        with_logger(Supervisor.CleanFileLogger(path, 10_000)) do
+            @info "\e[32mcolored\e[0m message"
+            @warn "trouble" exception = (ErrorException("boom"), backtrace())
+        end
+        lines = readlines(path)
+        @test lines[1] == "[Info] colored message"
+        @test lines[2] == "[Warn] trouble"
+        @test occursin("exception = boom", lines[3])
+        # Rotation: a file beyond the cap is moved aside before the next record.
+        with_logger(Supervisor.CleanFileLogger(path, 10)) do
+            @info "after rotation"
+        end
+        @test readlines(path) == ["[Info] after rotation"]
+        @test count(f -> startswith(f, "component"), readdir(tmp)) == 2
+    end
+end
+
+@testset "Supervisor policies (synthetic components)" begin
+    policy(p; restarts = 2, watchdog = 0.3) =
+        (on_component_failure = p, max_restarts = restarts, watchdog_sec = watchdog)
+    clock = TelemetryCore.SimulationClock(now(), DateTime(2035), 1.0)
+    events(dir) = CSV.read(joinpath(dir, "component_events.csv"), DataFrame)
+    mktempdir() do tmp
+        # abort: a failure raises the stop flag and the partner stops.
+        dir = mkpath(joinpath(tmp, "abort"))
+        stop = Threads.Atomic{Bool}(false)
+        heartbeats = Dict{Symbol,String}(
+            :a => joinpath(dir, "a_alive"),
+            :b => joinpath(dir, "b_alive"),
+        )
+        spawners = Dict{Symbol,Function}(
+            :a => attempt -> Threads.@spawn(begin
+                sleep(0.2)
+                error("component a failed")
+            end),
+            :b => attempt -> Threads.@spawn(begin
+                while !stop[]
+                    sleep(0.02)
+                end
+                :stopped
+            end),
+        )
+        t0 = time()
+        counts = Supervisor.supervise!(
+            spawners,
+            dir,
+            clock,
+            stop,
+            heartbeats,
+            policy("abort");
+            orig_stdout = devnull,
+            poll_sec = 0.05,
+        )
+        @test stop[] && time() - t0 < 5.0
+        @test counts == Dict(:a => 0, :b => 0)
+        ev = events(dir)
+        @test any((ev.Component .== "a") .& (ev.Event .== "down"))
+
+        # restart: the failed component is relaunched after the hook ran.
+        dir = mkpath(joinpath(tmp, "restart"))
+        stop = Threads.Atomic{Bool}(false)
+        hook_calls = Tuple{Symbol,Int}[]
+        spawners = Dict{Symbol,Function}(
+            :a =>
+                attempt -> Threads.@spawn(
+                    attempt == 0 ? error("first launch fails") : sleep(0.05)
+                ),
+            :b => attempt -> Threads.@spawn(sleep(0.05)),
+        )
+        counts = Supervisor.supervise!(
+            spawners,
+            dir,
+            clock,
+            stop,
+            heartbeats,
+            policy("restart");
+            orig_stdout = devnull,
+            poll_sec = 0.05,
+            on_restart = (name, attempt) -> push!(hook_calls, (name, attempt)),
+        )
+        @test counts[:a] == 1 && counts[:b] == 0 && !stop[]
+        @test hook_calls == [(:a, 1)]
+        ev = events(dir)
+        @test [String(e) for e in ev[ev.Component .== "a", :Event]] == ["down", "restart"]
+
+        # continue: the partner keeps running one-sided.
+        dir = mkpath(joinpath(tmp, "continue"))
+        stop = Threads.Atomic{Bool}(false)
+        spawners = Dict{Symbol,Function}(
+            :a => attempt -> Threads.@spawn(error("down for good")),
+            :b => attempt -> Threads.@spawn(sleep(0.4)),
+        )
+        counts = Supervisor.supervise!(
+            spawners,
+            dir,
+            clock,
+            stop,
+            heartbeats,
+            policy("continue");
+            orig_stdout = devnull,
+            poll_sec = 0.05,
+        )
+        @test !stop[] && counts[:a] == 0
+        ev = events(dir)
+        @test all(==("down"), ev.Event) && nrow(ev) == 1
+
+        # watchdog: a silent heartbeat is recorded as stalled, then recovered.
+        dir = mkpath(joinpath(tmp, "watchdog"))
+        stop = Threads.Atomic{Bool}(false)
+        spawners = Dict{Symbol,Function}(
+            :a => attempt -> Threads.@spawn(begin
+                touch(heartbeats[:a])
+                sleep(1.0) # silent for longer than the watchdog threshold
+                touch(heartbeats[:a])
+                sleep(0.2) # heartbeat fresh again, observed by at least one poll
+                rm(heartbeats[:a]; force = true)
+            end),
+            :b => attempt -> Threads.@spawn(sleep(0.05)),
+        )
+        Supervisor.supervise!(
+            spawners,
+            dir,
+            clock,
+            stop,
+            heartbeats,
+            policy("abort"; watchdog = 0.3);
+            orig_stdout = devnull,
+            poll_sec = 0.05,
+        )
+        ev = events(dir)
+        @test [String(e) for e in ev[ev.Component .== "a", :Event]] == ["stalled", "recovered"]
+    end
+end
+
+@testset "Headless mission through Supervisor.run_mission" begin
+    mktempdir() do tmp
+        ext_path = joinpath(tmp, "ext.csv")
+        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:200_000)))
+        cfg = valid_test_cfg()
+        cfg["simulation"]["mission_wall_seconds"] = 4.0
+        cfg["simulation"]["speed_up"] = 1800.0
+        cfg["simulation"]["initial_downtime_days"] = 0.01
+        cfg["physics"]["data_source"] = "external"
+        cfg["physics"]["external_data_path"] = ext_path
+        cfg["physics"]["batch_size"] = 3
+        cfg["telemetry"]["session_start"] = "00:00:00"
+        cfg["telemetry"]["session_duration_hours"] = 24.0
+        cfg["telemetry"]["bandwidth_profile"] = "flat"
+        cfg["telemetry"]["max_batches_per_hour"] = 1800.0
+        cfg["post_processing"] = Dict{String,Any}(
+            "generate_mask_timeline" => true,
+            "expand_to_pointwise_masks" => true,
+            "target_event_rows" => [-1],
+        )
+        run_id = "TEST_RUN_mission_pid$(getpid())"
+        run_dir = with_logger(NullLogger()) do
+            Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull)
+        end
+        try
+            @test run_dir == TelemetryCore.run_directory(run_id)
+            @test isfile(joinpath(run_dir, "RUN_COMPLETE"))
+            @test !isfile(joinpath(run_dir, "RUN_ACTIVE")) &&
+                  !isfile(joinpath(run_dir, "RUN_ABORTED"))
+            @test isfile(joinpath(run_dir, "clock_anchor.toml"))
+            @test isfile(joinpath(run_dir, "mission_profile.csv"))
+            @test isfile(joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"))
+            @test isfile(joinpath(run_dir, "masks", "pointwise_mask_final.csv"))
+            @test filesize(joinpath(run_dir, "emitter.log")) > 0
+            @test filesize(joinpath(run_dir, "receiver.log")) > 0
+            snapshot = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
+            @test haskey(snapshot["provenance"], "external_data_sha256")
+            @test !isfile(joinpath(run_dir, "component_events.csv"))
+            tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+            @test count(==("gen"), tx.Event) > 5
+        finally
+            rm(run_dir; recursive = true, force = true)
+        end
+    end
 end

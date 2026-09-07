@@ -18,6 +18,7 @@ makedocs(
         DeepSpaceTelemetry.PlotTheme,
         DeepSpaceTelemetry.Emitter,
         DeepSpaceTelemetry.Receiver,
+        DeepSpaceTelemetry.Supervisor,
     ],
     pages = [
         "Home" => "index.md",

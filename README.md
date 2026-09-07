@@ -27,12 +27,13 @@ DeepSpaceTelemetry/
 │   ├── VirtualInstrument.jl     # Calibrated strain synthesis and noise PSD (seeded RNG)
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
 │   ├── Emitter.jl               # Satellite state machine (payload/queues)
-│   └── Receiver.jl              # DSN ground station, loss handling, post-processing
+│   ├── Receiver.jl              # DSN ground station, loss handling, post-processing
+│   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
 ├── scripts/
 │   ├── Project.toml             # Script environment (UI/log deps; parent package dev'ed)
 │   ├── Manifest.toml            # Resolved script environment (committed for portability)
 │   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
-│   ├── run_full_sim.jl          # Headless simulation engine ([run_id] [config.toml])
+│   ├── run_full_sim.jl          # Headless entry point ([run_id] [config.toml]) → Supervisor.run_mission
 │   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
 │   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
 │   ├── postprocessing/
@@ -45,7 +46,7 @@ DeepSpaceTelemetry/
 ├── test/
 │   ├── Project.toml             # Test environment (QA deps; parent package dev'ed at ../)
 │   ├── Manifest.toml            # Resolved test environment (committed for portability)
-│   └── runtests.jl              # Static QA + unit + physics + 3 integration suites
+│   └── runtests.jl              # Static QA + unit + physics + 4 integration suites
 ├── bench/
 │   ├── Project.toml             # Benchmark environment (BenchmarkTools; parent dev'ed)
 │   ├── Manifest.toml            # Resolved benchmark environment
@@ -174,8 +175,9 @@ available on the ground.)
 ### 4. Tests & Benchmarks
 
 The static-QA block (Aqua, ExplicitImports, JET), the unit and
-physics-validation suites, and three end-to-end Emitter → Receiver
-integration runs (lossless, retention custodian, deterministic total-loss):
+physics-validation suites, and four end-to-end integration runs (lossless,
+retention custodian, deterministic total-loss, and a headless mission
+through the supervisor):
 
 ```bash
 julia --project=. test/runtests.jl

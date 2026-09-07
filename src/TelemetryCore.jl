@@ -586,6 +586,95 @@ function loss_channel_settings(cfg::AbstractDict)
 end
 
 """
+    physics_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[physics]` parameters: `data_source` (`"synthetic"` or
+`"external"`), `external_data_path` (as configured; consumers resolve it
+against the package root), `sample_rate > 0`, `segment_duration_sec > 0`,
+`batch_size ≥ 1`, and `signal_injection_probability ∈ [0, 1]`, with at
+least two samples per segment (the FFT synthesis block). The four core keys
+are required. The existence of the external file is checked by
+[`validate_config`](@ref) only, so post-processing of a finished run does
+not depend on the input file still being present.
+"""
+function physics_settings(cfg::AbstractDict)
+    phy = get(cfg, "physics", Dict{String,Any}())
+    sample_rate =
+        checked_number(required_value(phy, "physics", "sample_rate"), "physics.sample_rate")
+    sample_rate > 0.0 ||
+        config_error("[CONFIG] physics.sample_rate must be > 0 (got $sample_rate).")
+    segment_duration = checked_number(
+        required_value(phy, "physics", "segment_duration_sec"),
+        "physics.segment_duration_sec",
+    )
+    segment_duration > 0.0 || config_error(
+        "[CONFIG] physics.segment_duration_sec must be > 0 (got $segment_duration).",
+    )
+    batch_size =
+        checked_integer(required_value(phy, "physics", "batch_size"), "physics.batch_size")
+    batch_size >= 1 ||
+        config_error("[CONFIG] physics.batch_size must be ≥ 1 (got $batch_size).")
+    n_samples = sample_rate * segment_duration
+    n_samples >= 2.0 || config_error(
+        "[CONFIG] sample_rate × segment_duration_sec = $n_samples < 2: FFT synthesis needs ≥ 2 samples per segment.",
+    )
+    data_source =
+        checked_string(required_value(phy, "physics", "data_source"), "physics.data_source")
+    data_source in ("synthetic", "external") || config_error(
+        "[CONFIG] Unknown physics.data_source = \"$data_source\" (expected \"synthetic\" or \"external\").",
+    )
+    external_data_path =
+        checked_string(get(phy, "external_data_path", ""), "physics.external_data_path")
+    injection = checked_number(
+        get(phy, "signal_injection_probability", 0.02),
+        "physics.signal_injection_probability",
+    )
+    0.0 <= injection <= 1.0 || config_error(
+        "[CONFIG] physics.signal_injection_probability = $injection outside [0, 1].",
+    )
+    return (
+        data_source = data_source,
+        external_data_path = external_data_path,
+        sample_rate = sample_rate,
+        segment_duration_sec = segment_duration,
+        batch_size = batch_size,
+        signal_injection_probability = injection,
+    )
+end
+
+"""
+    supervision_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[supervision]` parameters: `on_component_failure` (`"abort"`,
+`"continue"`, or `"restart"`, lower-cased; default `"abort"`),
+`max_restarts ≥ 0` (default 3), `watchdog_sec > 0` (default 30).
+"""
+function supervision_settings(cfg::AbstractDict)
+    sup = get(cfg, "supervision", Dict{String,Any}())
+    policy = lowercase(
+        checked_string(
+            get(sup, "on_component_failure", "abort"),
+            "supervision.on_component_failure",
+        ),
+    )
+    policy in ("abort", "continue", "restart") || config_error(
+        "[CONFIG] Unknown supervision.on_component_failure = \"$policy\" (expected \"abort\", \"continue\", or \"restart\").",
+    )
+    max_restarts = checked_integer(get(sup, "max_restarts", 3), "supervision.max_restarts")
+    max_restarts >= 0 ||
+        config_error("[CONFIG] supervision.max_restarts must be ≥ 0 (got $max_restarts).")
+    watchdog_sec =
+        checked_number(get(sup, "watchdog_sec", 30.0), "supervision.watchdog_sec")
+    watchdog_sec > 0.0 ||
+        config_error("[CONFIG] supervision.watchdog_sec must be > 0 (got $watchdog_sec).")
+    return (
+        on_component_failure = policy,
+        max_restarts = max_restarts,
+        watchdog_sec = watchdog_sec,
+    )
+end
+
+"""
     DisruptionEventSettings
 
 One validated `[[disruption.events]]` entry as returned by
@@ -793,38 +882,20 @@ function validate_config(cfg::AbstractDict)
         config_error("[CONFIG] simulation.rng_seed must be an integer (got $(repr(seed))).")
 
     # -- [physics] --
-    sr = checked_number(get(phy, "sample_rate", 0.0), "physics.sample_rate")
-    sr > 0.0 || config_error("[CONFIG] physics.sample_rate must be > 0 (got $sr).")
-    seg_dur = checked_number(
-        get(phy, "segment_duration_sec", 0.0),
-        "physics.segment_duration_sec",
-    )
-    seg_dur > 0.0 ||
-        config_error("[CONFIG] physics.segment_duration_sec must be > 0 (got $seg_dur).")
-    batch_sz = checked_integer(get(phy, "batch_size", 0), "physics.batch_size")
-    batch_sz >= 1 ||
-        config_error("[CONFIG] physics.batch_size must be ≥ 1 (got $batch_sz).")
-
-    n_samples = sr * seg_dur
-    n_samples >= 2.0 || config_error(
-        "[CONFIG] sample_rate × segment_duration_sec = $n_samples < 2: FFT synthesis needs ≥ 2 samples per segment.",
-    )
+    # Types, bounds, and the enumeration through the shared accessor; the
+    # rounding warning and the input-file existence check live here.
+    physics = physics_settings(cfg)
+    seg_dur = physics.segment_duration_sec
+    n_samples = physics.sample_rate * seg_dur
     if !isapprox(n_samples, round(n_samples); atol = 1e-9)
         @warn "[CONFIG] sample_rate × segment_duration_sec = $n_samples is not an integer; segment length is rounded to $(round(Int, n_samples)) samples."
     end
-
-    data_source =
-        checked_string(get(phy, "data_source", "synthetic"), "physics.data_source")
-    if data_source == "external"
-        ext =
-            checked_string(get(phy, "external_data_path", ""), "physics.external_data_path")
-        ext_path = isabspath(ext) ? ext : joinpath(PROJECT_ROOT, ext)
+    if physics.data_source == "external"
+        ext_path =
+            isabspath(physics.external_data_path) ? physics.external_data_path :
+            joinpath(PROJECT_ROOT, physics.external_data_path)
         isfile(ext_path) || config_error(
             "[CONFIG] physics.data_source = \"external\" but external_data_path not found: $ext_path",
-        )
-    elseif data_source != "synthetic"
-        config_error(
-            "[CONFIG] Unknown physics.data_source = \"$data_source\" (expected \"synthetic\" or \"external\").",
         )
     end
 
@@ -836,13 +907,6 @@ function validate_config(cfg::AbstractDict)
     max_batches_per_hour = tel_settings.max_batches_per_hour
     tel_settings.bandwidth_profile in ("sine", "sigmoid", "gaussian", "flat") ||
         @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$(tel_settings.bandwidth_profile)\"; falling back to \"sine\"."
-    injection_probability = checked_number(
-        get(phy, "signal_injection_probability", 0.02),
-        "physics.signal_injection_probability",
-    )
-    0.0 <= injection_probability <= 1.0 || config_error(
-        "[CONFIG] physics.signal_injection_probability = $injection_probability outside [0, 1].",
-    )
 
     # -- Real-time pacing sanity (loop-scheduler corner cases) --
     emitter_period_ms = seg_dur / speed_up * 1000.0
@@ -932,22 +996,7 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [supervision] --
-    sup = get(cfg, "supervision", Dict{String,Any}())
-    if !isempty(sup)
-        pol = lowercase(
-            checked_string(
-                get(sup, "on_component_failure", "abort"),
-                "supervision.on_component_failure",
-            ),
-        )
-        pol in ("abort", "continue", "restart") || config_error(
-            "[CONFIG] Unknown supervision.on_component_failure = \"$pol\" (expected \"abort\", \"continue\", or \"restart\").",
-        )
-        nr = checked_integer(get(sup, "max_restarts", 3), "supervision.max_restarts")
-        nr >= 0 || config_error("[CONFIG] supervision.max_restarts must be ≥ 0 (got $nr).")
-        wd = checked_number(get(sup, "watchdog_sec", 30.0), "supervision.watchdog_sec")
-        wd > 0.0 || config_error("[CONFIG] supervision.watchdog_sec must be > 0 (got $wd).")
-    end
+    supervision_settings(cfg)
 
     # -- [dashboard] / [post_processing] --
     db = get(cfg, "dashboard", Dict{String,Any}())

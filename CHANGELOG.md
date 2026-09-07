@@ -7,6 +7,19 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- `Supervisor` module: `run_mission` is the headless pipeline as a library
+  call (validation, storage gate, models and provenance in a `MissionPlan`,
+  the run directory and lifecycle sentinels on every exit path, supervised
+  components, post-processing); `supervise!` runs any set of component
+  spawners under the abort/continue/restart policies with the heartbeat
+  watchdog, and `CleanFileLogger` is the component log sink (pure `Logging`,
+  no `LoggingExtras`). `scripts/run_full_sim.jl` is argument parsing plus
+  one call; the point-wise mask expansion lives in the package as
+  `Receiver.expand_pointwise_mask`, and `apply_telemetry_mask.jl` is its
+  command-line wrapper. Accessors `physics_settings` and
+  `supervision_settings` complete the configuration layer. New stdlib
+  dependencies `Logging` and `SHA`; the script environment drops
+  `LoggingExtras`, `TerminalLoggers`, `SHA`, `TOML`, `Random`, `Logging`.
 - `metadata.json` carries `content_epoch` (first-sample mission timestamp)
   beside `created_at` (finalization instant); `masks/batch_epochs.csv` gains a
   `ContentEpoch` column. New helpers `read_batch_metadata` and

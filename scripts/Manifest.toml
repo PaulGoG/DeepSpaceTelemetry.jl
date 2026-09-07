@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "e0f404b87f3f36a0e242c0aa6d4587979f6fb780"
+project_hash = "5332d912e4e2290f335aa1594eb764bc9b949953"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -317,7 +317,7 @@ uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 version = "1.11.0"
 
 [[deps.DeepSpaceTelemetry]]
-deps = ["AbstractFFTs", "CSV", "CairoMakie", "DataFrames", "Dates", "FFTW", "FileWatching", "JSON3", "LinearAlgebra", "MathTeXEngine", "PrecompileTools", "ProgressMeter", "Random", "TOML"]
+deps = ["AbstractFFTs", "CSV", "CairoMakie", "DataFrames", "Dates", "FFTW", "FileWatching", "JSON3", "LinearAlgebra", "Logging", "MathTeXEngine", "PrecompileTools", "ProgressMeter", "Random", "SHA", "TOML"]
 path = ".."
 uuid = "d178d3ae-5836-4a75-9bfd-2e34bfeccb6b"
 version = "0.9.0"
@@ -837,12 +837,6 @@ git-tree-sha1 = "a560dd966b386ac9ae60bdd3a3d3a326062d3c3e"
 uuid = "8cdb02fc-e678-4876-92c5-9defec4f444e"
 version = "0.3.1"
 
-[[deps.LeftChildRightSiblingTrees]]
-deps = ["AbstractTrees"]
-git-tree-sha1 = "d4816abce26971e3237b46a47b99991f306e4832"
-uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
-version = "0.3.0"
-
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
@@ -932,12 +926,6 @@ version = "1.0.1"
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 version = "1.11.0"
-
-[[deps.LoggingExtras]]
-deps = ["Dates", "Logging"]
-git-tree-sha1 = "f00544d95982ea270145636c181ceda21c4e2575"
-uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
-version = "1.2.0"
 
 [[deps.MKL_jll]]
 deps = ["Artifacts", "IntelOpenMP_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "oneTBB_jll"]
@@ -1215,12 +1203,6 @@ version = "0.5.7"
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 version = "1.11.0"
-
-[[deps.ProgressLogging]]
-deps = ["Logging", "SHA", "UUIDs"]
-git-tree-sha1 = "f0803bc1171e455a04124affa9c21bba5ac4db32"
-uuid = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
-version = "0.1.6"
 
 [[deps.ProgressMeter]]
 deps = ["Distributed", "Printf"]
@@ -1562,12 +1544,6 @@ deps = ["LinearAlgebra"]
 git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
 uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
 version = "0.1.1"
-
-[[deps.TerminalLoggers]]
-deps = ["LeftChildRightSiblingTrees", "Logging", "Markdown", "Printf", "ProgressLogging", "UUIDs"]
-git-tree-sha1 = "81c9b4137edfe56a56efcdcb35d721b2ce3e2416"
-uuid = "5d786b92-1e48-4d6f-9151-6b4477ca9bed"
-version = "0.1.8"
 
 [[deps.TiffImages]]
 deps = ["CodecZstd", "ColorTypes", "DataStructures", "DocStringExtensions", "FileIO", "FixedPointNumbers", "IndirectArrays", "Inflate", "Mmap", "OffsetArrays", "PkgVersion", "PrecompileTools", "ProgressMeter", "SIMD", "UUIDs"]

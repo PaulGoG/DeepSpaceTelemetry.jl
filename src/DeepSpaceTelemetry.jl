@@ -7,7 +7,7 @@ with stochastic loss and scheduled disruptions, live-FIFO/archive-LIFO
 routing, and provenance-tracked data products. The shipped scenario models
 the LISA mission; the telemetry, channel, and queuing layers are
 mission-agnostic. Submodules: `TelemetryCore`, `ChannelEffects`,
-`VirtualInstrument`, `PlotTheme`, `Emitter`, `Receiver`.
+`VirtualInstrument`, `PlotTheme`, `Emitter`, `Receiver`, `Supervisor`.
 """
 module DeepSpaceTelemetry
 
@@ -17,8 +17,10 @@ include("VirtualInstrument.jl")
 include("PlotTheme.jl")
 include("Emitter.jl")
 include("Receiver.jl")
+include("Supervisor.jl")
 
-export TelemetryCore, ChannelEffects, VirtualInstrument, PlotTheme, Emitter, Receiver
+export TelemetryCore,
+    ChannelEffects, VirtualInstrument, PlotTheme, Emitter, Receiver, Supervisor
 
 using PrecompileTools: @setup_workload, @compile_workload
 using Dates: DateTime, Time, Second

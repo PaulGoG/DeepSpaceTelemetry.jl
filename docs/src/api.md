@@ -32,6 +32,8 @@ DeepSpaceTelemetry.TelemetryCore.aliased_value
 DeepSpaceTelemetry.TelemetryCore.mission_wall_seconds
 DeepSpaceTelemetry.TelemetryCore.normalize_profile!
 DeepSpaceTelemetry.TelemetryCore.telemetry_settings
+DeepSpaceTelemetry.TelemetryCore.physics_settings
+DeepSpaceTelemetry.TelemetryCore.supervision_settings
 DeepSpaceTelemetry.TelemetryCore.visibility_model
 DeepSpaceTelemetry.TelemetryCore.loss_channel_settings
 DeepSpaceTelemetry.TelemetryCore.DisruptionEventSettings
@@ -142,7 +144,25 @@ DeepSpaceTelemetry.Receiver.reconstruct_batch_states
 DeepSpaceTelemetry.Receiver.batch_states
 DeepSpaceTelemetry.Receiver.generate_telemetry_masks
 DeepSpaceTelemetry.Receiver.delivered_payload_queue
+DeepSpaceTelemetry.Receiver.expand_pointwise_mask
 DeepSpaceTelemetry.Receiver.run_receiver
+```
+
+## Supervisor
+```@docs
+DeepSpaceTelemetry.Supervisor
+DeepSpaceTelemetry.Supervisor.CleanFileLogger
+DeepSpaceTelemetry.Supervisor.strip_ansi
+DeepSpaceTelemetry.Supervisor.MissionPlan
+DeepSpaceTelemetry.Supervisor.mission_plan
+DeepSpaceTelemetry.Supervisor.stamp_external_provenance!
+DeepSpaceTelemetry.Supervisor.record_generation_gap!
+DeepSpaceTelemetry.Supervisor.log_component_event!
+DeepSpaceTelemetry.Supervisor.supervise!
+DeepSpaceTelemetry.Supervisor.component_spawners
+DeepSpaceTelemetry.Supervisor.post_process!
+DeepSpaceTelemetry.Supervisor.execute_mission!
+DeepSpaceTelemetry.Supervisor.run_mission
 ```
 
 ## PlotTheme

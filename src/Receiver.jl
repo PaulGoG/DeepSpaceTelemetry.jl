@@ -1049,6 +1049,52 @@ function generate_telemetry_masks(run_dir::String)
 end
 
 """
+    expand_pointwise_mask(run_dir, total_points, event_idx, output_path) -> Int
+
+Expands one row of `masks/telemetry_mask_timeline.csv` (`event_idx`; `-1`
+selects the final snapshot) into a point-wise 0/1 availability array of
+`total_points` samples — 1 where the owning batch is on the ground
+(state 3); states 0 (future), 1 (onboard), 2 (link), and 4 (lost) stay 0, a
+lost batch never becoming available — and writes it as
+`Time_Index, Ground_Available` to `output_path` (with `safe_csv_write`
+rotation). Points per batch follow the run's own configuration snapshot.
+Returns the number of available points.
+"""
+function expand_pointwise_mask(
+    run_dir::String,
+    total_points::Int,
+    event_idx::Int,
+    output_path::String,
+)
+    mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
+    isfile(mask_path) || error("[POST] Telemetry mask not found at: $mask_path")
+    physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
+    points_per_batch =
+        round(Int, physics.sample_rate * physics.segment_duration_sec * physics.batch_size)
+    mask_df = CSV.read(mask_path, DataFrame)
+    target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
+    1 <= target_idx <= nrow(mask_df) || error(
+        "[POST] Event index $target_idx is out of bounds: the timeline has $(nrow(mask_df)) events.",
+    )
+    event_row = mask_df[target_idx, :]
+    @info "[POST] Expanding mask row $target_idx ($(event_row.SimTime)) to $total_points points ($points_per_batch per batch)."
+    point_mask = zeros(Int8, total_points)
+    for (batch_index, status) in enumerate(Vector(event_row[2:end]))
+        status == 3 || continue
+        start_idx = (batch_index - 1) * points_per_batch + 1
+        start_idx <= total_points || continue
+        point_mask[start_idx:min(start_idx+points_per_batch-1, total_points)] .= 1
+    end
+    TelemetryCore.safe_csv_write(
+        output_path,
+        DataFrame(Time_Index = 1:total_points, Ground_Available = point_mask),
+    )
+    available = count(==(1), point_mask)
+    @info "[POST] Point-wise mask saved to $output_path: $available of $total_points points available on the ground ($(round(100 * available / total_points, digits = 2)) %)."
+    return available
+end
+
+"""
     delivered_payload_queue(run_dir::String, ground_path::String)
         -> Vector{Tuple{DateTime,String,Int}}
 
