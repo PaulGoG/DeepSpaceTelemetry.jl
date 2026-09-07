@@ -3,7 +3,7 @@
 
 Science-payload data source: amplitude-calibrated synthetic LISA strain via
 windowed overlap-add FFT synthesis against the analytic one-sided noise PSD,
-or gapless chunked ingestion of an external CSV time series.
+or gapless segmented ingestion of an external CSV time series.
 """
 module VirtualInstrument
 
@@ -245,8 +245,8 @@ end
 """
     next_segment!(vi::InstrumentState)
 
-Produces the next temporal segment of science data. Automatically handles
-chunking of external arrays or generation of synthetic noise. Synthetic
+Produces the next temporal segment of science data, either sliced from the
+external array or synthesized as calibrated noise. Synthetic
 segments are phase-continuous across calls: each segment is the sum of the
 previous block's overlap-add tail and the head of a freshly synthesized
 windowed block (see [`InstrumentState`](@ref)).

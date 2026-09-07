@@ -6,7 +6,7 @@ interval** is documented inline in `config.toml`; `validate_config` enforces
 them at startup — code-breaking values abort with a precise message, suspicious
 ones warn. Type mismatches (quoted numbers, float counts) and malformed TOML
 abort with clean `[CONFIG]` errors; a corrupt run snapshot falls back to the
-project config with a warning so post-processing of old runs never dies on it.
+project config with a warning, so post-processing of an old run is never aborted by it.
 
 Storage is governed up front: `check_storage_limits` prints a per-artifact
 estimate (payload, metadata, event logs, metrics, masks, plots, logs, file

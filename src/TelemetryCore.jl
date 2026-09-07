@@ -1559,7 +1559,8 @@ end
 """
     DataSegment
 
-A continuous 1D time-series array representing a specific chunk of physical observations.
+One contiguous segment of the observed time series: the samples of
+`segment_duration_sec` starting at `timestamp`.
 """
 struct DataSegment
     id::Int
