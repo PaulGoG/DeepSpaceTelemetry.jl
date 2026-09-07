@@ -88,13 +88,14 @@ const TEST_DURATION_SEC = Float64(cfg["simulation"]["test_duration_sec"])
 const INITIAL_DOWNTIME_DAYS = Float64(cfg["simulation"]["initial_downtime_days"])
 const RNG_SEED = Int(get(cfg["simulation"], "rng_seed", 0))
 
-const MAX_BATCHES_PER_HOUR = Float64(cfg["telemetry"]["max_batches_per_hour"])
+const TELEMETRY = DeepSpaceTelemetry.TelemetryCore.telemetry_settings(cfg)
+const MAX_BATCHES_PER_HOUR = TELEMETRY.max_batches_per_hour
 
 const DATA_SOURCE = get(cfg["physics"], "data_source", "synthetic")
 const SIGNAL_INJECTION_PROBABILITY =
     Float64(get(cfg["physics"], "signal_injection_probability", 0.02))
-const MAX_INFLIGHT_BATCHES = Int(get(cfg["telemetry"], "max_inflight_batches", 5))
-const MIN_LINK_FACTOR = Float64(get(cfg["telemetry"], "min_link_factor", 0.05))
+const MAX_INFLIGHT_BATCHES = TELEMETRY.max_inflight_batches
+const MIN_LINK_FACTOR = TELEMETRY.min_link_factor
 const EXT_PATH = get(cfg["physics"], "external_data_path", "")
 const SAMPLE_RATE = Float64(cfg["physics"]["sample_rate"])
 const SEG_DUR = Float64(cfg["physics"]["segment_duration_sec"])

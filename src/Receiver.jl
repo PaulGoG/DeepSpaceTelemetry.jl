@@ -40,7 +40,7 @@ using CairoMakie:
     xlims!,
     ylims!
 using DataFrames: DataFrames, DataFrame, nrow
-using Dates: Dates, Date, DateTime, Day, Hour, Millisecond, Second, Time, now
+using Dates: Dates, Date, DateTime, Day, Hour, Millisecond, Second, now
 using FileWatching: FileWatching, watch_folder
 
 """
@@ -65,18 +65,10 @@ function generate_mission_plots(run_dir::String)
     end
 
     cfg = TelemetryCore.load_run_config(run_dir)
-    tel = get(cfg, "telemetry", Dict{String,Any}())
-    session_start_time = Time(get(tel, "session_start", "08:00:00"))
-    session_dur =
-        Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
-    bw_profile = String(get(tel, "bandwidth_profile", "sine"))
-    vis_model = TelemetryCore.VisibilityModel(
-        session_start_time,
-        session_dur,
-        bw_profile,
-        Float64(get(tel, "sigmoid_steepness", 10.0)),
-        Float64(get(tel, "gaussian_sigma", 0.15)),
-    )
+    tel_settings = TelemetryCore.telemetry_settings(cfg)
+    session_start_time = tel_settings.session_start
+    session_dur = tel_settings.session_duration
+    vis_model = TelemetryCore.visibility_model(cfg)
 
     # Disruption timeline from the run snapshot (empty for legacy/stub
     # configs). A malformed snapshot must not abort post-processing of an
@@ -990,18 +982,10 @@ function generate_telemetry_masks(run_dir::String)
     end
 
     cfg = TelemetryCore.load_run_config(run_dir)
-    tel = get(cfg, "telemetry", Dict{String,Any}())
-    session_start_time = Time(get(tel, "session_start", "08:00:00"))
-    session_dur =
-        Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
-    bw_profile = String(get(tel, "bandwidth_profile", "sine"))
-    vis_model = TelemetryCore.VisibilityModel(
-        session_start_time,
-        session_dur,
-        bw_profile,
-        Float64(get(tel, "sigmoid_steepness", 10.0)),
-        Float64(get(tel, "gaussian_sigma", 0.15)),
-    )
+    tel_settings = TelemetryCore.telemetry_settings(cfg)
+    session_start_time = tel_settings.session_start
+    session_dur = tel_settings.session_duration
+    vis_model = TelemetryCore.visibility_model(cfg)
 
     states = batch_states(run_dir, df, vis_model)
     # True maximum batch ID, not the batch count: the ID space may carry

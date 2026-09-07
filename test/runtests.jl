@@ -2007,3 +2007,53 @@ end
         end
     end
 end
+
+@testset "Configuration accessors (single-sourced bounds)" begin
+    # Defaults for an absent section, and the builders reading through the
+    # same accessor the validator uses.
+    tel = TelemetryCore.telemetry_settings(Dict{String,Any}())
+    @test tel.session_start == Time(8) && tel.session_duration == Second(8 * 3600)
+    @test tel.max_inflight_batches == 5 && tel.min_link_factor == 0.05
+    vm = TelemetryCore.visibility_model(
+        Dict{String,Any}(
+            "telemetry" => Dict{String,Any}(
+                "session_start" => "20:00:00",
+                "session_duration_hours" => 6.0,
+                "bandwidth_profile" => "gaussian",
+                "gaussian_sigma" => 0.2,
+            ),
+        ),
+    )
+    @test vm.session_start == Time(20) &&
+          vm.profile == "gaussian" &&
+          vm.gaussian_sigma == 0.2
+    @test_throws ArgumentError TelemetryCore.telemetry_settings(
+        Dict{String,Any}("telemetry" => Dict{String,Any}("max_inflight_batches" => 0)),
+    )
+
+    loss = TelemetryCore.loss_channel_settings(Dict{String,Any}())
+    @test !loss.enabled && loss.model == "bernoulli" && loss.max_retries == 3
+    # A malformed-but-disabled section fails fast through every consumer.
+    disabled_bad = Dict{String,Any}(
+        "packet_loss" => Dict{String,Any}("enabled" => false, "p_loss_bad" => 2.0),
+    )
+    @test_throws ArgumentError TelemetryCore.loss_channel_settings(disabled_bad)
+    @test_throws ArgumentError ChannelEffects.build_loss_model(disabled_bad, 1)
+    @test_throws ArgumentError ChannelEffects.loss_retry_limit(disabled_bad)
+
+    events = TelemetryCore.disruption_event_settings(
+        Dict{String,Any}(
+            "disruption" => Dict{String,Any}(
+                "events" => Any[Dict{String,Any}(
+                    "start_day" => 1.5,
+                    "duration_hours" => 2.0,
+                ),],
+            ),
+        ),
+    )
+    @test length(events) == 1 && events[1].start_day == 1.5 && events[1].severity == 1.0
+    @test events[1].type == "link_disruption" && events[1].loss_multiplier == 1.0
+    @test_throws ArgumentError TelemetryCore.disruption_event_settings(
+        Dict{String,Any}("disruption" => Dict{String,Any}("events" => Any["not a table"])),
+    )
+end

@@ -383,6 +383,224 @@ const KNOWN_EVENT_KEYS = [
     "loss_multiplier",
 ]
 
+# --- Configuration accessors ---
+# Validated, typed views of the configuration sections consumed by more than
+# one component. The validator, the channel builders, the storage estimator,
+# the post-processing tools, and the entry-point script all read through
+# these, so every bound is enforced in exactly one place and every consumer
+# sees the same defaults.
+
+"""
+    telemetry_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[telemetry]` parameters: `session_start::Time`,
+`session_duration::Second`, `bandwidth_profile::String`,
+`sigmoid_steepness`, `gaussian_sigma`, `max_batches_per_hour`,
+`max_inflight_batches::Int`, and `min_link_factor`. Bounds are enforced with
+`[CONFIG]` errors; absent keys take the documented defaults (post-processing
+of legacy snapshots), while the live-config required-key policy is applied
+by [`validate_config`](@ref).
+"""
+function telemetry_settings(cfg::AbstractDict)
+    tel = get(cfg, "telemetry", Dict{String,Any}())
+    start_raw = get(tel, "session_start", "08:00:00")
+    session_start = try
+        Time(start_raw)
+    catch
+        config_error("[CONFIG] telemetry.session_start is not a parseable time: $start_raw")
+    end
+    session_hours = checked_number(
+        get(tel, "session_duration_hours", 8.0),
+        "telemetry.session_duration_hours",
+    )
+    0.0 < session_hours <= 24.0 || config_error(
+        "[CONFIG] telemetry.session_duration_hours must lie in (0, 24] (got $session_hours): the daily scheduler wraps Time arithmetic at 24 h.",
+    )
+    max_batches_per_hour = checked_number(
+        get(tel, "max_batches_per_hour", 20.0),
+        "telemetry.max_batches_per_hour",
+    )
+    max_batches_per_hour > 0.0 || config_error(
+        "[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $max_batches_per_hour).",
+    )
+    bandwidth_profile =
+        checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
+    max_inflight = checked_integer(
+        get(tel, "max_inflight_batches", 5),
+        "telemetry.max_inflight_batches",
+    )
+    max_inflight >= 1 || config_error(
+        "[CONFIG] telemetry.max_inflight_batches must be ≥ 1 (got $max_inflight).",
+    )
+    min_link_factor =
+        checked_number(get(tel, "min_link_factor", 0.05), "telemetry.min_link_factor")
+    0.0 <= min_link_factor < 1.0 || config_error(
+        "[CONFIG] telemetry.min_link_factor = $min_link_factor outside [0, 1).",
+    )
+    sigmoid_steepness =
+        checked_number(get(tel, "sigmoid_steepness", 10.0), "telemetry.sigmoid_steepness")
+    sigmoid_steepness > 0.0 || config_error(
+        "[CONFIG] telemetry.sigmoid_steepness must be > 0 (got $sigmoid_steepness).",
+    )
+    gaussian_sigma =
+        checked_number(get(tel, "gaussian_sigma", 0.15), "telemetry.gaussian_sigma")
+    gaussian_sigma > 0.0 ||
+        config_error("[CONFIG] telemetry.gaussian_sigma must be > 0 (got $gaussian_sigma).")
+    return (
+        session_start = session_start,
+        session_duration = Second(round(Int, session_hours * 3600)),
+        bandwidth_profile = bandwidth_profile,
+        sigmoid_steepness = sigmoid_steepness,
+        gaussian_sigma = gaussian_sigma,
+        max_batches_per_hour = max_batches_per_hour,
+        max_inflight_batches = max_inflight,
+        min_link_factor = min_link_factor,
+    )
+end
+
+"""
+    visibility_model(cfg::AbstractDict) -> VisibilityModel
+
+The [`VisibilityModel`](@ref) described by `[telemetry]`, built from
+[`telemetry_settings`](@ref).
+"""
+function visibility_model(cfg::AbstractDict)
+    s = telemetry_settings(cfg)
+    return VisibilityModel(
+        s.session_start,
+        s.session_duration,
+        s.bandwidth_profile,
+        s.sigmoid_steepness,
+        s.gaussian_sigma,
+    )
+end
+
+"""
+    loss_channel_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[packet_loss]` parameters: `enabled`, `model` (`"bernoulli"` or
+`"gilbert_elliott"`, lower-cased), the five probabilities `p_loss`,
+`p_good_to_bad`, `p_bad_to_good`, `p_loss_good`, `p_loss_bad` (each in
+`[0, 1]`), `on_loss` (`"retransmit"` or `"drop"`), and `max_retries ≥ 0`.
+Types, enumerations, and bounds are enforced regardless of `enabled`: a
+malformed-but-disabled section fails fast instead of lying dormant.
+"""
+function loss_channel_settings(cfg::AbstractDict)
+    pl = get(cfg, "packet_loss", Dict{String,Any}())
+    enabled = checked_flag(get(pl, "enabled", false), "packet_loss.enabled")
+    model = lowercase(checked_string(get(pl, "model", "bernoulli"), "packet_loss.model"))
+    model in ("bernoulli", "gilbert_elliott") || config_error(
+        "[CONFIG] Unknown packet_loss.model = \"$model\" (expected \"bernoulli\" or \"gilbert_elliott\").",
+    )
+    probability =
+        (key, default) -> begin
+            v = checked_number(get(pl, key, default), "packet_loss.$key")
+            0.0 <= v <= 1.0 ||
+                config_error("[CONFIG] packet_loss.$key = $v outside [0, 1].")
+            v
+        end
+    on_loss =
+        lowercase(checked_string(get(pl, "on_loss", "retransmit"), "packet_loss.on_loss"))
+    on_loss in ("retransmit", "drop") || config_error(
+        "[CONFIG] Unknown packet_loss.on_loss = \"$on_loss\" (expected \"retransmit\" or \"drop\").",
+    )
+    max_retries = checked_integer(get(pl, "max_retries", 3), "packet_loss.max_retries")
+    max_retries >= 0 ||
+        config_error("[CONFIG] packet_loss.max_retries must be ≥ 0 (got $max_retries).")
+    return (
+        enabled = enabled,
+        model = model,
+        p_loss = probability("p_loss", 0.05),
+        p_good_to_bad = probability("p_good_to_bad", 0.0),
+        p_bad_to_good = probability("p_bad_to_good", 1.0),
+        p_loss_good = probability("p_loss_good", 0.0),
+        p_loss_bad = probability("p_loss_bad", 0.0),
+        on_loss = on_loss,
+        max_retries = max_retries,
+    )
+end
+
+"""
+    DisruptionEventSettings
+
+One validated `[[disruption.events]]` entry as returned by
+[`disruption_event_settings`](@ref).
+"""
+const DisruptionEventSettings = NamedTuple{
+    (
+        :type,
+        :label,
+        :start_day,
+        :duration_hours,
+        :recovery_hours,
+        :severity,
+        :loss_multiplier,
+    ),
+    Tuple{String,String,Float64,Float64,Float64,Float64,Float64},
+}
+
+"""
+    disruption_event_settings(cfg::AbstractDict) -> Vector{DisruptionEventSettings}
+
+Validated `[[disruption.events]]` entries in file order (the legacy
+`[[disaster.events]]` section name is accepted): `type`, `label`,
+`start_day ≥ 0`, `duration_hours > 0`, `recovery_hours ≥ 0`,
+`severity ∈ [0, 1]`, `loss_multiplier`. A malformed event raises an error
+rather than being skipped: a silently missing disruption invalidates the
+scenario.
+"""
+function disruption_event_settings(cfg::AbstractDict)
+    d = get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}()))
+    events = DisruptionEventSettings[]
+    for (i, e) in enumerate(get(d, "events", Any[]))
+        e isa AbstractDict ||
+            config_error("[CONFIG] disruption.events[$i] must be a table of event keys.")
+        start_day =
+            checked_number(get(e, "start_day", -1.0), "disruption.events[$i].start_day")
+        start_day >= 0.0 || config_error(
+            "[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).",
+        )
+        duration_hours = checked_number(
+            get(e, "duration_hours", 24.0),
+            "disruption.events[$i].duration_hours",
+        )
+        duration_hours > 0.0 || config_error(
+            "[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $duration_hours).",
+        )
+        recovery_hours = checked_number(
+            get(e, "recovery_hours", 0.0),
+            "disruption.events[$i].recovery_hours",
+        )
+        recovery_hours >= 0.0 || config_error(
+            "[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $recovery_hours).",
+        )
+        severity = checked_number(get(e, "severity", 1.0), "disruption.events[$i].severity")
+        0.0 <= severity <= 1.0 || config_error(
+            "[CONFIG] disruption.events[$i].severity = $severity outside [0, 1].",
+        )
+        loss_multiplier = checked_number(
+            get(e, "loss_multiplier", 1.0),
+            "disruption.events[$i].loss_multiplier",
+        )
+        push!(
+            events,
+            (
+                type = checked_string(
+                    get(e, "type", "link_disruption"),
+                    "disruption.events[$i].type",
+                ),
+                label = checked_string(get(e, "label", ""), "disruption.events[$i].label"),
+                start_day = start_day,
+                duration_hours = duration_hours,
+                recovery_hours = recovery_hours,
+                severity = severity,
+                loss_multiplier = loss_multiplier,
+            ),
+        )
+    end
+    return events
+end
+
 """
     validate_config(cfg::AbstractDict)
 
@@ -549,47 +767,13 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [telemetry] --
-    haskey(tel, "session_start") ||
-        config_error("[CONFIG] telemetry.session_start is required.")
-    try
-        Time(tel["session_start"])
-    catch
-        config_error(
-            "[CONFIG] telemetry.session_start is not a parseable time: $(tel["session_start"])",
-        )
-    end
-    sess_h = checked_number(
-        get(tel, "session_duration_hours", 0.0),
-        "telemetry.session_duration_hours",
-    )
-    0.0 < sess_h <= 24.0 || config_error(
-        "[CONFIG] telemetry.session_duration_hours must lie in (0, 24] (got $sess_h): the daily scheduler wraps Time arithmetic at 24 h.",
-    )
-    max_batches_per_hour = checked_number(
-        get(tel, "max_batches_per_hour", 0.0),
-        "telemetry.max_batches_per_hour",
-    )
-    max_batches_per_hour > 0.0 || config_error(
-        "[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $max_batches_per_hour).",
-    )
-    profile =
-        checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
-    max_inflight = checked_integer(
-        get(tel, "max_inflight_batches", 5),
-        "telemetry.max_inflight_batches",
-    )
-    max_inflight >= 1 || config_error(
-        "[CONFIG] telemetry.max_inflight_batches must be ≥ 1 (got $max_inflight).",
-    )
-    min_link_factor =
-        checked_number(get(tel, "min_link_factor", 0.05), "telemetry.min_link_factor")
-    0.0 <= min_link_factor < 1.0 || config_error(
-        "[CONFIG] telemetry.min_link_factor = $min_link_factor outside [0, 1).",
-    )
-    for (key, default) in (("sigmoid_steepness", 10.0), ("gaussian_sigma", 0.15))
-        v = checked_number(get(tel, key, default), "telemetry.$key")
-        v > 0.0 || config_error("[CONFIG] telemetry.$key must be > 0 (got $v).")
-    end
+    # Types and bounds are enforced by the shared accessor (also consumed by
+    # the link builder, the receiver, and the entry point); only the
+    # non-fatal profile check lives here.
+    tel_settings = telemetry_settings(cfg)
+    max_batches_per_hour = tel_settings.max_batches_per_hour
+    tel_settings.bandwidth_profile in ("sine", "sigmoid", "gaussian", "flat") ||
+        @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$(tel_settings.bandwidth_profile)\"; falling back to \"sine\"."
     injection_probability = checked_number(
         get(phy, "signal_injection_probability", 0.02),
         "physics.signal_injection_probability",
@@ -597,8 +781,6 @@ function validate_config(cfg::AbstractDict)
     0.0 <= injection_probability <= 1.0 || config_error(
         "[CONFIG] physics.signal_injection_probability = $injection_probability outside [0, 1].",
     )
-    profile in ("sine", "sigmoid", "gaussian", "flat") ||
-        @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$profile\"; falling back to \"sine\"."
 
     # -- Real-time pacing sanity (loop-scheduler corner cases) --
     emitter_period_ms = seg_dur / speed_up * 1000.0
@@ -616,60 +798,26 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [packet_loss] --
-    # Types, enumerations, and bounds are enforced regardless of `enabled`:
-    # a malformed-but-disabled section must fail fast, not lie dormant.
-    pl = get(cfg, "packet_loss", Dict{String,Any}())
-    if !isempty(pl)
-        loss_enabled = checked_flag(get(pl, "enabled", false), "packet_loss.enabled")
-        model =
-            lowercase(checked_string(get(pl, "model", "bernoulli"), "packet_loss.model"))
-        model in ("bernoulli", "gilbert_elliott") || config_error(
-            "[CONFIG] Unknown packet_loss.model = \"$model\" (expected \"bernoulli\" or \"gilbert_elliott\").",
-        )
-        for key in ("p_loss", "p_good_to_bad", "p_bad_to_good", "p_loss_good", "p_loss_bad")
-            if haskey(pl, key)
-                v = checked_number(pl[key], "packet_loss.$key")
-                0.0 <= v <= 1.0 ||
-                    config_error("[CONFIG] packet_loss.$key = $v outside [0, 1].")
-            end
+    # Types, enumerations, and bounds are enforced by the shared accessor
+    # regardless of `enabled`: a malformed-but-disabled section must fail
+    # fast, not lie dormant. Only the cross-key physics warnings live here.
+    loss = loss_channel_settings(cfg)
+    events = disruption_event_settings(cfg)
+    if loss.enabled
+        if loss.model == "gilbert_elliott" && loss.p_bad_to_good == 0.0
+            @warn "[CONFIG] packet_loss.p_bad_to_good = 0: once the channel enters the BAD state it never recovers."
         end
-        on_loss = lowercase(
-            checked_string(get(pl, "on_loss", "retransmit"), "packet_loss.on_loss"),
-        )
-        on_loss in ("retransmit", "drop") || config_error(
-            "[CONFIG] Unknown packet_loss.on_loss = \"$on_loss\" (expected \"retransmit\" or \"drop\").",
-        )
-        retries = checked_integer(get(pl, "max_retries", 3), "packet_loss.max_retries")
-        retries >= 0 ||
-            config_error("[CONFIG] packet_loss.max_retries must be ≥ 0 (got $retries).")
-        if loss_enabled
-            if model == "gilbert_elliott" && Float64(get(pl, "p_bad_to_good", 0.0)) == 0.0
-                @warn "[CONFIG] packet_loss.p_bad_to_good = 0: once the channel enters the BAD state it never recovers."
-            end
-            # Saturation: the worst-channel-state per-attempt loss composed
-            # with the largest disruption loss multiplier. At or above 1,
-            # every transfer fails while that regime is active.
-            p_worst =
-                model == "gilbert_elliott" ? Float64(get(pl, "p_loss_bad", 0.0)) :
-                Float64(get(pl, "p_loss", 0.05))
-            events = get(
-                get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}())),
-                "events",
-                Any[],
-            )
-            max_mult = 1.0
-            for e in events
-                e isa AbstractDict || continue
-                m = get(e, "loss_multiplier", 1.0)
-                m isa Real && !(m isa Bool) && (max_mult = max(max_mult, Float64(m)))
-            end
-            if p_worst * max_mult >= 1.0
-                regime =
-                    max_mult > 1.0 ?
-                    "while a disruption loss multiplier (× $max_mult) is active" :
-                    "at all times"
-                @warn "[CONFIG] Loss saturation: worst-state per-attempt loss $p_worst × multiplier reaches ≥ 1 — every transfer fails $regime; affected batches exhaust max_retries and land in lost/."
-            end
+        # Saturation: the worst-channel-state per-attempt loss composed with
+        # the largest disruption loss multiplier. At or above 1, every
+        # transfer fails while that regime is active.
+        p_worst = loss.model == "gilbert_elliott" ? loss.p_loss_bad : loss.p_loss
+        max_mult = maximum((ev.loss_multiplier for ev in events); init = 1.0)
+        if p_worst * max_mult >= 1.0
+            regime =
+                max_mult > 1.0 ?
+                "while a disruption loss multiplier (× $max_mult) is active" :
+                "at all times"
+            @warn "[CONFIG] Loss saturation: worst-state per-attempt loss $p_worst × multiplier reaches ≥ 1 — every transfer fails $regime; affected batches exhaust max_retries and land in lost/."
         end
     end
 
@@ -677,42 +825,23 @@ function validate_config(cfg::AbstractDict)
     haskey(cfg, "disaster") &&
         !haskey(cfg, "disruption") &&
         @warn "[CONFIG] The [disaster] section name is deprecated — rename it to [disruption]."
-    d = get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}()))
     mission_days = test_dur * speed_up / 86_400.0
     event_windows = Tuple{Float64,Float64,Int}[] # (start_h, end_h incl. ramp, event index)
-    for (i, e) in enumerate(get(d, "events", Any[]))
-        start_day =
-            checked_number(get(e, "start_day", -1.0), "disruption.events[$i].start_day")
-        start_day >= 0.0 || config_error(
-            "[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).",
-        )
-        dur_h = checked_number(
-            get(e, "duration_hours", 24.0),
-            "disruption.events[$i].duration_hours",
-        )
-        dur_h > 0.0 || config_error(
-            "[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $dur_h).",
-        )
-        rec_h = checked_number(
-            get(e, "recovery_hours", 0.0),
-            "disruption.events[$i].recovery_hours",
-        )
-        rec_h >= 0.0 || config_error(
-            "[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $rec_h).",
-        )
-        sev = checked_number(get(e, "severity", 1.0), "disruption.events[$i].severity")
-        0.0 <= sev <= 1.0 ||
-            config_error("[CONFIG] disruption.events[$i].severity = $sev outside [0, 1].")
-        if start_day >= mission_days
+    for (i, ev) in enumerate(events)
+        ev.loss_multiplier >= 1.0 ||
+            @warn "[CONFIG] disruption.events[$i].loss_multiplier < 1 reduces loss during the event."
+        end_h = ev.start_day * 24.0 + ev.duration_hours + ev.recovery_hours
+        if ev.start_day >= mission_days
             # Inclusive boundary: an event at the exact final instant is
             # never simulated either.
-            @warn "[CONFIG] disruption.events[$i] starts on mission day $start_day but the mission spans only $(round(mission_days, digits=2)) days: the event never fires."
-        elseif sev >= 1.0 && start_day * 24.0 + dur_h >= mission_days * 24.0
-            @warn "[CONFIG] disruption.events[$i] blacks out the link from day $start_day to mission end: no batch after the event onset will ever reach the ground."
-        elseif start_day * 24.0 + dur_h + rec_h > mission_days * 24.0
-            @warn "[CONFIG] disruption.events[$i] extends beyond mission end (blackout + recovery reach day $(round((start_day * 24.0 + dur_h + rec_h) / 24.0, digits=2)) of $(round(mission_days, digits=2))): the tail is truncated and never observed."
+            @warn "[CONFIG] disruption.events[$i] starts on mission day $(ev.start_day) but the mission spans only $(round(mission_days, digits=2)) days: the event never fires."
+        elseif ev.severity >= 1.0 &&
+               ev.start_day * 24.0 + ev.duration_hours >= mission_days * 24.0
+            @warn "[CONFIG] disruption.events[$i] blacks out the link from day $(ev.start_day) to mission end: no batch after the event onset will ever reach the ground."
+        elseif end_h > mission_days * 24.0
+            @warn "[CONFIG] disruption.events[$i] extends beyond mission end (blackout + recovery reach day $(round(end_h / 24.0, digits=2)) of $(round(mission_days, digits=2))): the tail is truncated and never observed."
         end
-        push!(event_windows, (start_day * 24.0, start_day * 24.0 + dur_h + rec_h, i))
+        push!(event_windows, (ev.start_day * 24.0, end_h, i))
     end
     sort!(event_windows, by = first)
     for k in 2:length(event_windows)
@@ -1013,11 +1142,9 @@ function estimate_artifacts(cfg::AbstractDict)
         "simulation.initial_downtime_days",
     )
 
-    pl = get(cfg, "packet_loss", Dict{String,Any}())
-    loss_enabled = checked_flag(get(pl, "enabled", false), "packet_loss.enabled")
-    retries =
-        loss_enabled ?
-        checked_integer(get(pl, "max_retries", 3), "packet_loss.max_retries") : 0
+    loss = loss_channel_settings(cfg)
+    loss_enabled = loss.enabled
+    retries = loss.enabled ? loss.max_retries : 0
 
     cal =
         key -> Float64(get(st, key, getproperty(STORAGE_CALIBRATION_DEFAULTS, Symbol(key))))
@@ -1103,24 +1230,16 @@ function estimate_artifacts(cfg::AbstractDict)
     # the expected terminal-loss fraction follows from the configured loss
     # model (per-attempt rate p_eff; retransmit → p_eff^(max_retries + 1),
     # drop → p_eff).
-    loss_model =
-        lowercase(checked_string(get(pl, "model", "bernoulli"), "packet_loss.model"))
-    p_eff = if !loss_enabled
+    p_eff = if !loss.enabled
         0.0
-    elseif loss_model == "gilbert_elliott"
-        p_g2b = checked_number(get(pl, "p_good_to_bad", 0.0), "packet_loss.p_good_to_bad")
-        p_b2g =
-            checked_number(get(pl, "p_bad_to_good", 1.0), "packet_loss.p_bad_to_good")
-        pi_bad = p_g2b + p_b2g > 0.0 ? p_g2b / (p_g2b + p_b2g) : 0.0
-        pi_bad * checked_number(get(pl, "p_loss_bad", 0.0), "packet_loss.p_loss_bad") +
-        (1.0 - pi_bad) *
-        checked_number(get(pl, "p_loss_good", 0.0), "packet_loss.p_loss_good")
+    elseif loss.model == "gilbert_elliott"
+        denom = loss.p_good_to_bad + loss.p_bad_to_good
+        pi_bad = denom > 0.0 ? loss.p_good_to_bad / denom : 0.0
+        pi_bad * loss.p_loss_bad + (1.0 - pi_bad) * loss.p_loss_good
     else
-        checked_number(get(pl, "p_loss", 0.0), "packet_loss.p_loss")
+        loss.p_loss
     end
-    on_loss =
-        lowercase(checked_string(get(pl, "on_loss", "retransmit"), "packet_loss.on_loss"))
-    lost_fraction = on_loss == "drop" ? p_eff : p_eff^(retries + 1)
+    lost_fraction = loss.on_loss == "drop" ? p_eff : p_eff^(retries + 1)
     delivered_fraction = 1.0 - lost_fraction
 
     return (

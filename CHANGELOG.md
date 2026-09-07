@@ -43,6 +43,14 @@ Notable changes to DeepSpaceTelemetry. The format follows
   off-limits by contract).
 
 ### Changed
+- Configuration accessors `telemetry_settings`, `visibility_model`,
+  `loss_channel_settings`, and `disruption_event_settings` single-source the
+  types, defaults, and bounds of `[telemetry]`, `[packet_loss]`, and
+  `[[disruption.events]]`; the validator, the channel builders, the storage
+  estimator, the post-processing tools, and the entry point all read through
+  them (the builders no longer repeat the range checks). Consequently
+  `build_loss_model` and `loss_retry_limit` reject a malformed section even
+  when the channel is disabled, as the validator always did.
 - `run_emitter` keyword `initial_segments` is `pending_segments` (the partial
   batch carried across `pre_populate` and the loop now has one name); the
   test-only `test_duration_sec` keyword of `run_emitter`/`run_receiver` is

@@ -23,18 +23,7 @@ function create_telemetry_gif(run_id::String)
     println("Rendering time scales with the mission length.")
 
     cfg = DeepSpaceTelemetry.TelemetryCore.load_run_config(run_dir)
-    tel = get(cfg, "telemetry", Dict{String,Any}())
-    session_start_time = Time(get(tel, "session_start", "08:00:00"))
-    session_dur =
-        Second(round(Int, Float64(get(tel, "session_duration_hours", 8.0)) * 3600))
-    bw_profile = String(get(tel, "bandwidth_profile", "sine"))
-    vis_model = DeepSpaceTelemetry.TelemetryCore.VisibilityModel(
-        session_start_time,
-        session_dur,
-        bw_profile,
-        Float64(get(tel, "sigmoid_steepness", 10.0)),
-        Float64(get(tel, "gaussian_sigma", 0.15)),
-    )
+    vis_model = DeepSpaceTelemetry.TelemetryCore.visibility_model(cfg)
 
     # Shared state-machine replay (exact event-log reconstruction when the run
     # carries events_tx.csv / events_rx.csv; heuristic fallback otherwise)
