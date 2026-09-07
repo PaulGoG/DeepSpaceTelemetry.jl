@@ -83,3 +83,5 @@ open_emitter_log = false             # Emitter log terminal flag. One of: true |
 generate_mask_timeline = true         # 2D telemetry mask timeline flag. One of: true | false.
 expand_to_pointwise_masks = true     # Point-wise mask expansion flag. One of: true | false.
 target_event_rows = [-1]             # Target rows for mask expansion. SAFE: "all", ints, or range strings.
+alert_latency = true                 # Alert-latency metric (realized vs FIFO drain) flag. One of: true | false.
+alert_lookback_hours = 72.0          # Largest look-back tabulated by the alert-latency metric [h]. SAFE: > 0.

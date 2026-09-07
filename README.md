@@ -28,6 +28,7 @@ DeepSpaceTelemetry/
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
 │   ├── Emitter.jl               # Satellite state machine (payload/queues)
 │   ├── Receiver.jl              # DSN ground station, loss handling, post-processing
+│   ├── Metrology.jl             # Event-log metrics: alert-latency curves (LIFO vs FIFO drain)
 │   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
 ├── scripts/
 │   ├── Project.toml             # Script environment (UI/log deps; parent package dev'ed)
@@ -267,6 +268,10 @@ freely — e.g. `[-1, "10:20", 45]`.
     `simulation.rng_seed`.
 *   **Dynamic bandwidth profiling**: models the horizon-to-horizon satellite
     pass using `sine`, `sigmoid`, `gaussian`, or `flat` capacity profiles.
+*   **Alert-latency metrology** (`Metrology.jl`): from the event logs, how
+    long after a live event the data at look-back `δ` reach the ground —
+    realized live-FIFO/archive-LIFO doctrine against a counterfactual FIFO
+    drain over the same service completions (`alert_latency.csv`, figure).
 *   **Stochastic packet loss** (`ChannelEffects.jl`): every downlink transfer
     attempt draws from a configurable channel model — memoryless **Bernoulli**
     or bursty two-state **Gilbert–Elliott** (validated against its analytic

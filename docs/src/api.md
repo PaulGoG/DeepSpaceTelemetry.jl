@@ -148,6 +148,17 @@ DeepSpaceTelemetry.Receiver.expand_pointwise_mask
 DeepSpaceTelemetry.Receiver.run_receiver
 ```
 
+## Metrology
+```@docs
+DeepSpaceTelemetry.Metrology
+DeepSpaceTelemetry.Metrology.BatchDelivery
+DeepSpaceTelemetry.Metrology.delivery_schedule
+DeepSpaceTelemetry.Metrology.batch_containing
+DeepSpaceTelemetry.Metrology.alert_latency_table
+DeepSpaceTelemetry.Metrology.plot_alert_latency
+DeepSpaceTelemetry.Metrology.quantile_sorted
+```
+
 ## Supervisor
 ```@docs
 DeepSpaceTelemetry.Supervisor
@@ -161,6 +172,7 @@ DeepSpaceTelemetry.Supervisor.log_component_event!
 DeepSpaceTelemetry.Supervisor.supervise!
 DeepSpaceTelemetry.Supervisor.component_spawners
 DeepSpaceTelemetry.Supervisor.post_process!
+DeepSpaceTelemetry.Supervisor.warm_up_components!
 DeepSpaceTelemetry.Supervisor.execute_mission!
 DeepSpaceTelemetry.Supervisor.run_mission
 ```

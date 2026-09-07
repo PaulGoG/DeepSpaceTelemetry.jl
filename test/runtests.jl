@@ -1869,6 +1869,15 @@ end
     end
 end
 
+@testset "Full-day session is always visible" begin
+    model = TelemetryCore.VisibilityModel(Time(0), Second(24 * 3600), "flat")
+    @test all(TelemetryCore.is_visible(model, DateTime(2035, 1, 1, h)) for h in 0:23)
+    @test TelemetryCore.get_bandwidth_factor(model, DateTime(2035, 1, 1, 12)) == 1.0
+    partial = TelemetryCore.VisibilityModel(Time(20), Second(8 * 3600), "flat")
+    @test TelemetryCore.is_visible(partial, DateTime(2035, 1, 1, 2))
+    @test !TelemetryCore.is_visible(partial, DateTime(2035, 1, 1, 12))
+end
+
 @testset "Emitter pacing anchored to the mission clock" begin
     # The generation schedule follows the mission clock: a segment is produced
     # once its content interval has elapsed, a late start is recovered by
@@ -2284,8 +2293,98 @@ end
             @test !isfile(joinpath(run_dir, "component_events.csv"))
             tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
             @test count(==("gen"), tx.Event) > 5
+            @test isfile(joinpath(run_dir, "alert_latency.csv"))
+            @test isfile(joinpath(run_dir, "plots", "alert_latency.png"))
         finally
             rm(run_dir; recursive = true, force = true)
         end
+    end
+end
+
+@testset "Alert-latency metrology (synthetic schedule)" begin
+    # Four archive batches of blind-spot backlog, then two live batches;
+    # realized deliveries follow the live-first / archive-newest-first
+    # doctrine, the counterfactual FIFO drain re-assigns the same completions.
+    mktempdir() do dir
+        t0 = DateTime(2035, 1, 1, 6)
+        D = Minute(3) # 3 segments × 60 s
+        open(joinpath(dir, "config_snapshot.toml"), "w") do io
+            write(
+                io,
+                """
+                [simulation]
+                speed_up = 60.0
+                start_sim_time = "2035-01-01T06:00:00"
+                mission_wall_seconds = 60.0
+                [physics]
+                data_source = "synthetic"
+                sample_rate = 4.0
+                segment_duration_sec = 60.0
+                batch_size = 3
+                """,
+            )
+        end
+        epochs = Dict(
+            "ARCH_batch_1" => t0 - 4D,
+            "ARCH_batch_2" => t0 - 3D,
+            "ARCH_batch_3" => t0 - 2D,
+            "ARCH_batch_4" => t0 - D,
+            "LIVE_batch_5" => t0,
+            "LIVE_batch_6" => t0 + D,
+        )
+        for (name, epoch) in epochs
+            bdir = mkpath(joinpath(dir, "ground", name))
+            write(
+                joinpath(bdir, "metadata.json"),
+                """{"batch_id":$(TelemetryCore.batch_id(name)),"segment_count":3,"created_at":"$(epoch + D)","content_epoch":"$epoch"}""",
+            )
+            TelemetryCore.log_tx_event(dir, epoch + D, name, "gen")
+        end
+        completions = [
+            ("LIVE_batch_5", t0 + Minute(4)),
+            ("ARCH_batch_4", t0 + Minute(5)),
+            ("ARCH_batch_3", t0 + Minute(6)),
+            ("LIVE_batch_6", t0 + Minute(7)),
+            ("ARCH_batch_2", t0 + Minute(8)),
+            ("ARCH_batch_1", t0 + Minute(9)),
+        ]
+        for (name, t) in completions
+            TelemetryCore.log_rx_event(dir, t, name, "ingested", 0)
+        end
+
+        schedule = Metrology.delivery_schedule(dir)
+        @test [b.name for b in schedule] == ["ARCH_batch_$i" for i in 1:4] ∪ ["LIVE_batch_5", "LIVE_batch_6"]
+        fifo = Dict(b.name => b.fifo_available_at for b in schedule)
+        @test fifo["ARCH_batch_1"] == t0 + Minute(4) &&
+              fifo["ARCH_batch_4"] == t0 + Minute(7)
+        @test fifo["LIVE_batch_5"] == t0 + Minute(8) &&
+              fifo["LIVE_batch_6"] == t0 + Minute(9)
+        @test Metrology.batch_containing(schedule, t0 - Millisecond(1)).name ==
+              "ARCH_batch_4"
+        @test Metrology.batch_containing(schedule, t0 - 4D - Millisecond(1)) === nothing
+
+        table = Metrology.alert_latency_table(dir; lookback_hours = 0.25)
+        @test table.Lookback_Hours ≈ [0.0, 0.05, 0.1, 0.15, 0.2, 0.25]
+        @test table.N_Alerts == fill(2, 6)
+        minutes = x -> x / 60
+        # Window-completeness medians over the two alerts (LIVE_5 at
+        # t0 + 3 min, LIVE_6 at t0 + 6 min): realized completions 4, 5, 6, 7,
+        # 8, 9 min for LIVE_5, ARCH_4, ARCH_3, LIVE_6, ARCH_2, ARCH_1; the
+        # FIFO drain hands the same instants to ARCH_1 … LIVE_6 in order. The
+        # window [t_m − δ, t_m) holds only the alert batch for δ ≤ D and one
+        # older batch per further D.
+        @test table.LIFO_Median_Hours ≈ minutes.([1.0, 1.0, 1.5, 2.0, 3.0, 4.0])
+        @test table.FIFO_Median_Hours ≈ minutes.(fill(4.0, 6))
+        @test issorted(table.LIFO_Median_Hours)
+        @test all(table.LIFO_Q25_Hours .<= table.LIFO_Median_Hours .<= table.LIFO_Q75_Hours)
+
+        with_logger(NullLogger()) do
+            @test endswith(
+                Metrology.plot_alert_latency(dir; lookback_hours = 0.25),
+                "alert_latency.png",
+            )
+        end
+        @test isfile(joinpath(dir, "alert_latency.csv"))
+        @test isfile(joinpath(dir, "plots", "alert_latency.pdf"))
     end
 end

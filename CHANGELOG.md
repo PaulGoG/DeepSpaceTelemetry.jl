@@ -7,6 +7,18 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- Component warm-up before the mission clock starts
+  (`Supervisor.warm_up_components!`): both loops are compiled against a
+  scratch directory so that first-call compilation — seconds of wall clock,
+  hours of mission time at high `speed_up` — no longer elapses after the
+  clock anchor.
+- `Metrology` module with the alert-latency metric: for every live batch
+  delivered, the ground availability of the data at look-back `δ` after the
+  event, under the realized doctrine and under a counterfactual FIFO drain
+  that re-assigns the same service completions in content order; median and
+  interquartile curves in `alert_latency.csv` and `plots/alert_latency.png`
+  (`post_processing.alert_latency`, `alert_lookback_hours`). Runs by default
+  after the mask timeline.
 - `Supervisor` module: `run_mission` is the headless pipeline as a library
   call (validation, storage gate, models and provenance in a `MissionPlan`,
   the run directory and lifecycle sentinels on every exit path, supervised
@@ -130,6 +142,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   file count) and uses named constants for its margins and slacks.
 
 ### Fixed
+- A 24-hour contact window (`telemetry.session_duration_hours = 24`, the
+  validator's upper bound) was never visible: `Time` arithmetic wrapped the
+  window end onto its start. A full-day session is now always visible.
 - Emitter pacing was anchored to the loop's own start and rounded the
   segment period to whole milliseconds: the data stream started several
   mission hours late (never recovered) and ran about 2 % slow at the shipped

@@ -374,6 +374,8 @@ const KNOWN_CONFIG_KEYS = Dict(
         "generate_batch_matrix", # deprecated alias of generate_mask_timeline
         "expand_to_pointwise_masks",
         "target_event_rows",
+        "alert_latency",
+        "alert_lookback_hours",
     ],
     "provenance" => String[], # pipeline-generated; free-form by design
     "supervision" => ["on_component_failure", "max_restarts", "watchdog_sec"],
@@ -1004,9 +1006,22 @@ function validate_config(cfg::AbstractDict)
         haskey(db, key) && checked_flag(db[key], "dashboard.$key")
     end
     pp = get(cfg, "post_processing", Dict{String,Any}())
-    for key in
-        ("generate_mask_timeline", "generate_batch_matrix", "expand_to_pointwise_masks")
+    for key in (
+        "generate_mask_timeline",
+        "generate_batch_matrix",
+        "expand_to_pointwise_masks",
+        "alert_latency",
+    )
         haskey(pp, key) && checked_flag(pp[key], "post_processing.$key")
+    end
+    if haskey(pp, "alert_lookback_hours")
+        lookback = checked_number(
+            pp["alert_lookback_hours"],
+            "post_processing.alert_lookback_hours",
+        )
+        lookback > 0.0 || config_error(
+            "[CONFIG] post_processing.alert_lookback_hours must be > 0 (got $lookback).",
+        )
     end
     # Canonicalization warns on unrecognized entries at validation time, not
     # first at estimation/expansion time.
@@ -1305,7 +1320,8 @@ function estimate_artifacts(cfg::AbstractDict)
         do_expand ? (target_rows isa Vector{Int} ? length(target_rows) : metrics_rows) : 0
     pointwise_bytes = n_expansions * n_points * cal("bytes_pointwise_cell")
 
-    plot_bytes = (mission_days + 1) * (cal("bytes_plot") + cal("bytes_plot_pdf"))
+    # Mission summary, one session figure per day, the alert-latency figure.
+    plot_bytes = (mission_days + 2) * (cal("bytes_plot") + cal("bytes_plot_pdf"))
     log_bytes = n_batches * cal("bytes_log_per_batch") + LOG_FIXED_OVERHEAD_BYTES
 
     # Post-processing replay RAM: the exact replay materializes one category
@@ -1333,7 +1349,7 @@ function estimate_artifacts(cfg::AbstractDict)
         1 +
         (do_matrix ? 1 : 0) +
         n_expansions +
-        2 * (mission_days + 1) +
+        2 * (mission_days + 2) +
         2 +
         1 +
         2 +
@@ -1957,6 +1973,9 @@ Sessions crossing midnight (e.g. 20:00 start with an 8 hour duration) are
 handled by testing the wrapped interval on both sides of the day boundary.
 """
 function is_visible(model::VisibilityModel, t::DateTime)
+    # A full-day session is always visible: `Time` arithmetic wraps at 24 h,
+    # which would otherwise collapse the window to its start instant.
+    model.session_duration.value >= 86_400 && return true
     current_time = Time(t)
     session_end = model.session_start + model.session_duration # `Time` wraps at 24 h
     if model.session_start <= session_end
