@@ -40,13 +40,20 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor + absolute deadline; re-attaching components reconstruct the identical clock from it. |
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record: `down`, `restart`, `stalled`, `recovered`. |
 | `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs. |
-| `masks/batch_epochs.csv` | post-processing | Read. Batch → generation-epoch map; re-anchors point-wise mask rows on the mission timeline across generation gaps. |
+| `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map: `GenSimTime` (finalization instant from the event log) and `ContentEpoch` (first-sample timestamp from the batch metadata); re-anchors point-wise mask rows on the mission timeline across generation gaps. |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline consumes the file at lifecycle end. |
 | `emitter.log`, `receiver.log` | logger | Read. Human diagnostics; not machine-parsed interfaces. |
 | `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; `link/*.ack` files are the emitter–receiver acknowledgement protocol. |
 
-A batch directory contains `metadata.json` (`batch_id`, `segment_count`,
-`created_at`) and one `seg_<id>.csv` per segment (single `Amplitude` column).
+A batch directory contains `metadata.json` and one `seg_<id>.csv` per segment
+(single `Amplitude` column). The metadata keys are `batch_id`,
+`segment_count`, `content_epoch` — the mission timestamp of the payload's
+first sample, i.e. the physical epoch the data belong to — and `created_at`
+— the mission instant at which the batch was finalized and became
+transmittable (never earlier than the content end, and within one segment
+period of it when the host keeps pace with the accelerated clock). Segment
+files carry no timestamps; sample `k` of a batch lies at
+`content_epoch + (k − 1) / sample_rate`.
 Batches are delivered by an atomic same-filesystem `mv`: a directory visible
 under `ground/` is complete, and it is never modified afterwards except by
 the retention custodian (below).

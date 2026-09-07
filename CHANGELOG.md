@@ -7,6 +7,18 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- `metadata.json` carries `content_epoch` (first-sample mission timestamp)
+  beside `created_at` (finalization instant); `masks/batch_epochs.csv` gains a
+  `ContentEpoch` column. New helpers `read_batch_metadata` and
+  `batch_content_epochs`.
+- Emitter content-lag telemetry: a persistent lag above one segment period
+  (longer than `EMITTER_LAG_WARN_SEC`) warns once that the host cannot keep
+  pace; the maximum lag is logged at loop exit. Pacing sleeps are capped at
+  `EMITTER_MAX_SLEEP_SEC` so heartbeats and stop signals stay responsive at
+  low `speed_up`.
+- Single-thread advisory (`thread_advisory`) printed by the headless entry
+  point; README and manual document the recommended `--threads=3`.
+
 - `[storage] max_ram_gb`: the pre-run gate now estimates the post-processing
   replay RAM (new `replay_ram_bytes` field and `bytes_replay_cell`
   calibration key) and refuses configurations exceeding the budget.
@@ -22,6 +34,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   Julia version, thread and BLAS-thread counts.
 
 ### Changed
+- Pre-populated batches stamp `created_at` and their `gen` event at the
+  finalization instant (end of the last segment's content), consistently
+  with mission-phase batches; the content epoch is recorded separately.
 - Exact batch-state replay rewritten around a batch-ID position map: event
   application is O(1) (formerly quadratic `filter!` scans) and per-batch
   causal order (`gen` → `tx` → terminal) is enforced, so cross-component
@@ -37,6 +52,18 @@ Notable changes to DeepSpaceTelemetry. The format follows
   file count) and uses named constants for its margins and slacks.
 
 ### Fixed
+- Emitter pacing was anchored to the loop's own start and rounded the
+  segment period to whole milliseconds: the data stream started several
+  mission hours late (never recovered) and ran about 2 % slow at the shipped
+  configuration, ending 7–8 mission hours before the declared mission end.
+  Generation now follows the mission clock — a segment is produced once its
+  content interval has elapsed, due times are computed from the clock anchor,
+  a late start or a stall is recovered by catch-up — so the content epoch of
+  the stream tracks mission time within one segment period.
+- Transmission opportunities were coupled to the generation cadence (one
+  batch per segment period); every free in-flight slot is now refilled on
+  each iteration, so the downlink rate is bounded by the in-flight cap and
+  the receiver's service rate alone.
 - Emitter heartbeat removal is exception-safe (`try`/`finally`, matching the
   receiver); the mask timeline sizes by the true maximum batch ID so holes
   in the ID space no longer fault post-processing; the storage estimator

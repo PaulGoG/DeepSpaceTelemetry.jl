@@ -76,6 +76,12 @@ cfg = DeepSpaceTelemetry.TelemetryCore.load_config(config_arg)
 DeepSpaceTelemetry.TelemetryCore.validate_config(cfg)
 DeepSpaceTelemetry.TelemetryCore.check_storage_limits(cfg)
 
+# Single-thread advisory: the components are cooperative tasks (see
+# TelemetryCore.thread_advisory); a warning, never a refusal.
+let advisory = DeepSpaceTelemetry.TelemetryCore.thread_advisory()
+    advisory === nothing || @warn advisory
+end
+
 const SPEED_UP = Float64(cfg["simulation"]["speed_up"])
 const START_SIM = DateTime(cfg["simulation"]["start_sim_time"])
 const TEST_DURATION_SEC = Float64(cfg["simulation"]["test_duration_sec"])

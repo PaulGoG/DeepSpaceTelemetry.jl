@@ -691,6 +691,17 @@ end
                 Receiver.generate_telemetry_masks(ra_dir)
             end
             @test isfile(joinpath(ra_dir, "masks", "telemetry_mask_timeline.csv"))
+            # Epoch sidecar: finalization instant from the event log plus the
+            # content epoch from each batch's metadata (the orphan seeded above
+            # has no metadata and therefore no content epoch).
+            epochs = CSV.read(joinpath(ra_dir, "masks", "batch_epochs.csv"), DataFrame)
+            @test names(epochs) == ["Batch", "GenSimTime", "ContentEpoch"]
+            @test any(!ismissing, epochs.ContentEpoch)
+            @test all(
+                ismissing(r.ContentEpoch) ||
+                    DateTime(r.ContentEpoch) <= DateTime(r.GenSimTime) for
+                r in eachrow(epochs)
+            )
         finally
             rm(ra_dir; recursive = true, force = true)
         end
@@ -1847,5 +1858,118 @@ end
         finally
             rm(run_dir; recursive = true, force = true)
         end
+    end
+end
+
+@testset "Emitter pacing anchored to the mission clock" begin
+    # The generation schedule follows the mission clock: a segment is produced
+    # once its content interval has elapsed, a late start is recovered by
+    # catch-up, and the content epoch of the stream tracks mission time
+    # within one period at the end of the run.
+    pace_id = "TEST_RUN_pacing_pid$(getpid())"
+    mktempdir() do tmp
+        ext_path = joinpath(tmp, "ext.csv")
+        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:200_000)))
+        speed_up = 600.0 # 60 s segments → 100 ms wall period
+        pace_dir = TelemetryCore.setup_run_dir(
+            pace_id;
+            cfg = Dict{String,Any}(
+                "simulation" => Dict{String,Any}(
+                    "speed_up" => speed_up,
+                    "start_sim_time" => "2035-01-01T10:00:00",
+                ),
+            ),
+        )
+        try
+            start_sim = DateTime(2035, 1, 1, 10)
+            seg_dur = 60.0
+            batch_size = 3
+            link = ChannelEffects.LinkModel(
+                TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat"),
+            )
+            # No pre-population: the instrument anchors at the mission epoch.
+            vi, leftover = with_logger(NullLogger()) do
+                Emitter.pre_populate(
+                    start_sim,
+                    pace_id;
+                    sample_rate = 4.0,
+                    seg_dur = seg_dur,
+                    batch_size = batch_size,
+                    initial_downtime_days = 0.0,
+                    data_source = "external",
+                    ext_path = ext_path,
+                )
+            end
+            clock = TelemetryCore.SimulationClock(now(), start_sim, speed_up)
+            wall_span_ms = 4000
+            deadline = clock.start_real_time + Millisecond(wall_span_ms)
+            with_logger(NullLogger()) do
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    pace_id;
+                    sample_rate = 4.0,
+                    seg_dur = seg_dur,
+                    batch_size = batch_size,
+                    data_source = "external",
+                    ext_path = ext_path,
+                    instrument = vi,
+                    initial_segments = leftover,
+                    deadline = deadline,
+                    max_inflight_batches = 1,
+                )
+            end
+            mission_end = start_sim + Millisecond(round(Int, wall_span_ms * speed_up))
+            batch_span = Second(round(Int, batch_size * seg_dur))
+            period = Second(round(Int, seg_dur))
+
+            epochs = TelemetryCore.batch_content_epochs(pace_dir)
+            expected_batches =
+                floor(Int, wall_span_ms * speed_up / 1000 / seg_dur / batch_size)
+            @test length(epochs) >= expected_batches - 1 # at most one batch lost to exit timing
+
+            # Content coverage and causality: the stream ends within one batch
+            # of mission end and never runs ahead of the clock.
+            last_content_end = maximum(values(epochs)) + batch_span
+            @test last_content_end > mission_end - batch_span - period
+            @test last_content_end <= mission_end + period
+
+            # Metadata contract: content_epoch is the first-sample timestamp
+            # (segment index arithmetic) and created_at is the finalization
+            # instant, never earlier than the content end.
+            locate(name) = first(
+                d for d in
+                (joinpath(pace_dir, "onboard", name), joinpath(pace_dir, "link", name)) if
+                isdir(d)
+            )
+            lags = Dict{Int,Millisecond}()
+            for (name, epoch) in epochs
+                dir = locate(name)
+                meta = TelemetryCore.read_batch_metadata(dir)
+                first_idx = minimum(
+                    parse(Int, match(r"seg_(\d+)\.csv", f).captures[1]) for
+                    f in readdir(dir) if startswith(f, "seg_")
+                )
+                @test epoch == start_sim + Second((first_idx - 1) * round(Int, seg_dur))
+                created = DateTime(meta["created_at"])
+                @test created >= epoch + batch_span
+                lags[Int(meta["batch_id"])] = created - (epoch + batch_span)
+            end
+            # Steady state: the last finalized batch lags the clock by less
+            # than two periods (startup compilation is recovered by catch-up).
+            @test lags[maximum(keys(lags))] < 2 * Millisecond(period)
+        finally
+            rm(pace_dir; recursive = true, force = true)
+        end
+    end
+end
+
+@testset "Thread advisory" begin
+    advisory = TelemetryCore.thread_advisory()
+    if Threads.nthreads() >= 2
+        @test advisory === nothing
+    else
+        @test advisory isa String
+        @test occursin("single Julia thread", advisory)
     end
 end

@@ -1033,15 +1033,23 @@ function generate_telemetry_masks(run_dir::String)
     TelemetryCore.safe_csv_write(mask_path, mask_df)
     @info "[RECEIVER] Saved 2D telemetry data masks to: $(relpath(mask_path, run_dir))"
 
-    # Batch → generation-epoch sidecar: the point-wise mask's row-index
-    # contract assumes a contiguous series, which emitter outages break; this
-    # map lets consumers re-anchor batch rows on the mission timeline.
+    # Batch → epoch sidecar: the point-wise mask's row-index contract assumes
+    # a contiguous series, which emitter outages break; this map lets
+    # consumers re-anchor batch rows on the mission timeline. `GenSimTime` is
+    # the finalization (transmittable) instant from the event log;
+    # `ContentEpoch` is the first-sample timestamp of the payload from each
+    # batch's metadata (missing for batches written before that key existed).
     tx_path = joinpath(run_dir, "events_tx.csv")
     if isfile(tx_path)
         tx_events = CSV.read(tx_path, DataFrame)
         gens = tx_events[tx_events.Event .== "gen", :]
         if !isempty(gens)
-            epochs = DataFrame(Batch = gens.Batch, GenSimTime = gens.SimTime)
+            content = TelemetryCore.batch_content_epochs(run_dir)
+            epochs = DataFrame(
+                Batch = gens.Batch,
+                GenSimTime = gens.SimTime,
+                ContentEpoch = [get(content, String(b), missing) for b in gens.Batch],
+            )
             TelemetryCore.safe_csv_write(
                 joinpath(run_dir, "masks", "batch_epochs.csv"),
                 epochs,

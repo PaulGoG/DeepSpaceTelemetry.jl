@@ -89,15 +89,23 @@ batch_size = 15
 The simulator will automatically slice your data into batches, consuming the first portion to simulate the pre-existing blind spot.
 
 ## Running the Simulation
+The emitter, the receiver, and the supervisor are three cooperative tasks;
+launch with `--threads=3` so each owns a thread (`auto` is equivalent in
+effect, more threads bring nothing). On a single thread the run is still
+correct — the emitter paces itself on the mission clock and recovers stalls
+by catch-up — but a non-yielding stretch in one component (compilation
+warm-up, garbage collection, figure rendering) pauses the others until it
+yields, and the entry point prints an advisory.
+
 **Interactive Dashboard (Mission Control):**
 ```bash
-julia --project=. scripts/launch_dashboard.jl
+julia --project=. --threads=3 scripts/launch_dashboard.jl
 ```
 This spawns real-time logs and a flicker-free `UnicodePlots` Live Viewer.
 
 **Headless Mode:**
 ```bash
-julia --project=. scripts/run_full_sim.jl
+julia --project=. --threads=3 scripts/run_full_sim.jl
 ```
 
 ## Post-Processing & Masks

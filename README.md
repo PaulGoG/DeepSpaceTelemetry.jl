@@ -118,13 +118,20 @@ delay.
 
 ## Usage & Execution
 
+The satellite emitter, the ground receiver, and their supervisor run as
+three cooperative tasks. Launch with `--threads=3` so each owns a thread
+(`--threads=auto` is equivalent in effect; more threads bring no benefit).
+On a single thread the pipeline still runs correctly, but compilation
+warm-up, garbage collection, or figure rendering in one component pauses the
+others until it yields; the entry point prints an advisory in that case.
+
 ### 1. Interactive Dashboard
 
 Runs a fully interactive session with the live-viewer UI and background log
 tailing:
 
 ```bash
-julia --project=. scripts/launch_dashboard.jl
+julia --project=. --threads=3 scripts/launch_dashboard.jl
 ```
 
 This spawns separate terminal windows for `emitter.log` and `receiver.log`
@@ -134,7 +141,7 @@ primary terminal.
 ### 2. Headless Pipeline (CI / Remote Clusters)
 
 ```bash
-julia --project=. scripts/run_full_sim.jl
+julia --project=. --threads=3 scripts/run_full_sim.jl
 ```
 
 Any CLI argument ending in `.toml` selects an alternative configuration file
@@ -143,7 +150,7 @@ scenario configs may therefore live outside the repository); any other
 argument sets the run ID (both optional, order-independent):
 
 ```bash
-julia --project=. scripts/run_full_sim.jl MY_RUN path/to/scenario.toml
+julia --project=. --threads=3 scripts/run_full_sim.jl MY_RUN path/to/scenario.toml
 ```
 
 ### 3. Post-Processing Tools

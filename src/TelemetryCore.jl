@@ -753,6 +753,44 @@ download-rate distortion so the two can never drift apart.
 const RECEIVER_SLEEP_FLOOR_SEC = 0.001
 
 """
+    EMITTER_MAX_SLEEP_SEC
+
+Upper bound on a single emitter pacing sleep [wall-clock s]. The generation
+loop wakes at least this often to refresh its heartbeat and to honor the
+stop flag, the `HALT` sentinel, and the deadline even when one segment
+period is long (real-time rehearsals at low `speed_up`).
+"""
+const EMITTER_MAX_SLEEP_SEC = 0.5
+
+"""
+    EMITTER_LAG_WARN_SEC
+
+Wall-clock duration [s] for which the emitter's content lag must persist
+above one segment period before the loop warns that the host cannot keep
+pace with the accelerated clock. Startup compilation and transient stalls
+are recovered by burst catch-up within this window and never warn.
+"""
+const EMITTER_LAG_WARN_SEC = 5.0
+
+"""
+    thread_advisory() -> Union{Nothing, String}
+
+Returns an advisory message when the process runs on a single Julia thread,
+`nothing` otherwise. The emitter, the receiver, and the supervisor are
+cooperative tasks: on one thread any non-yielding stretch in one of them
+(compilation warm-up, garbage collection, figure rendering) pauses the
+others until it yields. Three threads let each task own one; more bring no
+benefit because nothing else in the pipeline is parallel.
+"""
+function thread_advisory()
+    Threads.nthreads() >= 2 && return nothing
+    return "[THREADS] Running on a single Julia thread: the emitter, receiver, and " *
+           "supervisor share it cooperatively, so compilation warm-up, GC, and figure " *
+           "rendering in one component pause the others. Launch with `julia --threads=3` " *
+           "(or `auto`) for an independent thread per component."
+end
+
+"""
     DEFAULT_WATERMARK_FRACTION
 
 Fraction of the storage budget at which the retention custodian begins
@@ -1154,6 +1192,19 @@ function get_current_sim_time(clock::SimulationClock)
 end
 
 """
+    due_wall_time(clock::SimulationClock, sim_time::DateTime) -> DateTime
+
+Wall-clock instant at which the mission clock reaches `sim_time` — the
+inverse of [`get_current_sim_time`](@ref). Each due time is computed from
+the clock anchor and the absolute mission instant, so pacing loops that
+sleep until a due time accumulate no rounding across iterations.
+"""
+function due_wall_time(clock::SimulationClock, sim_time::DateTime)
+    sim_ms = (sim_time - clock.start_sim_time).value
+    return clock.start_real_time + Millisecond(round(Int, sim_ms / clock.speed_up))
+end
+
+"""
     save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
 
 Persists the mission clock anchor (wall epoch, mission epoch, speed-up) and
@@ -1478,13 +1529,19 @@ end
     save_batch(path::String, batch::DataBatch)
 
 Serializes a `DataBatch` and its metadata to the specified physical directory.
+`metadata.json` carries `batch_id`, `segment_count`, `created_at` (mission
+time at which the batch was finalized and became transmittable), and
+`content_epoch` (mission timestamp of the first sample of the payload —
+the physical epoch the segment data belong to).
 """
 function save_batch(path::String, batch::DataBatch)
     mkpath(path)
+    content_epoch = isempty(batch.segments) ? batch.created_at : batch.segments[1].timestamp
     metadata = Dict(
         "batch_id" => batch.id,
         "segment_count" => length(batch.segments),
         "created_at" => string(batch.created_at),
+        "content_epoch" => string(content_epoch),
     )
     open(joinpath(path, "metadata.json"), "w") do io
         JSON3.write(io, metadata)
@@ -1493,6 +1550,51 @@ function save_batch(path::String, batch::DataBatch)
     for seg in batch.segments
         save_segment(joinpath(path, "seg_$(seg.id).csv"), seg)
     end
+end
+
+"""
+    read_batch_metadata(batch_dir::String) -> Dict{String,Any}
+
+Parses `<batch_dir>/metadata.json`. Returns an empty dictionary when the file
+is absent or unparsable (a foreign or truncated directory), so directory
+sweeps degrade to "unknown" instead of faulting.
+"""
+function read_batch_metadata(batch_dir::String)
+    path = joinpath(batch_dir, "metadata.json")
+    isfile(path) || return Dict{String,Any}()
+    parsed = try
+        JSON3.read(read(path, String), Dict{String,Any})
+    catch e
+        @warn "[BATCH] Unparsable metadata.json in $batch_dir — treated as unknown." exception =
+            e
+        return Dict{String,Any}()
+    end
+    return parsed
+end
+
+"""
+    batch_content_epochs(run_dir::String) -> Dict{String,DateTime}
+
+Batch name → content epoch (first-sample mission timestamp) for every batch
+directory under `onboard/`, `link/`, `ground/`, and `lost/` whose
+`metadata.json` records a `content_epoch` (batches written before that key
+existed are omitted).
+"""
+function batch_content_epochs(run_dir::String)
+    epochs = Dict{String,DateTime}()
+    for sub in ("onboard", "link", "ground", "lost")
+        dir = joinpath(run_dir, sub)
+        isdir(dir) || continue
+        for name in readdir(dir)
+            batch_dir = joinpath(dir, name)
+            isdir(batch_dir) || continue
+            meta = read_batch_metadata(batch_dir)
+            haskey(meta, "content_epoch") || continue
+            epoch = tryparse(DateTime, String(meta["content_epoch"]))
+            epoch === nothing || (epochs[name] = epoch)
+        end
+    end
+    return epochs
 end
 
 """

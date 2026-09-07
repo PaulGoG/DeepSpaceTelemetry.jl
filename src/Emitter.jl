@@ -75,26 +75,23 @@ function pre_populate(
         push!(current_batch_segs, seg)
 
         if length(current_batch_segs) >= batch_size
-            # created_at carries mission time (the generation epoch of the
-            # batch's first segment), never wall-clock time: metadata.json is
-            # persisted provenance and must live on the mission timeline.
+            # created_at is the finalization instant on the mission timeline
+            # (the instrument has observed the whole payload; inside the blind
+            # spot, i.e. before mission start), never wall-clock time. The
+            # content epoch (first-sample timestamp) is persisted alongside by
+            # save_batch — the same contract as the mission-phase path.
+            finalized_at = vi.last_t
             batch = TelemetryCore.DataBatch(
                 batch_counter,
                 copy(current_batch_segs),
-                current_batch_segs[1].timestamp,
+                finalized_at,
             )
             batch_name = "ARCH_batch_$batch_counter"
             batch_dir = joinpath(buffer_path, batch_name)
 
             TelemetryCore.save_batch(batch_dir, batch)
-            # Ground-truth milestone: generation time = first segment timestamp
-            # (inside the blind spot, i.e. before mission start).
-            TelemetryCore.log_tx_event(
-                run_dir,
-                batch.segments[1].timestamp,
-                batch_name,
-                "gen",
-            )
+            # Ground-truth milestone: generation = finalization time.
+            TelemetryCore.log_tx_event(run_dir, finalized_at, batch_name, "gen")
             empty!(current_batch_segs)
             batch_counter += 1
         end
@@ -119,8 +116,22 @@ generating `ARCH_` batches that accumulate onboard.
 
 Pass the `instrument` and `initial_segments` returned by [`pre_populate`](@ref)
 to continue the pre-populated data stream without gaps or duplication; when
-`instrument === nothing` a fresh `InstrumentState` starting at
-`clock.start_sim_time` is created instead (seeded by `rng`).
+`instrument === nothing` a fresh `InstrumentState` starting at the current
+mission time is created instead (seeded by `rng`).
+
+Generation is paced by the mission clock, not by the loop's own start: a
+segment is produced once the mission clock has passed the end of its content
+interval (`vi.last_t + seg_dur`), and the loop sleeps until the exact wall
+instant of the next due segment ([`TelemetryCore.due_wall_time`](@ref)).
+A late start or a stall is recovered by generating back-to-back (yielding to
+the partner task on every catch-up iteration) until the content has caught
+up with the clock, so the content epoch of the stream tracks mission time
+within one segment period. Each sleep is capped at
+[`TelemetryCore.EMITTER_MAX_SLEEP_SEC`](@ref) so the heartbeat and the
+stop/deadline checks stay responsive at low `speed_up`. A content lag that
+persists above one period for longer than
+[`TelemetryCore.EMITTER_LAG_WARN_SEC`](@ref) is reported once as a warning
+(the host cannot keep pace); the maximum lag is logged at loop exit.
 """
 function run_emitter(
     clock::TelemetryCore.SimulationClock,
@@ -191,7 +202,14 @@ function run_emitter(
     @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $run_id"
 
     start_wall_t = now()
-    next_wall_t = start_wall_t
+    seg_period = Second(round(Int, vi.seg_dur))
+    # Content-lag telemetry: lag = mission time at finalization − content end
+    # of the finalized batch. A persistent lag means the host cannot keep
+    # pace; a transient one (startup compilation, GC, a partner stall on a
+    # single thread) is recovered by the catch-up burst below.
+    max_lag = Millisecond(0)
+    lag_since = DateTime(0) # sentinel: not currently lagging
+    lag_warned = false
 
     try
         while true
@@ -217,21 +235,38 @@ function run_emitter(
                 last_heartbeat = now()
             end
 
-            # 1. Generation
+            # 1. Pacing on the mission clock: the next segment is due once its
+            #    content interval has elapsed (causality — the instrument
+            #    delivers a segment after observing it). Sleep until the exact
+            #    due wall instant, capped so the checks above stay responsive;
+            #    on the catch-up path yield so a partner task on the same
+            #    thread is never starved.
             sim_t = TelemetryCore.get_current_sim_time(clock)
+            content_end = vi.last_t + seg_period
+            if content_end > sim_t
+                due = TelemetryCore.due_wall_time(clock, content_end)
+                deadline !== nothing && (due = min(due, deadline))
+                wait_sec = (due - now()).value / 1000.0
+                sleep(clamp(wait_sec, 0.0, TelemetryCore.EMITTER_MAX_SLEEP_SEC))
+                continue
+            end
+            yield()
+
+            # 2. Generation
             seg = VirtualInstrument.next_segment!(vi)
             push!(current_batch_segs, seg)
 
-            # 2. Batch Finalization
+            # 3. Batch Finalization
             if length(current_batch_segs) >= batch_size
                 # Classification ruling: LIVE/ARCH follows the
                 # link state at finalization time — flight software marks data
                 # near-real-time only if the link is up when it is ready to send.
-                # The payload's content epoch is preserved independently
-                # (created_at + masks/batch_epochs.csv), so emitter pacing lag can
-                # shift classification but never science provenance.
+                # The payload's content epoch is persisted independently
+                # (metadata.json `content_epoch`, masks/batch_epochs.csv), so
+                # pacing lag can shift classification but never science
+                # provenance.
                 is_live = ChannelEffects.is_transmittable(link, sim_t)
-                # Mission-time provenance, matching the pre-population path.
+                # created_at = finalization instant on the mission timeline.
                 batch =
                     TelemetryCore.DataBatch(batch_counter, copy(current_batch_segs), sim_t)
                 prefix = is_live ? "LIVE_" : "ARCH_"
@@ -253,9 +288,28 @@ function run_emitter(
                 TelemetryCore.log_tx_event(run_dir, sim_t, batch_name, "gen")
                 empty!(current_batch_segs)
                 batch_counter += 1
+
+                lag = sim_t - vi.last_t
+                lag > max_lag && (max_lag = lag)
+                if lag > seg_period
+                    lag_since == DateTime(0) && (lag_since = now())
+                    if !lag_warned &&
+                       (now() - lag_since).value / 1000.0 >
+                       TelemetryCore.EMITTER_LAG_WARN_SEC
+                        lag_warned = true
+                        @warn "[EMITTER] Generation runs $(round(lag.value / 1000, digits = 1)) mission-s " *
+                              "($(round(lag.value / 1000 / clock.speed_up, digits = 2)) wall-s) behind the " *
+                              "mission clock for more than $(TelemetryCore.EMITTER_LAG_WARN_SEC) s: " *
+                              "the host cannot keep pace (per-segment cost exceeds " *
+                              "segment_duration_sec / speed_up). Increase segment_duration_sec or " *
+                              "decrease speed_up."
+                    end
+                else
+                    lag_since = DateTime(0)
+                end
             end
 
-            # 3. Transmission — gated on the effective link (visibility AND no blackout)
+            # 4. Transmission — gated on the effective link (visibility AND no blackout)
             if ChannelEffects.is_transmittable(link, sim_t)
                 # Process ACKs efficiently
                 acks = filter(f -> endswith(f, ".ack"), readdir(link_path))
@@ -266,7 +320,10 @@ function run_emitter(
                 link_count =
                     length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
 
-                if link_count < max_inflight_batches
+                # Refill every free in-flight slot: transmission opportunities
+                # are bounded by the cap and the receiver's service rate, not
+                # by the generation cadence (one segment period per iteration).
+                while link_count < max_inflight_batches
                     next_batch = ""
                     reason = ""
                     if !isempty(onboard_live_queue)
@@ -276,26 +333,17 @@ function run_emitter(
                         next_batch = popfirst!(onboard_arch_queue) # LIFO for Arch (since we pushfirst!)
                         reason = "Backfill"
                     end
-                    if !isempty(next_batch)
-                        TelemetryCore.backup_existing_dir(joinpath(link_path, next_batch))
-                        mv(
-                            joinpath(buffer_path, next_batch),
-                            joinpath(link_path, next_batch),
-                        )
-                        @info "[EMITTER] Tx ->| $next_batch ($reason)"
-                        TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
-                    end
+                    isempty(next_batch) && break
+                    TelemetryCore.backup_existing_dir(joinpath(link_path, next_batch))
+                    mv(joinpath(buffer_path, next_batch), joinpath(link_path, next_batch))
+                    @info "[EMITTER] Tx ->| $next_batch ($reason)"
+                    TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
+                    link_count += 1
                 end
             end
-
-            # 4. Precision Timing
-            next_wall_t += Millisecond(round(Int, (vi.seg_dur / clock.speed_up) * 1000.0))
-            wait_time = (next_wall_t - now()).value / 1000.0
-
-            if wait_time > 0
-                sleep(wait_time)
-            end
         end
+        @info "[EMITTER] Pacing summary: maximum content lag $(round(max_lag.value / 1000, digits = 1)) mission-s " *
+              "($(round(max_lag.value / 1000 / clock.speed_up, digits = 3)) wall-s); content end $(vi.last_t)."
     finally
         # Heartbeat exists only while the loop runs — removed on every exit
         # path (including a throw), so the watchdog reads "finished", never a
