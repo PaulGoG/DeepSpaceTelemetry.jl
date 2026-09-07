@@ -18,7 +18,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
   low `speed_up`.
 - Single-thread advisory (`thread_advisory`) printed by the headless entry
   point; README and manual document the recommended `--threads=3`.
-
 - `[storage] max_ram_gb`: the pre-run gate now estimates the post-processing
   replay RAM (new `replay_ram_bytes` field and `bytes_replay_cell`
   calibration key) and refuses configurations exceeding the budget.
@@ -34,12 +33,20 @@ Notable changes to DeepSpaceTelemetry. The format follows
   Julia version, thread and BLAS-thread counts.
 
 ### Removed
+- The `DrWatson` dependency: its only use was `savename` in
+  `generate_run_id`, whose `RUN_pid=<pid>_t=<stamp>` layout is now produced
+  directly; `safesave`-style backup rotation and snapshot provenance were
+  already implemented in `TelemetryCore`.
 - The `.ack` marker files in `link/`: the receiver created them and the
   emitter only deleted them, while in-flight occupancy has always been the
   `link/` directory listing. Consumers never depended on them (`link/` is
   off-limits by contract).
 
 ### Changed
+- `BernoulliLoss`, `GilbertElliottLoss`, and `InstrumentState` carry their
+  RNG as a type parameter (`{R<:AbstractRNG}`) instead of an abstract field,
+  so the per-attempt and per-segment draws dispatch statically;
+  `BernoulliLoss` is immutable.
 - Batch directory names are a single wire format: `batch_name`, `batch_id`,
   `is_live_batch`, `is_archive_batch`, and `is_batch_name` replace the
   parsing idioms scattered over the emitter, the receiver, the replay, and

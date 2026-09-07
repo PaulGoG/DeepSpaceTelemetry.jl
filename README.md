@@ -310,7 +310,7 @@ freely — e.g. `[-1, "10:20", 45]`.
     (legend strip; dedicated Lost row in lossy runs) via `CairoMakie.jl`.
     Time axes are 0-based elapsed mission days anchored at `start_sim_time`
     ("Day k" = start + k·24 h, matching `disruption.start_day`).
-*   **Data provenance**: `DrWatson.jl` run management; every run directory
+*   **Data provenance**: every run directory
     receives a `config_snapshot.toml` which all post-processing reads back
     (never the live `config.toml`), and result CSVs are written with
     `safesave`-style `#k` backup rotation.

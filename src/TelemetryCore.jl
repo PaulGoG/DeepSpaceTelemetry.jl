@@ -13,7 +13,6 @@ module TelemetryCore
 using CSV: CSV
 using DataFrames: DataFrames, DataFrame
 using Dates: Dates, DateTime, Millisecond, Second, Time, now
-using DrWatson: DrWatson
 using JSON3: JSON3
 using LinearAlgebra: LinearAlgebra
 using TOML: TOML
@@ -1512,13 +1511,12 @@ end
 """
     generate_run_id()
 
-Generates a unique ID for the current simulation run using DrWatson's savename format.
+Generates a unique ID for the current simulation run,
+`RUN_pid=<pid>_t=<yyyymmdd_HHMMSS>` (key=value fields in alphabetical order,
+the layout DrWatson's `savename` produced before the dependency was dropped).
 """
 function generate_run_id()
-    return DrWatson.savename(
-        "RUN",
-        Dict("t" => Dates.format(now(), "yyyymmdd_HHMMSS"), "pid" => getpid()),
-    )
+    return string("RUN_pid=", getpid(), "_t=", Dates.format(now(), "yyyymmdd_HHMMSS"))
 end
 
 """

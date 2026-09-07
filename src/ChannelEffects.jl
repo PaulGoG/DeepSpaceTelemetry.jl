@@ -54,11 +54,12 @@ struct NoLoss <: LossModel end
     BernoulliLoss(p, rng)
 
 Memoryless i.i.d. packet loss: each batch transfer attempt fails independently
-with probability `p ∈ [0, 1]`.
+with probability `p ∈ [0, 1]`. The RNG type is a struct parameter so the
+per-attempt draw dispatches statically.
 """
-mutable struct BernoulliLoss <: LossModel
+struct BernoulliLoss{R<:Random.AbstractRNG} <: LossModel
     p::Float64
-    rng::Random.AbstractRNG
+    rng::R
 end
 
 """
@@ -69,15 +70,16 @@ for correlated packet loss. The channel alternates between a GOOD state with
 loss probability `p_loss_good` and a BAD state with loss probability
 `p_loss_bad`; state transitions occur once per transfer attempt with
 probabilities `p_good_to_bad` / `p_bad_to_good`. All four parameters must lie
-in `[0, 1]`.
+in `[0, 1]`. The RNG type is a struct parameter so the per-attempt draws
+dispatch statically.
 """
-mutable struct GilbertElliottLoss <: LossModel
+mutable struct GilbertElliottLoss{R<:Random.AbstractRNG} <: LossModel
     p_good_to_bad::Float64
     p_bad_to_good::Float64
     p_loss_good::Float64
     p_loss_bad::Float64
     in_bad_state::Bool
-    rng::Random.AbstractRNG
+    rng::R
 end
 
 """

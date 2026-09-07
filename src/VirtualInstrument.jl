@@ -46,7 +46,7 @@ The struct is deliberately named differently from its parent module: an exported
 struct sharing the module's name shadows the module binding in downstream
 `using` scopes, breaking qualified access (`VirtualInstrument.next_segment!`).
 """
-mutable struct InstrumentState
+mutable struct InstrumentState{R<:Random.AbstractRNG}
     last_t::DateTime
     id_counter::Int
     sample_rate::Float64
@@ -66,7 +66,7 @@ mutable struct InstrumentState
     block_buffer::Vector{Float64}    # windowed block, rewritten per block
     ext_data::Vector{Float32}
     ext_index::Int
-    rng::Random.AbstractRNG
+    rng::R
     signal_injection_probability::Float64
 
     function InstrumentState(
@@ -109,7 +109,7 @@ mutable struct InstrumentState
                     "[CONFIG] External data column in $resolved must be numeric with no missing values (got eltype $(eltype(ext_col))).",
                 )
             end
-            new(
+            new{typeof(rng)}(
                 start_t,
                 1,
                 sample_rate,
@@ -149,7 +149,7 @@ mutable struct InstrumentState
                 window,
             )
             carry = block_buffer[(n_samples+1):end]
-            new(
+            new{typeof(rng)}(
                 start_t,
                 1,
                 sample_rate,
