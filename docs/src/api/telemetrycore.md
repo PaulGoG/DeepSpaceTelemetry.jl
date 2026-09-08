@@ -36,6 +36,7 @@ DeepSpaceTelemetry.TelemetryCore.contacts_settings
 DeepSpaceTelemetry.TelemetryCore.EventMarker
 DeepSpaceTelemetry.TelemetryCore.event_marker_settings
 DeepSpaceTelemetry.TelemetryCore.ground_settings
+DeepSpaceTelemetry.TelemetryCore.publication_settings
 DeepSpaceTelemetry.TelemetryCore.batch_markers
 DeepSpaceTelemetry.TelemetryCore.save_markers
 DeepSpaceTelemetry.TelemetryCore.load_markers

@@ -3235,3 +3235,111 @@ end
     @test TelemetryCore.estimate_artifacts(valid_test_cfg()).hdf5_bytes == 0
     @test !isempty(TelemetryCore.platform_provenance()["package_version"])
 end
+
+@testset "Publication figure export" begin
+    full = PlotTheme.PlotStyle()
+    @test full.scale == 1.0 && full.size_summary == PlotTheme.FIG_SIZE_SUMMARY
+    @test full.fontsize == 12.0 && full.linewidth == PlotTheme.LINEWIDTH_DATA
+    single = PlotTheme.style_for_width(86.0)
+    @test 0.47 < single.scale < 0.49
+    @test single.size_summary[1] == round(Int, 673 * single.scale)
+    @test single.size_summary[2] > single.scale * PlotTheme.FIG_SIZE_SUMMARY[2] # extra height
+    @test single.fontsize ≈ 12 * 0.85 && single.fontsize_annotation ≈ 9.4
+    @test PlotTheme.style_for_width(178.0).scale ≈ 1.0 atol = 0.01
+    @test_throws ArgumentError PlotTheme.PlotStyle(0.0)
+
+    base = valid_test_cfg()
+    @test !TelemetryCore.publication_settings(base).enabled
+    cfg = deepcopy(base)
+    cfg["post_processing"] = Dict{String,Any}(
+        "publication" => Dict{String,Any}(
+            "enabled" => true,
+            "format" => "svg",
+            "column_width_mm" => 86.0,
+        ),
+    )
+    settings = TelemetryCore.publication_settings(cfg)
+    @test settings.enabled && settings.format == "svg" && settings.column_width_mm == 86.0
+    @test TelemetryCore.validate_config(cfg) isa AbstractDict
+    for (key, value) in (("format", "eps"), ("column_width_mm", 10.0), ("enabled", "yes"))
+        bad = deepcopy(base)
+        bad["post_processing"] =
+            Dict{String,Any}("publication" => Dict{String,Any}(key => value))
+        @test_throws ArgumentError TelemetryCore.publication_settings(bad)
+    end
+
+    # A synthetic run with a metrics profile and delivered batches: the
+    # summary and the two metrology figures export at single-column width
+    # as SVG with the run-ID suffix and a provenance sidecar; the run's
+    # metrology tables are left untouched.
+    mktempdir() do dir
+        t0 = DateTime(2035, 1, 1, 6)
+        D = Minute(3)
+        open(joinpath(dir, "config_snapshot.toml"), "w") do io
+            write(
+                io,
+                """
+                [simulation]
+                speed_up = 60.0
+                start_sim_time = "2035-01-01T06:00:00"
+                mission_wall_seconds = 60.0
+                [telemetry]
+                session_start = "08:00:00"
+                session_duration_hours = 8.0
+                max_batches_per_hour = 20.0
+                [physics]
+                data_source = "synthetic"
+                sample_rate = 4.0
+                segment_duration_sec = 60.0
+                batch_size = 3
+                [provenance.platform]
+                package_version = "0.9.0"
+                git_commit = "abc123"
+                """,
+            )
+        end
+        for (name, epoch) in (("ARCH_batch_1", t0 - D), ("LIVE_batch_2", t0))
+            bdir = mkpath(joinpath(dir, "ground", name))
+            write(
+                joinpath(bdir, "metadata.json"),
+                """{"batch_id":$(TelemetryCore.batch_id(name)),"segment_count":3,"created_at":"$(epoch + D)","content_epoch":"$epoch"}""",
+            )
+            TelemetryCore.log_tx_event(dir, epoch + D, name, "gen")
+        end
+        TelemetryCore.log_rx_event(dir, t0 + Minute(5), "LIVE_batch_2", "ingested", 0)
+        TelemetryCore.log_rx_event(dir, t0 + Minute(6), "ARCH_batch_1", "ingested", 0)
+        write(
+            joinpath(dir, "mission_profile.csv"),
+            "SimTime,WallTime,Mission_Day,Hours_Elapsed,Bandwidth_Pct,Onboard_Buffer,Link_Buffer,Ground_Total,Ground_Live,Ground_Arch,Nominal_Bandwidth_Pct,Lost_Count,Retry_Count,Disruption_Active\n" *
+            "2035-01-01T06:00:00,2026-01-01T00:00:00,0.0,0.0,50.0,2,0,0,0,0,50.0,0,0,false\n" *
+            "2035-01-01T06:06:00,2026-01-01T00:00:06,0.0,0.1,60.0,0,0,2,1,1,60.0,0,0,false\n",
+        )
+        paths = with_logger(NullLogger()) do
+            DeepSpaceTelemetry.Publication.export_publication_figures(
+                dir;
+                format = "svg",
+                column_width_mm = 86.0,
+            )
+        end
+        run_id = basename(dir)
+        @test sort(basename.(paths)) == sort([
+            "mission_summary_global__$run_id.svg",
+            "alert_latency__$run_id.svg",
+            "delivery_delay__$run_id.svg",
+        ])
+        @test all(isfile, paths) && all(startswith(joinpath(dir, "publication")), paths)
+        @test !isfile(joinpath(dir, "alert_latency.csv"))
+        @test !isfile(joinpath(dir, "delivery_delay.csv"))
+        record = TOML.parsefile(joinpath(dir, "publication", "PROVENANCE.toml"))["export"]
+        @test record["run_id"] == run_id &&
+              record["git_commit"] == "abc123" &&
+              record["column_width_mm"] == 86.0 &&
+              record["format"] == "svg" &&
+              length(record["figures"]) == 3 &&
+              length(record["config_snapshot_sha256"]) == 64
+        @test_throws ArgumentError DeepSpaceTelemetry.Publication.export_publication_figures(
+            dir;
+            format = "eps",
+        )
+    end
+end

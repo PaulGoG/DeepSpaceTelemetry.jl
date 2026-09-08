@@ -382,6 +382,7 @@ const KNOWN_CONFIG_KEYS = Dict(
         "delivery_delay",
         "delivery_requirement_hours",
         "hdf5_export",
+        "publication",
     ],
     "events" => ["markers"],
     "ground" => ["processing_latency_hours"],
@@ -409,6 +410,7 @@ const KNOWN_EVENT_KEYS = [
     "loss_multiplier",
     "affects",
 ]
+const KNOWN_PUBLICATION_KEYS = ["enabled", "format", "column_width_mm", "export_dir"]
 const KNOWN_MARKER_KEYS = [
     "time",
     "label",
@@ -810,6 +812,51 @@ function ground_settings(cfg::AbstractDict)
         "[CONFIG] ground.processing_latency_hours must be ≥ 0 (got $processing).",
     )
     return (processing_latency_hours = processing,)
+end
+
+"""
+    publication_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[post_processing.publication]`: `enabled` (default `false`),
+`format` (`"pdf"` | `"svg"`, default `"pdf"`), `column_width_mm ∈ [40, 400]`
+(default 178, the double-column width the figures are designed at; 86–90
+for a single column), and `export_dir` (default `""` =
+`<run_dir>/publication`; relative paths resolve against the current
+directory). Unrecognized keys warn.
+"""
+function publication_settings(cfg::AbstractDict)
+    pub = get(
+        get(cfg, "post_processing", Dict{String,Any}()),
+        "publication",
+        Dict{String,Any}(),
+    )
+    pub isa AbstractDict ||
+        config_error("[CONFIG] post_processing.publication must be a table of keys.")
+    for key in keys(pub)
+        key in KNOWN_PUBLICATION_KEYS ||
+            @warn "[CONFIG] Unrecognized key post_processing.publication.$key — ignored (typo?)."
+    end
+    enabled =
+        checked_flag(get(pub, "enabled", false), "post_processing.publication.enabled")
+    format = checked_string(get(pub, "format", "pdf"), "post_processing.publication.format")
+    format in ("pdf", "svg") || config_error(
+        "[CONFIG] post_processing.publication.format must be \"pdf\" or \"svg\" (got \"$format\").",
+    )
+    width = checked_number(
+        get(pub, "column_width_mm", 178.0),
+        "post_processing.publication.column_width_mm",
+    )
+    40.0 <= width <= 400.0 || config_error(
+        "[CONFIG] post_processing.publication.column_width_mm must lie in [40, 400] (got $width).",
+    )
+    export_dir =
+        checked_string(get(pub, "export_dir", ""), "post_processing.publication.export_dir")
+    return (
+        enabled = enabled,
+        format = format,
+        column_width_mm = width,
+        export_dir = export_dir,
+    )
 end
 
 """
@@ -1510,9 +1557,10 @@ function validate_config(cfg::AbstractDict)
               "(batch transfer time / speed_up). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
               "the effective downlink rate. Decrease speed_up or the link capacity."
     end
-    # -- [contacts], [[events.markers]], [ground] --
+    # -- [contacts], [[events.markers]], [ground], [post_processing.publication] --
     contacts_settings(cfg)
     ground_settings(cfg)
+    publication_settings(cfg)
 
     # -- on-board recorder against the contact schedule --
     capacity = onboard_capacity(cfg)

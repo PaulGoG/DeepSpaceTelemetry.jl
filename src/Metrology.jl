@@ -26,7 +26,6 @@ using CairoMakie:
     PolyElement,
     band!,
     lines!,
-    save,
     stairs!,
     text!,
     vlines!,
@@ -343,7 +342,7 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
 end
 
 """
-    plot_alert_latency(run_dir::String; lookback_hours = 72.0, processing_latency_hours = 1.0) -> Union{Nothing,String}
+    plot_alert_latency(run_dir::String; lookback_hours = 72.0, processing_latency_hours = 1.0, style, plots_dir, formats, suffix, write_tables = true) -> Union{Nothing,String}
 
 Writes `<run_dir>/alert_latency.csv` ([`alert_latency_table`](@ref)) and,
 when the run has markers, `alert_latency_markers.csv`
@@ -359,28 +358,43 @@ function plot_alert_latency(
     run_dir::String;
     lookback_hours::Float64 = 72.0,
     processing_latency_hours::Float64 = 1.0,
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+    plots_dir::String = joinpath(run_dir, "plots"),
+    formats = ("png", "pdf"),
+    suffix::String = "",
+    write_tables::Bool = true,
 )
     table = alert_latency_table(run_dir; lookback_hours = lookback_hours)
     if isempty(table)
         @warn "[POST] No delivered live batch in $run_dir — alert-latency metric skipped."
         return nothing
     end
-    TelemetryCore.safe_csv_write(joinpath(run_dir, "alert_latency.csv"), table)
+    write_tables &&
+        TelemetryCore.safe_csv_write(joinpath(run_dir, "alert_latency.csv"), table)
     marker_table = marker_latency_table(run_dir; lookback_hours = lookback_hours)
-    isempty(marker_table) || TelemetryCore.safe_csv_write(
-        joinpath(run_dir, "alert_latency_markers.csv"),
-        marker_table,
-    )
+    write_tables &&
+        !isempty(marker_table) &&
+        TelemetryCore.safe_csv_write(
+            joinpath(run_dir, "alert_latency_markers.csv"),
+            marker_table,
+        )
 
     x = Float64.(table.Lookback_Hours)
-    path = joinpath(run_dir, "plots", "alert_latency.png")
-    mkpath(dirname(path))
-    with_theme(PlotTheme.telemetry_theme()) do
-        fig = Figure(size = PlotTheme.FIG_SIZE_SESSION, figure_padding = 10)
+    path = ""
+    with_theme(PlotTheme.telemetry_theme(style)) do
+        fig = Figure(size = style.size_session, figure_padding = 10)
         ax = Axis(
             fig[1, 1],
-            xlabel = "Look-back δ before the live event [h]",
-            ylabel = "Window complete on the ground after [h]",
+            xlabel = PlotTheme.label(
+                style,
+                "Look-back δ before the live event [h]",
+                "Look-back δ [h]",
+            ),
+            ylabel = PlotTheme.label(
+                style,
+                "Window complete on the ground after [h]",
+                "Window complete after [h]",
+            ),
         )
         band!(
             ax,
@@ -415,7 +429,7 @@ function plot_alert_latency(
             rows = marker_table[marker_table.Label .== label, :]
             keep = .!ismissing.(rows.LIFO_Hours)
             any(keep) || continue
-            style = styles[mod1(i, length(styles))]
+            line_style = styles[mod1(i, length(styles))]
             ys = Float64.(rows.LIFO_Hours[keep])
             marker_peak = max(marker_peak, maximum(ys))
             lines!(
@@ -423,15 +437,15 @@ function plot_alert_latency(
                 Float64.(rows.Lookback_Hours[keep]),
                 ys,
                 color = :black,
-                linestyle = style,
-                linewidth = PlotTheme.LINEWIDTH_DATA,
+                linestyle = line_style,
+                linewidth = style.linewidth,
             )
             push!(
                 marker_elements,
                 LineElement(
                     color = :black,
-                    linestyle = style,
-                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                    linestyle = line_style,
+                    linewidth = 2 * style.linewidth,
                 ),
             )
             push!(marker_names, "Marker: $label")
@@ -451,19 +465,24 @@ function plot_alert_latency(
             marker_peak,
         )
         xlims!(ax, 0, maximum(x) > 0 ? maximum(x) : 1.0)
-        ylims!(ax, 0, 1.25 * y_max)
+        # Narrow figures wrap the annotation into four lines: more headroom.
+        ylims!(ax, 0, (style.scale < 0.7 ? 1.45 : 1.25) * y_max)
         last = table[end, :]
         text!(
             ax,
             0.02,
             0.97,
-            text = "Waveform back to δ = $(round(last.Lookback_Hours, digits = 1)) h complete after " *
+            text = "Waveform back to δ = $(round(last.Lookback_Hours, digits = 1)) h complete after" *
+                   PlotTheme.label(style, " ", "\n") *
                    "$(round(last.LIFO_Median_Hours, digits = 1)) h (LIFO) vs " *
-                   "$(round(last.FIFO_Median_Hours, digits = 1)) h (FIFO); medians over $(last.N_Alerts) live events\n" *
-                   "Ground processing budget: $(round(processing_latency_hours, digits = 1)) h on top of every latency",
+                   "$(round(last.FIFO_Median_Hours, digits = 1)) h (FIFO);" *
+                   PlotTheme.label(style, " ", "\n") *
+                   "medians over $(last.N_Alerts) live events\n" *
+                   "Ground processing budget: $(round(processing_latency_hours, digits = 1)) h" *
+                   PlotTheme.label(style, " on top of every latency", " on top"),
             space = :relative,
             align = (:left, :top),
-            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+            fontsize = style.fontsize_annotation,
         )
         Legend(
             fig[0, 1],
@@ -473,14 +492,14 @@ function plot_alert_latency(
                         PolyElement(color = (PlotTheme.COLOR_ARCHIVE, 0.25)),
                         LineElement(
                             color = PlotTheme.COLOR_ARCHIVE,
-                            linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                            linewidth = 2 * style.linewidth,
                         ),
                     ],
                     [
                         PolyElement(color = (PlotTheme.COLOR_ONBOARD, 0.2)),
                         LineElement(
                             color = PlotTheme.COLOR_ONBOARD,
-                            linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                            linewidth = 2 * style.linewidth,
                             linestyle = :dash,
                         ),
                     ],
@@ -492,12 +511,16 @@ function plot_alert_latency(
                 marker_names,
             );
             orientation = :horizontal,
+            nbanks = ceil(
+                Int,
+                (2 + length(marker_names)) /
+                max(1, floor(Int, style.size_session[1] / 220)),
+            ),
             framevisible = false,
             backgroundcolor = :transparent,
             colgap = 28,
         )
-        save(path, fig, px_per_unit = 4)
-        save(splitext(path)[1] * ".pdf", fig)
+        path = PlotTheme.save_figure(fig, plots_dir, "alert_latency"; formats, suffix)
     end
     @info "[POST] Alert-latency metric saved: $(relpath(path, run_dir)) and alert_latency.csv."
     return path
@@ -566,7 +589,7 @@ function delivery_compliance(table::DataFrame, requirement_hours::Float64)
 end
 
 """
-    plot_delivery_delay(run_dir::String; requirement_hours = 24.0) -> Union{Nothing,String}
+    plot_delivery_delay(run_dir::String; requirement_hours = 24.0, style, plots_dir, formats, suffix, write_tables = true) -> Union{Nothing,String}
 
 Writes `<run_dir>/delivery_delay.csv` ([`delivery_delay_table`](@ref)) and
 renders `<run_dir>/plots/delivery_delay.png` (vector PDF twin): the
@@ -576,13 +599,22 @@ batches as separate curves — with the requirement marked and the
 compliance summary annotated. Returns the PNG path, or `nothing` when the
 run generated no batch.
 """
-function plot_delivery_delay(run_dir::String; requirement_hours::Float64 = 24.0)
+function plot_delivery_delay(
+    run_dir::String;
+    requirement_hours::Float64 = 24.0,
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+    plots_dir::String = joinpath(run_dir, "plots"),
+    formats = ("png", "pdf"),
+    suffix::String = "",
+    write_tables::Bool = true,
+)
     table = delivery_delay_table(run_dir)
     if nrow(table) == 0
         @warn "[POST] No generated batch in $run_dir — delivery-delay metric skipped."
         return nothing
     end
-    TelemetryCore.safe_csv_write(joinpath(run_dir, "delivery_delay.csv"), table)
+    write_tables &&
+        TelemetryCore.safe_csv_write(joinpath(run_dir, "delivery_delay.csv"), table)
     summary = delivery_compliance(table, requirement_hours)
 
     # Empirical fraction of *generated* batches delivered within x hours, so
@@ -599,14 +631,17 @@ function plot_delivery_delay(run_dir::String; requirement_hours::Float64 = 24.0)
     x_all, y_all = curve(trues(nrow(table)))
     x_max = max(maximum(x_all; init = 0.0), requirement_hours) * 1.15
 
-    path = joinpath(run_dir, "plots", "delivery_delay.png")
-    mkpath(dirname(path))
-    with_theme(PlotTheme.telemetry_theme()) do
-        fig = Figure(size = PlotTheme.FIG_SIZE_SESSION, figure_padding = 10)
+    path = ""
+    with_theme(PlotTheme.telemetry_theme(style)) do
+        fig = Figure(size = style.size_session, figure_padding = 10)
         ax = Axis(
             fig[1, 1],
             xlabel = "Measurement-to-ground delay [h]",
-            ylabel = "Fraction of generated batches delivered",
+            ylabel = PlotTheme.label(
+                style,
+                "Fraction of generated batches delivered",
+                "Fraction delivered",
+            ),
         )
         xlims!(ax, 0, x_max)
         ylims!(ax, 0, 1.05)
@@ -617,7 +652,7 @@ function plot_delivery_delay(run_dir::String; requirement_hours::Float64 = 24.0)
             linestyle = :dash,
             linewidth = 1.5,
         )
-        stairs!(ax, x_all, y_all, color = :gray40, linewidth = PlotTheme.LINEWIDTH_DATA)
+        stairs!(ax, x_all, y_all, color = :gray40, linewidth = style.linewidth)
         count(table.Live) > 0 && stairs!(ax, x_live, y_live, color = PlotTheme.COLOR_LIVE)
         count(.!table.Live) > 0 && stairs!(ax, x_arch, y_arch, color = PlotTheme.COLOR_ARCHIVE)
         # Bottom-right corner: the curves occupy the upper-left triangle, so
@@ -638,7 +673,7 @@ function plot_delivery_delay(run_dir::String; requirement_hours::Float64 = 24.0)
             space = :relative,
             align = (:right, :bottom),
             justification = :right,
-            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+            fontsize = style.fontsize_annotation,
         )
         text!(
             ax,
@@ -647,30 +682,27 @@ function plot_delivery_delay(run_dir::String; requirement_hours::Float64 = 24.0)
             text = "Requirement: $(round(requirement_hours, digits = 1)) h",
             align = (:left, :bottom),
             offset = (4, 0),
-            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+            fontsize = style.fontsize_annotation,
             color = :gray30,
         )
         Legend(
             fig[0, 1],
             [
-                LineElement(color = :gray40, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
-                LineElement(
-                    color = PlotTheme.COLOR_LIVE,
-                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                ),
+                LineElement(color = :gray40, linewidth = 2 * style.linewidth),
+                LineElement(color = PlotTheme.COLOR_LIVE, linewidth = 2 * style.linewidth),
                 LineElement(
                     color = PlotTheme.COLOR_ARCHIVE,
-                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                    linewidth = 2 * style.linewidth,
                 ),
             ],
             ["All batches", "Live", "Archive"];
             orientation = :horizontal,
+            nbanks = ceil(Int, 3 / max(1, floor(Int, style.size_session[1] / 110))),
             framevisible = false,
             backgroundcolor = :transparent,
             colgap = 28,
         )
-        save(path, fig, px_per_unit = 4)
-        save(splitext(path)[1] * ".pdf", fig)
+        path = PlotTheme.save_figure(fig, plots_dir, "delivery_delay"; formats, suffix)
     end
     @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) and delivery_delay.csv ($(round(100 * summary.fraction_within, digits = 1)) % within $(requirement_hours) h)."
     return path

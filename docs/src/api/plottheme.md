@@ -2,6 +2,10 @@
 
 ```@docs
 DeepSpaceTelemetry.PlotTheme
+DeepSpaceTelemetry.PlotTheme.PlotStyle
+DeepSpaceTelemetry.PlotTheme.style_for_width
+DeepSpaceTelemetry.PlotTheme.label
+DeepSpaceTelemetry.PlotTheme.save_figure
 DeepSpaceTelemetry.PlotTheme.telemetry_theme
 DeepSpaceTelemetry.PlotTheme.COLOR_LIVE
 DeepSpaceTelemetry.PlotTheme.COLOR_ARCHIVE

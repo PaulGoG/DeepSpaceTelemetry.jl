@@ -7,6 +7,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- Publication figure export (`Publication.export_publication_figures`,
+  `[post_processing.publication]`, `scripts/postprocessing/export_publication_figures.jl`):
+  every figure re-rendered at a declared printed width in PDF or SVG with
+  a `PROVENANCE.toml` sidecar; `PlotTheme.PlotStyle` scales figure
+  geometry, strokes, and fonts (floored at 7 pt) for the width, and
+  legends wrap by available width.
 - HDF5 product export (`Export.export_hdf5`, `post_processing.hdf5_export`,
   `scripts/postprocessing/export_hdf5.jl`): event logs, metrics profile,
   batch-state timeline, batch epochs, point-wise masks, metrology tables,
@@ -151,6 +157,11 @@ Notable changes to DeepSpaceTelemetry. The format follows
   ignored (removed at 1.0.0).
 
 ### Changed
+- `Receiver.generate_mission_plots`, `plot_mission_summary`,
+  `plot_session`, `Metrology.plot_alert_latency`, and `plot_delivery_delay`
+  take `style`, `plots_dir`, `formats`, and `suffix` keywords (defaults
+  reproduce the previous output); `generate_mission_plots` returns the
+  paths written; the metrology plots accept `write_tables = false`.
 - The API reference is split into one manual page per module
   (`docs/src/api/`), keeping every generated page under Documenter's size
   threshold.

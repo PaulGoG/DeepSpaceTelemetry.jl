@@ -29,7 +29,6 @@ using CairoMakie:
     lines!,
     linkxaxes!,
     rowsize!,
-    save,
     scatter!,
     stairs!,
     text!,
@@ -364,6 +363,7 @@ function add_figure_legend!(
     outage::Bool = false,
     scheduled_gap::Bool = false,
     recorder::Bool = false,
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
 )
     elems = Any[]
     labels = String[]
@@ -372,26 +372,20 @@ function add_figure_legend!(
             elems,
             LineElement(
                 color = (PlotTheme.COLOR_BANDWIDTH, 0.5),
-                linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                linewidth = 2 * style.linewidth,
                 linestyle = :dot,
             ),
         )
         push!(labels, "Nominal capacity")
         push!(
             elems,
-            LineElement(
-                color = PlotTheme.COLOR_BANDWIDTH,
-                linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-            ),
+            LineElement(color = PlotTheme.COLOR_BANDWIDTH, linewidth = 2 * style.linewidth),
         )
         push!(labels, "Effective capacity")
     else
         push!(
             elems,
-            LineElement(
-                color = PlotTheme.COLOR_BANDWIDTH,
-                linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-            ),
+            LineElement(color = PlotTheme.COLOR_BANDWIDTH, linewidth = 2 * style.linewidth),
         )
         push!(labels, "Link capacity")
     end
@@ -399,7 +393,7 @@ function add_figure_legend!(
         elems,
         LineElement(
             color = PlotTheme.COLOR_ONBOARD,
-            linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+            linewidth = 2 * style.linewidth,
             linestyle = :dash,
         ),
     )
@@ -426,14 +420,11 @@ function add_figure_legend!(
         push!(
             elems,
             [
-                LineElement(
-                    color = PlotTheme.COLOR_LOST,
-                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                ),
+                LineElement(color = PlotTheme.COLOR_LOST, linewidth = 2 * style.linewidth),
                 MarkerElement(
                     marker = :xcross,
                     color = PlotTheme.COLOR_LOST,
-                    markersize = PlotTheme.MARKERSIZE_DATA,
+                    markersize = style.markersize,
                 ),
             ],
         )
@@ -444,7 +435,7 @@ function add_figure_legend!(
             MarkerElement(
                 marker = :xcross,
                 color = PlotTheme.COLOR_LOST,
-                markersize = PlotTheme.MARKERSIZE_DATA,
+                markersize = style.markersize,
             ),
         )
         push!(labels, "Lost")
@@ -472,7 +463,7 @@ function add_figure_legend!(
             elems,
             LineElement(
                 color = PlotTheme.COLOR_ONBOARD,
-                linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                linewidth = 2 * style.linewidth,
                 linestyle = :dot,
             ),
         )
@@ -483,7 +474,7 @@ function add_figure_legend!(
         elems,
         labels;
         orientation = :horizontal,
-        nbanks = length(elems) <= 3 ? 1 : length(elems) <= 6 ? 2 : 3,
+        nbanks = ceil(Int, length(elems) / max(1, floor(Int, style.size_summary[1] / 160))),
         framevisible = false,
         backgroundcolor = :transparent,
         colgap = 28,
@@ -513,7 +504,13 @@ loss channel was active, the Lost strip — to
 `<run_dir>/plots/mission_summary_global.png` with a vector PDF twin. Must
 run inside the telemetry theme. Returns the PNG path.
 """
-function plot_mission_summary(ctx::PlotContext)
+function plot_mission_summary(
+    ctx::PlotContext;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+    plots_dir::String = joinpath(ctx.run_dir, "plots"),
+    formats = ("png", "pdf"),
+    suffix::String = "",
+)
     df, df_x = ctx.df, ctx.df_x
     # Floor at one hour: a single-row (or sub-hour) profile would otherwise
     # produce degenerate axis limits and crash the renderer.
@@ -523,9 +520,9 @@ function plot_mission_summary(ctx::PlotContext)
 
     fig = Figure(
         size = (
-            PlotTheme.FIG_SIZE_SUMMARY[1],
-            ctx.show_lost_panel ? PlotTheme.FIG_SIZE_SUMMARY[2] + 90 :
-            PlotTheme.FIG_SIZE_SUMMARY[2],
+            style.size_summary[1],
+            ctx.show_lost_panel ? style.size_summary[2] + round(Int, 90 * style.scale) :
+            style.size_summary[2],
         ),
         figure_padding = 10,
     )
@@ -542,7 +539,7 @@ function plot_mission_summary(ctx::PlotContext)
     ax1_twin = Axis(
         fig[1, 1],
         yaxisposition = :right,
-        ylabel = "Buffered data batches",
+        ylabel = PlotTheme.label(style, "Buffered data batches", "Buffered batches"),
         yticklabelcolor = PlotTheme.COLOR_ONBOARD,
     )
     hidespines!(ax1_twin)
@@ -559,7 +556,7 @@ function plot_mission_summary(ctx::PlotContext)
             [ctx.recorder_capacity],
             color = PlotTheme.COLOR_ONBOARD,
             linestyle = :dot,
-            linewidth = PlotTheme.LINEWIDTH_DATA,
+            linewidth = style.linewidth,
         )
     end
 
@@ -589,7 +586,7 @@ function plot_mission_summary(ctx::PlotContext)
     ax2 = Axis(
         fig[2, 1],
         xlabel = ctx.show_lost_panel ? "" : "Mission time",
-        ylabel = "Received data batches",
+        ylabel = PlotTheme.label(style, "Received data batches", "Received batches"),
         xticks = (tick_vals_h, tick_labels),
     )
     xlims!(ax2, 0, max_x_h)
@@ -643,7 +640,7 @@ function plot_mission_summary(ctx::PlotContext)
             lost_curve[inc],
             marker = :xcross,
             color = PlotTheme.COLOR_LOST,
-            markersize = PlotTheme.MARKERSIZE_DATA,
+            markersize = style.markersize,
         )
         if lost_curve[end] > 0
             pct =
@@ -656,7 +653,7 @@ function plot_mission_summary(ctx::PlotContext)
                 text = "$(Int(lost_curve[end])) lost ($(round(pct, digits=2)) %)",
                 space = :relative,
                 align = (:right, :top),
-                fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+                fontsize = style.fontsize_annotation,
                 color = PlotTheme.COLOR_LOST,
             )
         end
@@ -672,6 +669,7 @@ function plot_mission_summary(ctx::PlotContext)
 
     add_figure_legend!(
         fig;
+        style = style,
         degraded = show_nominal,
         blackout = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 1, 2),
         ramp = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 2, 3),
@@ -682,14 +680,11 @@ function plot_mission_summary(ctx::PlotContext)
     )
     linkxaxes!(axes_to_link...)
 
-    path = joinpath(ctx.run_dir, "plots", "mission_summary_global.png")
-    save(path, fig, px_per_unit = 4)
-    save(splitext(path)[1] * ".pdf", fig)
-    return path
+    return PlotTheme.save_figure(fig, plots_dir, "mission_summary_global"; formats, suffix)
 end
 
 """
-    plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, stem::String) -> Union{Nothing,String}
+    plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, stem::String; style, plots_dir, formats, suffix) -> Union{Nothing,String}
 
 Renders the session figure of one contact `window` — a nominal pass or a
 low-latency period: smooth nominal and effective capacity with the onboard
@@ -700,7 +695,15 @@ and archive share) with ✕ pins and a count badge for any losses — to
 the window lies outside the recorded span or holds fewer than two metrics
 rows. Must run inside the telemetry theme.
 """
-function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, stem::String)
+function plot_session(
+    ctx::PlotContext,
+    window::TelemetryCore.ContactWindow,
+    stem::String;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+    plots_dir::String = joinpath(ctx.run_dir, "plots"),
+    formats = ("png", "pdf"),
+    suffix::String = "",
+)
     df = ctx.df
     max_x_h = max(ctx.df_x[end], 1.0)
     min_sess_dt = window.start
@@ -744,7 +747,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
         session_df.Ground_Arch[end] - session_df.Ground_Arch[1]
     ]
 
-    fig = Figure(size = PlotTheme.FIG_SIZE_SESSION, figure_padding = 10)
+    fig = Figure(size = style.size_session, figure_padding = 10)
 
     ax_s1 = Axis(
         fig[1, 1],
@@ -758,7 +761,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
     ax_s1_twin = Axis(
         fig[1, 1],
         yaxisposition = :right,
-        ylabel = "Buffered data batches",
+        ylabel = PlotTheme.label(style, "Buffered data batches", "Buffered batches"),
         yticklabelcolor = PlotTheme.COLOR_ONBOARD,
     )
     hidespines!(ax_s1_twin)
@@ -790,7 +793,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
     ax_s2 = Axis(
         fig[2, 1],
         xlabel = "Mission time",
-        ylabel = "Received data batches",
+        ylabel = PlotTheme.label(style, "Received data batches", "Received batches"),
         xticks = (session_tick_vals_h, session_tick_labels),
         # HH:MM labels crowd at session resolution; rotation is applied
         # here rather than in the global theme (rule: rotate crowded labels
@@ -839,7 +842,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
             fill(0.93 * y_max_s2, length(inc)),
             marker = :xcross,
             color = PlotTheme.COLOR_LOST,
-            markersize = PlotTheme.MARKERSIZE_DATA,
+            markersize = style.markersize,
         )
         text!(
             ax_s2,
@@ -848,7 +851,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
             text = "$n_lost_sess lost this session",
             space = :relative,
             align = (:right, :top),
-            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+            fontsize = style.fontsize_annotation,
             color = PlotTheme.COLOR_LOST,
         )
     end
@@ -863,7 +866,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
                    ", capacity $(round(Int, 100 * window.capacity)) %",
             space = :relative,
             align = (:left, :top),
-            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+            fontsize = style.fontsize_annotation,
         )
     end
 
@@ -872,6 +875,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
 
     add_figure_legend!(
         fig;
+        style = style,
         degraded = sess_degraded,
         blackout = spans_overlap(ctx.disruption_spans, min_sess_h, max_sess_h, 1, 2),
         ramp = spans_overlap(ctx.disruption_spans, min_sess_h, max_sess_h, 2, 3),
@@ -888,10 +892,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
     )
     linkxaxes!(ax_s1, ax_s2)
 
-    path = joinpath(ctx.run_dir, "plots", "session_$(stem)_detail.png")
-    save(path, fig, px_per_unit = 4)
-    save(splitext(path)[1] * ".pdf", fig)
-    return path
+    return PlotTheme.save_figure(fig, plots_dir, "session_$(stem)_detail"; formats, suffix)
 end
 
 """
@@ -921,38 +922,49 @@ function session_figure_stems(
 end
 
 """
-    generate_mission_plots(run_dir::String)
+    generate_mission_plots(run_dir::String; style, plots_dir, formats, suffix) -> Vector{String}
 
 Reads `mission_profile.csv` and renders the mission summary
 ([`plot_mission_summary`](@ref)) and one session figure per contact window
-([`plot_session`](@ref)) into `<run_dir>/plots`, all under the telemetry
-theme. Windows are enumerated from the contact model — the nominal daily
+([`plot_session`](@ref)) into `plots_dir` (default `<run_dir>/plots`) in
+`formats` (default PNG + PDF) with the file-name `suffix`, all under the
+telemetry theme of `style` ([`PlotTheme.PlotStyle`](@ref)); returns the
+paths written. Windows are enumerated from the contact model — the nominal daily
 passes, scheduled or generated, and the low-latency periods — not detected
 from the effective bandwidth, so a fully blacked-out day still receives
 its zero-throughput figure and file names share the summary's 0-based day
 coordinates.
 """
-function generate_mission_plots(run_dir::String)
+function generate_mission_plots(
+    run_dir::String;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+    plots_dir::String = joinpath(run_dir, "plots"),
+    formats = ("png", "pdf"),
+    suffix::String = "",
+)
     @info "[RECEIVER] Generating mission and session plots..."
-
+    paths = String[]
     log_path = joinpath(run_dir, "mission_profile.csv")
     if !isfile(log_path)
         @warn "[POST] mission_profile.csv missing in $run_dir — the receiver produced no metrics (component never ran?); skipping this product."
-        return
+        return paths
     end
     df = TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
-    isempty(df) && return
+    isempty(df) && return paths
 
     ctx = plot_context(run_dir, df, TelemetryCore.load_run_config(run_dir))
-    with_theme(PlotTheme.telemetry_theme()) do
-        global_path = plot_mission_summary(ctx)
+    with_theme(PlotTheme.telemetry_theme(style)) do
+        global_path = plot_mission_summary(ctx; style, plots_dir, formats, suffix)
+        push!(paths, global_path)
         @info "[RECEIVER] Saved Global Summary Plot: $(relpath(global_path, run_dir))"
         t_end = ctx.t_start + Millisecond(round(Int, 3.6e6 * max(ctx.df_x[end], 1.0)))
         for (stem, window) in session_figure_stems(ctx.vis_model, ctx.t_start, t_end)
-            plot_session(ctx, window, stem)
+            p = plot_session(ctx, window, stem; style, plots_dir, formats, suffix)
+            p === nothing || push!(paths, p)
         end
         @info "[RECEIVER] Saved Session-specific plots."
     end
+    return paths
 end
 
 """

@@ -114,3 +114,9 @@ alert_lookback_hours = 72.0          # Largest look-back tabulated by the alert-
 delivery_delay = true                # Delivery-delay metric (measurement-to-ground, requirement compliance) flag. One of: true | false.
 delivery_requirement_hours = 24.0    # Delivery requirement marked by the delivery-delay metric [h]. SAFE: > 0.
 hdf5_export = false                  # HDF5 product export (products.h5) flag. One of: true | false.
+
+[post_processing.publication]
+enabled = false                      # Publication figure export flag. One of: true | false.
+format = "pdf"                       # Vector format of the exported figures. One of: "pdf" | "svg".
+column_width_mm = 178.0              # Printed width of the exported figures [mm]. SAFE: [40, 400].
+export_dir = ""                      # Export directory; "" = <run_dir>/publication. SAFE: directory path or "".

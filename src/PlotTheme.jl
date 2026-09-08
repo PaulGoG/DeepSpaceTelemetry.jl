@@ -7,7 +7,7 @@ the CairoMakie theme ([`telemetry_theme`](@ref)).
 """
 module PlotTheme
 
-using CairoMakie: CairoMakie, @colorant_str, Theme
+using CairoMakie: CairoMakie, @colorant_str, Theme, save
 using MathTeXEngine: texfont
 
 # Okabe–Ito colorblind-safe palette: one semantic color per quantity,
@@ -106,17 +106,103 @@ In-axis annotation font size in Makie units (≈ 7.5 pt at print scale).
 const FONTSIZE_ANNOTATION = 10
 
 """
-    telemetry_theme()
+    PlotStyle
+
+Print-scale parameters of one figure set: `scale` relative to the
+double-column design width (178 mm ↔ 673 Makie units), the derived figure
+sizes, line width, marker size, and the font sizes (body, axis label, tick
+label, legend, in-axis annotation). Fonts and strokes do not shrink
+linearly with the width — `PlotStyle(scale)` floors them so text stays
+≥ 7 pt at the final print size — and narrow figures gain height for the
+legends that wrap.
+"""
+struct PlotStyle
+    scale::Float64
+    size_summary::Tuple{Int,Int}
+    size_session::Tuple{Int,Int}
+    linewidth::Float64
+    markersize::Float64
+    fontsize::Float64
+    fontsize_label::Float64
+    fontsize_tick::Float64
+    fontsize_legend::Float64
+    fontsize_annotation::Float64
+end
+
+function PlotStyle(scale::Real = 1.0)
+    scale > 0 || throw(ArgumentError("PlotStyle scale must be > 0 (got $scale)."))
+    s = Float64(scale)
+    text = max(s, 0.85)          # ≈ 7 pt floor at print size
+    height = s < 1 ? s * (1 + 1.0 * (1 - s)) : s
+    return PlotStyle(
+        s,
+        (round(Int, FIG_SIZE_SUMMARY[1] * s), round(Int, FIG_SIZE_SUMMARY[2] * height)),
+        (round(Int, FIG_SIZE_SESSION[1] * s), round(Int, FIG_SIZE_SESSION[2] * height)),
+        LINEWIDTH_DATA * max(s, 0.7),
+        MARKERSIZE_DATA * max(s, 0.75),
+        12 * text,
+        13 * text,
+        11 * text,
+        11 * text,
+        max(FONTSIZE_ANNOTATION * text, 9.4),
+    )
+end
+
+"""
+    label(style::PlotStyle, long::String, short::String) -> String
+
+`long` at the design width, `short` for narrow figures (`scale < 0.7`),
+where a long axis label would collide with the neighbouring panel.
+"""
+label(style::PlotStyle, long::String, short::String) = style.scale < 0.7 ? short : long
+
+"""
+    style_for_width(column_width_mm::Real) -> PlotStyle
+
+The [`PlotStyle`](@ref) of a figure printed `column_width_mm` wide (Makie
+units are 1/96 inch; 178 mm is the design width, scale 1).
+"""
+style_for_width(column_width_mm::Real) =
+    PlotStyle(column_width_mm / 25.4 * 96 / FIG_SIZE_SUMMARY[1])
+
+"""
+    save_figure(fig, dir::String, stem::String; formats = ("png", "pdf"), suffix = "") -> String
+
+Saves `fig` as `<dir>/<stem><suffix>.<ext>` for every extension in
+`formats` — PNG at `px_per_unit = 4` (≥ 380 dpi at print size), vector
+formats at native size — and returns the path of the first one.
+"""
+function save_figure(
+    fig,
+    dir::String,
+    stem::String;
+    formats = ("png", "pdf"),
+    suffix::String = "",
+)
+    mkpath(dir)
+    paths = String[]
+    for ext in formats
+        path = joinpath(dir, stem * suffix * "." * ext)
+        ext == "png" ? save(path, fig, px_per_unit = 4) : save(path, fig)
+        push!(paths, path)
+    end
+    return first(paths)
+end
+
+"""
+    telemetry_theme(style::PlotStyle = PlotStyle())
 
 Returns a CairoMakie Theme configured for publication-quality telemetry plots
 at the final printed width: (New) Computer Modern faces via
 MathTeXEngine (a plain `font = "Computer Modern"` string is ignored by
 current Makie and silently falls back to DejaVu), ≈ 9 pt body text at
-double-column scale, boxed axes with inward ticks, no titles, no minor
-ticks, faint dashed grid. Tick-label rotation is applied per axis where
-labels actually crowd (session HH:MM axes), not globally.
+double-column scale (floored at ≈ 7 pt for narrower `style`s), boxed axes
+with inward ticks, no titles, no minor ticks, faint dashed grid.
+Tick-label rotation is applied per axis where labels actually crowd
+(session HH:MM axes), not globally.
 """
-function telemetry_theme()
+function telemetry_theme(style::PlotStyle = PlotStyle())
+    patch = max(style.scale, 0.75)
     return Theme(
         fonts = (;
             regular = texfont(:text),
@@ -124,15 +210,15 @@ function telemetry_theme()
             italic = texfont(:italic),
             bold_italic = texfont(:bolditalic),
         ),
-        fontsize = 12,
+        fontsize = style.fontsize,
         figure_padding = 8,
-        Lines = (linewidth = LINEWIDTH_DATA,),
-        Stairs = (linewidth = LINEWIDTH_DATA,),
+        Lines = (linewidth = style.linewidth,),
+        Stairs = (linewidth = style.linewidth,),
         Legend = (
             framevisible = false,
             backgroundcolor = :transparent,
-            labelsize = 11,
-            patchsize = (20, 10),
+            labelsize = style.fontsize_legend,
+            patchsize = (20 * patch, 10 * patch),
         ),
         Axis = (
             titlevisible = false,
@@ -144,10 +230,10 @@ function telemetry_theme()
             yminorticksvisible = false,
             xtickalign = 1,
             ytickalign = 1,
-            xlabelsize = 13,
-            ylabelsize = 13,
-            xticklabelsize = 11,
-            yticklabelsize = 11,
+            xlabelsize = style.fontsize_label,
+            ylabelsize = style.fontsize_label,
+            xticklabelsize = style.fontsize_tick,
+            yticklabelsize = style.fontsize_tick,
             # Clearance between tick labels and axis labels (spacing
             # discipline).
             xlabelpadding = 8,

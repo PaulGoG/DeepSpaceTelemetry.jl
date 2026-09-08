@@ -30,6 +30,7 @@ DeepSpaceTelemetry/
 │   ├── Receiver.jl              # DSN ground station, loss handling, post-processing
 │   ├── Metrology.jl             # Event-log metrics: alert-latency curves (LIFO vs FIFO drain)
 │   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
+│   ├── Publication.jl           # Publication figure export at a declared printed width
 │   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
 ├── scripts/
 │   ├── Project.toml             # Script environment (UI/log deps; parent package dev'ed)
@@ -41,6 +42,7 @@ DeepSpaceTelemetry/
 │   ├── postprocessing/
 │   │   ├── apply_telemetry_mask.jl      # Point-wise mask expansion (snapshot-aware)
 │   │   ├── export_hdf5.jl               # HDF5 product export of a run
+│   │   ├── export_publication_figures.jl # Vector figures at journal width + provenance sidecar
 │   │   ├── generate_gif.jl              # Batch-routing animation engine
 │   │   └── standalone_mask_expander.jl  # Dependency-light copy for collaborators
 │   └── maintenance/
@@ -181,6 +183,13 @@ HDF5 export of every product of a run (defaults to the latest):
 julia --project=. scripts/postprocessing/export_hdf5.jl [RUN_ID]
 ```
 
+Publication figures at the width and format of the run's
+`[post_processing.publication]` settings, with a provenance sidecar:
+
+```bash
+julia --project=. scripts/postprocessing/export_publication_figures.jl [RUN_ID]
+```
+
 ### 4. Tests & Benchmarks
 
 The static-QA block (Aqua, ExplicitImports, JET), the unit and
@@ -295,6 +304,11 @@ freely — e.g. `[-1, "10:20", 45]`.
     logs, metrics, masks, metrology tables, markers — in one
     self-describing `products.h5` with the run's provenance (package
     version, git commit, platform, configuration) as attributes.
+*   **Publication figure export** (`Publication.jl`): every figure
+    re-rendered at a declared printed width (double or single column) in
+    PDF or SVG, text floored at 7 pt, into one directory with a
+    `PROVENANCE.toml` sidecar tracing each panel to its run, commit, and
+    configuration.
 *   **Metrology** (`Metrology.jl`), from the event logs: the alert-latency
     curve — how long after a live event the look-back window `δ` is on the
     ground, realized live-FIFO/archive-LIFO doctrine against a
