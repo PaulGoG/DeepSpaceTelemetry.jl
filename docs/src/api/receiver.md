@@ -10,9 +10,11 @@ DeepSpaceTelemetry.Receiver.session_figure_stems
 DeepSpaceTelemetry.Receiver.plot_session
 DeepSpaceTelemetry.Receiver.hours_since
 DeepSpaceTelemetry.Receiver.component_outage_spans
+DeepSpaceTelemetry.Receiver.generation_gap_spans
 DeepSpaceTelemetry.Receiver.spans_overlap
 DeepSpaceTelemetry.Receiver.shade_disruptions!
 DeepSpaceTelemetry.Receiver.shade_outages!
+DeepSpaceTelemetry.Receiver.shade_generation_gaps!
 DeepSpaceTelemetry.Receiver.add_figure_legend!
 DeepSpaceTelemetry.Receiver.summary_tick_step_hours
 DeepSpaceTelemetry.Receiver.BatchStates

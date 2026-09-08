@@ -278,6 +278,11 @@ freely — e.g. `[-1, "10:20", 45]`.
     holding batch is finalized; the alert-latency metric is evaluated at
     each marker, optionally triggering a low-latency period, with the
     `[ground]` processing budget reported on top.
+*   **Scheduled generation gaps and the on-board recorder**: disruption
+    events with `affects = "generation"` (antenna repointing) interrupt
+    data production instead of the link; `storage.onboard_capacity_days`
+    bounds the recorder without eviction, discarding new data at the
+    ceiling and recording the loss as a gap.
 *   **Metrology** (`Metrology.jl`), from the event logs: the alert-latency
     curve — how long after a live event the look-back window `δ` is on the
     ground, realized live-FIFO/archive-LIFO doctrine against a

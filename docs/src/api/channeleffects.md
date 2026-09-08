@@ -18,6 +18,7 @@ DeepSpaceTelemetry.ChannelEffects.effective_bandwidth
 DeepSpaceTelemetry.ChannelEffects.is_transmittable
 DeepSpaceTelemetry.ChannelEffects.build_loss_model
 DeepSpaceTelemetry.ChannelEffects.build_disruption_timeline
+DeepSpaceTelemetry.ChannelEffects.generation_gaps
 DeepSpaceTelemetry.ChannelEffects.build_link_model
 DeepSpaceTelemetry.ChannelEffects.loss_retry_limit
 ```

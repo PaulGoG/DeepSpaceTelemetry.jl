@@ -100,10 +100,14 @@ outage needs no special handling — it reproduces ground-station-blackout
 phenomenology (backlog accumulation, then drain). An **emitter outage is a
 genuine generation gap**: the restarted instrument resumes at the *current*
 mission time with a fresh noise realization, and the dead window is bounded
-by `gap_start`/`gap_end` rows (Batch = `STREAM`) in `events_tx.csv`. Because
-batch IDs stay contiguous while mission time is not, point-wise mask rows
-must be re-anchored via `masks/batch_epochs.csv` when gap events are
-present; the mask replay itself treats gap events as state-preserving.
+by `gap_start`/`gap_end` rows (Batch = `STREAM`) in `events_tx.csv`. The
+same row pair bounds a **scheduled generation gap** (a disruption event with
+`affects = "generation"`; Batch = `SCHEDULED`) and a **recorder overflow**
+(the on-board buffer at `storage.onboard_capacity_days`; Batch =
+`RECORDER`, closed when room returns). Because batch IDs stay contiguous
+while mission time is not, point-wise mask rows must be re-anchored via
+`masks/batch_epochs.csv` when gap events are present; the mask replay
+itself treats gap events as state-preserving.
 
 ## Event Feeds
 

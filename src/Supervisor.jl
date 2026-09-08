@@ -124,6 +124,8 @@ struct MissionPlan{T<:NamedTuple,P<:NamedTuple,S<:NamedTuple,L<:ChannelEffects.L
     max_retries::Int
     retention::TelemetryCore.RetentionPolicy
     markers::Vector{TelemetryCore.EventMarker}
+    generation_gaps::Vector{Tuple{DateTime,DateTime}}
+    onboard_capacity_batches::Int
 end
 
 """
@@ -202,6 +204,8 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
         ChannelEffects.loss_retry_limit(cfg),
         TelemetryCore.retention_settings(cfg),
         TelemetryCore.event_marker_settings(cfg),
+        ChannelEffects.generation_gaps(cfg, start_sim),
+        TelemetryCore.onboard_capacity(cfg).batches,
     )
 end
 
@@ -384,6 +388,8 @@ function component_spawners(
                                TelemetryCore.DataSegment[],
             rng = Xoshiro(plan.rng_seed + 100 + attempt),
             markers = plan.markers,
+            generation_gaps = plan.generation_gaps,
+            onboard_capacity_batches = plan.onboard_capacity_batches,
             max_inflight_batches = telemetry.max_inflight_batches,
             deadline = deadline,
             stop = stop_flag,
@@ -569,6 +575,18 @@ function print_banner(io::IO, plan::MissionPlan, run_dir::String)
         rpad("Markers:", 20),
         join(("$(m.label) at $(m.time)" for m in plan.markers), "; "),
     )
+    isempty(plan.generation_gaps) || println(
+        io,
+        rpad("Generation gaps:", 20),
+        join(("$g0 – $g1" for (g0, g1) in plan.generation_gaps), "; "),
+    )
+    capacity = TelemetryCore.onboard_capacity(plan.cfg)
+    println(
+        io,
+        rpad("Recorder:", 20),
+        "$(capacity.days) days of production = $(capacity.batches) batches" *
+        (isnan(capacity.gigabit) ? "" : " ≈ $(round(capacity.gigabit, digits = 1)) Gbit"),
+    )
     println(io, rpad("Logs:", 20), "$run_dir/*.log")
     println(io, "="^55)
     return nothing
@@ -676,6 +694,8 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
             ext_path = physics.external_data_path,
             rng = Xoshiro(plan.rng_seed),
             markers = plan.markers,
+            generation_gaps = plan.generation_gaps,
+            onboard_capacity_batches = plan.onboard_capacity_batches,
         )
     end
 

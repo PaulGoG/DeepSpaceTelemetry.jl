@@ -38,6 +38,11 @@ A lost transfer leaves the batch on the link. The loss is detected on the ground
 
 Because the emitter gates transmission on the *effective* link — geometric visibility × disruption factor — data generated during a blackout is stamped `ARCH_` and accumulates onboard exactly like blind-spot data; the post-event drain then follows the standard LIVE-FIFO/ARCH-LIFO mechanics with no special-case code.
 
+## Scheduled Generation Gaps and the On-Board Recorder
+A disruption event with `affects = "generation"` (the default for `type = "antenna_repointing"`, the minutes-long science interruptions of the antenna rotation) interrupts data production instead of the link: the emitter produces nothing between the event start and `start + duration_hours`, discards the segments of the batch left incomplete at the gap start (as in an emitter outage, so batch geometry stays uniform), and bounds the gap in `events_tx.csv` (`gap_start` / `gap_end`, Batch = `SCHEDULED`). Gap boundaries snap to segment boundaries; the severity, recovery, and loss keys of such an event are ignored.
+
+The on-board recorder holds `storage.onboard_capacity_days` of production (default 14 days, the Report's autonomy without ground contact), i.e. a ceiling in batches through the batch content span. The emitter enforces it without eviction: a batch finalized while the buffer sits at the ceiling is discarded, the loss bounded by `gap_start` / `gap_end` rows with Batch = `RECORDER` (closed at the first finalization that finds room again). Configuration validation warns when the initial blind spot, or the longest interval without ground contact in the schedule, exceeds the capacity. The mission summary shades scheduled gaps and recorder overflows and draws the capacity on the buffer axis when it was reached.
+
 ## Queuing Theory: LIFO vs FIFO
 Between contacts the spacecraft accumulates a backlog (in the shipped LISA scenario, 16 blind hours per day). When the link opens, the satellite routes data under a strict priority doctrine:
 

@@ -7,6 +7,19 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- Scheduled generation gaps: `[[disruption.events]]` gain `affects =
+  "link" | "generation"` (`antenna_repointing` defaults to generation);
+  a generation event stops production for its duration, bounded by
+  `gap_start` / `gap_end` rows with Batch = `SCHEDULED`.
+- On-board recorder ceiling: `storage.onboard_capacity_days` (default 14)
+  bounds the buffer in batches; the emitter discards new batches at the
+  ceiling (no eviction) and records the loss as a `RECORDER` gap;
+  validation warns when the initial blind spot or the longest contact gap
+  exceeds the capacity; the mission summary and session figures shade
+  scheduled gaps and recorder overflows and draw the reached capacity;
+  the banner reports the capacity in batches and gigabit when the link is
+  given as rates. The shipped scenario gains a 15-minute antenna
+  repointing on day 1.5.
 - Event markers (`[[events.markers]]`): declared instants of interest,
   stamped into `metadata.json` (`markers`) and `events_tx.csv` (`marker`
   rows) by the emitter when the holding batch is finalized, recorded in

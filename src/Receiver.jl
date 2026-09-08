@@ -34,6 +34,7 @@ using CairoMakie:
     stairs!,
     text!,
     translate!,
+    hlines!,
     vlines!,
     vspan!,
     with_theme,
@@ -69,8 +70,50 @@ struct PlotContext
     link_model::ChannelEffects.LinkModel
     disruption_spans::Vector{NTuple{3,Float64}} # (blackout start, blackout end, recovery end)
     outage_spans::Vector{NTuple{2,Float64}}     # component down → restart (or mission end)
+    scheduled_gap_spans::Vector{NTuple{2,Float64}} # SCHEDULED gap_start → gap_end
+    recorder_spans::Vector{NTuple{2,Float64}}   # RECORDER gap_start → gap_end (or mission end)
+    recorder_capacity::Float64                  # batches; NaN when never reached
     has_loss_cols::Bool
     show_lost_panel::Bool
+end
+
+"""
+    generation_gap_spans(run_dir, t_start, x_end, tag) -> Vector{NTuple{2,Float64}}
+
+Generation-gap windows from the emitter's `events_tx.csv`: `gap_start` /
+`gap_end` pairs whose `Batch` column equals `tag` (`SCHEDULED` for planned
+gaps, `RECORDER` for recorder overflows, `STREAM` for outages recorded by
+the supervisor), in hours since `t_start`; an unclosed gap ends at `x_end`.
+"""
+function generation_gap_spans(
+    run_dir::String,
+    t_start::DateTime,
+    x_end::Float64,
+    tag::String,
+)
+    spans = NTuple{2,Float64}[]
+    path = joinpath(run_dir, "events_tx.csv")
+    isfile(path) || return spans
+    events = CSV.read(path, DataFrame)
+    isempty(events) && return spans
+    open_start = nothing
+    for r in eachrow(events)
+        String(r.Batch) == tag || continue
+        if r.Event == "gap_start"
+            open_start = DateTime(r.SimTime)
+        elseif r.Event == "gap_end" && open_start !== nothing
+            push!(
+                spans,
+                (
+                    hours_since(open_start, t_start),
+                    hours_since(DateTime(r.SimTime), t_start),
+                ),
+            )
+            open_start = nothing
+        end
+    end
+    open_start === nothing || push!(spans, (hours_since(open_start, t_start), x_end))
+    return spans
 end
 
 """
@@ -149,6 +192,16 @@ function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
     # an empty strip honestly reports "no losses" — and for legacy runs that
     # recorded losses without a config snapshot.
     loss_enabled = Bool(get(get(cfg, "packet_loss", Dict{String,Any}()), "enabled", false))
+    recorder_spans = generation_gap_spans(run_dir, t_start, maximum(df_x), "RECORDER")
+    recorder_capacity =
+        isempty(recorder_spans) ? NaN :
+        try
+            Float64(TelemetryCore.onboard_capacity(cfg).batches)
+        catch e
+            @warn "[RECEIVER] Could not derive the recorder capacity from the run snapshot." exception =
+                e
+            NaN
+        end
     return PlotContext(
         run_dir,
         df,
@@ -158,6 +211,9 @@ function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
         ChannelEffects.LinkModel(vis_model, disruptions),
         disruption_spans,
         component_outage_spans(run_dir, t_start, maximum(df_x)),
+        generation_gap_spans(run_dir, t_start, maximum(df_x), "SCHEDULED"),
+        recorder_spans,
+        recorder_capacity,
         has_loss_cols,
         (loss_enabled && has_loss_cols) || any_lost,
     )
@@ -182,25 +238,61 @@ neutral grey wash with dotted edge lines, pushed behind the data. Distinct
 from the configured disruption shading — these are unscheduled
 infrastructure outages.
 """
-function shade_outages!(ax, x_lo::Float64, x_hi::Float64, outage_spans)
+function shade_outages!(
+    ax,
+    x_lo::Float64,
+    x_hi::Float64,
+    outage_spans;
+    color = (:black, 0.10),
+    edgecolor = (:gray40, 0.8),
+    linestyle = :dot,
+)
     for (o0, o1) in outage_spans
         o0c, o1c = max(o0, x_lo), min(o1, x_hi)
         o0c < o1c || continue
-        v = vspan!(ax, o0c, o1c, color = (:black, 0.10))
+        v = vspan!(ax, o0c, o1c, color = color)
         translate!(v, 0, 0, -99)
         for x_edge in (o0, o1)
             if x_lo <= x_edge <= x_hi
                 l = vlines!(
                     ax,
                     [x_edge],
-                    color = (:gray40, 0.8),
-                    linestyle = :dot,
+                    color = edgecolor,
+                    linestyle = linestyle,
                     linewidth = 1.5,
                 )
                 translate!(l, 0, 0, -98)
             end
         end
     end
+    return ax
+end
+
+"""
+    shade_generation_gaps!(ax, x_lo, x_hi, ctx::PlotContext)
+
+Scheduled generation gaps (onboard-family colour, dash-dot edges) and
+recorder overflows (loss colour, dash-dot edges) behind the data of `ax`.
+"""
+function shade_generation_gaps!(ax, x_lo::Float64, x_hi::Float64, ctx)
+    shade_outages!(
+        ax,
+        x_lo,
+        x_hi,
+        ctx.scheduled_gap_spans;
+        color = (PlotTheme.COLOR_ONBOARD, 0.25),
+        edgecolor = (PlotTheme.COLOR_ONBOARD, 0.9),
+        linestyle = :dashdot,
+    )
+    shade_outages!(
+        ax,
+        x_lo,
+        x_hi,
+        ctx.recorder_spans;
+        color = (PlotTheme.COLOR_LOST, 0.12),
+        edgecolor = (PlotTheme.COLOR_LOST, 0.9),
+        linestyle = :dashdot,
+    )
     return ax
 end
 
@@ -270,6 +362,8 @@ function add_figure_legend!(
     ramp::Bool,
     lost::Symbol,
     outage::Bool = false,
+    scheduled_gap::Bool = false,
+    recorder::Bool = false,
 )
     elems = Any[]
     labels = String[]
@@ -367,12 +461,29 @@ function add_figure_legend!(
         push!(elems, PolyElement(color = (:black, 0.10)))
         push!(labels, "Component outage")
     end
+    if scheduled_gap
+        push!(elems, PolyElement(color = (PlotTheme.COLOR_ONBOARD, 0.25)))
+        push!(labels, "Scheduled generation gap")
+    end
+    if recorder
+        push!(elems, PolyElement(color = (PlotTheme.COLOR_LOST, 0.12)))
+        push!(labels, "Recorder full (data discarded)")
+        push!(
+            elems,
+            LineElement(
+                color = PlotTheme.COLOR_ONBOARD,
+                linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                linestyle = :dot,
+            ),
+        )
+        push!(labels, "Recorder capacity")
+    end
     Legend(
         fig[0, 1],
         elems,
         labels;
         orientation = :horizontal,
-        nbanks = length(elems) > 3 ? 2 : 1,
+        nbanks = length(elems) <= 3 ? 1 : length(elems) <= 6 ? 2 : 3,
         framevisible = false,
         backgroundcolor = :transparent,
         colgap = 28,
@@ -441,6 +552,16 @@ function plot_mission_summary(ctx::PlotContext)
 
     shade_disruptions!(ax1, 0.0, max_x_h, ctx.disruption_spans)
     shade_outages!(ax1, 0.0, max_x_h, ctx.outage_spans)
+    shade_generation_gaps!(ax1, 0.0, max_x_h, ctx)
+    if !isnan(ctx.recorder_capacity)
+        hlines!(
+            ax1_twin,
+            [ctx.recorder_capacity],
+            color = PlotTheme.COLOR_ONBOARD,
+            linestyle = :dot,
+            linewidth = PlotTheme.LINEWIDTH_DATA,
+        )
+    end
 
     # Nominal (visibility-only) capacity behind the effective curve when a
     # disruption degraded the link somewhere in the run.
@@ -476,6 +597,7 @@ function plot_mission_summary(ctx::PlotContext)
 
     shade_disruptions!(ax2, 0.0, max_x_h, ctx.disruption_spans)
     shade_outages!(ax2, 0.0, max_x_h, ctx.outage_spans)
+    shade_generation_gaps!(ax2, 0.0, max_x_h, ctx)
 
     band!(
         ax2,
@@ -554,6 +676,8 @@ function plot_mission_summary(ctx::PlotContext)
         blackout = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 1, 2),
         ramp = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 2, 3),
         outage = spans_overlap(ctx.outage_spans, 0.0, max_x_h, 1, 2),
+        scheduled_gap = spans_overlap(ctx.scheduled_gap_spans, 0.0, max_x_h, 1, 2),
+        recorder = spans_overlap(ctx.recorder_spans, 0.0, max_x_h, 1, 2),
         lost = ctx.show_lost_panel ? :strip : :none,
     )
     linkxaxes!(axes_to_link...)
@@ -644,6 +768,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
 
     shade_disruptions!(ax_s1, min_sess_h, max_sess_h, ctx.disruption_spans)
     shade_outages!(ax_s1, min_sess_h, max_sess_h, ctx.outage_spans)
+    shade_generation_gaps!(ax_s1, min_sess_h, max_sess_h, ctx)
     if sess_degraded
         lines!(
             ax_s1,
@@ -678,6 +803,7 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
 
     shade_disruptions!(ax_s2, min_sess_h, max_sess_h, ctx.disruption_spans)
     shade_outages!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans)
+    shade_generation_gaps!(ax_s2, min_sess_h, max_sess_h, ctx)
 
     band!(
         ax_s2,
@@ -750,6 +876,14 @@ function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, ste
         blackout = spans_overlap(ctx.disruption_spans, min_sess_h, max_sess_h, 1, 2),
         ramp = spans_overlap(ctx.disruption_spans, min_sess_h, max_sess_h, 2, 3),
         outage = spans_overlap(ctx.outage_spans, min_sess_h, max_sess_h, 1, 2),
+        scheduled_gap = spans_overlap(
+            ctx.scheduled_gap_spans,
+            min_sess_h,
+            max_sess_h,
+            1,
+            2,
+        ),
+        recorder = spans_overlap(ctx.recorder_spans, min_sess_h, max_sess_h, 1, 2),
         lost = n_lost_sess > 0 ? :marks : :none,
     )
     linkxaxes!(ax_s1, ax_s2)

@@ -73,7 +73,17 @@ duration_hours = 60.0       # full-blackout phase
 severity = 1.0              # 1.0 = zero capacity; 0.4 = 60% capacity retained
 recovery_hours = 12.0       # linear ramp back to nominal
 loss_multiplier = 8.0       # stochastic loss × 8 during blackout + ramp
+
+[[disruption.events]]
+type = "antenna_repointing" # affects = "generation" by default for this type
+start_day = 1.5
+duration_hours = 0.25       # no data produced for 15 min; severity/recovery/loss ignored
 ```
+
+The on-board recorder is bounded by `[storage] onboard_capacity_days`
+(default 14): once the buffer holds that many days of production, new
+batches are discarded until room returns (no eviction), and the loss is
+recorded as a `RECORDER` gap in the transmit event log.
 
 Reproducibility: `simulation.rng_seed` seeds the physics stream and the loss
 channel independently (seed and seed+1). Identical config → identical noise

@@ -333,7 +333,7 @@ const KNOWN_CONFIG_KEYS = Dict(
         "max_storage_gb",
     ],
     "storage" => vcat(
-        ["max_storage_gb", "max_file_count", "max_ram_gb"],
+        ["max_storage_gb", "max_file_count", "max_ram_gb", "onboard_capacity_days"],
         String.(collect(keys(STORAGE_CALIBRATION_DEFAULTS))),
     ),
     "retention" => ["enabled", "grace_hours", "high_watermark_gb", "log_rotate_mb"],
@@ -406,6 +406,7 @@ const KNOWN_EVENT_KEYS = [
     "severity",
     "recovery_hours",
     "loss_multiplier",
+    "affects",
 ]
 const KNOWN_MARKER_KEYS = [
     "time",
@@ -501,8 +502,8 @@ given either as `max_batches_per_hour` or as the physical pair
 capacity in batches per hour follows through the batch content span
 (`[physics]`); the two forms are mutually exclusive. The result carries
 `nominal_batch_transfer_sec` (the transfer time of one batch at full
-capacity) and `catch_up_ratio` (downlink over production rate; `NaN` in
-the batches-per-hour form). Bounds are enforced with
+capacity), `catch_up_ratio` (downlink over production rate; `NaN` in the
+batches-per-hour form), and `onboard_data_rate_kbps` (`NaN` likewise). Bounds are enforced with
 `[CONFIG]` errors; absent keys take the documented defaults (post-processing
 of legacy snapshots), while the live-config required-key policy is applied
 by [`validate_config`](@ref).
@@ -544,6 +545,7 @@ function telemetry_settings(cfg::AbstractDict)
         nominal_batch_transfer_sec = batch_span_sec * onboard_kbps / downlink_kbps
         max_batches_per_hour = 3600.0 / nominal_batch_transfer_sec
         catch_up_ratio = downlink_kbps / onboard_kbps
+        onboard_data_rate_kbps = onboard_kbps
     else
         max_batches_per_hour = checked_number(
             get(tel, "max_batches_per_hour", 20.0),
@@ -554,6 +556,7 @@ function telemetry_settings(cfg::AbstractDict)
         )
         nominal_batch_transfer_sec = 3600.0 / max_batches_per_hour
         catch_up_ratio = NaN
+        onboard_data_rate_kbps = NaN
     end
     bandwidth_profile =
         checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
@@ -592,6 +595,7 @@ function telemetry_settings(cfg::AbstractDict)
         max_batches_per_hour = max_batches_per_hour,
         nominal_batch_transfer_sec = nominal_batch_transfer_sec,
         catch_up_ratio = catch_up_ratio,
+        onboard_data_rate_kbps = onboard_data_rate_kbps,
         max_inflight_batches = max_inflight,
         min_link_factor = min_link_factor,
         range_million_km = range_million_km,
@@ -891,8 +895,9 @@ const DisruptionEventSettings = NamedTuple{
         :recovery_hours,
         :severity,
         :loss_multiplier,
+        :affects,
     ),
-    Tuple{String,String,Float64,Float64,Float64,Float64,Float64},
+    Tuple{String,String,Float64,Float64,Float64,Float64,Float64,String},
 }
 
 """
@@ -901,9 +906,12 @@ const DisruptionEventSettings = NamedTuple{
 Validated `[[disruption.events]]` entries in file order (the legacy
 `[[disaster.events]]` section name is accepted): `type`, `label`,
 `start_day ≥ 0`, `duration_hours > 0`, `recovery_hours ≥ 0`,
-`severity ∈ [0, 1]`, `loss_multiplier`. A malformed event raises an error
-rather than being skipped: a silently missing disruption invalidates the
-scenario.
+`severity ∈ [0, 1]`, `loss_multiplier`, and `affects` — `"link"` (the
+default: a capacity and loss disruption) or `"generation"` (a scheduled
+gap in data production of `duration_hours`; severity, recovery, and loss
+keys are ignored). `type = "antenna_repointing"` defaults to
+`"generation"`. A malformed event raises an error rather than being
+skipped: a silently missing disruption invalidates the scenario.
 """
 function disruption_event_settings(cfg::AbstractDict)
     d = get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}()))
@@ -938,23 +946,73 @@ function disruption_event_settings(cfg::AbstractDict)
             get(e, "loss_multiplier", 1.0),
             "disruption.events[$i].loss_multiplier",
         )
+        type =
+            checked_string(get(e, "type", "link_disruption"), "disruption.events[$i].type")
+        affects = checked_string(
+            get(e, "affects", type == "antenna_repointing" ? "generation" : "link"),
+            "disruption.events[$i].affects",
+        )
+        affects in ("link", "generation") || config_error(
+            "[CONFIG] disruption.events[$i].affects must be \"link\" or \"generation\" (got \"$affects\").",
+        )
         push!(
             events,
             (
-                type = checked_string(
-                    get(e, "type", "link_disruption"),
-                    "disruption.events[$i].type",
-                ),
+                type = type,
                 label = checked_string(get(e, "label", ""), "disruption.events[$i].label"),
                 start_day = start_day,
                 duration_hours = duration_hours,
                 recovery_hours = recovery_hours,
                 severity = severity,
                 loss_multiplier = loss_multiplier,
+                affects = affects,
             ),
         )
     end
     return events
+end
+
+"""
+    onboard_capacity(cfg::AbstractDict) -> NamedTuple
+
+The on-board recorder ceiling from `storage.onboard_capacity_days > 0`
+(default 14, the Definition Study Report's autonomy without ground
+contact): `days`, `batches` (the ceiling the emitter enforces — production
+over that span in whole batches, at least one), and `gigabit` (the
+physical volume when the link is given as a rate pair, else `NaN`).
+"""
+function onboard_capacity(cfg::AbstractDict)
+    st = get(cfg, "storage", Dict{String,Any}())
+    days = checked_number(
+        get(st, "onboard_capacity_days", 14.0),
+        "storage.onboard_capacity_days",
+    )
+    days > 0.0 ||
+        config_error("[CONFIG] storage.onboard_capacity_days must be > 0 (got $days).")
+    physics = physics_settings(cfg)
+    span_sec = physics.batch_size * physics.segment_duration_sec
+    tel = telemetry_settings(cfg)
+    return (
+        days = days,
+        batches = max(1, floor(Int, days * 86_400 / span_sec)),
+        gigabit = days * 86_400 * tel.onboard_data_rate_kbps / 1e6,
+    )
+end
+
+"""
+    open_recorder_gap(run_dir::String) -> Bool
+
+Whether the last recorder-overflow gap in `events_tx.csv` (rows with
+Batch = `RECORDER`) is still open — a `gap_start` without its `gap_end` —
+so a re-attaching emitter closes it when the buffer has room again.
+"""
+function open_recorder_gap(run_dir::String)
+    path = joinpath(run_dir, "events_tx.csv")
+    isfile(path) || return false
+    df = CSV.read(path, DataFrame)
+    isempty(df) && return false
+    rows = df[df.Batch .== "RECORDER", :]
+    return count(==("gap_start"), rows.Event) > count(==("gap_end"), rows.Event)
 end
 
 """
@@ -1454,6 +1512,31 @@ function validate_config(cfg::AbstractDict)
     # -- [contacts], [[events.markers]], [ground] --
     contacts_settings(cfg)
     ground_settings(cfg)
+
+    # -- on-board recorder against the contact schedule --
+    capacity = onboard_capacity(cfg)
+    if downtime > capacity.days
+        @warn "[CONFIG] simulation.initial_downtime_days = $downtime exceeds the on-board recorder capacity ($(capacity.days) days): pre-populated batches beyond $(capacity.batches) are discarded."
+    end
+    mission_days = mission_wall_seconds(cfg) * speed_up / 86_400
+    t_start = DateTime(sim["start_sim_time"])
+    windows = contact_windows(
+        visibility_model(cfg),
+        t_start,
+        t_start + Millisecond(round(Int, mission_days * 86_400_000)),
+    )
+    t_end = t_start + Millisecond(round(Int, mission_days * 86_400_000))
+    longest_gap_hours = 0.0
+    previous_stop = t_start - Millisecond(round(Int, downtime * 86_400_000))
+    for w in windows
+        longest_gap_hours = max(longest_gap_hours, (w.start - previous_stop).value / 3.6e6)
+        previous_stop = max(previous_stop, w.stop)
+    end
+    # Data produced after the last contact accumulates until the mission end.
+    longest_gap_hours = max(longest_gap_hours, (t_end - previous_stop).value / 3.6e6)
+    if longest_gap_hours > 24 * capacity.days
+        @warn "[CONFIG] The longest interval without ground contact ($(round(longest_gap_hours, digits = 1)) h) exceeds the on-board recorder capacity ($(24 * capacity.days) h of production): the emitter discards data once the buffer is full."
+    end
 
     # -- [packet_loss] --
     # Types, enumerations, and bounds are enforced by the shared accessor

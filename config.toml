@@ -11,6 +11,7 @@ rng_seed = 2035                      # Seeds physics and packet-loss RNGs. SAFE:
 max_storage_gb = 5.0                 # Run-directory disk budget [GB]. SAFE: > 0.
 max_file_count = 500000              # Run-directory inode budget. SAFE: > 0.
 max_ram_gb = 8.0                     # Post-processing replay RAM budget [GB]. SAFE: > 0.
+onboard_capacity_days = 14.0         # On-board recorder capacity [days of production]. SAFE: > 0.
 # Estimator calibration overrides, one key per artifact class (bytes_per_sample,
 # bytes_batch_metadata, bytes_event_row, bytes_metrics_row, bytes_mask_cell,
 # bytes_pointwise_cell, bytes_plot, bytes_plot_pdf, bytes_replay_cell,
@@ -82,6 +83,13 @@ duration_hours = 18.0                # Duration of full blackout phase [h]. SAFE
 severity = 1.0                       # Link capacity reduction factor. SAFE: [0, 1].
 recovery_hours = 12.0                # Duration of linear recovery ramp [h]. SAFE: >= 0.
 loss_multiplier = 5.0                # Loss probability multiplier during event. SAFE: >= 1.0.
+
+[[disruption.events]]
+type = "antenna_repointing"          # Event type identifier; "antenna_repointing" affects generation by default.
+label = "antenna repointing"         # Display label for logs and viewer.
+start_day = 1.5                      # Event onset time [mission days]. SAFE: >= 0.
+duration_hours = 0.25                # Duration of the generation gap [h]. SAFE: > 0.
+affects = "generation"               # What the event interrupts. One of: "link" | "generation".
 
 [[disruption.events]]
 type = "dsn_outage"                  # Event type identifier.

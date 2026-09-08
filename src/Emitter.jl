@@ -39,6 +39,8 @@ function pre_populate(
     ext_path::String = "",
     rng::Random.AbstractRNG = Xoshiro(0),
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
+    generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
+    onboard_capacity_batches::Int = typemax(Int),
 )
     downtime_ms = max(0, round(Int, initial_downtime_days * 86_400_000))
     downtime_start = start_sim_time - Millisecond(downtime_ms)
@@ -66,14 +68,29 @@ function pre_populate(
 
     total_segs = ceil(Int, (start_sim_time - downtime_start).value / 1000 / seg_dur)
 
+    recorder_full = false
     @showprogress "Pre-populating onboard buffer..." for _ in 1:total_segs
         if vi.last_t >= start_sim_time
             break
         end
+        skip_generation_gaps!(vi, pending, generation_gaps, run_dir) && continue
         seg = VirtualInstrument.next_segment!(vi)
         push!(pending, seg)
 
-        if length(pending) >= batch_size
+        if length(pending) >= batch_size && batch_counter - 1 >= onboard_capacity_batches
+            # Recorder ceiling: nothing leaves the buffer before the mission
+            # starts, so the overflow gap stays open into run_emitter.
+            recorder_full || TelemetryCore.log_tx_event(
+                run_dir,
+                pending[1].timestamp,
+                "RECORDER",
+                "gap_start",
+            )
+            recorder_full ||
+                @warn "[EMITTER] On-board recorder full ($(batch_counter - 1) batches): blind-spot data beyond the ceiling is discarded."
+            recorder_full = true
+            empty!(pending)
+        elseif length(pending) >= batch_size
             # created_at is the finalization instant on the mission timeline
             # (the instrument has observed the whole payload; inside the blind
             # spot, i.e. before mission start), never wall-clock time. The
@@ -94,6 +111,37 @@ function pre_populate(
 
     @info "[EMITTER] Pre-population complete. Buffered $(batch_counter-1) ARCH_ data batches."
     return vi, pending
+end
+
+"""
+    skip_generation_gaps!(vi, pending, gaps, run_dir) -> Bool
+
+Scheduled generation gap: when the instrument's next content instant lies
+inside one of `gaps` (`(start, stop)` intervals), the segments of the
+incomplete batch are discarded (as in an emitter outage, so batch geometry
+stays uniform), the gap is bounded in `events_tx.csv` — `gap_start` at the
+first discarded epoch (or the content end when nothing was pending),
+`gap_end` at the gap's end, Batch = `SCHEDULED` — and the instrument's
+content time jumps to the gap end. Gap boundaries snap to segment
+boundaries. Returns `true` when a gap was skipped.
+"""
+function skip_generation_gaps!(
+    vi::VirtualInstrument.InstrumentState,
+    pending::Vector{TelemetryCore.DataSegment},
+    gaps::Vector{Tuple{DateTime,DateTime}},
+    run_dir::String,
+)
+    for (g0, g1) in gaps
+        g0 <= vi.last_t < g1 || continue
+        gap_start = isempty(pending) ? vi.last_t : pending[1].timestamp
+        TelemetryCore.log_tx_event(run_dir, gap_start, "SCHEDULED", "gap_start")
+        TelemetryCore.log_tx_event(run_dir, g1, "SCHEDULED", "gap_end")
+        @info "[EMITTER] Scheduled generation gap: no data from $gap_start until $g1."
+        empty!(pending)
+        vi.last_t = g1
+        return true
+    end
+    return false
 end
 
 """
@@ -170,6 +218,8 @@ function run_emitter(
     heartbeat_path::Union{String,Nothing} = nothing,
     max_inflight_batches::Int = 5,
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
+    generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
+    onboard_capacity_batches::Int = typemax(Int),
 )
     # A fresh instrument anchors at the *current* mission time, not the
     # mission epoch: on a mid-mission restart the outage becomes an honest
@@ -215,6 +265,9 @@ function run_emitter(
     pending = copy(pending_segments)
     halt_path = joinpath(run_dir, "HALT")
     last_heartbeat = now() - Second(2)
+    # Recorder-overflow gap left open by the pre-population or a previous
+    # emitter: closed at the first finalization that finds room.
+    recorder_full = TelemetryCore.open_recorder_gap(run_dir)
 
     @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $run_id"
 
@@ -252,6 +305,7 @@ function run_emitter(
             #    due wall instant, capped so the checks above stay responsive;
             #    on the catch-up path yield so a partner task on the same
             #    thread is never starved.
+            skip_generation_gaps!(vi, pending, generation_gaps, run_dir) && continue
             sim_t = TelemetryCore.get_current_sim_time(clock)
             content_end = vi.last_t + seg_period
             if content_end > sim_t
@@ -267,8 +321,33 @@ function run_emitter(
             seg = VirtualInstrument.next_segment!(vi)
             push!(pending, seg)
 
-            # 3. Batch Finalization
-            if length(pending) >= batch_size
+            # 3. Batch Finalization — or discard at the recorder ceiling
+            #    (no eviction: the buffer keeps what it holds, new data is
+            #    lost until a batch leaves for the link).
+            if length(pending) >= batch_size &&
+               length(onboard_live_queue) + length(onboard_arch_queue) >=
+               onboard_capacity_batches
+                recorder_full || TelemetryCore.log_tx_event(
+                    run_dir,
+                    pending[1].timestamp,
+                    "RECORDER",
+                    "gap_start",
+                )
+                recorder_full ||
+                    @warn "[EMITTER] On-board recorder full ($onboard_capacity_batches batches): new data is discarded until the buffer drains."
+                recorder_full = true
+                empty!(pending)
+            elseif length(pending) >= batch_size
+                if recorder_full
+                    TelemetryCore.log_tx_event(
+                        run_dir,
+                        pending[1].timestamp,
+                        "RECORDER",
+                        "gap_end",
+                    )
+                    @info "[EMITTER] On-board recorder has room again: recording resumes at $(pending[1].timestamp)."
+                    recorder_full = false
+                end
                 # Classification ruling: LIVE/ARCH follows the
                 # link state at finalization time — flight software marks data
                 # near-real-time only if the link is up when it is ready to send.

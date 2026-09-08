@@ -2980,3 +2980,166 @@ end
         @test isfile(joinpath(dir, "alert_latency_markers.csv"))
     end
 end
+
+@testset "Scheduled generation gaps and the on-board recorder" begin
+    base = valid_test_cfg()
+    base["simulation"]["start_sim_time"] = "2035-01-01T10:00:00"
+    cfg = deepcopy(base)
+    cfg["disruption"] = Dict{String,Any}(
+        "events" => Any[
+            Dict{String,Any}(
+                "type" => "solar_flare",
+                "start_day" => 1.0,
+                "duration_hours" => 2.0,
+            ),
+            Dict{String,Any}(
+                "type" => "antenna_repointing",
+                "start_day" => 0.5,
+                "duration_hours" => 0.25,
+            ),
+            Dict{String,Any}(
+                "type" => "maintenance",
+                "affects" => "generation",
+                "start_day" => 2.0,
+                "duration_hours" => 1.0,
+            ),
+        ],
+    )
+    events = TelemetryCore.disruption_event_settings(cfg)
+    @test [e.affects for e in events] == ["link", "generation", "generation"]
+    start = DateTime(2035, 1, 1, 10)
+    gaps = ChannelEffects.generation_gaps(cfg, start)
+    @test gaps == [
+        (start + Hour(12), start + Hour(12) + Minute(15)),
+        (start + Day(2), start + Day(2) + Hour(1)),
+    ]
+    @test length(ChannelEffects.build_disruption_timeline(cfg, start).events) == 1
+    @test TelemetryCore.validate_config(cfg) isa AbstractDict
+    bad = deepcopy(base)
+    bad["disruption"] = Dict{String,Any}(
+        "events" => Any[Dict{String,Any}("affects" => "payload", "start_day" => 0.0)],
+    )
+    @test_throws ArgumentError TelemetryCore.disruption_event_settings(bad)
+
+    # Recorder capacity: 14 days of 10-minute batches; gigabit only with rates.
+    capacity = TelemetryCore.onboard_capacity(base)
+    @test capacity.days == 14.0 && capacity.batches == 2016 && isnan(capacity.gigabit)
+    rates = deepcopy(base)
+    delete!(rates["telemetry"], "max_batches_per_hour")
+    rates["telemetry"]["downlink_kbps"] = 230.0
+    rates["telemetry"]["onboard_data_rate_kbps"] = 75.0
+    @test TelemetryCore.onboard_capacity(rates).gigabit ≈ 14 * 86_400 * 75 / 1e6
+    small = deepcopy(base)
+    small["storage"] = Dict{String,Any}("onboard_capacity_days" => 0.0)
+    @test_throws ArgumentError TelemetryCore.onboard_capacity(small)
+    # The nightly 16 h without contact exceeds a 0.5-day recorder; a 3-day
+    # blind spot exceeds a 2-day recorder.
+    tight = deepcopy(base)
+    tight["storage"] = Dict{String,Any}("onboard_capacity_days" => 0.5)
+    tight["simulation"]["mission_wall_seconds"] = 30.0 # 30 h: spans the 16 h night
+    @test_logs (:warn, r"longest interval without ground contact") match_mode = :any TelemetryCore.validate_config(
+        tight,
+    )
+    blind = deepcopy(base)
+    blind["storage"] = Dict{String,Any}("onboard_capacity_days" => 2.0)
+    blind["simulation"]["initial_downtime_days"] = 3.0
+    blind["simulation"]["mission_wall_seconds"] = 1.0
+    @test_logs (:warn, r"initial_downtime_days = 3.0 exceeds") match_mode = :any TelemetryCore.validate_config(
+        blind,
+    )
+
+    # Pre-population through a scheduled gap: the incomplete batch at the
+    # gap start is discarded and the gap is bounded in events_tx.csv.
+    gap_id = "TEST_RUN_gap_pid$(getpid())"
+    gap_dir = TelemetryCore.setup_run_dir(gap_id; cfg = base)
+    try
+        gap = (start - Minute(10), start - Minute(6))
+        with_logger(NullLogger()) do
+            Emitter.pre_populate(
+                start,
+                gap_id;
+                sample_rate = 4.0,
+                seg_dur = 60.0,
+                batch_size = 3,
+                initial_downtime_days = 0.01,
+                generation_gaps = [gap],
+            )
+        end
+        tx = CSV.read(joinpath(gap_dir, "events_tx.csv"), DataFrame)
+        gap_rows = tx[tx.Batch .== "SCHEDULED", :]
+        @test String.(gap_rows.Event) == ["gap_start", "gap_end"]
+        # Segments at −14.4, −13.4, −12.4 min form batch 1; −11.4 and −10.4
+        # are pending when −9.4 falls inside the gap and are discarded.
+        @test DateTime(gap_rows.SimTime[1]) == start - Minute(11) - Second(24)
+        @test DateTime(gap_rows.SimTime[2]) == start - Minute(6)
+        @test TelemetryCore.max_logged_batch_id(gap_dir) == 3
+        @test TelemetryCore.batch_content_epochs(gap_dir)["ARCH_batch_2"] ==
+              start - Minute(6)
+    finally
+        rm(gap_dir; recursive = true, force = true)
+    end
+
+    # Recorder ceiling during pre-population: two batches fit, the rest of
+    # the blind spot is discarded behind an open RECORDER gap.
+    rec_id = "TEST_RUN_recorder_pid$(getpid())"
+    rec_dir = TelemetryCore.setup_run_dir(rec_id; cfg = base)
+    try
+        with_logger(NullLogger()) do
+            Emitter.pre_populate(
+                start,
+                rec_id;
+                sample_rate = 4.0,
+                seg_dur = 60.0,
+                batch_size = 3,
+                initial_downtime_days = 0.01,
+                onboard_capacity_batches = 2,
+            )
+        end
+        @test TelemetryCore.max_logged_batch_id(rec_dir) == 2
+        tx = CSV.read(joinpath(rec_dir, "events_tx.csv"), DataFrame)
+        rec_rows = tx[tx.Batch .== "RECORDER", :]
+        @test String.(rec_rows.Event) == ["gap_start"]
+        @test DateTime(rec_rows.SimTime[1]) == start - Minute(8) - Second(24)
+        @test TelemetryCore.open_recorder_gap(rec_dir)
+        @test Receiver.generation_gap_spans(rec_dir, start - Hour(1), 5.0, "RECORDER") ==
+              [(1 - 8.4 / 60, 5.0)]
+        @test isempty(Receiver.generation_gap_spans(rec_dir, start, 5.0, "SCHEDULED"))
+    finally
+        rm(rec_dir; recursive = true, force = true)
+    end
+
+    # Mission phase at the ceiling with the link down: every batch beyond
+    # the second is discarded and the overflow gap stays open.
+    live_id = "TEST_RUN_recorder_live_pid$(getpid())"
+    live_dir = TelemetryCore.setup_run_dir(live_id; cfg = base)
+    try
+        link = ChannelEffects.LinkModel(
+            TelemetryCore.VisibilityModel(Time(0), Second(3600), "flat"),
+        )
+        clock = TelemetryCore.SimulationClock(now(), start, 1800.0)
+        with_logger(NullLogger()) do
+            Emitter.run_emitter(
+                clock,
+                link,
+                live_id;
+                deadline = now() + Second(3),
+                sample_rate = 4.0,
+                seg_dur = 60.0,
+                batch_size = 3,
+                onboard_capacity_batches = 2,
+            )
+        end
+        @test TelemetryCore.max_logged_batch_id(live_dir) == 2
+        tx = CSV.read(joinpath(live_dir, "events_tx.csv"), DataFrame)
+        @test String.(tx[tx.Batch .== "RECORDER", :Event]) == ["gap_start"]
+        @test count(
+            isdir,
+            joinpath.(
+                joinpath(live_dir, "onboard"),
+                readdir(joinpath(live_dir, "onboard")),
+            ),
+        ) == 2
+    finally
+        rm(live_dir; recursive = true, force = true)
+    end
+end

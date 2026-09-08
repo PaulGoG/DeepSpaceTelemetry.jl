@@ -275,14 +275,16 @@ end
 """
     build_disruption_timeline(cfg::AbstractDict, start_sim::DateTime) -> DisruptionTimeline
 
-Constructs the disruption timeline from the validated
+Constructs the link-disruption timeline from the validated
 [`TelemetryCore.disruption_event_settings`](@ref) (the legacy
-`[[disaster.events]]` section name is accepted). Event `start_day` values are
-mission days relative to `start_sim`.
+`[[disaster.events]]` section name is accepted); events with
+`affects = "generation"` belong to [`generation_gaps`](@ref) instead. Event
+`start_day` values are mission days relative to `start_sim`.
 """
 function build_disruption_timeline(cfg::AbstractDict, start_sim::DateTime)
     events = DisruptionEvent[]
     for ev in TelemetryCore.disruption_event_settings(cfg)
+        ev.affects == "link" || continue
         t0 = start_sim + Millisecond(round(Int, ev.start_day * 86_400_000))
         t1 = t0 + Millisecond(round(Int, ev.duration_hours * 3_600_000))
         t2 = t1 + Millisecond(round(Int, ev.recovery_hours * 3_600_000))
@@ -293,6 +295,24 @@ function build_disruption_timeline(cfg::AbstractDict, start_sim::DateTime)
     end
     sort!(events, by = ev -> ev.start_time)
     return DisruptionTimeline(events)
+end
+
+"""
+    generation_gaps(cfg::AbstractDict, start_sim::DateTime) -> Vector{Tuple{DateTime,DateTime}}
+
+The scheduled generation gaps — `[[disruption.events]]` with
+`affects = "generation"` — as `(start, stop)` intervals of `duration_hours`
+from `start_day`, sorted by start. The emitter produces no data inside
+them (`Emitter.skip_generation_gaps!`).
+"""
+function generation_gaps(cfg::AbstractDict, start_sim::DateTime)
+    gaps = Tuple{DateTime,DateTime}[]
+    for ev in TelemetryCore.disruption_event_settings(cfg)
+        ev.affects == "generation" || continue
+        t0 = start_sim + Millisecond(round(Int, ev.start_day * 86_400_000))
+        push!(gaps, (t0, t0 + Millisecond(round(Int, ev.duration_hours * 3_600_000))))
+    end
+    return sort!(gaps; by = first)
 end
 
 """
