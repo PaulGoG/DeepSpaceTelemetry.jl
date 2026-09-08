@@ -38,7 +38,7 @@ function pre_populate(
     data_source::String = "synthetic",
     ext_path::String = "",
     rng::Random.AbstractRNG = Xoshiro(0),
-    signal_injection_probability::Float64 = 0.02,
+    markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
 )
     downtime_ms = max(0, round(Int, initial_downtime_days * 86_400_000))
     downtime_start = start_sim_time - Millisecond(downtime_ms)
@@ -50,7 +50,6 @@ function pre_populate(
         data_source,
         ext_path;
         rng = rng,
-        signal_injection_probability = signal_injection_probability,
     )
     pending = TelemetryCore.DataSegment[]
 
@@ -85,7 +84,7 @@ function pre_populate(
             batch_name = TelemetryCore.batch_name(batch_counter, false)
             batch_dir = joinpath(buffer_path, batch_name)
 
-            TelemetryCore.save_batch(batch_dir, batch)
+            stamp_markers!(batch_dir, batch, batch_name, run_dir, markers, vi.last_t)
             # Ground-truth milestone: generation = finalization time.
             TelemetryCore.log_tx_event(run_dir, finalized_at, batch_name, "gen")
             empty!(pending)
@@ -95,6 +94,31 @@ function pre_populate(
 
     @info "[EMITTER] Pre-population complete. Buffered $(batch_counter-1) ARCH_ data batches."
     return vi, pending
+end
+
+"""
+    stamp_markers!(batch_dir, batch, batch_name, run_dir, markers, content_end)
+
+Saves `batch` ([`TelemetryCore.save_batch`](@ref)) with the labels of the
+event markers whose instant lies in its content span, and appends one
+`marker` row per hit to `events_tx.csv` (`SimTime` = the marker instant,
+`Batch` = the containing batch) so live consumers learn which batch holds
+the event the moment it becomes transmittable.
+"""
+function stamp_markers!(
+    batch_dir::String,
+    batch::TelemetryCore.DataBatch,
+    batch_name::String,
+    run_dir::String,
+    markers::Vector{TelemetryCore.EventMarker},
+    content_end::DateTime,
+)
+    hits = TelemetryCore.batch_markers(markers, batch.segments[1].timestamp, content_end)
+    TelemetryCore.save_batch(batch_dir, batch; markers = [m.label for m in hits])
+    for m in hits
+        TelemetryCore.log_tx_event(run_dir, m.time, batch_name, "marker")
+    end
+    return nothing
 end
 
 # --- Emitter Main Loop ---
@@ -145,7 +169,7 @@ function run_emitter(
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
     heartbeat_path::Union{String,Nothing} = nothing,
     max_inflight_batches::Int = 5,
-    signal_injection_probability::Float64 = 0.02,
+    markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
 )
     # A fresh instrument anchors at the *current* mission time, not the
     # mission epoch: on a mid-mission restart the outage becomes an honest
@@ -159,7 +183,6 @@ function run_emitter(
             data_source,
             ext_path;
             rng = rng,
-            signal_injection_probability = signal_injection_probability,
         ) : instrument
     run_dir = TelemetryCore.run_directory(run_id)
     buffer_path = joinpath(run_dir, "onboard")
@@ -259,7 +282,7 @@ function run_emitter(
                 batch_name = TelemetryCore.batch_name(batch_counter, is_live)
                 batch_dir = joinpath(buffer_path, batch_name)
 
-                TelemetryCore.save_batch(batch_dir, batch)
+                stamp_markers!(batch_dir, batch, batch_name, run_dir, markers, vi.last_t)
 
                 # Add to internal queue
                 if is_live

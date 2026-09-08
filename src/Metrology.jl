@@ -158,6 +158,122 @@ function batch_containing(schedule::Vector{BatchDelivery}, t::DateTime)
 end
 
 """
+    completion_curves(schedule, alert_idx, t_m, steps, span, first_epoch) -> (real, fifo)
+
+Window-completeness latencies of one alert — the batch `schedule[alert_idx]`
+with event instant `t_m` — on the look-back grid `δ = 0, span, …,
+steps·span`: for each `δ`, the instant (hours after `t_m`) at which every
+batch overlapping `[t_m − δ, t_m)` plus the alert batch itself has reached
+the ground, under the realized deliveries (`real`) and the counterfactual
+FIFO drain (`fifo`). Entries are `nothing` once the window contains a batch
+that never arrived under that doctrine (each curve independently); the
+vectors stop where the window would reach before `first_epoch`, and are
+empty when the alert batch reached the ground under neither doctrine.
+"""
+function completion_curves(
+    schedule::Vector{BatchDelivery},
+    alert_idx::Int,
+    t_m::DateTime,
+    steps::Int,
+    span::Millisecond,
+    first_epoch::DateTime,
+)
+    hours(ms::Millisecond) = ms.value / 3.6e6
+    latency(t::Union{Nothing,DateTime}) = t === nothing ? NaN : hours(t - t_m)
+    m = schedule[alert_idx]
+    real = Union{Nothing,Float64}[]
+    fifo = Union{Nothing,Float64}[]
+    (m.available_at === nothing && m.fifo_available_at === nothing) && return real, fifo
+    # The alert batch itself is always part of the window; the two curves
+    # propagate their gaps independently (a realized delivery stays
+    # informative when the counterfactual drain never reaches the batch).
+    real_max = latency(m.available_at)
+    fifo_max = latency(m.fifo_available_at)
+    j = alert_idx - 1
+    for k in 0:steps
+        window_start = t_m - Millisecond(k * span.value)
+        window_start < first_epoch && break
+        while j >= 1 && schedule[j].content_end > window_start
+            b = schedule[j]
+            real_max = max(real_max, latency(b.available_at))
+            fifo_max = max(fifo_max, latency(b.fifo_available_at))
+            j -= 1
+        end
+        push!(real, isnan(real_max) ? nothing : real_max)
+        push!(fifo, isnan(fifo_max) ? nothing : fifo_max)
+    end
+    return real, fifo
+end
+
+"""
+    marker_latency_table(run_dir::String; lookback_hours = 72.0) -> DataFrame
+
+Window-completeness latency of every event marker of the run
+(`markers.csv`): `Label`, `Marker` (the instant), `Batch` (the batch whose
+content span holds it; empty when none does), `Lookback_Hours`, and
+`LIFO_Hours` / `FIFO_Hours` — [`completion_curves`](@ref) evaluated with
+the marker instant as `t_m`, so the latency counts from the event itself.
+Missing values mark an undelivered alert batch or a window containing a
+batch that never arrived; one row with `Lookback_Hours = 0` and missing
+latencies records a marker outside every batch. Empty when the run has no
+markers.
+"""
+function marker_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
+    markers = TelemetryCore.load_markers(run_dir)
+    schedule = delivery_schedule(run_dir)
+    (isempty(markers) || isempty(schedule)) && return DataFrame()
+    span = schedule[1].content_end - schedule[1].content_epoch
+    steps = floor(Int, lookback_hours * 3_600_000 / span.value)
+    first_epoch = schedule[1].content_epoch
+    index_of = Dict(b.name => i for (i, b) in enumerate(schedule))
+
+    labels = String[]
+    instants = DateTime[]
+    batches = String[]
+    lookback = Float64[]
+    lifo = Union{Missing,Float64}[]
+    fifo = Union{Missing,Float64}[]
+    for m in markers
+        alert = batch_containing(schedule, m.time)
+        real, counter =
+            alert === nothing ? (Union{Nothing,Float64}[], Union{Nothing,Float64}[]) :
+            completion_curves(
+                schedule,
+                index_of[alert.name],
+                m.time,
+                steps,
+                span,
+                first_epoch,
+            )
+        if isempty(real)
+            push!(labels, m.label)
+            push!(instants, m.time)
+            push!(batches, alert === nothing ? "" : alert.name)
+            push!(lookback, 0.0)
+            push!(lifo, missing)
+            push!(fifo, missing)
+            continue
+        end
+        for (k, (r, f)) in enumerate(zip(real, counter))
+            push!(labels, m.label)
+            push!(instants, m.time)
+            push!(batches, alert.name)
+            push!(lookback, (k - 1) * span.value / 3.6e6)
+            push!(lifo, r === nothing ? missing : r)
+            push!(fifo, f === nothing ? missing : f)
+        end
+    end
+    return DataFrame(
+        Label = labels,
+        Marker = instants,
+        Batch = batches,
+        Lookback_Hours = lookback,
+        LIFO_Hours = lifo,
+        FIFO_Hours = fifo,
+    )
+end
+
+"""
     alert_latency_table(run_dir::String; lookback_hours = 72.0) -> DataFrame
 
 Window-completeness latency curves over the look-back grid
@@ -182,40 +298,16 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     steps = floor(Int, lookback_hours * 3_600_000 / span.value)
     first_epoch = schedule[1].content_epoch
     hours(ms::Millisecond) = ms.value / 3.6e6
-    index_of = Dict(b.name => i for (i, b) in enumerate(schedule))
 
     # Per alert, the running completion instants of the window as it grows
     # one batch at a time towards the past; `nothing` once a batch that
     # never arrived enters the window.
     lifo_at = Vector{Vector{Union{Nothing,Float64}}}()
     fifo_at = Vector{Vector{Union{Nothing,Float64}}}()
-    for m in schedule
+    for (i, m) in enumerate(schedule)
         (m.live && m.available_at !== nothing && m.fifo_available_at !== nothing) ||
             continue
-        t_m = m.content_end
-        real = Union{Nothing,Float64}[]
-        fifo = Union{Nothing,Float64}[]
-        # The alert batch itself is always part of the window.
-        real_max = hours(m.available_at - t_m)
-        fifo_max = hours(m.fifo_available_at - t_m)
-        j = index_of[m.name] - 1
-        for k in 0:steps
-            window_start = t_m - Millisecond(k * span.value)
-            window_start < first_epoch && break
-            while j >= 1 && schedule[j].content_end > window_start
-                b = schedule[j]
-                if b.available_at === nothing || b.fifo_available_at === nothing
-                    real_max = NaN
-                    fifo_max = NaN
-                else
-                    real_max = max(real_max, hours(b.available_at - t_m))
-                    fifo_max = max(fifo_max, hours(b.fifo_available_at - t_m))
-                end
-                j -= 1
-            end
-            push!(real, isnan(real_max) ? nothing : real_max)
-            push!(fifo, isnan(fifo_max) ? nothing : fifo_max)
-        end
+        real, fifo = completion_curves(schedule, i, m.content_end, steps, span, first_epoch)
         push!(lifo_at, real)
         push!(fifo_at, fifo)
     end
@@ -251,22 +343,34 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
 end
 
 """
-    plot_alert_latency(run_dir::String; lookback_hours = 72.0) -> Union{Nothing,String}
+    plot_alert_latency(run_dir::String; lookback_hours = 72.0, processing_latency_hours = 1.0) -> Union{Nothing,String}
 
-Writes `<run_dir>/alert_latency.csv` ([`alert_latency_table`](@ref)) and
-renders `<run_dir>/plots/alert_latency.png` (with a vector PDF twin): the
-median window-completeness latency with the interquartile band against the
-look-back, realized doctrine solid, counterfactual FIFO drain dashed, and
-the medians at the largest tabulated look-back annotated. Returns the PNG path, or `nothing`
-when the run holds no delivered live batch.
+Writes `<run_dir>/alert_latency.csv` ([`alert_latency_table`](@ref)) and,
+when the run has markers, `alert_latency_markers.csv`
+([`marker_latency_table`](@ref)); renders `<run_dir>/plots/alert_latency.png`
+(with a vector PDF twin): the median window-completeness latency with the
+interquartile band against the look-back, realized doctrine solid,
+counterfactual FIFO drain dashed, one black curve per event marker, the
+medians at the largest tabulated look-back annotated together with the
+ground processing budget `processing_latency_hours`. Returns the PNG path,
+or `nothing` when the run holds no delivered live batch.
 """
-function plot_alert_latency(run_dir::String; lookback_hours::Float64 = 72.0)
+function plot_alert_latency(
+    run_dir::String;
+    lookback_hours::Float64 = 72.0,
+    processing_latency_hours::Float64 = 1.0,
+)
     table = alert_latency_table(run_dir; lookback_hours = lookback_hours)
     if isempty(table)
         @warn "[POST] No delivered live batch in $run_dir — alert-latency metric skipped."
         return nothing
     end
     TelemetryCore.safe_csv_write(joinpath(run_dir, "alert_latency.csv"), table)
+    marker_table = marker_latency_table(run_dir; lookback_hours = lookback_hours)
+    isempty(marker_table) || TelemetryCore.safe_csv_write(
+        joinpath(run_dir, "alert_latency_markers.csv"),
+        marker_table,
+    )
 
     x = Float64.(table.Lookback_Hours)
     path = joinpath(run_dir, "plots", "alert_latency.png")
@@ -300,16 +404,51 @@ function plot_alert_latency(run_dir::String; lookback_hours::Float64 = 72.0)
             linestyle = :dash,
         )
         lines!(ax, x, Float64.(table.LIFO_Median_Hours), color = PlotTheme.COLOR_ARCHIVE)
-        y_max = maximum(
-            filter(
-                isfinite,
-                vcat(
-                    Float64.(table.LIFO_Q75_Hours),
-                    Float64.(table.FIFO_Q75_Hours),
-                    Float64.(table.FIFO_Median_Hours),
+        # Event markers: one realized curve each, black with cycling line
+        # styles (a different family from the population bands).
+        marker_elements = LineElement[]
+        marker_names = String[]
+        marker_peak = 0.0
+        styles = (:solid, :dashdot, :dot)
+        for (i, label) in
+            enumerate(isempty(marker_table) ? String[] : unique(marker_table.Label))
+            rows = marker_table[marker_table.Label .== label, :]
+            keep = .!ismissing.(rows.LIFO_Hours)
+            any(keep) || continue
+            style = styles[mod1(i, length(styles))]
+            ys = Float64.(rows.LIFO_Hours[keep])
+            marker_peak = max(marker_peak, maximum(ys))
+            lines!(
+                ax,
+                Float64.(rows.Lookback_Hours[keep]),
+                ys,
+                color = :black,
+                linestyle = style,
+                linewidth = PlotTheme.LINEWIDTH_DATA,
+            )
+            push!(
+                marker_elements,
+                LineElement(
+                    color = :black,
+                    linestyle = style,
+                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
                 ),
-            );
-            init = 1.0,
+            )
+            push!(marker_names, "Marker: $label")
+        end
+        y_max = max(
+            maximum(
+                filter(
+                    isfinite,
+                    vcat(
+                        Float64.(table.LIFO_Q75_Hours),
+                        Float64.(table.FIFO_Q75_Hours),
+                        Float64.(table.FIFO_Median_Hours),
+                    ),
+                );
+                init = 1.0,
+            ),
+            marker_peak,
         )
         xlims!(ax, 0, maximum(x) > 0 ? maximum(x) : 1.0)
         ylims!(ax, 0, 1.25 * y_max)
@@ -320,31 +459,38 @@ function plot_alert_latency(run_dir::String; lookback_hours::Float64 = 72.0)
             0.97,
             text = "Waveform back to δ = $(round(last.Lookback_Hours, digits = 1)) h complete after " *
                    "$(round(last.LIFO_Median_Hours, digits = 1)) h (LIFO) vs " *
-                   "$(round(last.FIFO_Median_Hours, digits = 1)) h (FIFO); medians over $(last.N_Alerts) live events",
+                   "$(round(last.FIFO_Median_Hours, digits = 1)) h (FIFO); medians over $(last.N_Alerts) live events\n" *
+                   "Ground processing budget: $(round(processing_latency_hours, digits = 1)) h on top of every latency",
             space = :relative,
             align = (:left, :top),
             fontsize = PlotTheme.FONTSIZE_ANNOTATION,
         )
         Legend(
             fig[0, 1],
-            [
-                [
-                    PolyElement(color = (PlotTheme.COLOR_ARCHIVE, 0.25)),
-                    LineElement(
-                        color = PlotTheme.COLOR_ARCHIVE,
-                        linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                    ),
+            vcat(
+                Any[
+                    [
+                        PolyElement(color = (PlotTheme.COLOR_ARCHIVE, 0.25)),
+                        LineElement(
+                            color = PlotTheme.COLOR_ARCHIVE,
+                            linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                        ),
+                    ],
+                    [
+                        PolyElement(color = (PlotTheme.COLOR_ONBOARD, 0.2)),
+                        LineElement(
+                            color = PlotTheme.COLOR_ONBOARD,
+                            linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                            linestyle = :dash,
+                        ),
+                    ],
                 ],
-                [
-                    PolyElement(color = (PlotTheme.COLOR_ONBOARD, 0.2)),
-                    LineElement(
-                        color = PlotTheme.COLOR_ONBOARD,
-                        linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
-                        linestyle = :dash,
-                    ),
-                ],
-            ],
-            ["Realized: live FIFO + archive LIFO", "Counterfactual: FIFO drain"];
+                marker_elements,
+            ),
+            vcat(
+                ["Realized: live FIFO + archive LIFO", "Counterfactual: FIFO drain"],
+                marker_names,
+            );
             orientation = :horizontal,
             framevisible = false,
             backgroundcolor = :transparent,

@@ -873,7 +873,8 @@ function reconstruct_batch_states(run_dir::String, df::DataFrame)
     event_rank = Dict("gen" => 1, "tx" => 2, "ingested" => 3, "lost" => 3)
     events = Vector{Tuple{DateTime,Int,String,String}}()
     for r in eachrow(tx)
-        r.Event in ("gap_start", "gap_end") && continue # stream-level outage bounds
+        # Stream-level rows (outage bounds, event markers) carry no state.
+        r.Event in ("gap_start", "gap_end", "marker") && continue
         if !haskey(event_rank, r.Event)
             @warn "[POST] Skipping unknown event \"$(r.Event)\" in events_tx.csv." maxlog =
                 1

@@ -56,7 +56,7 @@ DeepSpaceTelemetry/
 │   ├── Project.toml             # Docs environment (Documenter; parent package dev'ed)
 │   ├── Manifest.toml            # Resolved docs environment (committed for portability)
 │   ├── make.jl                  # Documenter.jl build script
-│   └── src/                     # Manual pages (index, physics, usage, interfaces, api)
+│   └── src/                     # Manual pages (index, physics, usage, interfaces, api/ per module)
 ├── data/
 │   ├── example_external_strain.csv # Generated demo input (gitignored)
 │   └── runs/                    # Ephemeral run directories (gitignored)
@@ -273,6 +273,11 @@ freely — e.g. `[-1, "10:20", 45]`.
     (TOML or CSV), and low-latency periods — extra contacts at a
     station-availability capacity fraction outside the nominal pass, each
     with its own session figure.
+*   **Event markers** (`[[events.markers]]`): declared event instants,
+    stamped into the batch metadata and the transmit event log when the
+    holding batch is finalized; the alert-latency metric is evaluated at
+    each marker, optionally triggering a low-latency period, with the
+    `[ground]` processing budget reported on top.
 *   **Metrology** (`Metrology.jl`), from the event logs: the alert-latency
     curve — how long after a live event the look-back window `δ` is on the
     ground, realized live-FIFO/archive-LIFO doctrine against a

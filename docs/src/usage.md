@@ -36,9 +36,10 @@ scheduled disruption events stress the link: a day-2.5 solar-flare-class
 full blackout (18 h, then a 12 h linear recovery ramp with 5× elevated
 loss) and a day-5.0 partial DSN outage (severity 0.8, 12 h, 6 h ramp,
 3× loss), leaving a 1.25-day nominal tail after the second recovery
-completes on day 5.75. A 3-hour low-latency period at half capacity on the
-evening of day 4 (mission time 2035-01-05 20:00) drains part of the flare
-backlog between the day-4 and day-5 passes.
+completes on day 5.75. An event marker at 14:00 on day 4 (mission time
+2035-01-05) triggers, six hours later, a 3-hour low-latency period at half
+capacity that drains part of the flare backlog between the day-4 and day-5
+passes.
 
 Alternative scenario configurations (e.g. multi-week recovery studies or
 lossless baselines) are maintained outside the repository and passed by
@@ -106,6 +107,22 @@ duration_hours = 6.0
 or as `schedule_csv = "path/to/passes.csv"` with the columns
 `Start, DurationHours` (relative paths resolve against the current directory,
 then the package root). Passes may cross midnight and must not overlap.
+
+### Event Markers
+`[[events.markers]]` declare the instants the alert-latency metric is
+evaluated at; a marker may trigger a low-latency period after a reaction
+delay, and `[ground]` holds the processing budget added to every latency.
+```toml
+[ground]
+processing_latency_hours = 1.0
+
+[[events.markers]]
+time = "2035-01-05T14:00:00"
+label = "transient candidate"
+low_latency_after_hours = 6.0       # optional: triggered period, 6 h after the marker
+low_latency_duration_hours = 3.0
+low_latency_capacity_fraction = 0.5
+```
 
 ### External Data Ingestion
 To use your own high-frequency CSV time series instead of synthetic noise:

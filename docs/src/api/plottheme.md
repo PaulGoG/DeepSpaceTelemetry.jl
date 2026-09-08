@@ -1,0 +1,17 @@
+# PlotTheme
+
+```@docs
+DeepSpaceTelemetry.PlotTheme
+DeepSpaceTelemetry.PlotTheme.telemetry_theme
+DeepSpaceTelemetry.PlotTheme.COLOR_LIVE
+DeepSpaceTelemetry.PlotTheme.COLOR_ARCHIVE
+DeepSpaceTelemetry.PlotTheme.COLOR_BANDWIDTH
+DeepSpaceTelemetry.PlotTheme.COLOR_ONBOARD
+DeepSpaceTelemetry.PlotTheme.COLOR_LOST
+DeepSpaceTelemetry.PlotTheme.COLOR_DISRUPTION
+DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SUMMARY
+DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SESSION
+DeepSpaceTelemetry.PlotTheme.LINEWIDTH_DATA
+DeepSpaceTelemetry.PlotTheme.MARKERSIZE_DATA
+DeepSpaceTelemetry.PlotTheme.FONTSIZE_ANNOTATION
+```

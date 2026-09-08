@@ -173,7 +173,6 @@ end
         ("telemetry", "max_inflight_batches", 0),
         ("telemetry", "min_link_factor", 1.0),
         ("telemetry", "sigmoid_steepness", 0.0),
-        ("physics", "signal_injection_probability", 1.5),
     ]
     for (section, key, val) in broken
         cfg = valid_test_cfg()
@@ -1080,18 +1079,9 @@ end
 
 @testset "Batch I/O" begin
     mktempdir() do tmp
-        seg1 = TelemetryCore.DataSegment(
-            1,
-            DateTime(2030, 1, 1),
-            Float32[1.0, 2.0, 3.0],
-            false,
-        )
-        seg2 = TelemetryCore.DataSegment(
-            2,
-            DateTime(2030, 1, 1, 0, 1),
-            Float32[4.0, 5.0, 6.0],
-            true,
-        )
+        seg1 = TelemetryCore.DataSegment(1, DateTime(2030, 1, 1), Float32[1.0, 2.0, 3.0])
+        seg2 =
+            TelemetryCore.DataSegment(2, DateTime(2030, 1, 1, 0, 1), Float32[4.0, 5.0, 6.0])
         batch = TelemetryCore.DataBatch(100, [seg1, seg2], now())
 
         batch_dir = joinpath(tmp, "batch_100")
@@ -1174,7 +1164,6 @@ end
         s1 = VirtualInstrument.next_segment!(v1)
         s2 = VirtualInstrument.next_segment!(v2)
         @test s1.data == s2.data
-        @test s1.is_signal == s2.is_signal
     end
     # Different seeds → different streams
     v3 = VirtualInstrument.InstrumentState(
@@ -2100,7 +2089,12 @@ end
 @testset "Configuration accessors: physics and supervision" begin
     phys = TelemetryCore.physics_settings(valid_test_cfg())
     @test phys.data_source == "synthetic" && phys.batch_size == 10
-    @test phys.signal_injection_probability == 0.02
+    @test !haskey(phys, :signal_injection_probability)
+    legacy = valid_test_cfg()
+    legacy["physics"]["signal_injection_probability"] = 0.02
+    @test_logs (:warn, r"signal_injection_probability is deprecated") match_mode = :any TelemetryCore.physics_settings(
+        legacy,
+    )
     bad = valid_test_cfg()
     bad["physics"]["data_source"] = "tape"
     @test_throws ArgumentError TelemetryCore.physics_settings(bad)
@@ -2431,7 +2425,7 @@ end
             start_sim = DateTime(2035, 1, 1, 10)
             for id in (1, 2)
                 name = TelemetryCore.batch_name(id, true)
-                seg = TelemetryCore.DataSegment(id, start_sim, Float32[0.0, 1.0], false)
+                seg = TelemetryCore.DataSegment(id, start_sim, Float32[0.0, 1.0])
                 TelemetryCore.save_batch(
                     joinpath(run_dir, "link", name),
                     TelemetryCore.DataBatch(id, [seg], start_sim),
@@ -2777,5 +2771,212 @@ end
         table = Metrology.delivery_delay_table(dir)
         @test table.LowLatency == [false, true]
         @test Metrology.delivery_compliance(table, 24.0).via_low_latency == 1
+    end
+end
+
+@testset "Event markers and marker latency" begin
+    # Accessor: sorting, defaults, validation, and the triggered period.
+    base = valid_test_cfg()
+    cfg = deepcopy(base)
+    cfg["events"] = Dict{String,Any}(
+        "markers" => Any[
+            Dict{String,Any}(
+                "time" => "2035-01-02T14:00:00",
+                "label" => "late",
+                "low_latency_after_hours" => 2.0,
+                "low_latency_duration_hours" => 1.0,
+                "low_latency_capacity_fraction" => 0.3,
+            ),
+            Dict{String,Any}("time" => "2035-01-01T09:00:00"),
+        ],
+    )
+    markers = TelemetryCore.event_marker_settings(cfg)
+    @test [m.label for m in markers] == ["marker 2", "late"]
+    @test markers[1].time == DateTime(2035, 1, 1, 9) &&
+          markers[1].low_latency_duration_hours == 0.0
+    periods = TelemetryCore.contacts_settings(cfg).low_latency_periods
+    @test length(periods) == 1 &&
+          periods[1].start == DateTime(2035, 1, 2, 16) &&
+          periods[1].stop == DateTime(2035, 1, 2, 17) &&
+          periods[1].capacity ≈ 0.3 &&
+          periods[1].label == "late"
+    @test TelemetryCore.get_bandwidth_factor(
+        TelemetryCore.visibility_model(cfg),
+        DateTime(2035, 1, 2, 16, 30),
+    ) ≈ 0.3
+    @test TelemetryCore.validate_config(cfg) isa AbstractDict
+    @test TelemetryCore.ground_settings(base).processing_latency_hours == 1.0
+    for entry in (
+        Dict{String,Any}("label" => "no time"),
+        Dict{String,Any}("time" => "not a date"),
+        Dict{String,Any}(
+            "time" => "2035-01-01T09:00:00",
+            "low_latency_after_hours" => -1.0,
+        ),
+        Dict{String,Any}(
+            "time" => "2035-01-01T09:00:00",
+            "low_latency_duration_hours" => 1.0,
+            "low_latency_capacity_fraction" => 0.0,
+        ),
+    )
+        bad = deepcopy(base)
+        bad["events"] = Dict{String,Any}("markers" => Any[entry])
+        @test_throws ArgumentError TelemetryCore.event_marker_settings(bad)
+    end
+    duplicate = deepcopy(base)
+    duplicate["events"] = Dict{String,Any}(
+        "markers" => Any[
+            Dict{String,Any}("time" => "2035-01-01T09:00:00", "label" => "x"),
+            Dict{String,Any}("time" => "2035-01-01T10:00:00", "label" => "x"),
+        ],
+    )
+    @test_throws ArgumentError TelemetryCore.event_marker_settings(duplicate)
+    negative = deepcopy(base)
+    negative["ground"] = Dict{String,Any}("processing_latency_hours" => -0.5)
+    @test_throws ArgumentError TelemetryCore.ground_settings(negative)
+    hits = TelemetryCore.batch_markers(
+        markers,
+        DateTime(2035, 1, 1, 8),
+        DateTime(2035, 1, 1, 9),
+    )
+    @test isempty(hits) # half-open span: the 09:00 marker belongs to the next batch
+    @test length(
+        TelemetryCore.batch_markers(
+            markers,
+            DateTime(2035, 1, 1, 9),
+            DateTime(2035, 1, 1, 10),
+        ),
+    ) == 1
+
+    # Emitter stamping during pre-population: the marker lands in the
+    # metadata of the holding batch and in events_tx.csv, and the batch
+    # replay treats the marker row as state-preserving.
+    stamp_id = "TEST_RUN_markers_pid$(getpid())"
+    stamp_dir = TelemetryCore.setup_run_dir(
+        stamp_id;
+        cfg = Dict{String,Any}(
+            "simulation" => Dict{String,Any}(
+                "speed_up" => 600.0,
+                "start_sim_time" => "2035-01-01T10:00:00",
+            ),
+        ),
+    )
+    try
+        start_sim = DateTime(2035, 1, 1, 10)
+        marker = TelemetryCore.EventMarker(start_sim - Minute(10), "glitch")
+        with_logger(NullLogger()) do
+            Emitter.pre_populate(
+                start_sim,
+                stamp_id;
+                sample_rate = 4.0,
+                seg_dur = 60.0,
+                batch_size = 3,
+                initial_downtime_days = 0.01,
+                markers = [marker],
+            )
+        end
+        # Batches span 3 min from 10:00 − 14.4 min: the second one holds −10 min.
+        meta = TelemetryCore.read_batch_metadata(
+            joinpath(stamp_dir, "onboard", "ARCH_batch_2"),
+        )
+        @test meta["markers"] == ["glitch"]
+        @test !haskey(
+            TelemetryCore.read_batch_metadata(
+                joinpath(stamp_dir, "onboard", "ARCH_batch_1"),
+            ),
+            "markers",
+        )
+        tx = CSV.read(joinpath(stamp_dir, "events_tx.csv"), DataFrame)
+        marker_rows = tx[tx.Event .== "marker", :]
+        @test nrow(marker_rows) == 1 &&
+              String(marker_rows.Batch[1]) == "ARCH_batch_2" &&
+              DateTime(marker_rows.SimTime[1]) == marker.time
+        @test TelemetryCore.max_logged_batch_id(stamp_dir) == 5 # 15 segments of 60 s in 0.01 d
+        TelemetryCore.save_markers(stamp_dir, [marker])
+        loaded = TelemetryCore.load_markers(stamp_dir)
+        @test length(loaded) == 1 &&
+              loaded[1].label == "glitch" &&
+              loaded[1].time == marker.time
+        @test isempty(TelemetryCore.load_markers(mktempdir()))
+        # No rx events: every batch stays onboard through the replay.
+        states = with_logger(NullLogger()) do
+            Receiver.reconstruct_batch_states(
+                stamp_dir,
+                DataFrame(SimTime = [start_sim + Minute(1)]),
+            )
+        end
+        @test length(states) == 1 && length(states[1].onboard_archive) == 5
+    finally
+        rm(stamp_dir; recursive = true, force = true)
+    end
+
+    # Marker latency on the synthetic schedule of the alert-latency test:
+    # a marker inside LIVE_batch_5 counts from its own instant, a marker
+    # before the first batch yields a missing row.
+    mktempdir() do dir
+        t0 = DateTime(2035, 1, 1, 6)
+        D = Minute(3)
+        open(joinpath(dir, "config_snapshot.toml"), "w") do io
+            write(
+                io,
+                """
+                [simulation]
+                speed_up = 60.0
+                start_sim_time = "2035-01-01T06:00:00"
+                mission_wall_seconds = 60.0
+                [physics]
+                data_source = "synthetic"
+                sample_rate = 4.0
+                segment_duration_sec = 60.0
+                batch_size = 3
+                """,
+            )
+        end
+        epochs =
+            Dict("ARCH_batch_1" => t0 - 2D, "ARCH_batch_2" => t0 - D, "LIVE_batch_3" => t0)
+        for (name, epoch) in epochs
+            bdir = mkpath(joinpath(dir, "ground", name))
+            write(
+                joinpath(bdir, "metadata.json"),
+                """{"batch_id":$(TelemetryCore.batch_id(name)),"segment_count":3,"created_at":"$(epoch + D)","content_epoch":"$epoch"}""",
+            )
+            TelemetryCore.log_tx_event(dir, epoch + D, name, "gen")
+        end
+        for (name, t) in (
+            ("LIVE_batch_3", t0 + Minute(4)),
+            ("ARCH_batch_2", t0 + Minute(5)),
+            ("ARCH_batch_1", t0 + Minute(6)),
+        )
+            TelemetryCore.log_rx_event(dir, t, name, "ingested", 0)
+        end
+        TelemetryCore.save_markers(
+            dir,
+            [
+                TelemetryCore.EventMarker(t0 + Minute(1), "inside"),
+                TelemetryCore.EventMarker(t0 - Hour(1), "before"),
+            ],
+        )
+        table = Metrology.marker_latency_table(dir; lookback_hours = 0.1)
+        inside = table[table.Label .== "inside", :]
+        # δ = 0 and D: the alert batch alone (4 min − 1 min), then ARCH_2
+        # (5 min − 1 min); the FIFO drain hands 4, 5, 6 min to ARCH_1,
+        # ARCH_2, LIVE_3 in order.
+        @test inside.Batch == fill("LIVE_batch_3", 3)
+        @test inside.Lookback_Hours ≈ [0.0, 0.05, 0.1]
+        @test collect(inside.LIFO_Hours) ≈ [3.0, 4.0, 5.0] ./ 60
+        @test collect(inside.FIFO_Hours) ≈ [5.0, 5.0, 5.0] ./ 60
+        before = table[table.Label .== "before", :]
+        @test nrow(before) == 1 && before.Batch[1] == "" && ismissing(before.LIFO_Hours[1])
+        with_logger(NullLogger()) do
+            @test endswith(
+                Metrology.plot_alert_latency(
+                    dir;
+                    lookback_hours = 0.1,
+                    processing_latency_hours = 0.5,
+                ),
+                "alert_latency.png",
+            )
+        end
+        @test isfile(joinpath(dir, "alert_latency_markers.csv"))
     end
 end

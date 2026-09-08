@@ -382,6 +382,8 @@ const KNOWN_CONFIG_KEYS = Dict(
         "delivery_delay",
         "delivery_requirement_hours",
     ],
+    "events" => ["markers"],
+    "ground" => ["processing_latency_hours"],
     "contacts" => [
         "seasonal_extension_hours",
         "season_period_days",
@@ -404,6 +406,13 @@ const KNOWN_EVENT_KEYS = [
     "severity",
     "recovery_hours",
     "loss_multiplier",
+]
+const KNOWN_MARKER_KEYS = [
+    "time",
+    "label",
+    "low_latency_after_hours",
+    "low_latency_duration_hours",
+    "low_latency_capacity_fraction",
 ]
 const KNOWN_CONTACT_ENTRY_KEYS = Dict(
     "passes" => ["start", "duration_hours"],
@@ -666,9 +675,10 @@ end
 Validated `[physics]` parameters: `data_source` (`"synthetic"` or
 `"external"`), `external_data_path` (as configured; consumers resolve it
 against the package root), `sample_rate > 0`, `segment_duration_sec > 0`,
-`batch_size ≥ 1`, and `signal_injection_probability ∈ [0, 1]`, with at
-least two samples per segment (the FFT synthesis block). The four core keys
-are required. The existence of the external file is checked by
+and `batch_size ≥ 1`, with at least two samples per segment (the FFT
+synthesis block). The four core keys are required; the retired
+`signal_injection_probability` is accepted with a deprecation warning and
+ignored (event instants are `[[events.markers]]`). The existence of the external file is checked by
 [`validate_config`](@ref) only, so post-processing of a finished run does
 not depend on the input file still being present.
 """
@@ -700,21 +710,138 @@ function physics_settings(cfg::AbstractDict)
     )
     external_data_path =
         checked_string(get(phy, "external_data_path", ""), "physics.external_data_path")
-    injection = checked_number(
-        get(phy, "signal_injection_probability", 0.02),
-        "physics.signal_injection_probability",
-    )
-    0.0 <= injection <= 1.0 || config_error(
-        "[CONFIG] physics.signal_injection_probability = $injection outside [0, 1].",
-    )
+    haskey(phy, "signal_injection_probability") &&
+        @warn "[CONFIG] physics.signal_injection_probability is deprecated and ignored — declare event instants as [[events.markers]] (the key is removed at 1.0.0)." maxlog =
+            1
     return (
         data_source = data_source,
         external_data_path = external_data_path,
         sample_rate = sample_rate,
         segment_duration_sec = segment_duration,
         batch_size = batch_size,
-        signal_injection_probability = injection,
     )
+end
+
+"""
+    EventMarker
+
+One `[[events.markers]]` entry: the mission instant `time` of an event of
+interest (a transient, a glitch), its `label`, and an optional triggered
+low-latency period — `low_latency_after_hours` after the marker, lasting
+`low_latency_duration_hours` (`0` = none) at `low_latency_capacity_fraction`
+of peak capacity (`NaN` = the `[contacts]` default).
+"""
+struct EventMarker
+    time::DateTime
+    label::String
+    low_latency_after_hours::Float64
+    low_latency_duration_hours::Float64
+    low_latency_capacity_fraction::Float64
+end
+
+EventMarker(time::DateTime, label::String) = EventMarker(time, label, 0.0, 0.0, NaN)
+
+"""
+    event_marker_settings(cfg::AbstractDict) -> Vector{EventMarker}
+
+Validated `[[events.markers]]` entries sorted by time: `time` (datetime,
+required), `label` (default `marker <i>`), `low_latency_after_hours ≥ 0`,
+`low_latency_duration_hours ≥ 0`, and `low_latency_capacity_fraction ∈
+(0, 1]` when given. Labels must be unique. A malformed marker raises a
+`[CONFIG]` error.
+"""
+function event_marker_settings(cfg::AbstractDict)
+    markers = EventMarker[]
+    for (i, e) in enumerate(get(get(cfg, "events", Dict{String,Any}()), "markers", Any[]))
+        e isa AbstractDict ||
+            config_error("[CONFIG] events.markers[$i] must be a table of marker keys.")
+        time = parsed_datetime(get(e, "time", nothing), "events.markers[$i].time")
+        label = checked_string(get(e, "label", "marker $i"), "events.markers[$i].label")
+        after = checked_number(
+            get(e, "low_latency_after_hours", 0.0),
+            "events.markers[$i].low_latency_after_hours",
+        )
+        after >= 0.0 || config_error(
+            "[CONFIG] events.markers[$i].low_latency_after_hours must be ≥ 0 (got $after).",
+        )
+        duration = checked_number(
+            get(e, "low_latency_duration_hours", 0.0),
+            "events.markers[$i].low_latency_duration_hours",
+        )
+        duration >= 0.0 || config_error(
+            "[CONFIG] events.markers[$i].low_latency_duration_hours must be ≥ 0 (got $duration).",
+        )
+        fraction = NaN
+        if haskey(e, "low_latency_capacity_fraction")
+            fraction = checked_number(
+                e["low_latency_capacity_fraction"],
+                "events.markers[$i].low_latency_capacity_fraction",
+            )
+            0.0 < fraction <= 1.0 || config_error(
+                "[CONFIG] events.markers[$i].low_latency_capacity_fraction must lie in (0, 1] (got $fraction).",
+            )
+        end
+        push!(markers, EventMarker(time, label, after, duration, fraction))
+    end
+    labels = [m.label for m in markers]
+    allunique(labels) ||
+        config_error("[CONFIG] events.markers labels must be unique (got $labels).")
+    return sort!(markers; by = m -> m.time)
+end
+
+"""
+    ground_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[ground]` section: `processing_latency_hours ≥ 0` (default 1,
+the low-latency alert pipeline budget added to every alert latency).
+"""
+function ground_settings(cfg::AbstractDict)
+    g = get(cfg, "ground", Dict{String,Any}())
+    processing = checked_number(
+        get(g, "processing_latency_hours", 1.0),
+        "ground.processing_latency_hours",
+    )
+    processing >= 0.0 || config_error(
+        "[CONFIG] ground.processing_latency_hours must be ≥ 0 (got $processing).",
+    )
+    return (processing_latency_hours = processing,)
+end
+
+"""
+    batch_markers(markers::Vector{EventMarker}, epoch::DateTime, stop::DateTime) -> Vector{EventMarker}
+
+The markers whose instant lies in the content span `[epoch, stop)` of a
+batch.
+"""
+function batch_markers(markers::Vector{EventMarker}, epoch::DateTime, stop::DateTime)
+    return filter(m -> epoch <= m.time < stop, markers)
+end
+
+"""
+    save_markers(run_dir::String, markers::Vector{EventMarker})
+
+Writes `<run_dir>/markers.csv` (`SimTime, Label`) — the run's event
+instants for consumers and post-processing; nothing is written when there
+are no markers.
+"""
+function save_markers(run_dir::String, markers::Vector{EventMarker})
+    isempty(markers) && return nothing
+    df = DataFrame(SimTime = [m.time for m in markers], Label = [m.label for m in markers])
+    safe_csv_write(joinpath(run_dir, "markers.csv"), df)
+    return nothing
+end
+
+"""
+    load_markers(run_dir::String) -> Vector{EventMarker}
+
+The markers recorded in `<run_dir>/markers.csv` (empty when absent), as
+plain [`EventMarker`](@ref)s without triggered periods.
+"""
+function load_markers(run_dir::String)
+    path = joinpath(run_dir, "markers.csv")
+    isfile(path) || return EventMarker[]
+    df = CSV.read(path, DataFrame)
+    return [EventMarker(DateTime(r.SimTime), String(r.Label)) for r in eachrow(df)]
 end
 
 """
@@ -959,6 +1086,8 @@ reproduces the plain daily window.
     ∈ (0, 1]` (default 1), and `[[contacts.low_latency_periods]]` (`start`,
     `duration_hours > 0`, optional `capacity_fraction`, `label`): extra
     contact windows at constant capacity outside the nominal passes.
+    Periods triggered by `[[events.markers]]`
+    ([`event_marker_settings`](@ref)) are appended, labelled by the marker.
 
 Malformed entries raise a `[CONFIG]` error: a silently dropped pass or
 period invalidates the scenario.
@@ -1105,6 +1234,23 @@ function contacts_settings(cfg::AbstractDict)
             ContactWindow(start, start + hours_period(hours), fraction, true, label),
         )
     end
+    for m in event_marker_settings(cfg)
+        m.low_latency_duration_hours > 0.0 || continue
+        start = m.time + hours_period(m.low_latency_after_hours)
+        fraction =
+            isnan(m.low_latency_capacity_fraction) ? default_fraction :
+            m.low_latency_capacity_fraction
+        push!(
+            periods,
+            ContactWindow(
+                start,
+                start + hours_period(m.low_latency_duration_hours),
+                fraction,
+                true,
+                m.label,
+            ),
+        )
+    end
     sort!(periods; by = w -> w.start)
 
     return (
@@ -1188,6 +1334,13 @@ function validate_config(cfg::AbstractDict)
         for key in keys(e)
             key in KNOWN_EVENT_KEYS ||
                 @warn "[CONFIG] Unrecognized key disruption.events[$i].$key — ignored (typo?)."
+        end
+    end
+    for (i, e) in enumerate(get(get(cfg, "events", Dict{String,Any}()), "markers", Any[]))
+        e isa AbstractDict || continue
+        for key in keys(e)
+            key in KNOWN_MARKER_KEYS ||
+                @warn "[CONFIG] Unrecognized key events.markers[$i].$key — ignored (typo?)."
         end
     end
     contacts_section = get(cfg, "contacts", Dict{String,Any}())
@@ -1298,8 +1451,9 @@ function validate_config(cfg::AbstractDict)
               "(batch transfer time / speed_up). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
               "the effective downlink rate. Decrease speed_up or the link capacity."
     end
-    # -- [contacts] --
+    # -- [contacts], [[events.markers]], [ground] --
     contacts_settings(cfg)
+    ground_settings(cfg)
 
     # -- [packet_loss] --
     # Types, enumerations, and bounds are enforced by the shared accessor
@@ -1961,7 +2115,6 @@ struct DataSegment
     id::Int
     timestamp::DateTime
     data::Vector{Float32}
-    is_signal::Bool
 end
 
 """
@@ -2038,7 +2191,9 @@ end
     log_tx_event(run_dir::String, sim_t::DateTime, batch::String, event::String)
 
 Appends one emitter-side batch milestone to `events_tx.csv`. Events:
-`"gen"` (batch finalized onboard) and `"tx"` (batch placed on the downlink).
+`"gen"` (batch finalized onboard), `"tx"` (batch placed on the downlink),
+and `"marker"` (`sim_t` = an event-marker instant, `batch` = the batch
+holding it; state-preserving).
 Together with [`log_rx_event`](@ref) this forms the exact per-batch state
 history used by the mask/animation reconstruction — no heuristic replay.
 Only the emitter task writes this file (single-writer; no lock needed).
@@ -2226,23 +2381,25 @@ end
 
 # --- Batch & Segment I/O ---
 """
-    save_batch(path::String, batch::DataBatch)
+    save_batch(path::String, batch::DataBatch; markers = String[])
 
 Serializes a `DataBatch` and its metadata to the specified physical directory.
 `metadata.json` carries `batch_id`, `segment_count`, `created_at` (mission
-time at which the batch was finalized and became transmittable), and
+time at which the batch was finalized and became transmittable),
 `content_epoch` (mission timestamp of the first sample of the payload —
-the physical epoch the segment data belong to).
+the physical epoch the segment data belong to), and, when given, `markers`
+— the labels of the event markers whose instant lies in the payload.
 """
-function save_batch(path::String, batch::DataBatch)
+function save_batch(path::String, batch::DataBatch; markers::Vector{String} = String[])
     mkpath(path)
     content_epoch = isempty(batch.segments) ? batch.created_at : batch.segments[1].timestamp
-    metadata = Dict(
+    metadata = Dict{String,Any}(
         "batch_id" => batch.id,
         "segment_count" => length(batch.segments),
         "created_at" => string(batch.created_at),
         "content_epoch" => string(content_epoch),
     )
+    isempty(markers) || (metadata["markers"] = markers)
     open(joinpath(path, "metadata.json"), "w") do io
         JSON3.write(io, metadata)
     end
@@ -2322,7 +2479,7 @@ function load_segment(path::String; timestamp::DateTime = DateTime(0))
     # The capture is a Union{Nothing, SubString}: guard the full chain so a
     # nonconforming filename degrades to id 0 instead of throwing.
     id = id_match !== nothing ? something(tryparse(Int, something(id_match[1], "")), 0) : 0
-    return DataSegment(id, timestamp, Vector{Float32}(df.Amplitude), false)
+    return DataSegment(id, timestamp, Vector{Float32}(df.Amplitude))
 end
 
 # --- Contact windows, visibility & bandwidth ---

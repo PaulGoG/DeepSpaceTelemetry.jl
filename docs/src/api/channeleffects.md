@@ -1,0 +1,23 @@
+# ChannelEffects
+
+```@docs
+DeepSpaceTelemetry.ChannelEffects
+DeepSpaceTelemetry.ChannelEffects.LossModel
+DeepSpaceTelemetry.ChannelEffects.NoLoss
+DeepSpaceTelemetry.ChannelEffects.BernoulliLoss
+DeepSpaceTelemetry.ChannelEffects.GilbertElliottLoss
+DeepSpaceTelemetry.ChannelEffects.sample_loss!
+DeepSpaceTelemetry.ChannelEffects.stationary_loss_rate
+DeepSpaceTelemetry.ChannelEffects.DisruptionEvent
+DeepSpaceTelemetry.ChannelEffects.DisruptionTimeline
+DeepSpaceTelemetry.ChannelEffects.disruption_factor
+DeepSpaceTelemetry.ChannelEffects.disruption_loss_multiplier
+DeepSpaceTelemetry.ChannelEffects.active_disruption_label
+DeepSpaceTelemetry.ChannelEffects.LinkModel
+DeepSpaceTelemetry.ChannelEffects.effective_bandwidth
+DeepSpaceTelemetry.ChannelEffects.is_transmittable
+DeepSpaceTelemetry.ChannelEffects.build_loss_model
+DeepSpaceTelemetry.ChannelEffects.build_disruption_timeline
+DeepSpaceTelemetry.ChannelEffects.build_link_model
+DeepSpaceTelemetry.ChannelEffects.loss_retry_limit
+```

@@ -1,0 +1,10 @@
+# VirtualInstrument
+
+```@docs
+DeepSpaceTelemetry.VirtualInstrument
+DeepSpaceTelemetry.VirtualInstrument.InstrumentState
+DeepSpaceTelemetry.VirtualInstrument.lisa_noise_psd
+DeepSpaceTelemetry.VirtualInstrument.synth_windowed_block
+DeepSpaceTelemetry.VirtualInstrument.synth_windowed_block!
+DeepSpaceTelemetry.VirtualInstrument.next_segment!
+```

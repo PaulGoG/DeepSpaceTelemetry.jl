@@ -7,6 +7,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- Event markers (`[[events.markers]]`): declared instants of interest,
+  stamped into `metadata.json` (`markers`) and `events_tx.csv` (`marker`
+  rows) by the emitter when the holding batch is finalized, recorded in
+  `markers.csv` at mission start, and evaluated by the alert-latency
+  metric (`Metrology.marker_latency_table`, `alert_latency_markers.csv`,
+  marker curves on the figure). A marker may trigger a low-latency period
+  after a reaction delay. `[ground] processing_latency_hours` (default 1 h)
+  is reported on top of every alert latency. The shipped scenario's
+  low-latency period is now marker-triggered.
 - Contact schedule (`[contacts]`): seasonal extension of the daily window
   (cosine-modulated over `season_period_days`, peaking at
   `season_peak_day_of_year`), per-date exceptions (missed or shortened
@@ -112,7 +121,19 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `link/` directory listing. Consumers never depended on them (`link/` is
   off-limits by contract).
 
+### Removed
+- `DataSegment.is_signal` and the instrument's per-segment signal flag:
+  event instants are markers, not random draws. The synthetic noise
+  realization of a given seed changes (one fewer RNG draw per segment).
+
+### Deprecated
+- `physics.signal_injection_probability` is accepted with a warning and
+  ignored (removed at 1.0.0).
+
 ### Changed
+- The API reference is split into one manual page per module
+  (`docs/src/api/`), keeping every generated page under Documenter's size
+  threshold.
 - `Receiver.plot_session` takes a `ContactWindow` and a file stem instead of
   a day index (`Receiver.session_figure_stems` enumerates them);
   `PlotContext` no longer carries the session window fields.

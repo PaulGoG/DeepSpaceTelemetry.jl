@@ -123,6 +123,7 @@ struct MissionPlan{T<:NamedTuple,P<:NamedTuple,S<:NamedTuple,L<:ChannelEffects.L
     loss_model::L
     max_retries::Int
     retention::TelemetryCore.RetentionPolicy
+    markers::Vector{TelemetryCore.EventMarker}
 end
 
 """
@@ -200,6 +201,7 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
         ChannelEffects.build_loss_model(cfg, seed + 1),
         ChannelEffects.loss_retry_limit(cfg),
         TelemetryCore.retention_settings(cfg),
+        TelemetryCore.event_marker_settings(cfg),
     )
 end
 
@@ -381,7 +383,7 @@ function component_spawners(
             pending_segments = attempt == 0 ? pending_segments :
                                TelemetryCore.DataSegment[],
             rng = Xoshiro(plan.rng_seed + 100 + attempt),
-            signal_injection_probability = physics.signal_injection_probability,
+            markers = plan.markers,
             max_inflight_batches = telemetry.max_inflight_batches,
             deadline = deadline,
             stop = stop_flag,
@@ -449,6 +451,7 @@ function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = std
             Metrology.plot_alert_latency(
                 run_dir;
                 lookback_hours = Float64(get(pp, "alert_lookback_hours", 72.0)),
+                processing_latency_hours = TelemetryCore.ground_settings(plan.cfg).processing_latency_hours,
             )
         catch e
             @error "[POST] Alert-latency metric failed — run data is intact." exception =
@@ -561,6 +564,11 @@ function print_banner(io::IO, plan::MissionPlan, run_dir::String)
         "$(round(plan.telemetry.max_batches_per_hour, digits = 1)) batches/h at full capacity"
     println(io, rpad("Link:", 20), link_line)
     println(io, rpad("Contacts:", 20), contact_summary(plan))
+    isempty(plan.markers) || println(
+        io,
+        rpad("Markers:", 20),
+        join(("$(m.label) at $(m.time)" for m in plan.markers), "; "),
+    )
     println(io, rpad("Logs:", 20), "$run_dir/*.log")
     println(io, "="^55)
     return nothing
@@ -603,7 +611,6 @@ function warm_up_components!(plan::MissionPlan, orig_stdout::IO)
                 data_source = physics.data_source,
                 ext_path = physics.external_data_path,
                 rng = Xoshiro(plan.rng_seed),
-                signal_injection_probability = physics.signal_injection_probability,
                 max_inflight_batches = plan.telemetry.max_inflight_batches,
                 deadline = past,
                 stop = stop_flag,
@@ -668,7 +675,7 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
             data_source = physics.data_source,
             ext_path = physics.external_data_path,
             rng = Xoshiro(plan.rng_seed),
-            signal_injection_probability = physics.signal_injection_probability,
+            markers = plan.markers,
         )
     end
 
@@ -687,6 +694,7 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
     deadline =
         clock.start_real_time + Millisecond(round(Int, plan.mission_wall_seconds * 1000))
     TelemetryCore.save_clock_anchor(run_dir, clock, deadline)
+    TelemetryCore.save_markers(run_dir, plan.markers)
 
     stop_flag = Threads.Atomic{Bool}(false)
     heartbeats = Dict{Symbol,String}(

@@ -35,7 +35,7 @@ low-frequency fidelity).
 The amplitude spectrum is stored in `Float64`: raw LISA PSD values (~1e-40)
 underflow into `Float32` subnormals.
 
-All stochastic draws (noise phases, signal flags) come from the instrument's
+All stochastic draws (noise phases) come from the instrument's
 own `rng` (any `Random.AbstractRNG`; default `Xoshiro(0)`), seeded via the constructor keyword —
 the stream is fully reproducible from `simulation.rng_seed` and independent of
 the global RNG and of other simulation components.
@@ -65,7 +65,6 @@ mutable struct InstrumentState{R<:Random.AbstractRNG}
     ext_data::Vector{Float32}
     ext_index::Int
     rng::R
-    signal_injection_probability::Float64
 
     function InstrumentState(
         start_t::DateTime,
@@ -74,7 +73,6 @@ mutable struct InstrumentState{R<:Random.AbstractRNG}
         data_source::String,
         ext_path::String;
         rng::Random.AbstractRNG = Xoshiro(0),
-        signal_injection_probability::Float64 = 0.02,
     )
         n_samples = round(Int, sample_rate * seg_dur)
         if data_source == "external"
@@ -122,7 +120,6 @@ mutable struct InstrumentState{R<:Random.AbstractRNG}
                 ext_data,
                 1,
                 rng,
-                signal_injection_probability,
             )
         else
             block_len = 2 * n_samples
@@ -162,7 +159,6 @@ mutable struct InstrumentState{R<:Random.AbstractRNG}
                 Float32[],
                 1,
                 rng,
-                signal_injection_probability,
             )
         end
     end
@@ -273,7 +269,6 @@ function next_segment!(vi::InstrumentState)
             end
         end
         vi.ext_index += n_samples
-        is_sig = false # External data carries its own signal content; no injection.
     else
         block = synth_windowed_block!(
             vi.block_buffer,
@@ -285,12 +280,9 @@ function next_segment!(vi::InstrumentState)
         )
         data = Float32.(vi.carry .+ view(block, 1:n_samples))
         copyto!(vi.carry, 1, block, n_samples + 1, n_samples)
-        # Stream-preserving form: rand > 1 - p reproduces the historical
-        # realization exactly at the default p = 0.02.
-        is_sig = rand(vi.rng) > 1.0 - vi.signal_injection_probability
     end
 
-    seg = TelemetryCore.DataSegment(vi.id_counter, vi.last_t, data, is_sig)
+    seg = TelemetryCore.DataSegment(vi.id_counter, vi.last_t, data)
     vi.last_t += Second(round(Int, vi.seg_dur))
     vi.id_counter += 1
     return seg

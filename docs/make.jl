@@ -26,6 +26,16 @@ makedocs(
         "Physics & Queuing Theory" => "physics.md",
         "Usage & Configuration" => "usage.md",
         "Analysis Interfaces" => "interfaces.md",
-        "API Reference" => "api.md",
+        "API Reference" => [
+            "Overview" => "api.md",
+            "TelemetryCore" => "api/telemetrycore.md",
+            "ChannelEffects" => "api/channeleffects.md",
+            "VirtualInstrument" => "api/virtualinstrument.md",
+            "Emitter" => "api/emitter.md",
+            "Receiver" => "api/receiver.md",
+            "Metrology" => "api/metrology.md",
+            "Supervisor" => "api/supervisor.md",
+            "PlotTheme" => "api/plottheme.md",
+        ],
     ],
 )

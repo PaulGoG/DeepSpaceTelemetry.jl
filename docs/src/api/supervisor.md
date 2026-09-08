@@ -1,0 +1,19 @@
+# Supervisor
+
+```@docs
+DeepSpaceTelemetry.Supervisor
+DeepSpaceTelemetry.Supervisor.CleanFileLogger
+DeepSpaceTelemetry.Supervisor.strip_ansi
+DeepSpaceTelemetry.Supervisor.MissionPlan
+DeepSpaceTelemetry.Supervisor.mission_plan
+DeepSpaceTelemetry.Supervisor.stamp_external_provenance!
+DeepSpaceTelemetry.Supervisor.record_generation_gap!
+DeepSpaceTelemetry.Supervisor.log_component_event!
+DeepSpaceTelemetry.Supervisor.supervise!
+DeepSpaceTelemetry.Supervisor.component_spawners
+DeepSpaceTelemetry.Supervisor.post_process!
+DeepSpaceTelemetry.Supervisor.contact_summary
+DeepSpaceTelemetry.Supervisor.warm_up_components!
+DeepSpaceTelemetry.Supervisor.execute_mission!
+DeepSpaceTelemetry.Supervisor.run_mission
+```

@@ -40,6 +40,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor + absolute deadline; re-attaching components reconstruct the identical clock from it. |
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record: `down`, `restart`, `stalled`, `recovered`. |
 | `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs. |
+| `markers.csv` | pipeline (at mission start) | Read. Event markers of the run (`SimTime, Label`) — the instants the alert-latency metric is evaluated at (`alert_latency_markers.csv`). |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, with a `LowLatency` flag for deliveries inside a low-latency period (`plots/delivery_delay.png` renders the distribution against the delivery requirement). |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine vs counterfactual FIFO drain (`plots/alert_latency.png` renders it). |
 | `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map: `GenSimTime` (finalization instant from the event log) and `ContentEpoch` (first-sample timestamp from the batch metadata); re-anchors point-wise mask rows on the mission timeline across generation gaps. |
@@ -55,7 +56,8 @@ first sample, i.e. the physical epoch the data belong to — and `created_at`
 transmittable (never earlier than the content end, and within one segment
 period of it when the host keeps pace with the accelerated clock). Segment
 files carry no timestamps; sample `k` of a batch lies at
-`content_epoch + (k − 1) / sample_rate`.
+`content_epoch + (k − 1) / sample_rate`. A batch whose payload holds an
+event marker carries the marker labels under the optional `markers` key.
 Batches are delivered by an atomic same-filesystem `mv`: a directory visible
 under `ground/` is complete, and it is never modified afterwards except by
 the retention custodian (below).
@@ -117,7 +119,9 @@ present; the mask replay itself treats gap events as state-preserving.
   before the row is appended) and will never become ground-available.
 
 `events_tx.csv` — columns `SimTime, Batch, Event`, with `gen` (batch
-finalized onboard) and `tx` (batch placed on the downlink).
+finalized onboard), `tx` (batch placed on the downlink), and `marker`
+(`SimTime` = an event-marker instant, `Batch` = the batch holding it,
+appended when that batch is finalized; state-preserving).
 
 ## Batch Identity → Sample Interval
 
