@@ -2553,3 +2553,229 @@ end
         @test isfile(joinpath(dir, "plots", "delivery_delay.pdf"))
     end
 end
+
+@testset "Contact schedule and low-latency periods" begin
+    daily(; kwargs...) = TelemetryCore.VisibilityModel(
+        Time(8),
+        Second(8 * 3600),
+        "flat",
+        10.0,
+        0.15,
+        get(kwargs, :extension, Second(0)),
+        365.25,
+        172.0,
+        get(kwargs, :exceptions, Dict{Date,Tuple{Time,Second}}()),
+        get(kwargs, :schedule, TelemetryCore.ContactWindow[]),
+        get(kwargs, :low_latency, TelemetryCore.ContactWindow[]),
+    )
+
+    # Seasonal extension: +4 h at the peak day of year (symmetric about the
+    # window centre), none half a year away, the plain window elsewhere.
+    season = daily(extension = Second(4 * 3600))
+    peak = TelemetryCore.nominal_window(season, Date(2035, 6, 21))
+    trough = TelemetryCore.nominal_window(season, Date(2035, 12, 21))
+    @test peak.start == DateTime(2035, 6, 21, 6) && peak.stop == DateTime(2035, 6, 21, 18)
+    @test (trough.stop - trough.start).value / 3.6e6 ≈ 8.0 atol = 0.02
+    @test TelemetryCore.is_visible(season, DateTime(2035, 6, 21, 6, 30))
+    @test !TelemetryCore.is_visible(season, DateTime(2035, 12, 21, 6, 30))
+    plain = TelemetryCore.nominal_window(daily(), Date(2035, 6, 21))
+    @test plain.start == DateTime(2035, 6, 21, 8) && plain.stop == DateTime(2035, 6, 21, 16)
+
+    # Exceptions: a shortened, shifted pass and a missed pass.
+    exc = daily(
+        exceptions = Dict(
+            Date(2035, 1, 4) => (Time(10), Second(4 * 3600)),
+            Date(2035, 1, 5) => (Time(8), Second(0)),
+        ),
+    )
+    @test TelemetryCore.is_visible(exc, DateTime(2035, 1, 4, 13))
+    @test !TelemetryCore.is_visible(exc, DateTime(2035, 1, 4, 15))
+    @test TelemetryCore.nominal_window(exc, Date(2035, 1, 5)) === nothing
+    @test !TelemetryCore.is_visible(exc, DateTime(2035, 1, 5, 12))
+    @test TelemetryCore.is_visible(exc, DateTime(2035, 1, 6, 12))
+    @test length(
+        TelemetryCore.contact_windows(exc, DateTime(2035, 1, 3), DateTime(2035, 1, 7)),
+    ) == 3
+
+    # Explicit schedule replaces the daily generator; passes may cross
+    # midnight and the profile is evaluated within the scheduled window.
+    sched = TelemetryCore.VisibilityModel(
+        Time(8),
+        Second(8 * 3600),
+        "sine",
+        10.0,
+        0.15,
+        Second(0),
+        365.25,
+        172.0,
+        Dict{Date,Tuple{Time,Second}}(),
+        [
+            TelemetryCore.ContactWindow(DateTime(2035, 1, 2, 22), DateTime(2035, 1, 3, 4)),
+            TelemetryCore.ContactWindow(DateTime(2035, 1, 4, 8), DateTime(2035, 1, 4, 14)),
+        ],
+        TelemetryCore.ContactWindow[],
+    )
+    @test TelemetryCore.is_visible(sched, DateTime(2035, 1, 3, 1))
+    @test TelemetryCore.get_bandwidth_factor(sched, DateTime(2035, 1, 3, 1)) ≈ 1.0
+    @test !TelemetryCore.is_visible(sched, DateTime(2035, 1, 3, 12))
+    @test TelemetryCore.nominal_window(sched, Date(2035, 1, 3)) === nothing
+    @test length(
+        TelemetryCore.contact_windows(sched, DateTime(2035, 1, 1), DateTime(2035, 1, 10)),
+    ) == 2
+
+    # Low-latency periods: constant capacity fraction, visible outside the
+    # nominal pass, transmittable for the link model.
+    llp = daily(
+        low_latency = [
+            TelemetryCore.ContactWindow(
+                DateTime(2035, 1, 5, 20),
+                DateTime(2035, 1, 5, 23),
+                0.5,
+                true,
+                "follow-up",
+            ),
+        ],
+    )
+    @test TelemetryCore.is_visible(llp, DateTime(2035, 1, 5, 21))
+    @test TelemetryCore.get_bandwidth_factor(llp, DateTime(2035, 1, 5, 21)) ≈ 0.5
+    @test !TelemetryCore.is_visible(llp, DateTime(2035, 1, 5, 19))
+    @test ChannelEffects.is_transmittable(
+        ChannelEffects.LinkModel(llp),
+        DateTime(2035, 1, 5, 21),
+    )
+    windows = TelemetryCore.contact_windows(llp, DateTime(2035, 1, 5), DateTime(2035, 1, 6))
+    @test count(w -> w.low_latency, windows) == 1 && windows[end].label == "follow-up"
+    stems =
+        Receiver.session_figure_stems(llp, DateTime(2035, 1, 5, 6), DateTime(2035, 1, 7, 6))
+    @test first.(stems) == ["day00", "day00_low_latency", "day01"]
+
+    # Configuration accessor: defaults, validation, CSV schedule, the
+    # enabled flag, and the shipped configuration.
+    base = valid_test_cfg()
+    defaults = TelemetryCore.contacts_settings(base)
+    @test defaults.seasonal_extension_hours == 0.0 &&
+          isempty(defaults.passes) &&
+          isempty(defaults.low_latency_periods) &&
+          defaults.low_latency_enabled
+    cfg = deepcopy(base)
+    cfg["contacts"] = Dict{String,Any}(
+        "seasonal_extension_hours" => 4.0,
+        "exceptions" =>
+            Any[Dict{String,Any}("date" => "2035-01-04", "duration_hours" => 0.0)],
+        "low_latency_periods" => Any[Dict{String,Any}(
+            "start" => "2035-01-02T20:00:00",
+            "duration_hours" => 2.0,
+            "capacity_fraction" => 0.4,
+        ),],
+    )
+    settings = TelemetryCore.contacts_settings(cfg)
+    @test haskey(settings.exceptions, Date(2035, 1, 4)) &&
+          settings.exceptions[Date(2035, 1, 4)] == (Time(8), Second(0))
+    @test settings.low_latency_periods[1].capacity ≈ 0.4
+    model = TelemetryCore.visibility_model(cfg)
+    @test TelemetryCore.get_bandwidth_factor(model, DateTime(2035, 1, 2, 21)) ≈ 0.4
+    @test !TelemetryCore.is_visible(model, DateTime(2035, 1, 4, 12))
+    @test TelemetryCore.validate_config(cfg) isa AbstractDict
+    disabled = deepcopy(cfg)
+    disabled["contacts"]["low_latency_enabled"] = false
+    @test !TelemetryCore.is_visible(
+        TelemetryCore.visibility_model(disabled),
+        DateTime(2035, 1, 2, 21),
+    )
+    for (key, value) in (
+        ("seasonal_extension_hours", 17.0),
+        ("seasonal_extension_hours", -1.0),
+        ("season_period_days", 0.0),
+        ("season_peak_day_of_year", 400.0),
+        ("low_latency_capacity_fraction", 0.0),
+        ("low_latency_capacity_fraction", 1.5),
+    )
+        bad = deepcopy(base)
+        bad["contacts"] = Dict{String,Any}(key => value)
+        @test_throws ArgumentError TelemetryCore.contacts_settings(bad)
+    end
+    overlapping = deepcopy(base)
+    overlapping["contacts"] = Dict{String,Any}(
+        "passes" => Any[
+            Dict{String,Any}("start" => "2035-01-02T08:00:00", "duration_hours" => 8.0),
+            Dict{String,Any}("start" => "2035-01-02T12:00:00", "duration_hours" => 8.0),
+        ],
+    )
+    @test_throws ArgumentError TelemetryCore.contacts_settings(overlapping)
+    mixed = deepcopy(base)
+    mixed["contacts"] = Dict{String,Any}(
+        "passes" => Any[Dict{String,Any}(
+            "start" => "2035-01-02T08:00:00",
+            "duration_hours" => 8.0,
+        ),],
+        "exceptions" => Any[Dict{String,Any}("date" => "2035-01-04")],
+    )
+    @test_throws ArgumentError TelemetryCore.contacts_settings(mixed)
+    mktempdir() do dir
+        csv_path = joinpath(dir, "passes.csv")
+        write(
+            csv_path,
+            "Start,DurationHours\n2035-01-03T22:00:00,6.0\n2035-01-02T08:00:00,8.0\n",
+        )
+        from_csv = deepcopy(base)
+        from_csv["contacts"] = Dict{String,Any}("schedule_csv" => csv_path)
+        passes = TelemetryCore.contacts_settings(from_csv).passes
+        @test length(passes) == 2 && passes[1].start == DateTime(2035, 1, 2, 8)
+        @test TelemetryCore.is_visible(
+            TelemetryCore.visibility_model(from_csv),
+            DateTime(2035, 1, 4, 2),
+        )
+        both = deepcopy(from_csv)
+        both["contacts"]["passes"] =
+            Any[Dict{String,Any}("start" => "2035-01-05T08:00:00", "duration_hours" => 1.0)]
+        @test_throws ArgumentError TelemetryCore.contacts_settings(both)
+    end
+    shipped = TelemetryCore.load_config(joinpath(dirname(@__DIR__), "config.toml"))
+    @test length(TelemetryCore.contacts_settings(shipped).low_latency_periods) == 1
+    @test TelemetryCore.is_visible(
+        TelemetryCore.visibility_model(shipped),
+        DateTime(2035, 1, 5, 21),
+    )
+
+    # Delivery-delay table: a batch ingested inside a low-latency period is
+    # flagged and counted.
+    mktempdir() do dir
+        t0 = DateTime(2035, 1, 1, 6)
+        D = Minute(3)
+        open(joinpath(dir, "config_snapshot.toml"), "w") do io
+            write(
+                io,
+                """
+                [simulation]
+                speed_up = 60.0
+                start_sim_time = "2035-01-01T06:00:00"
+                mission_wall_seconds = 60.0
+                [telemetry]
+                session_start = "08:00:00"
+                session_duration_hours = 8.0
+                [physics]
+                data_source = "synthetic"
+                sample_rate = 4.0
+                segment_duration_sec = 60.0
+                batch_size = 3
+                [[contacts.low_latency_periods]]
+                start = "2035-01-01T06:00:00"
+                duration_hours = 1.0
+                """,
+            )
+        end
+        for (name, epoch) in (("ARCH_batch_1", t0 - D), ("LIVE_batch_2", t0))
+            bdir = mkpath(joinpath(dir, "ground", name))
+            write(
+                joinpath(bdir, "metadata.json"),
+                """{"batch_id":$(TelemetryCore.batch_id(name)),"segment_count":3,"created_at":"$(epoch + D)","content_epoch":"$epoch"}""",
+            )
+            TelemetryCore.log_tx_event(dir, epoch + D, name, "gen")
+        end
+        TelemetryCore.log_rx_event(dir, t0 + Minute(30), "LIVE_batch_2", "ingested", 0)
+        TelemetryCore.log_rx_event(dir, t0 + Hour(3), "ARCH_batch_1", "ingested", 0)
+        table = Metrology.delivery_delay_table(dir)
+        @test table.LowLatency == [false, true]
+        @test Metrology.delivery_compliance(table, 24.0).via_low_latency == 1
+    end
+end

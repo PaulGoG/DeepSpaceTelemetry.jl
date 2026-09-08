@@ -36,7 +36,9 @@ scheduled disruption events stress the link: a day-2.5 solar-flare-class
 full blackout (18 h, then a 12 h linear recovery ramp with 5× elevated
 loss) and a day-5.0 partial DSN outage (severity 0.8, 12 h, 6 h ramp,
 3× loss), leaving a 1.25-day nominal tail after the second recovery
-completes on day 5.75.
+completes on day 5.75. A 3-hour low-latency period at half capacity on the
+evening of day 4 (mission time 2035-01-05 20:00) drains part of the flare
+backlog between the day-4 and day-5 passes.
 
 Alternative scenario configurations (e.g. multi-week recovery studies or
 lossless baselines) are maintained outside the repository and passed by
@@ -75,6 +77,35 @@ loss_multiplier = 8.0       # stochastic loss × 8 during blackout + ramp
 Reproducibility: `simulation.rng_seed` seeds the physics stream and the loss
 channel independently (seed and seed+1). Identical config → identical noise
 and identical loss realizations.
+
+### Contact Schedule
+`[contacts]` shapes the daily window of `[telemetry]`; every key is optional.
+```toml
+[contacts]
+seasonal_extension_hours = 4.0      # 8 h window at the trough, 12 h at the peak
+season_peak_day_of_year = 172.0
+low_latency_enabled = true          # flip to false for the counterfactual run
+
+[[contacts.exceptions]]             # the window of one date, verbatim
+date = "2035-01-04"
+duration_hours = 0.0                # 0 = missed pass; omit start to keep session_start
+
+[[contacts.low_latency_periods]]
+start = "2035-01-05T20:00:00"
+duration_hours = 3.0
+capacity_fraction = 0.5             # station availability as a fraction of peak
+label = "transient follow-up"
+```
+A planned pass list replaces the daily generator (exceptions are then not
+admissible), either inline
+```toml
+[[contacts.passes]]
+start = "2035-01-02T08:00:00"
+duration_hours = 6.0
+```
+or as `schedule_csv = "path/to/passes.csv"` with the columns
+`Start, DurationHours` (relative paths resolve against the current directory,
+then the package root). Passes may cross midnight and must not overlap.
 
 ### External Data Ingestion
 To use your own high-frequency CSV time series instead of synthetic noise:

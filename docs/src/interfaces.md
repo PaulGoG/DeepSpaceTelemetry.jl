@@ -40,7 +40,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor + absolute deadline; re-attaching components reconstruct the identical clock from it. |
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record: `down`, `restart`, `stalled`, `recovered`. |
 | `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs. |
-| `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch (`plots/delivery_delay.png` renders the distribution against the delivery requirement). |
+| `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, with a `LowLatency` flag for deliveries inside a low-latency period (`plots/delivery_delay.png` renders the distribution against the delivery requirement). |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine vs counterfactual FIFO drain (`plots/alert_latency.png` renders it). |
 | `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map: `GenSimTime` (finalization instant from the event log) and `ContentEpoch` (first-sample timestamp from the batch metadata); re-anchors point-wise mask rows on the mission timeline across generation gaps. |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline consumes the file at lifecycle end. |
@@ -121,8 +121,9 @@ finalized onboard) and `tx` (batch placed on the downlink).
 
 ## Batch Identity → Sample Interval
 
-Batch names are `LIVE_batch_<k>` (generated during a DSN pass) or
-`ARCH_batch_<k>` (generated in a blind spot or blackout); `k` is the global
+Batch names are `LIVE_batch_<k>` (generated during a contact — a nominal
+pass or a low-latency period) or `ARCH_batch_<k>` (generated in a blind
+spot or blackout); `k` is the global
 1-based batch index. With
 
 ```

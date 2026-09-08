@@ -35,6 +35,12 @@ DeepSpaceTelemetry.TelemetryCore.telemetry_settings
 DeepSpaceTelemetry.TelemetryCore.physics_settings
 DeepSpaceTelemetry.TelemetryCore.supervision_settings
 DeepSpaceTelemetry.TelemetryCore.visibility_model
+DeepSpaceTelemetry.TelemetryCore.ContactWindow
+DeepSpaceTelemetry.TelemetryCore.ContactsSettings
+DeepSpaceTelemetry.TelemetryCore.contacts_settings
+DeepSpaceTelemetry.TelemetryCore.parsed_datetime
+DeepSpaceTelemetry.TelemetryCore.parsed_date
+DeepSpaceTelemetry.TelemetryCore.parsed_time
 DeepSpaceTelemetry.TelemetryCore.loss_channel_settings
 DeepSpaceTelemetry.TelemetryCore.DisruptionEventSettings
 DeepSpaceTelemetry.TelemetryCore.disruption_event_settings
@@ -80,7 +86,12 @@ DeepSpaceTelemetry.TelemetryCore.batch_content_epochs
 DeepSpaceTelemetry.TelemetryCore.save_segment
 DeepSpaceTelemetry.TelemetryCore.load_segment
 DeepSpaceTelemetry.TelemetryCore.VisibilityModel
+DeepSpaceTelemetry.TelemetryCore.seasonal_window_duration
+DeepSpaceTelemetry.TelemetryCore.nominal_window
+DeepSpaceTelemetry.TelemetryCore.contact_windows
+DeepSpaceTelemetry.TelemetryCore.active_window
 DeepSpaceTelemetry.TelemetryCore.is_visible
+DeepSpaceTelemetry.TelemetryCore.profile_factor
 DeepSpaceTelemetry.TelemetryCore.get_bandwidth_factor
 ```
 
@@ -131,6 +142,7 @@ DeepSpaceTelemetry.Receiver.generate_mission_plots
 DeepSpaceTelemetry.Receiver.PlotContext
 DeepSpaceTelemetry.Receiver.plot_context
 DeepSpaceTelemetry.Receiver.plot_mission_summary
+DeepSpaceTelemetry.Receiver.session_figure_stems
 DeepSpaceTelemetry.Receiver.plot_session
 DeepSpaceTelemetry.Receiver.hours_since
 DeepSpaceTelemetry.Receiver.component_outage_spans
@@ -175,6 +187,7 @@ DeepSpaceTelemetry.Supervisor.log_component_event!
 DeepSpaceTelemetry.Supervisor.supervise!
 DeepSpaceTelemetry.Supervisor.component_spawners
 DeepSpaceTelemetry.Supervisor.post_process!
+DeepSpaceTelemetry.Supervisor.contact_summary
 DeepSpaceTelemetry.Supervisor.warm_up_components!
 DeepSpaceTelemetry.Supervisor.execute_mission!
 DeepSpaceTelemetry.Supervisor.run_mission

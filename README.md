@@ -268,6 +268,11 @@ freely — e.g. `[-1, "10:20", 45]`.
     `simulation.rng_seed`.
 *   **Dynamic bandwidth profiling**: models the horizon-to-horizon satellite
     pass using `sine`, `sigmoid`, `gaussian`, or `flat` capacity profiles.
+*   **Contact schedule** (`[contacts]`): seasonal pass-duration modulation,
+    per-date exceptions (missed or shortened passes), explicit pass lists
+    (TOML or CSV), and low-latency periods — extra contacts at a
+    station-availability capacity fraction outside the nominal pass, each
+    with its own session figure.
 *   **Metrology** (`Metrology.jl`), from the event logs: the alert-latency
     curve — how long after a live event the look-back window `δ` is on the
     ground, realized live-FIFO/archive-LIFO doctrine against a

@@ -40,7 +40,7 @@ using CairoMakie:
     xlims!,
     ylims!
 using DataFrames: DataFrames, DataFrame, nrow
-using Dates: Dates, Date, DateTime, Day, Hour, Millisecond, Second, Time, now
+using Dates: Dates, DateTime, Hour, Millisecond, Second, now
 using FileWatching: FileWatching, watch_folder
 
 """
@@ -55,8 +55,8 @@ hours_since(t::DateTime, t0::DateTime) = Float64((t - t0).value) / (1000 * 3600)
     PlotContext
 
 Per-run inputs shared by the mission summary and the session figures: the
-metrics frame with its elapsed-hour axis, the mission epoch, the nominal
-session window, the visibility and link models, the disruption and
+metrics frame with its elapsed-hour axis, the mission epoch, the
+visibility and link models, the disruption and
 component-outage spans in plot coordinates, and the loss-panel policy.
 Built once by [`plot_context`](@ref).
 """
@@ -65,8 +65,6 @@ struct PlotContext
     df::DataFrame
     df_x::Vector{Float64}
     t_start::DateTime
-    session_start::Time
-    session_duration::Second
     vis_model::TelemetryCore.VisibilityModel
     link_model::ChannelEffects.LinkModel
     disruption_spans::Vector{NTuple{3,Float64}} # (blackout start, blackout end, recovery end)
@@ -120,7 +118,6 @@ disruption section warns and yields an empty timeline rather than aborting
 the post-processing of an otherwise complete run.
 """
 function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
-    tel_settings = TelemetryCore.telemetry_settings(cfg)
     vis_model = TelemetryCore.visibility_model(cfg)
     sim = get(cfg, "simulation", Dict{String,Any}())
     disruptions = try
@@ -157,8 +154,6 @@ function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
         df,
         df_x,
         t_start,
-        tel_settings.session_start,
-        tel_settings.session_duration,
         vis_model,
         ChannelEffects.LinkModel(vis_model, disruptions),
         disruption_spans,
@@ -570,21 +565,22 @@ function plot_mission_summary(ctx::PlotContext)
 end
 
 """
-    plot_session(ctx::PlotContext, day_k::Int) -> Union{Nothing,String}
+    plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, stem::String) -> Union{Nothing,String}
 
-Renders the session figure of mission day `day_k` (0-based) — the nominal
-DSN window of that day: smooth nominal and effective capacity with the
-onboard buffer on a twin axis, and the batches received within the window
-(total and archive share) with ✕ pins and a count badge for any losses —
-to `<run_dir>/plots/session_day<kk>_detail.png` with a vector PDF twin.
-Returns `nothing` when the window lies outside the recorded span or holds
-fewer than two metrics rows. Must run inside the telemetry theme.
+Renders the session figure of one contact `window` — a nominal pass or a
+low-latency period: smooth nominal and effective capacity with the onboard
+buffer on a twin axis, and the batches received within the window (total
+and archive share) with ✕ pins and a count badge for any losses — to
+`<run_dir>/plots/session_<stem>_detail.png` with a vector PDF twin
+([`session_figure_stems`](@ref) names the stems). Returns `nothing` when
+the window lies outside the recorded span or holds fewer than two metrics
+rows. Must run inside the telemetry theme.
 """
-function plot_session(ctx::PlotContext, day_k::Int)
+function plot_session(ctx::PlotContext, window::TelemetryCore.ContactWindow, stem::String)
     df = ctx.df
     max_x_h = max(ctx.df_x[end], 1.0)
-    min_sess_dt = DateTime(Date(ctx.t_start + Day(day_k)), ctx.session_start)
-    max_sess_dt = min_sess_dt + ctx.session_duration
+    min_sess_dt = window.start
+    max_sess_dt = window.stop
     min_sess_h = hours_since(min_sess_dt, ctx.t_start)
     max_sess_h = hours_since(max_sess_dt, ctx.t_start)
     # Windows entirely outside the recorded mission span produce nothing.
@@ -594,11 +590,9 @@ function plot_session(ctx::PlotContext, day_k::Int)
     session_df = df[in_window, :]
     length(session_df.SimTime) < 2 && return nothing
 
-    t_smooth_dt = [
-        min_sess_dt +
-        Millisecond(round(Int, (j-1) * ctx.session_duration.value * 1000 / 199)) for
-        j in 1:200
-    ]
+    window_ms = (max_sess_dt - min_sess_dt).value
+    t_smooth_dt =
+        [min_sess_dt + Millisecond(round(Int, (j - 1) * window_ms / 199)) for j in 1:200]
     t_smooth_h = [hours_since(t, ctx.t_start) for t in t_smooth_dt]
     bw_smooth = Float64[
         100.0 * ChannelEffects.effective_bandwidth(ctx.link_model, t) for t in t_smooth_dt
@@ -733,6 +727,20 @@ function plot_session(ctx::PlotContext, day_k::Int)
         )
     end
 
+    if window.low_latency
+        text!(
+            ax_s2,
+            0.015,
+            0.985,
+            text = "Low-latency period" *
+                   (isempty(window.label) ? "" : " ($(window.label))") *
+                   ", capacity $(round(Int, 100 * window.capacity)) %",
+            space = :relative,
+            align = (:left, :top),
+            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+        )
+    end
+
     hidexdecorations!(ax_s1, grid = false, ticks = false)
     foreach(ax -> ax.yticklabelspace = 34.0, (ax_s1, ax_s2))
 
@@ -746,22 +754,49 @@ function plot_session(ctx::PlotContext, day_k::Int)
     )
     linkxaxes!(ax_s1, ax_s2)
 
-    path = joinpath(ctx.run_dir, "plots", "session_day$(lpad(day_k, 2, '0'))_detail.png")
+    path = joinpath(ctx.run_dir, "plots", "session_$(stem)_detail.png")
     save(path, fig, px_per_unit = 4)
     save(splitext(path)[1] * ".pdf", fig)
     return path
 end
 
 """
+    session_figure_stems(model, t_start::DateTime, t_end::DateTime) -> Vector{Tuple{String,ContactWindow}}
+
+File-name stems of the session figures of every contact window of `model`
+overlapping `[t_start, t_end]` ([`TelemetryCore.contact_windows`](@ref)):
+`day<kk>` from the 0-based mission day of the window start, `_low_latency`
+appended for low-latency periods, and a letter suffix (`b`, `c`, …) when
+several windows of the same kind start on the same day.
+"""
+function session_figure_stems(
+    model::TelemetryCore.VisibilityModel,
+    t_start::DateTime,
+    t_end::DateTime,
+)
+    stems = Tuple{String,TelemetryCore.ContactWindow}[]
+    seen = Dict{String,Int}()
+    for w in TelemetryCore.contact_windows(model, t_start, t_end)
+        day_k = max(0, floor(Int, (w.start - t_start).value / 86_400_000))
+        base = "day$(lpad(day_k, 2, '0'))" * (w.low_latency ? "_low_latency" : "")
+        n = get(seen, base, 0)
+        seen[base] = n + 1
+        push!(stems, (n == 0 ? base : base * ('a' + n), w))
+    end
+    return stems
+end
+
+"""
     generate_mission_plots(run_dir::String)
 
 Reads `mission_profile.csv` and renders the mission summary
-([`plot_mission_summary`](@ref)) and one session figure per mission day
+([`plot_mission_summary`](@ref)) and one session figure per contact window
 ([`plot_session`](@ref)) into `<run_dir>/plots`, all under the telemetry
-theme. Sessions are enumerated from the nominal daily DSN window — not
-detected from the effective bandwidth — so a fully blacked-out day still
-receives its zero-throughput figure and file names share the summary's
-0-based day coordinates.
+theme. Windows are enumerated from the contact model — the nominal daily
+passes, scheduled or generated, and the low-latency periods — not detected
+from the effective bandwidth, so a fully blacked-out day still receives
+its zero-throughput figure and file names share the summary's 0-based day
+coordinates.
 """
 function generate_mission_plots(run_dir::String)
     @info "[RECEIVER] Generating mission and session plots..."
@@ -778,9 +813,9 @@ function generate_mission_plots(run_dir::String)
     with_theme(PlotTheme.telemetry_theme()) do
         global_path = plot_mission_summary(ctx)
         @info "[RECEIVER] Saved Global Summary Plot: $(relpath(global_path, run_dir))"
-        n_days = ceil(Int, max(ctx.df_x[end], 1.0) / 24.0)
-        for day_k in 0:(n_days-1)
-            plot_session(ctx, day_k)
+        t_end = ctx.t_start + Millisecond(round(Int, 3.6e6 * max(ctx.df_x[end], 1.0)))
+        for (stem, window) in session_figure_stems(ctx.vis_model, ctx.t_start, t_end)
+            plot_session(ctx, window, stem)
         end
         @info "[RECEIVER] Saved Session-specific plots."
     end

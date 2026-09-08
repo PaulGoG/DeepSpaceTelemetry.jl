@@ -7,6 +7,17 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- Contact schedule (`[contacts]`): seasonal extension of the daily window
+  (cosine-modulated over `season_period_days`, peaking at
+  `season_peak_day_of_year`), per-date exceptions (missed or shortened
+  passes), explicit pass lists (`[[contacts.passes]]` or `schedule_csv`),
+  and low-latency periods (`[[contacts.low_latency_periods]]` at a
+  constant capacity fraction, `low_latency_enabled` switch). One session
+  figure per contact window (`session_day<kk>_low_latency_detail.png` for
+  periods); the delivery-delay table flags deliveries inside a period
+  (`LowLatency` column, `via_low_latency` count); the mission banner
+  summarizes the schedule. The shipped scenario gains a 3-hour
+  half-capacity period on the evening of day 4.
 - Physical link-rate parameterization: `telemetry.downlink_kbps` with
   `telemetry.onboard_data_rate_kbps` (mutually exclusive with
   `max_batches_per_hour`) define the batch transfer time through the batch
@@ -102,6 +113,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   off-limits by contract).
 
 ### Changed
+- `Receiver.plot_session` takes a `ContactWindow` and a file stem instead of
+  a day index (`Receiver.session_figure_stems` enumerates them);
+  `PlotContext` no longer carries the session window fields.
 - `mission_profile.csv` column `Ground_Archive` (the live + archive total)
   is `Ground_Total`, matching the renamed `MissionMetrics.ground_total`
   field; readers normalize legacy files through `normalize_profile!`.

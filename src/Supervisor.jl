@@ -18,7 +18,7 @@ using ..Receiver
 using ..Metrology
 using CSV: CSV
 using DataFrames: DataFrame, nrow
-using Dates: DateTime, Millisecond, Second, now
+using Dates: Dates, DateTime, Millisecond, Second, now
 using Logging: Logging, with_logger
 using Random: Xoshiro
 using SHA: sha256
@@ -513,6 +513,36 @@ end
 
 # --- Mission ---
 
+"""
+    contact_summary(plan::MissionPlan) -> String
+
+One-line description of the contact schedule for the mission banner: the
+daily window with its seasonal extension and exception count, or the
+explicit pass count, plus the low-latency periods and whether they are
+enabled.
+"""
+function contact_summary(plan::MissionPlan)
+    contacts = TelemetryCore.contacts_settings(plan.cfg)
+    line = if !isempty(contacts.passes)
+        "explicit schedule, $(length(contacts.passes)) passes"
+    else
+        start = Dates.format(plan.telemetry.session_start, "HH:MM")
+        hours = round(plan.telemetry.session_duration.value / 3600, digits = 1)
+        seasonal =
+            contacts.seasonal_extension_hours > 0 ?
+            ", seasonal extension up to $(contacts.seasonal_extension_hours) h" : ""
+        exceptions =
+            isempty(contacts.exceptions) ? "" :
+            ", $(length(contacts.exceptions)) exception(s)"
+        "daily window $start + $hours h$seasonal$exceptions"
+    end
+    n_periods = length(contacts.low_latency_periods)
+    n_periods == 0 && return line
+    return line *
+           "; $n_periods low-latency period(s)" *
+           (contacts.low_latency_enabled ? "" : " disabled")
+end
+
 function print_banner(io::IO, plan::MissionPlan, run_dir::String)
     println(io, "="^55)
     println(io, lpad("DEEP-SPACE TELEMETRY MISSION START", 44))
@@ -530,6 +560,7 @@ function print_banner(io::IO, plan::MissionPlan, run_dir::String)
         "catch-up ratio $(round(plan.telemetry.catch_up_ratio, digits = 2)) (downlink over production), " *
         "$(round(plan.telemetry.max_batches_per_hour, digits = 1)) batches/h at full capacity"
     println(io, rpad("Link:", 20), link_line)
+    println(io, rpad("Contacts:", 20), contact_summary(plan))
     println(io, rpad("Logs:", 20), "$run_dir/*.log")
     println(io, "="^55)
     return nothing

@@ -364,12 +364,18 @@ end
 
 Measurement-to-ground delay of every generated batch: `Batch`, `Live`,
 `ContentEnd`, `AvailableAt` (missing when the batch never reached the
-ground), and `Delay_Hours` = availability minus content end (missing when
-undelivered). Built on [`delivery_schedule`](@ref); rows sorted by content
-epoch.
+ground), `Delay_Hours` = availability minus content end (missing when
+undelivered), and `LowLatency` — whether the batch reached the ground
+inside a low-latency period of the run's contact model. Built on
+[`delivery_schedule`](@ref); rows sorted by content epoch.
 """
 function delivery_delay_table(run_dir::String)
     schedule = delivery_schedule(run_dir)
+    vis = TelemetryCore.visibility_model(TelemetryCore.load_run_config(run_dir))
+    in_low_latency(t::DateTime) = begin
+        w = TelemetryCore.active_window(vis, t)
+        w !== nothing && w.low_latency
+    end
     return DataFrame(
         Batch = [b.name for b in schedule],
         Live = [b.live for b in schedule],
@@ -381,6 +387,9 @@ function delivery_delay_table(run_dir::String)
             b.available_at === nothing ? missing :
             (b.available_at - b.content_end).value / 3.6e6 for b in schedule
         ],
+        LowLatency = [
+            b.available_at !== nothing && in_low_latency(b.available_at) for b in schedule
+        ],
     )
 end
 
@@ -389,8 +398,9 @@ end
 
 Summary of a [`delivery_delay_table`](@ref) against a delivery requirement:
 `generated`, `delivered`, `within` (delivered within `requirement_hours` of
-measurement), `fraction_within` (of all generated batches — an undelivered
-batch is non-compliant), `median_hours`, and `p95_hours` of the delivered
+measurement), `via_low_latency` (delivered inside a low-latency period),
+`fraction_within` (of all generated batches — an undelivered batch is
+non-compliant), `median_hours`, and `p95_hours` of the delivered
 delays (`NaN` when nothing was delivered).
 """
 function delivery_compliance(table::DataFrame, requirement_hours::Float64)
@@ -402,6 +412,7 @@ function delivery_compliance(table::DataFrame, requirement_hours::Float64)
         generated = generated,
         delivered = delivered,
         within = within,
+        via_low_latency = count(table.LowLatency),
         fraction_within = generated == 0 ? NaN : within / generated,
         median_hours = quantile_sorted(delays, 0.5),
         p95_hours = quantile_sorted(delays, 0.95),
@@ -473,7 +484,11 @@ function plot_delivery_delay(run_dir::String; requirement_hours::Float64 = 24.0)
                    "$(round(requirement_hours, digits = 1)) h\n" *
                    "Median $(round(summary.median_hours, digits = 1)) h, " *
                    "95th percentile $(round(summary.p95_hours, digits = 1)) h\n" *
-                   "$(summary.generated - summary.delivered) undelivered at run end",
+                   "$(summary.generated - summary.delivered) undelivered at run end" *
+                   (
+                       summary.via_low_latency > 0 ?
+                       "\n$(summary.via_low_latency) delivered in low-latency periods" : ""
+                   ),
             space = :relative,
             align = (:right, :bottom),
             justification = :right,

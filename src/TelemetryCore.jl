@@ -12,7 +12,7 @@ module TelemetryCore
 
 using CSV: CSV
 using DataFrames: DataFrames, DataFrame
-using Dates: Dates, DateTime, Millisecond, Second, Time, now
+using Dates: Dates, Date, DateTime, Day, Millisecond, Second, Time, now
 using JSON3: JSON3
 using LinearAlgebra: LinearAlgebra
 using TOML: TOML
@@ -382,6 +382,17 @@ const KNOWN_CONFIG_KEYS = Dict(
         "delivery_delay",
         "delivery_requirement_hours",
     ],
+    "contacts" => [
+        "seasonal_extension_hours",
+        "season_period_days",
+        "season_peak_day_of_year",
+        "schedule_csv",
+        "passes",
+        "exceptions",
+        "low_latency_enabled",
+        "low_latency_capacity_fraction",
+        "low_latency_periods",
+    ],
     "provenance" => String[], # pipeline-generated; free-form by design
     "supervision" => ["on_component_failure", "max_restarts", "watchdog_sec"],
 )
@@ -394,6 +405,11 @@ const KNOWN_EVENT_KEYS = [
     "recovery_hours",
     "loss_multiplier",
 ]
+const KNOWN_CONTACT_ENTRY_KEYS = Dict(
+    "passes" => ["start", "duration_hours"],
+    "exceptions" => ["date", "start", "duration_hours"],
+    "low_latency_periods" => ["start", "duration_hours", "capacity_fraction", "label"],
+)
 
 # --- Configuration accessors ---
 """
@@ -577,17 +593,25 @@ end
 """
     visibility_model(cfg::AbstractDict) -> VisibilityModel
 
-The [`VisibilityModel`](@ref) described by `[telemetry]`, built from
-[`telemetry_settings`](@ref).
+The [`VisibilityModel`](@ref) described by `[telemetry]` and `[contacts]`,
+built from [`telemetry_settings`](@ref) and [`contacts_settings`](@ref).
+Low-latency periods enter only when `contacts.low_latency_enabled` is set.
 """
 function visibility_model(cfg::AbstractDict)
     s = telemetry_settings(cfg)
+    c = contacts_settings(cfg)
     return VisibilityModel(
         s.session_start,
         s.session_duration,
         s.bandwidth_profile,
         s.sigmoid_steepness,
         s.gaussian_sigma,
+        Second(round(Int, 3600 * c.seasonal_extension_hours)),
+        c.season_period_days,
+        c.season_peak_day_of_year,
+        c.exceptions,
+        c.passes,
+        c.low_latency_enabled ? c.low_latency_periods : ContactWindow[],
     )
 end
 
@@ -807,6 +831,296 @@ function disruption_event_settings(cfg::AbstractDict)
 end
 
 """
+    ContactWindow
+
+One ground-contact interval on the mission timeline: `start` and `stop`
+(`DateTime`, closed interval), the link `capacity` relative to peak (`1.0`
+for a nominal pass; the station-availability fraction of a low-latency
+period), the `low_latency` flag, and a free-text `label` (empty for
+nominal passes). `ContactWindow(start, stop)` builds a nominal pass.
+"""
+struct ContactWindow
+    start::DateTime
+    stop::DateTime
+    capacity::Float64
+    low_latency::Bool
+    label::String
+end
+
+ContactWindow(start::DateTime, stop::DateTime) = ContactWindow(start, stop, 1.0, false, "")
+
+"""
+    ContactsSettings
+
+Validated `[contacts]` section as returned by [`contacts_settings`](@ref).
+"""
+const ContactsSettings = NamedTuple{
+    (
+        :seasonal_extension_hours,
+        :season_period_days,
+        :season_peak_day_of_year,
+        :schedule_csv,
+        :passes,
+        :exceptions,
+        :low_latency_enabled,
+        :low_latency_capacity_fraction,
+        :low_latency_periods,
+    ),
+    Tuple{
+        Float64,
+        Float64,
+        Float64,
+        String,
+        Vector{ContactWindow},
+        Dict{Date,Tuple{Time,Second}},
+        Bool,
+        Float64,
+        Vector{ContactWindow},
+    },
+}
+
+"""
+    parsed_datetime(v, name::String) -> DateTime
+
+Coerces a config value to `DateTime`: TOML local datetimes and dates arrive
+already parsed, strings are read as ISO-8601; anything else is rejected
+with a `[CONFIG]` error naming `name`.
+"""
+function parsed_datetime(v, name::String)
+    v isa DateTime && return v
+    v isa Date && return DateTime(v)
+    v isa AbstractString ||
+        config_error("[CONFIG] $name must be an ISO-8601 datetime (got $(repr(v))).")
+    try
+        return DateTime(v)
+    catch
+        config_error("[CONFIG] $name is not a parseable ISO-8601 datetime: $v")
+    end
+end
+
+"""
+    parsed_date(v, name::String) -> Date
+
+Coerces a config value to `Date` (TOML local date, datetime, or ISO-8601
+string) with a `[CONFIG]` error naming `name` otherwise.
+"""
+function parsed_date(v, name::String)
+    v isa Date && return v
+    v isa DateTime && return Date(v)
+    v isa AbstractString ||
+        config_error("[CONFIG] $name must be an ISO-8601 date (got $(repr(v))).")
+    try
+        return Date(v)
+    catch
+        config_error("[CONFIG] $name is not a parseable ISO-8601 date: $v")
+    end
+end
+
+"""
+    parsed_time(v, name::String) -> Time
+
+Coerces a config value to `Time` (TOML local time or `HH:MM:SS` string) with
+a `[CONFIG]` error naming `name` otherwise.
+"""
+function parsed_time(v, name::String)
+    v isa Time && return v
+    v isa AbstractString ||
+        config_error("[CONFIG] $name must be a HH:MM:SS time (got $(repr(v))).")
+    try
+        return Time(v)
+    catch
+        config_error("[CONFIG] $name is not a parseable HH:MM:SS time: $v")
+    end
+end
+
+hours_period(hours::Float64) = Millisecond(round(Int, 3_600_000 * hours))
+
+"""
+    contacts_settings(cfg::AbstractDict) -> ContactsSettings
+
+Validated `[contacts]` section — the ground-contact schedule layered on the
+daily window of `[telemetry]`; every key is optional and an absent section
+reproduces the plain daily window.
+
+  - `seasonal_extension_hours ≥ 0` (default 0): peak extension of the daily
+    window, cosine-modulated over `season_period_days > 0` (default 365.25)
+    and peaking at `season_peak_day_of_year ∈ [1, 366]` (default 172);
+    `telemetry.session_duration_hours` plus the extension may not exceed
+    24 h.
+  - `[[contacts.passes]]` (`start` datetime, `duration_hours > 0`) or
+    `schedule_csv` (columns `Start`, `DurationHours`; relative paths resolve
+    against the current directory, then the project root) — an explicit,
+    non-overlapping pass list that replaces the daily generator. The two
+    forms are mutually exclusive.
+  - `[[contacts.exceptions]]` (`date`, optional `start`, `duration_hours ∈
+    [0, 24]`, `0` = missed pass): the window of that date verbatim, in
+    place of the generated one; incompatible with an explicit schedule.
+  - `low_latency_enabled` (default `true`), `low_latency_capacity_fraction
+    ∈ (0, 1]` (default 1), and `[[contacts.low_latency_periods]]` (`start`,
+    `duration_hours > 0`, optional `capacity_fraction`, `label`): extra
+    contact windows at constant capacity outside the nominal passes.
+
+Malformed entries raise a `[CONFIG]` error: a silently dropped pass or
+period invalidates the scenario.
+"""
+function contacts_settings(cfg::AbstractDict)
+    c = get(cfg, "contacts", Dict{String,Any}())
+    tel = telemetry_settings(cfg)
+    session_hours = tel.session_duration.value / 3600
+
+    extension = checked_number(
+        get(c, "seasonal_extension_hours", 0.0),
+        "contacts.seasonal_extension_hours",
+    )
+    extension >= 0.0 || config_error(
+        "[CONFIG] contacts.seasonal_extension_hours must be ≥ 0 (got $extension).",
+    )
+    session_hours + extension <= 24.0 || config_error(
+        "[CONFIG] telemetry.session_duration_hours + contacts.seasonal_extension_hours = $(session_hours + extension) h exceeds 24 h.",
+    )
+    period =
+        checked_number(get(c, "season_period_days", 365.25), "contacts.season_period_days")
+    period > 0.0 ||
+        config_error("[CONFIG] contacts.season_period_days must be > 0 (got $period).")
+    peak = checked_number(
+        get(c, "season_peak_day_of_year", 172.0),
+        "contacts.season_peak_day_of_year",
+    )
+    1.0 <= peak <= 366.0 || config_error(
+        "[CONFIG] contacts.season_peak_day_of_year must lie in [1, 366] (got $peak).",
+    )
+
+    schedule_csv = checked_string(get(c, "schedule_csv", ""), "contacts.schedule_csv")
+    pass_entries = get(c, "passes", Any[])
+    isempty(schedule_csv) ||
+        isempty(pass_entries) ||
+        config_error(
+            "[CONFIG] contacts.schedule_csv and [[contacts.passes]] are mutually exclusive.",
+        )
+    passes = ContactWindow[]
+    for (i, e) in enumerate(pass_entries)
+        e isa AbstractDict ||
+            config_error("[CONFIG] contacts.passes[$i] must be a table of pass keys.")
+        start = parsed_datetime(get(e, "start", nothing), "contacts.passes[$i].start")
+        hours = checked_number(
+            get(e, "duration_hours", 0.0),
+            "contacts.passes[$i].duration_hours",
+        )
+        hours > 0.0 || config_error(
+            "[CONFIG] contacts.passes[$i].duration_hours must be > 0 (got $hours).",
+        )
+        push!(passes, ContactWindow(start, start + hours_period(hours)))
+    end
+    if !isempty(schedule_csv)
+        path =
+            isabspath(schedule_csv) || isfile(schedule_csv) ? schedule_csv :
+            joinpath(PROJECT_ROOT, schedule_csv)
+        isfile(path) || config_error("[CONFIG] contacts.schedule_csv not found: $path")
+        df = CSV.read(path, DataFrame)
+        for col in ("Start", "DurationHours")
+            hasproperty(df, Symbol(col)) ||
+                config_error("[CONFIG] contacts.schedule_csv lacks the column $col.")
+        end
+        for (i, r) in enumerate(eachrow(df))
+            start = parsed_datetime(r.Start, "contacts.schedule_csv row $i Start")
+            hours = checked_number(
+                r.DurationHours,
+                "contacts.schedule_csv row $i DurationHours",
+            )
+            hours > 0.0 || config_error(
+                "[CONFIG] contacts.schedule_csv row $i DurationHours must be > 0 (got $hours).",
+            )
+            push!(passes, ContactWindow(start, start + hours_period(hours)))
+        end
+    end
+    sort!(passes; by = w -> w.start)
+    for i in 2:length(passes)
+        passes[i].start >= passes[i-1].stop || config_error(
+            "[CONFIG] contact passes overlap: $(passes[i-1].start) – $(passes[i-1].stop) and $(passes[i].start) – $(passes[i].stop).",
+        )
+    end
+
+    exceptions = Dict{Date,Tuple{Time,Second}}()
+    exception_entries = get(c, "exceptions", Any[])
+    isempty(passes) ||
+        isempty(exception_entries) ||
+        config_error(
+            "[CONFIG] [[contacts.exceptions]] modify the daily window and cannot combine with an explicit pass schedule.",
+        )
+    for (i, e) in enumerate(exception_entries)
+        e isa AbstractDict || config_error(
+            "[CONFIG] contacts.exceptions[$i] must be a table of exception keys.",
+        )
+        date = parsed_date(get(e, "date", nothing), "contacts.exceptions[$i].date")
+        haskey(exceptions, date) &&
+            config_error("[CONFIG] contacts.exceptions[$i] repeats the date $date.")
+        start =
+            parsed_time(get(e, "start", tel.session_start), "contacts.exceptions[$i].start")
+        hours = checked_number(
+            get(e, "duration_hours", session_hours),
+            "contacts.exceptions[$i].duration_hours",
+        )
+        0.0 <= hours <= 24.0 || config_error(
+            "[CONFIG] contacts.exceptions[$i].duration_hours must lie in [0, 24] (got $hours).",
+        )
+        exceptions[date] = (start, Second(round(Int, 3600 * hours)))
+    end
+
+    enabled =
+        checked_flag(get(c, "low_latency_enabled", true), "contacts.low_latency_enabled")
+    default_fraction = checked_number(
+        get(c, "low_latency_capacity_fraction", 1.0),
+        "contacts.low_latency_capacity_fraction",
+    )
+    0.0 < default_fraction <= 1.0 || config_error(
+        "[CONFIG] contacts.low_latency_capacity_fraction must lie in (0, 1] (got $default_fraction).",
+    )
+    periods = ContactWindow[]
+    for (i, e) in enumerate(get(c, "low_latency_periods", Any[]))
+        e isa AbstractDict || config_error(
+            "[CONFIG] contacts.low_latency_periods[$i] must be a table of period keys.",
+        )
+        start = parsed_datetime(
+            get(e, "start", nothing),
+            "contacts.low_latency_periods[$i].start",
+        )
+        hours = checked_number(
+            get(e, "duration_hours", 0.0),
+            "contacts.low_latency_periods[$i].duration_hours",
+        )
+        hours > 0.0 || config_error(
+            "[CONFIG] contacts.low_latency_periods[$i].duration_hours must be > 0 (got $hours).",
+        )
+        fraction = checked_number(
+            get(e, "capacity_fraction", default_fraction),
+            "contacts.low_latency_periods[$i].capacity_fraction",
+        )
+        0.0 < fraction <= 1.0 || config_error(
+            "[CONFIG] contacts.low_latency_periods[$i].capacity_fraction must lie in (0, 1] (got $fraction).",
+        )
+        label =
+            checked_string(get(e, "label", ""), "contacts.low_latency_periods[$i].label")
+        push!(
+            periods,
+            ContactWindow(start, start + hours_period(hours), fraction, true, label),
+        )
+    end
+    sort!(periods; by = w -> w.start)
+
+    return (
+        seasonal_extension_hours = extension,
+        season_period_days = period,
+        season_peak_day_of_year = peak,
+        schedule_csv = schedule_csv,
+        passes = passes,
+        exceptions = exceptions,
+        low_latency_enabled = enabled,
+        low_latency_capacity_fraction = default_fraction,
+        low_latency_periods = periods,
+    )
+end
+
+"""
     validate_config(cfg::AbstractDict)
 
 Validates every tunable against its safe interval (documented inline in
@@ -874,6 +1188,16 @@ function validate_config(cfg::AbstractDict)
         for key in keys(e)
             key in KNOWN_EVENT_KEYS ||
                 @warn "[CONFIG] Unrecognized key disruption.events[$i].$key — ignored (typo?)."
+        end
+    end
+    contacts_section = get(cfg, "contacts", Dict{String,Any}())
+    for (list, known) in KNOWN_CONTACT_ENTRY_KEYS
+        for (i, e) in enumerate(get(contacts_section, list, Any[]))
+            e isa AbstractDict || continue
+            for key in keys(e)
+                key in known ||
+                    @warn "[CONFIG] Unrecognized key contacts.$list[$i].$key — ignored (typo?)."
+            end
         end
     end
 
@@ -974,6 +1298,8 @@ function validate_config(cfg::AbstractDict)
               "(batch transfer time / speed_up). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
               "the effective downlink rate. Decrease speed_up or the link capacity."
     end
+    # -- [contacts] --
+    contacts_settings(cfg)
 
     # -- [packet_loss] --
     # Types, enumerations, and bounds are enforced by the shared accessor
@@ -1370,8 +1696,11 @@ function estimate_artifacts(cfg::AbstractDict)
         do_expand ? (target_rows isa Vector{Int} ? length(target_rows) : metrics_rows) : 0
     pointwise_bytes = n_expansions * n_points * cal("bytes_pointwise_cell")
 
-    # Mission summary, one session figure per day, the two metric figures.
-    plot_bytes = (mission_days + 3) * (cal("bytes_plot") + cal("bytes_plot_pdf"))
+    # Mission summary, one session figure per day and per low-latency
+    # period, the two metric figures.
+    n_low_latency = length(contacts_settings(cfg).low_latency_periods)
+    plot_bytes =
+        (mission_days + 3 + n_low_latency) * (cal("bytes_plot") + cal("bytes_plot_pdf"))
     log_bytes = n_batches * cal("bytes_log_per_batch") + LOG_FIXED_OVERHEAD_BYTES
 
     # Post-processing replay RAM: the exact replay materializes one category
@@ -1399,7 +1728,7 @@ function estimate_artifacts(cfg::AbstractDict)
         1 +
         (do_matrix ? 1 : 0) +
         n_expansions +
-        2 * (mission_days + 3) +
+        2 * (mission_days + 3 + n_low_latency) +
         2 +
         1 +
         2 +
@@ -1996,11 +2325,20 @@ function load_segment(path::String; timestamp::DateTime = DateTime(0))
     return DataSegment(id, timestamp, Vector{Float32}(df.Amplitude), false)
 end
 
-# --- Visibility & Bandwidth ---
+# --- Contact windows, visibility & bandwidth ---
 """
     VisibilityModel
 
-Maintains parameters for the DSN connectivity profile over a ground-station pass.
+Ground-contact model of the downlink. The nominal daily window opens at
+`session_start` for `session_duration` with the capacity `profile`
+(`sigmoid_steepness`, `gaussian_sigma`); `seasonal_extension` widens it
+symmetrically about its centre, cosine-modulated with period
+`season_period_days` and peaking at `season_peak_day_of_year`;
+`exceptions` (`date => (start, duration)`, zero duration = missed pass)
+replace the window of a date verbatim; a non-empty `schedule` of explicit
+passes replaces the daily generator altogether; `low_latency` periods are
+additional windows at constant capacity outside the nominal passes. The
+three- to five-argument constructors build the plain daily model.
 """
 struct VisibilityModel
     session_start::Time
@@ -2008,62 +2346,168 @@ struct VisibilityModel
     profile::String
     sigmoid_steepness::Float64
     gaussian_sigma::Float64
+    seasonal_extension::Second
+    season_period_days::Float64
+    season_peak_day_of_year::Float64
+    exceptions::Dict{Date,Tuple{Time,Second}}
+    schedule::Vector{ContactWindow}
+    low_latency::Vector{ContactWindow}
 end
 
-# Backward-compatible constructor with the documented default profile shapes.
-function VisibilityModel(session_start::Time, session_duration::Second, profile::String)
-    return VisibilityModel(session_start, session_duration, profile, 10.0, 0.15)
+function VisibilityModel(
+    session_start::Time,
+    session_duration::Second,
+    profile::String,
+    sigmoid_steepness::Float64 = 10.0,
+    gaussian_sigma::Float64 = 0.15,
+)
+    return VisibilityModel(
+        session_start,
+        session_duration,
+        profile,
+        sigmoid_steepness,
+        gaussian_sigma,
+        Second(0),
+        365.25,
+        172.0,
+        Dict{Date,Tuple{Time,Second}}(),
+        ContactWindow[],
+        ContactWindow[],
+    )
 end
 
 """
-    is_visible(model::VisibilityModel, t::DateTime)
+    seasonal_window_duration(model::VisibilityModel, date::Date) -> Second
 
-Evaluates whether the satellite currently has a line of sight to Earth.
-Sessions crossing midnight (e.g. 20:00 start with an 8 hour duration) are
-handled by testing the wrapped interval on both sides of the day boundary.
+Duration of the generated window on `date`: `session_duration` plus the
+seasonal extension modulated as `½ [1 + cos(2π (d − d_peak) / P)]` with the
+day of year `d`, so the full extension applies at `season_peak_day_of_year`
+and none half a period away.
 """
-function is_visible(model::VisibilityModel, t::DateTime)
-    # A full-day session is always visible: `Time` arithmetic wraps at 24 h,
-    # which would otherwise collapse the window to its start instant.
-    model.session_duration.value >= 86_400 && return true
-    current_time = Time(t)
-    session_end = model.session_start + model.session_duration # `Time` wraps at 24 h
-    if model.session_start <= session_end
-        return model.session_start <= current_time <= session_end
+function seasonal_window_duration(model::VisibilityModel, date::Date)
+    model.seasonal_extension.value == 0 && return model.session_duration
+    phase =
+        2π * (Dates.dayofyear(date) - model.season_peak_day_of_year) /
+        model.season_period_days
+    extension = 0.5 * (1 + cos(phase)) * model.seasonal_extension.value
+    return model.session_duration + Second(round(Int, extension))
+end
+
+"""
+    nominal_window(model::VisibilityModel, date::Date) -> Union{Nothing,ContactWindow}
+
+The nominal pass anchored on `date` under the daily generator: the
+exception of that date verbatim when one exists (`nothing` for a missed
+pass), otherwise the configured window extended symmetrically by the
+seasonal term. `nothing` in explicit-schedule mode.
+"""
+function nominal_window(model::VisibilityModel, date::Date)
+    isempty(model.schedule) || return nothing
+    if haskey(model.exceptions, date)
+        start_time, duration = model.exceptions[date]
+        duration.value > 0 || return nothing
+        start = DateTime(date, start_time)
+        return ContactWindow(start, start + duration)
+    end
+    extension = seasonal_window_duration(model, date) - model.session_duration
+    half = Millisecond(round(Int, 500 * extension.value))
+    start = DateTime(date, model.session_start) - half
+    return ContactWindow(start, start + model.session_duration + 2 * half)
+end
+
+"""
+    contact_windows(model::VisibilityModel, t_lo::DateTime, t_hi::DateTime) -> Vector{ContactWindow}
+
+Every contact window — nominal passes and low-latency periods — that
+overlaps `[t_lo, t_hi]`, sorted by start.
+"""
+function contact_windows(model::VisibilityModel, t_lo::DateTime, t_hi::DateTime)
+    windows = ContactWindow[]
+    if isempty(model.schedule)
+        for date in (Date(t_lo)-Day(1)):Day(1):Date(t_hi)
+            w = nominal_window(model, date)
+            w === nothing || push!(windows, w)
+        end
     else
-        return current_time >= model.session_start || current_time <= session_end
+        append!(windows, model.schedule)
     end
+    append!(windows, model.low_latency)
+    filter!(w -> w.stop >= t_lo && w.start <= t_hi, windows)
+    return sort!(windows; by = w -> w.start)
 end
 
 """
-    get_bandwidth_factor(model::VisibilityModel, t::DateTime)
+    active_window(model::VisibilityModel, t::DateTime) -> Union{Nothing,ContactWindow}
 
-Calculates the effective link capacity (0.0 to 1.0) based on the configured profile (sine, sigmoid, gaussian, flat).
+The contact window containing `t` — a nominal pass first, else a
+low-latency period — or `nothing` when the spacecraft is out of contact.
+Under the daily generator only the windows anchored on the date of `t`
+and on the previous date (a pass crossing midnight) can contain `t`.
 """
-function get_bandwidth_factor(model::VisibilityModel, t::DateTime)
-    if !is_visible(model, t)
-        return 0.0
+function active_window(model::VisibilityModel, t::DateTime)
+    if isempty(model.schedule)
+        date = Date(t)
+        for d in (date, date - Day(1))
+            w = nominal_window(model, d)
+            w !== nothing && w.start <= t <= w.stop && return w
+        end
+    else
+        for w in model.schedule
+            w.start > t && break
+            t <= w.stop && return w
+        end
     end
-    elapsed_ns = Time(t).instant.value - model.session_start.instant.value
-    if elapsed_ns < 0 # session crossed midnight relative to `t`
-        elapsed_ns += 24 * 3600 * 1_000_000_000
+    for w in model.low_latency
+        w.start > t && break
+        t <= w.stop && return w
     end
-    total_sec = model.session_duration.value
-    progress = clamp(elapsed_ns / 1e9 / total_sec, 0.0, 1.0)
+    return nothing
+end
 
+"""
+    is_visible(model::VisibilityModel, t::DateTime) -> Bool
+
+Whether the spacecraft is in ground contact at `t` — inside a nominal pass
+or a low-latency period ([`active_window`](@ref)).
+"""
+is_visible(model::VisibilityModel, t::DateTime) = active_window(model, t) !== nothing
+
+"""
+    profile_factor(model::VisibilityModel, progress::Float64) -> Float64
+
+The capacity profile of a nominal pass at the normalized position
+`progress ∈ [0, 1]` within the window: `sine`, `sigmoid`, `gaussian`, or
+`flat` (unknown names fall back to `sine`).
+"""
+function profile_factor(model::VisibilityModel, progress::Float64)
     if model.profile == "sine"
         return sin(pi * progress)^2
     elseif model.profile == "sigmoid"
         k = model.sigmoid_steepness
         return (tanh(k * progress) + tanh(k * (1 - progress))) / 2.0
     elseif model.profile == "gaussian"
-        # centered at 0.5, stdev roughly 0.15
         return exp(-((progress - 0.5)^2) / (2 * model.gaussian_sigma^2))
     elseif model.profile == "flat"
         return 1.0
     else
-        return sin(pi * progress)^2 # default fallback
+        return sin(pi * progress)^2
     end
+end
+
+"""
+    get_bandwidth_factor(model::VisibilityModel, t::DateTime) -> Float64
+
+Effective link capacity in `[0, 1]` at `t`: the pass profile evaluated at
+the position of `t` within the active nominal window, the constant
+capacity fraction inside a low-latency period, and `0` out of contact.
+"""
+function get_bandwidth_factor(model::VisibilityModel, t::DateTime)
+    w = active_window(model, t)
+    w === nothing && return 0.0
+    w.low_latency && return w.capacity
+    total_ms = (w.stop - w.start).value
+    progress = total_ms == 0 ? 1.0 : clamp((t - w.start).value / total_ms, 0.0, 1.0)
+    return w.capacity * profile_factor(model, progress)
 end
 
 end # module TelemetryCore

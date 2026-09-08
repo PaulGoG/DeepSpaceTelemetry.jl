@@ -38,6 +38,20 @@ range_million_km = 50.0              # Spacecraft–Earth range [10^6 km]; sets 
 sigmoid_steepness = 10.0             # Sigmoid profile edge steepness. SAFE: > 0.
 gaussian_sigma = 0.15                # Gaussian profile standard deviation. SAFE: > 0.
 
+[contacts]
+seasonal_extension_hours = 0.0       # Peak seasonal extension of the daily window [h]. SAFE: >= 0, session_duration_hours + extension <= 24.
+season_period_days = 365.25          # Period of the seasonal modulation [days]. SAFE: > 0.
+season_peak_day_of_year = 172.0      # Day of year at which the extension peaks. SAFE: [1, 366].
+schedule_csv = ""                    # Explicit pass list (columns Start, DurationHours) replacing the daily window. SAFE: file path or "".
+low_latency_enabled = true           # Low-latency periods flag. One of: true | false.
+low_latency_capacity_fraction = 1.0  # Default capacity of a low-latency period relative to peak. SAFE: (0, 1].
+
+[[contacts.low_latency_periods]]
+start = "2035-01-05T20:00:00"        # Period start on the mission timeline. SAFE: ISO-8601 datetime.
+duration_hours = 3.0                 # Period duration [h]. SAFE: > 0.
+capacity_fraction = 0.5              # Capacity relative to peak. SAFE: (0, 1].
+label = "transient follow-up"        # Display name. Free string.
+
 [physics]
 data_source = "synthetic"            # Data stream mode. One of: "synthetic" | "external".
 external_data_path = "data/example_external_strain.csv" # File path when data_source = "external".
