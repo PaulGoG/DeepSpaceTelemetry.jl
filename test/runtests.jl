@@ -2388,3 +2388,94 @@ end
         @test isfile(joinpath(dir, "plots", "alert_latency.pdf"))
     end
 end
+
+# Deterministic channel for the light-time test: the first attempt on the
+# named batch fails, every other transfer succeeds.
+struct FirstAttemptLoss <: ChannelEffects.LossModel
+    victim::String
+    failed::Base.RefValue{Bool}
+end
+function ChannelEffects.sample_loss!(m::FirstAttemptLoss; multiplier::Float64 = 1.0)
+    m.failed[] && return false
+    m.failed[] = true
+    return true
+end
+
+@testset "Round-trip light time defers retransmissions" begin
+    tel = TelemetryCore.telemetry_settings(
+        Dict{String,Any}("telemetry" => Dict{String,Any}("range_million_km" => 50.0)),
+    )
+    @test tel.round_trip_light_time_sec ≈ 2 * 50e9 / TelemetryCore.C_LIGHT
+    @test TelemetryCore.telemetry_settings(Dict{String,Any}()).round_trip_light_time_sec ==
+          0.0
+    @test_throws ArgumentError TelemetryCore.telemetry_settings(
+        Dict{String,Any}("telemetry" => Dict{String,Any}("range_million_km" => -1.0)),
+    )
+
+    # Two live batches on the link; the first attempt on batch 1 is lost.
+    # With a round trip, batch 2 is served while batch 1 waits and batch 1
+    # arrives no earlier than one round trip after the loss; without it,
+    # batch 1 is retried at once and lands before batch 2.
+    function light_time_run(round_trip_sec)
+        run_id = "TEST_RUN_rtlt_$(round(Int, round_trip_sec))_pid$(getpid())"
+        run_dir = TelemetryCore.setup_run_dir(
+            run_id;
+            cfg = Dict{String,Any}(
+                "simulation" => Dict{String,Any}(
+                    "speed_up" => 600.0,
+                    "start_sim_time" => "2035-01-01T10:00:00",
+                ),
+            ),
+        )
+        try
+            start_sim = DateTime(2035, 1, 1, 10)
+            for id in (1, 2)
+                name = TelemetryCore.batch_name(id, true)
+                seg = TelemetryCore.DataSegment(id, start_sim, Float32[0.0, 1.0], false)
+                TelemetryCore.save_batch(
+                    joinpath(run_dir, "link", name),
+                    TelemetryCore.DataBatch(id, [seg], start_sim),
+                )
+                TelemetryCore.log_tx_event(run_dir, start_sim, name, "gen")
+                TelemetryCore.log_tx_event(run_dir, start_sim, name, "tx")
+            end
+            link = ChannelEffects.LinkModel(
+                TelemetryCore.VisibilityModel(Time(0), Second(24 * 3600), "flat"),
+            )
+            clock = TelemetryCore.SimulationClock(now(), start_sim, 600.0)
+            loss = FirstAttemptLoss(TelemetryCore.batch_name(1, true), Ref(false))
+            with_logger(NullLogger()) do
+                Receiver.run_receiver(
+                    clock,
+                    link,
+                    run_id;
+                    orig_stdout = devnull,
+                    max_batches_per_hour = 3600.0,
+                    loss_model = loss,
+                    max_retries = 3,
+                    deadline = now() + Second(3),
+                    round_trip_light_time_sec = round_trip_sec,
+                )
+            end
+            rx = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+            return [
+                (String(r.Batch), String(r.Event), DateTime(r.SimTime)) for r in eachrow(rx)
+            ]
+        finally
+            rm(run_dir; recursive = true, force = true)
+        end
+    end
+    events = light_time_run(600.0)
+    retry_1 = findfirst(e -> e[1] == "LIVE_batch_1" && e[2] == "retry", events)
+    ingest_2 = findfirst(e -> e[1] == "LIVE_batch_2" && e[2] == "ingested", events)
+    ingest_1 = findfirst(e -> e[1] == "LIVE_batch_1" && e[2] == "ingested", events)
+    @test retry_1 !== nothing && ingest_2 !== nothing && ingest_1 !== nothing
+    @test retry_1 < ingest_2 < ingest_1
+    @test events[ingest_1][3] - events[retry_1][3] >= Second(600)
+
+    events0 = light_time_run(0.0)
+    retry_1 = findfirst(e -> e[1] == "LIVE_batch_1" && e[2] == "retry", events0)
+    ingest_2 = findfirst(e -> e[1] == "LIVE_batch_2" && e[2] == "ingested", events0)
+    ingest_1 = findfirst(e -> e[1] == "LIVE_batch_1" && e[2] == "ingested", events0)
+    @test retry_1 < ingest_1 < ingest_2
+end

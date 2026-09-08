@@ -1143,8 +1143,10 @@ per transfer attempt from `loss_model`, moves successful batches to `ground/`
 and exhausted ones to `lost/`, and outputs real-time dashboard metrics
 directly to the `stdout` buffer.
 
-A lost transfer leaves the batch on the link (head-of-line blocking, a real
-property of priority downlink protocols) and is retried on the next pass; after
+A lost transfer leaves the batch on the link; its retransmission is served
+no earlier than one round-trip light time after the loss was detected
+(`round_trip_light_time_sec`, deferred negative acknowledgement), while the
+other in-flight batches keep being served; after
 `max_retries` failed attempts the batch is moved to `lost/` — never deleted —
 which frees the emitter's transmission window slot (in-flight occupancy is
 the `link/` listing). Every
@@ -1173,6 +1175,8 @@ materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
   - `stop`: cooperative stop flag raised by the supervisor.
   - `heartbeat_path`: liveness file touched once per second when set.
   - `min_link_factor`: capacity floor below which no transfer is attempted.
+  - `round_trip_light_time_sec`: earliest retransmission delay after a
+    detected loss [mission s]; `0.0` retries immediately.
 """
 function run_receiver(
     clock::TelemetryCore.SimulationClock,
@@ -1189,6 +1193,7 @@ function run_receiver(
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
     heartbeat_path::Union{String,Nothing} = nothing,
     min_link_factor::Float64 = 0.05,
+    round_trip_light_time_sec::Float64 = 0.0,
 )
     run_dir = TelemetryCore.run_directory(run_id)
     link_path = joinpath(run_dir, "link")
@@ -1207,6 +1212,12 @@ function run_receiver(
     last_bw = -1.0
 
     retry_counts = Dict{String,Int}() # failed attempts per in-flight batch
+    # Deferred negative acknowledgement: a lost transfer is detected on the
+    # ground when it completes, and its retransmission cannot be served before
+    # one round-trip light time later. Not persisted across a re-attach (a
+    # restarted receiver may retry immediately).
+    retry_after = Dict{String,DateTime}()
+    round_trip = Millisecond(round(Int, round_trip_light_time_sec * 1000))
     total_retries = 0
 
     # Ground and lost counters are receiver-owned (only this loop moves batches
@@ -1408,18 +1419,23 @@ function run_receiver(
                 readdir(link_path),
             )
 
-            if !isempty(pending_batches) && bw_factor > min_link_factor
+            # Batches whose retransmission cannot have arrived yet are skipped
+            # in favour of the next in-flight batch; the link idles only when
+            # every pending batch is waiting for its round trip.
+            eligible = filter(f -> get(retry_after, f, sim_t) <= sim_t, pending_batches)
+
+            if !isempty(eligible) && bw_factor > min_link_factor
                 # LIVE before ARCH; within LIVE oldest-first (FIFO), within ARCH
                 # newest-first (LIFO). Plain lexicographic readdir order would
                 # scramble numeric IDs (e.g. batch_29 before batch_31).
                 sort!(
-                    pending_batches,
+                    eligible,
                     by = x -> begin
                         id = TelemetryCore.batch_id(x)
                         TelemetryCore.is_live_batch(x) ? (0, id) : (1, -id)
                     end,
                 )
-                batch_name = first(pending_batches)
+                batch_name = first(eligible)
 
                 nominal_slot_sec = (3600.0 / max_batches_per_hour)
                 effective_slot_sec = nominal_slot_sec / (bw_factor * clock.speed_up)
@@ -1431,12 +1447,14 @@ function run_receiver(
                     attempts = get(retry_counts, batch_name, 0) + 1
                     retry_counts[batch_name] = attempts
                     total_retries += 1
+                    detected_at = TelemetryCore.get_current_sim_time(clock)
                     if attempts > max_retries
                         # Retry budget exhausted: preserve the data in lost/;
                         # leaving link/ frees the emitter's window slot.
                         TelemetryCore.backup_existing_dir(joinpath(lost_path, batch_name))
                         mv(joinpath(link_path, batch_name), joinpath(lost_path, batch_name))
                         delete!(retry_counts, batch_name)
+                        delete!(retry_after, batch_name)
                         lost_count += 1
                         TelemetryCore.log_rx_event(
                             run_dir,
@@ -1447,6 +1465,7 @@ function run_receiver(
                         )
                         @warn "[RECEIVER] LOST: $batch_name after $attempts failed transfers @ SimTime: $sim_t"
                     else
+                        retry_after[batch_name] = detected_at + round_trip
                         TelemetryCore.log_rx_event(
                             run_dir,
                             sim_t,
@@ -1464,6 +1483,7 @@ function run_receiver(
                     TelemetryCore.backup_existing_dir(joinpath(ground_path, batch_name))
                     mv(joinpath(link_path, batch_name), joinpath(ground_path, batch_name))
                     delete!(retry_counts, batch_name)
+                    delete!(retry_after, batch_name)
                     if TelemetryCore.is_live_batch(batch_name)
                         ground_live += 1
                     else
@@ -1490,6 +1510,19 @@ function run_receiver(
                         ground_payload_bytes += payload
                     end
                 end
+            elseif !isempty(pending_batches) && bw_factor > min_link_factor
+                # Every in-flight batch awaits its round trip: sleep until the
+                # earliest becomes eligible, capped at the poll interval.
+                earliest = minimum(get(retry_after, f, sim_t) for f in pending_batches)
+                wait_sec =
+                    (TelemetryCore.due_wall_time(clock, earliest) - now()).value / 1000.0
+                sleep(
+                    clamp(
+                        wait_sec,
+                        TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC,
+                        TelemetryCore.RECEIVER_POLL_INTERVAL_SEC,
+                    ),
+                )
             else
                 watch_folder(link_path, TelemetryCore.RECEIVER_POLL_INTERVAL_SEC)
             end

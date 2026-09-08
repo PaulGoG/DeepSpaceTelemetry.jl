@@ -7,6 +7,14 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- Round-trip light time in the retransmission loop
+  (`telemetry.range_million_km`, default `0` = immediate retry; the shipped
+  scenarios use 50 × 10⁶ km ≈ 333 s): a lost transfer is re-served no
+  earlier than one round trip after the loss was detected while the other
+  in-flight batches keep being served, and the link idles only when every
+  in-flight batch awaits its round trip. `telemetry_settings` exposes the
+  derived `round_trip_light_time_sec`; `run_receiver` takes it as a
+  keyword.
 - Component warm-up before the mission clock starts
   (`Supervisor.warm_up_components!`): both loops are compiled against a
   scratch directory so that first-call compilation — seconds of wall clock,

@@ -346,6 +346,7 @@ const KNOWN_CONFIG_KEYS = Dict(
         "min_link_factor",
         "sigmoid_steepness",
         "gaussian_sigma",
+        "range_million_km",
     ],
     "physics" => [
         "data_source",
@@ -463,7 +464,9 @@ end
 Validated `[telemetry]` parameters: `session_start::Time`,
 `session_duration::Second`, `bandwidth_profile::String`,
 `sigmoid_steepness`, `gaussian_sigma`, `max_batches_per_hour`,
-`max_inflight_batches::Int`, and `min_link_factor`. Bounds are enforced with
+`max_inflight_batches::Int`, `min_link_factor`, `range_million_km ≥ 0`
+(spacecraft–Earth range; `0` disables the light-time delay), and the
+derived `round_trip_light_time_sec = 2 · range / c`. Bounds are enforced with
 `[CONFIG]` errors; absent keys take the documented defaults (post-processing
 of legacy snapshots), while the live-config required-key policy is applied
 by [`validate_config`](@ref).
@@ -513,6 +516,11 @@ function telemetry_settings(cfg::AbstractDict)
         checked_number(get(tel, "gaussian_sigma", 0.15), "telemetry.gaussian_sigma")
     gaussian_sigma > 0.0 ||
         config_error("[CONFIG] telemetry.gaussian_sigma must be > 0 (got $gaussian_sigma).")
+    range_million_km =
+        checked_number(get(tel, "range_million_km", 0.0), "telemetry.range_million_km")
+    range_million_km >= 0.0 || config_error(
+        "[CONFIG] telemetry.range_million_km must be ≥ 0 (got $range_million_km).",
+    )
     return (
         session_start = session_start,
         session_duration = Second(round(Int, session_hours * 3600)),
@@ -522,6 +530,8 @@ function telemetry_settings(cfg::AbstractDict)
         max_batches_per_hour = max_batches_per_hour,
         max_inflight_batches = max_inflight,
         min_link_factor = min_link_factor,
+        range_million_km = range_million_km,
+        round_trip_light_time_sec = 2 * range_million_km * 1e9 / C_LIGHT,
     )
 end
 

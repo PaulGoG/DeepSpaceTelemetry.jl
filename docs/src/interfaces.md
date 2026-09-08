@@ -109,8 +109,9 @@ present; the mask replay itself treats gap events as state-preserving.
 * `ingested` — the batch reached the ground archive. **Ordering guarantee:**
   the payload is moved into `ground/` *before* this row is appended, so a
   consumer that reads an `ingested` event may open the batch immediately.
-* `retry` — a transfer attempt was lost; the batch remains on the link
-  (head-of-line blocking). `Attempt` counts failed attempts so far.
+* `retry` — a transfer attempt was lost; the batch remains on the link and
+  is re-served no earlier than one round-trip light time later, other
+  in-flight batches first. `Attempt` counts failed attempts so far.
 * `lost` — retry budget exhausted; the batch was moved to `lost/` (also
   before the row is appended) and will never become ground-available.
 

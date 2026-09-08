@@ -34,6 +34,7 @@ max_batches_per_hour = 60.0          # Peak DSN transmission capacity [batches/h
 bandwidth_profile = "gaussian"       # Downlink profile. One of: "sine" | "sigmoid" | "gaussian" | "flat".
 max_inflight_batches = 5             # Concurrent batches allowed on the downlink. SAFE: >= 1.
 min_link_factor = 0.05               # Capacity floor below which no transfer is attempted. SAFE: [0, 1).
+range_million_km = 50.0              # Spacecraft–Earth range [10^6 km]; sets the round-trip light time of retransmissions, 0 disables. SAFE: >= 0.
 sigmoid_steepness = 10.0             # Sigmoid profile edge steepness. SAFE: > 0.
 gaussian_sigma = 0.15                # Gaussian profile standard deviation. SAFE: > 0.
 
