@@ -8,7 +8,7 @@ routing, and provenance-tracked data products. The shipped scenario models
 the LISA mission; the telemetry, channel, and queuing layers are
 mission-agnostic. Submodules: `TelemetryCore`, `ChannelEffects`,
 `VirtualInstrument`, `PlotTheme`, `Emitter`, `Receiver`, `Metrology`,
-`Supervisor`.
+`Export`, `Supervisor`.
 """
 module DeepSpaceTelemetry
 
@@ -19,10 +19,18 @@ include("PlotTheme.jl")
 include("Emitter.jl")
 include("Receiver.jl")
 include("Metrology.jl")
+include("Export.jl")
 include("Supervisor.jl")
 
 export TelemetryCore,
-    ChannelEffects, VirtualInstrument, PlotTheme, Emitter, Receiver, Metrology, Supervisor
+    ChannelEffects,
+    VirtualInstrument,
+    PlotTheme,
+    Emitter,
+    Receiver,
+    Metrology,
+    Export,
+    Supervisor
 
 using PrecompileTools: @setup_workload, @compile_workload
 using Dates: DateTime, Time, Second

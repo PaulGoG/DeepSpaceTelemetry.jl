@@ -179,6 +179,11 @@ julia --project=. scripts/postprocessing/apply_telemetry_mask.jl [RUN_ID] <total
 
 External collaborators without this repository can use the dependency-light copy `scripts/postprocessing/standalone_mask_expander.jl`, which needs only `CSV` and `DataFrames`.
 
+With `hdf5_export = true` in `[post_processing]` every product — event logs, metrics, masks, metrology tables, markers — is additionally written to `products.h5` with the run's provenance as attributes (layout in the Analysis Interfaces page); the same file can be produced afterwards for any run:
+```bash
+julia --project=. scripts/postprocessing/export_hdf5.jl [RUN_ID]
+```
+
 ## GIF Animation
 To visualize the LIFO/FIFO routing physics of a completed run:
 ```bash

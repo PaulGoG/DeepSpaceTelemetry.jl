@@ -12,6 +12,7 @@ DeepSpaceTelemetry.Supervisor.log_component_event!
 DeepSpaceTelemetry.Supervisor.supervise!
 DeepSpaceTelemetry.Supervisor.component_spawners
 DeepSpaceTelemetry.Supervisor.post_process!
+DeepSpaceTelemetry.Supervisor.expand_pointwise_masks!
 DeepSpaceTelemetry.Supervisor.contact_summary
 DeepSpaceTelemetry.Supervisor.warm_up_components!
 DeepSpaceTelemetry.Supervisor.execute_mission!

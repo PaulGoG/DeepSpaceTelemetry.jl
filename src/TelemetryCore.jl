@@ -381,6 +381,7 @@ const KNOWN_CONFIG_KEYS = Dict(
         "alert_lookback_hours",
         "delivery_delay",
         "delivery_requirement_hours",
+        "hdf5_export",
     ],
     "events" => ["markers"],
     "ground" => ["processing_latency_hours"],
@@ -1625,6 +1626,7 @@ function validate_config(cfg::AbstractDict)
         "expand_to_pointwise_masks",
         "alert_latency",
         "delivery_delay",
+        "hdf5_export",
     )
         haskey(pp, key) && checked_flag(pp[key], "post_processing.$key")
     end
@@ -1932,6 +1934,11 @@ function estimate_artifacts(cfg::AbstractDict)
     n_expansions =
         do_expand ? (target_rows isa Vector{Int} ? length(target_rows) : metrics_rows) : 0
     pointwise_bytes = n_expansions * n_points * cal("bytes_pointwise_cell")
+    # HDF5 export: a second copy of the tabular products and masks (the
+    # binary layout is denser than CSV; the CSV sizes bound it).
+    hdf5_bytes =
+        checked_flag(get(pp, "hdf5_export", false), "post_processing.hdf5_export") ?
+        event_bytes + metrics_bytes + mask_bytes + pointwise_bytes : 0.0
 
     # Mission summary, one session figure per day and per low-latency
     # period, the two metric figures.
@@ -1953,6 +1960,7 @@ function estimate_artifacts(cfg::AbstractDict)
         metrics_bytes +
         mask_bytes +
         pointwise_bytes +
+        hdf5_bytes +
         plot_bytes +
         log_bytes
 
@@ -1966,6 +1974,7 @@ function estimate_artifacts(cfg::AbstractDict)
         (do_matrix ? 1 : 0) +
         n_expansions +
         2 * (mission_days + 3 + n_low_latency) +
+        (hdf5_bytes > 0 ? 1 : 0) +
         2 +
         1 +
         2 +
@@ -1999,6 +2008,7 @@ function estimate_artifacts(cfg::AbstractDict)
         batch_meta_bytes = batch_meta_bytes,
         event_bytes = event_bytes,
         metrics_bytes = metrics_bytes,
+        hdf5_bytes = hdf5_bytes,
         mask_bytes = mask_bytes,
         pointwise_bytes = pointwise_bytes,
         plot_bytes = plot_bytes,
@@ -2398,14 +2408,18 @@ end
 Hardware and runtime fingerprint stamped into every run's
 `config_snapshot.toml` under `[provenance.platform]`: hostname, OS kernel
 and architecture, CPU model and logical core count, total memory, Julia
-version, and thread/BLAS-thread counts. Together with the configuration
-snapshot and the recorded input identity, every result is attributable to
-config + platform. (No GPU fields: the pipeline is I/O- and
-event-loop-bound and uses no GPU backend.)
+version, thread/BLAS-thread counts, the package version, and the git
+commit of the checkout ([`git_commit`](@ref), empty outside a repository).
+Together with the configuration snapshot and the recorded input identity,
+every result is attributable to config + commit + platform. (No GPU
+fields: the pipeline is I/O- and event-loop-bound and uses no GPU
+backend.)
 """
 function platform_provenance()
     cpu = Sys.cpu_info()
     return Dict{String,Any}(
+        "package_version" => string(pkgversion(TelemetryCore)),
+        "git_commit" => git_commit(),
         "hostname" => Base.Libc.gethostname(),
         "os" => string(Sys.KERNEL, " ", Sys.MACHINE),
         "cpu_model" => isempty(cpu) ? "unknown" : cpu[1].model,
@@ -2415,6 +2429,27 @@ function platform_provenance()
         "julia_threads" => Threads.nthreads(),
         "blas_threads" => LinearAlgebra.BLAS.get_num_threads(),
     )
+end
+
+"""
+    git_commit() -> String
+
+The HEAD commit of the package checkout (`git rev-parse HEAD` in the
+project root), or `""` when git or the repository is unavailable.
+"""
+function git_commit()
+    try
+        return String(
+            strip(
+                read(
+                    pipeline(`git -C $PROJECT_ROOT rev-parse HEAD`; stderr = devnull),
+                    String,
+                ),
+            ),
+        )
+    catch
+        return ""
+    end
 end
 
 """

@@ -12,5 +12,6 @@ One page per module:
 - [Emitter](api/emitter.md)
 - [Receiver](api/receiver.md)
 - [Metrology](api/metrology.md)
+- [Export](api/export.md)
 - [Supervisor](api/supervisor.md)
 - [PlotTheme](api/plottheme.md)

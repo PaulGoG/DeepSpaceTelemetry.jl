@@ -7,6 +7,13 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- HDF5 product export (`Export.export_hdf5`, `post_processing.hdf5_export`,
+  `scripts/postprocessing/export_hdf5.jl`): event logs, metrics profile,
+  batch-state timeline, batch epochs, point-wise masks, metrology tables,
+  markers, and component events in one `products.h5` with the run's
+  provenance as root attributes; HDF5.jl becomes a dependency.
+- Run provenance records the package version and the git commit of the
+  checkout (`[provenance.platform]`).
 - Scheduled generation gaps: `[[disruption.events]]` gain `affects =
   "link" | "generation"` (`antenna_repointing` defaults to generation);
   a generation event stops production for its duration, bounded by

@@ -29,6 +29,7 @@ DeepSpaceTelemetry/
 │   ├── Emitter.jl               # Satellite state machine (payload/queues)
 │   ├── Receiver.jl              # DSN ground station, loss handling, post-processing
 │   ├── Metrology.jl             # Event-log metrics: alert-latency curves (LIFO vs FIFO drain)
+│   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
 │   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
 ├── scripts/
 │   ├── Project.toml             # Script environment (UI/log deps; parent package dev'ed)
@@ -39,6 +40,7 @@ DeepSpaceTelemetry/
 │   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
 │   ├── postprocessing/
 │   │   ├── apply_telemetry_mask.jl      # Point-wise mask expansion (snapshot-aware)
+│   │   ├── export_hdf5.jl               # HDF5 product export of a run
 │   │   ├── generate_gif.jl              # Batch-routing animation engine
 │   │   └── standalone_mask_expander.jl  # Dependency-light copy for collaborators
 │   └── maintenance/
@@ -173,6 +175,12 @@ julia --project=. scripts/postprocessing/apply_telemetry_mask.jl [RUN_ID] 102400
 (Batches in state `4 = Lost` remain masked — a lost batch never becomes
 available on the ground.)
 
+HDF5 export of every product of a run (defaults to the latest):
+
+```bash
+julia --project=. scripts/postprocessing/export_hdf5.jl [RUN_ID]
+```
+
 ### 4. Tests & Benchmarks
 
 The static-QA block (Aqua, ExplicitImports, JET), the unit and
@@ -283,6 +291,10 @@ freely — e.g. `[-1, "10:20", 45]`.
     data production instead of the link; `storage.onboard_capacity_days`
     bounds the recorder without eviction, discarding new data at the
     ceiling and recording the loss as a gap.
+*   **HDF5 product export** (`Export.jl`): every product of a run — event
+    logs, metrics, masks, metrology tables, markers — in one
+    self-describing `products.h5` with the run's provenance (package
+    version, git commit, platform, configuration) as attributes.
 *   **Metrology** (`Metrology.jl`), from the event logs: the alert-latency
     curve — how long after a live event the look-back window `δ` is on the
     ground, realized live-FIFO/archive-LIFO doctrine against a

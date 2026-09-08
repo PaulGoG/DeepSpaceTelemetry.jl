@@ -19,6 +19,7 @@ makedocs(
         DeepSpaceTelemetry.Emitter,
         DeepSpaceTelemetry.Receiver,
         DeepSpaceTelemetry.Metrology,
+        DeepSpaceTelemetry.Export,
         DeepSpaceTelemetry.Supervisor,
     ],
     pages = [
@@ -34,6 +35,7 @@ makedocs(
             "Emitter" => "api/emitter.md",
             "Receiver" => "api/receiver.md",
             "Metrology" => "api/metrology.md",
+            "Export" => "api/export.md",
             "Supervisor" => "api/supervisor.md",
             "PlotTheme" => "api/plottheme.md",
         ],

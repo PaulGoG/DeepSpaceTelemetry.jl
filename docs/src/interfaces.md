@@ -43,6 +43,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run (`SimTime, Label`) — the instants the alert-latency metric is evaluated at (`alert_latency_markers.csv`). |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, with a `LowLatency` flag for deliveries inside a low-latency period (`plots/delivery_delay.png` renders the distribution against the delivery requirement). |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine vs counterfactual FIFO drain (`plots/alert_latency.png` renders it). |
+| `products.h5` | post-processing (`hdf5_export`) | Read/copy. Every product above in one HDF5 file with provenance attributes (section below); regenerable from the CSV products. |
 | `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map: `GenSimTime` (finalization instant from the event log) and `ContentEpoch` (first-sample timestamp from the batch metadata); re-anchors point-wise mask rows on the mission timeline across generation gaps. |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline consumes the file at lifecycle end. |
 | `emitter.log`, `receiver.log` | logger | Read. Human diagnostics; not machine-parsed interfaces. |
@@ -186,6 +187,33 @@ Alternatively, consume the prepared products:
   `DataFrames`; suitable for Python/MATLAB/C++ collaborators to run
   alongside their own tooling). Multiply an expanded row against the raw
   series to blank undelivered data.
+
+## HDF5 Product Export
+
+With `post_processing.hdf5_export = true` (or
+`scripts/postprocessing/export_hdf5.jl [RUN_ID]` afterwards) the run's
+products are written into `products.h5`, one self-describing file for
+pipelines that read HDF5 rather than a directory of CSV files. The CSV
+products stay in place and remain the primary interface; the file is a
+derived view of them and can be regenerated at any time.
+
+| Group | Content |
+|---|---|
+| root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `julia_version`, …), and `config_snapshot` — the run's configuration as TOML text |
+| `events/tx`, `events/rx` | the event logs, one dataset per column |
+| `metrics/mission_profile` | the metrics profile, one dataset per column |
+| `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants, and the state-code attribute |
+| `masks/batch_epochs` | the batch → epoch map |
+| `masks/pointwise/<stem>` | every point-wise expansion, `Ground_Available` as `Int8` per sample |
+| `metrology/alert_latency`, `metrology/alert_latency_markers`, `metrology/delivery_delay` | the metrology tables |
+| `markers`, `component_events` | the event markers and the component lifecycle record |
+
+Column conventions: a `DateTime` column is stored as `Float64` seconds
+since `start_sim_time` (attribute `unit`) with an ISO-8601 twin `<name>_iso`;
+booleans as `UInt8`; integers as `Int64` (or `Float64` with `NaN` when a
+value is missing); other numbers as `Float64` with `NaN` for missing; the
+rest as strings with `""` for missing. Each table group carries the
+attributes `source` (the CSV it was read from) and `rows`.
 
 ## Real-Time Operation
 

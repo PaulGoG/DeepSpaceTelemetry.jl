@@ -113,3 +113,4 @@ alert_latency = true                 # Alert-latency metric (realized vs FIFO dr
 alert_lookback_hours = 72.0          # Largest look-back tabulated by the alert-latency metric [h]. SAFE: > 0.
 delivery_delay = true                # Delivery-delay metric (measurement-to-ground, requirement compliance) flag. One of: true | false.
 delivery_requirement_hours = 24.0    # Delivery requirement marked by the delivery-delay metric [h]. SAFE: > 0.
+hdf5_export = false                  # HDF5 product export (products.h5) flag. One of: true | false.
