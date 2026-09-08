@@ -17,6 +17,9 @@ Satellite-to-ground communication is constrained by the ground station's line of
 * `gaussian`: `exp(−(x − ½)² / 2σ²)` with `σ = telemetry.gaussian_sigma` — a narrow-beam pass.
 * `flat`: constant full capacity throughout the window.
 
+## Link Capacity and the 24-Hour Requirement
+The link capacity is configured either as `telemetry.max_batches_per_hour` — the scenario abstraction — or physically as the downlink data rate `telemetry.downlink_kbps` against the on-board production rate `telemetry.onboard_data_rate_kbps`: one batch of content span `D` then takes `D · production / downlink` seconds at full capacity, and the catch-up ratio downlink / production states how many hours of production one hour of contact drains. The LISA Definition Study Report gives 230 kbit/s against ≈ 75 kbit/s with 8-hour daily passes, a ratio of ≈ 3 — the margin behind its requirement that data reach the ground within 24 hours of measurement. The delivery-delay metric (`Metrology.delivery_delay_table`) reports, per run, the distribution of the measurement-to-ground delay of every generated batch and the fraction within `post_processing.delivery_requirement_hours` (undelivered batches count as non-compliant).
+
 ## Packet Loss Channel Models
 Each batch transfer attempt on the downlink draws one loss realization from the configured `[packet_loss]` model:
 

@@ -6,8 +6,11 @@ metric is the alert-latency curve: for a transient caught in a live batch,
 how long after the event the whole look-back window of `δ` before it is on
 the ground — under the realized live-FIFO / archive-LIFO doctrine and under
 a counterfactual first-in, first-out drain that re-assigns the same service
-completions in content order. See
-[`alert_latency_table`](@ref) and [`plot_alert_latency`](@ref).
+completions in content order. The second is the measurement-to-ground
+delay of every batch against a delivery requirement (the Definition Study
+Report's 24 hours). See [`alert_latency_table`](@ref),
+[`plot_alert_latency`](@ref), [`delivery_delay_table`](@ref), and
+[`plot_delivery_delay`](@ref).
 """
 module Metrology
 
@@ -24,11 +27,13 @@ using CairoMakie:
     band!,
     lines!,
     save,
+    stairs!,
     text!,
+    vlines!,
     with_theme,
     xlims!,
     ylims!
-using DataFrames: DataFrame
+using DataFrames: DataFrame, nrow
 using Dates: DateTime, Millisecond
 
 """
@@ -349,6 +354,164 @@ function plot_alert_latency(run_dir::String; lookback_hours::Float64 = 72.0)
         save(splitext(path)[1] * ".pdf", fig)
     end
     @info "[POST] Alert-latency metric saved: $(relpath(path, run_dir)) and alert_latency.csv."
+    return path
+end
+
+# --- Delivery delay and the 24-hour requirement ---
+
+"""
+    delivery_delay_table(run_dir::String) -> DataFrame
+
+Measurement-to-ground delay of every generated batch: `Batch`, `Live`,
+`ContentEnd`, `AvailableAt` (missing when the batch never reached the
+ground), and `Delay_Hours` = availability minus content end (missing when
+undelivered). Built on [`delivery_schedule`](@ref); rows sorted by content
+epoch.
+"""
+function delivery_delay_table(run_dir::String)
+    schedule = delivery_schedule(run_dir)
+    return DataFrame(
+        Batch = [b.name for b in schedule],
+        Live = [b.live for b in schedule],
+        ContentEnd = [b.content_end for b in schedule],
+        AvailableAt = [
+            b.available_at === nothing ? missing : b.available_at for b in schedule
+        ],
+        Delay_Hours = [
+            b.available_at === nothing ? missing :
+            (b.available_at - b.content_end).value / 3.6e6 for b in schedule
+        ],
+    )
+end
+
+"""
+    delivery_compliance(table::DataFrame, requirement_hours::Float64) -> NamedTuple
+
+Summary of a [`delivery_delay_table`](@ref) against a delivery requirement:
+`generated`, `delivered`, `within` (delivered within `requirement_hours` of
+measurement), `fraction_within` (of all generated batches — an undelivered
+batch is non-compliant), `median_hours`, and `p95_hours` of the delivered
+delays (`NaN` when nothing was delivered).
+"""
+function delivery_compliance(table::DataFrame, requirement_hours::Float64)
+    delays = sort!(Float64[d for d in table.Delay_Hours if !ismissing(d)])
+    generated = nrow(table)
+    delivered = length(delays)
+    within = count(<=(requirement_hours), delays)
+    return (
+        generated = generated,
+        delivered = delivered,
+        within = within,
+        fraction_within = generated == 0 ? NaN : within / generated,
+        median_hours = quantile_sorted(delays, 0.5),
+        p95_hours = quantile_sorted(delays, 0.95),
+    )
+end
+
+"""
+    plot_delivery_delay(run_dir::String; requirement_hours = 24.0) -> Union{Nothing,String}
+
+Writes `<run_dir>/delivery_delay.csv` ([`delivery_delay_table`](@ref)) and
+renders `<run_dir>/plots/delivery_delay.png` (vector PDF twin): the
+empirical distribution of the measurement-to-ground delay — the fraction
+of generated batches on the ground within a given delay, live and archive
+batches as separate curves — with the requirement marked and the
+compliance summary annotated. Returns the PNG path, or `nothing` when the
+run generated no batch.
+"""
+function plot_delivery_delay(run_dir::String; requirement_hours::Float64 = 24.0)
+    table = delivery_delay_table(run_dir)
+    if nrow(table) == 0
+        @warn "[POST] No generated batch in $run_dir — delivery-delay metric skipped."
+        return nothing
+    end
+    TelemetryCore.safe_csv_write(joinpath(run_dir, "delivery_delay.csv"), table)
+    summary = delivery_compliance(table, requirement_hours)
+
+    # Empirical fraction of *generated* batches delivered within x hours, so
+    # an undelivered batch keeps the curve below unity.
+    curve(mask) = begin
+        delays = sort!(Float64[d for d in table.Delay_Hours[mask] if !ismissing(d)])
+        n = count(mask)
+        x = vcat(0.0, delays)
+        y = vcat(0.0, (1:length(delays)) ./ max(n, 1))
+        x, y
+    end
+    x_live, y_live = curve(table.Live)
+    x_arch, y_arch = curve(.!table.Live)
+    x_all, y_all = curve(trues(nrow(table)))
+    x_max = max(maximum(x_all; init = 0.0), requirement_hours) * 1.15
+
+    path = joinpath(run_dir, "plots", "delivery_delay.png")
+    mkpath(dirname(path))
+    with_theme(PlotTheme.telemetry_theme()) do
+        fig = Figure(size = PlotTheme.FIG_SIZE_SESSION, figure_padding = 10)
+        ax = Axis(
+            fig[1, 1],
+            xlabel = "Measurement-to-ground delay [h]",
+            ylabel = "Fraction of generated batches delivered",
+        )
+        xlims!(ax, 0, x_max)
+        ylims!(ax, 0, 1.05)
+        vlines!(
+            ax,
+            [requirement_hours],
+            color = (:gray30, 0.8),
+            linestyle = :dash,
+            linewidth = 1.5,
+        )
+        stairs!(ax, x_all, y_all, color = :gray40, linewidth = PlotTheme.LINEWIDTH_DATA)
+        count(table.Live) > 0 && stairs!(ax, x_live, y_live, color = PlotTheme.COLOR_LIVE)
+        count(.!table.Live) > 0 && stairs!(ax, x_arch, y_arch, color = PlotTheme.COLOR_ARCHIVE)
+        # Bottom-right corner: the curves occupy the upper-left triangle, so
+        # three short lines here clear the data and the requirement label.
+        text!(
+            ax,
+            0.98,
+            0.06,
+            text = "$(round(100 * summary.fraction_within, digits = 1)) % of $(summary.generated) batches within " *
+                   "$(round(requirement_hours, digits = 1)) h\n" *
+                   "Median $(round(summary.median_hours, digits = 1)) h, " *
+                   "95th percentile $(round(summary.p95_hours, digits = 1)) h\n" *
+                   "$(summary.generated - summary.delivered) undelivered at run end",
+            space = :relative,
+            align = (:right, :bottom),
+            justification = :right,
+            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+        )
+        text!(
+            ax,
+            requirement_hours,
+            0.05,
+            text = "Requirement: $(round(requirement_hours, digits = 1)) h",
+            align = (:left, :bottom),
+            offset = (4, 0),
+            fontsize = PlotTheme.FONTSIZE_ANNOTATION,
+            color = :gray30,
+        )
+        Legend(
+            fig[0, 1],
+            [
+                LineElement(color = :gray40, linewidth = 2 * PlotTheme.LINEWIDTH_DATA),
+                LineElement(
+                    color = PlotTheme.COLOR_LIVE,
+                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                ),
+                LineElement(
+                    color = PlotTheme.COLOR_ARCHIVE,
+                    linewidth = 2 * PlotTheme.LINEWIDTH_DATA,
+                ),
+            ],
+            ["All batches", "Live", "Archive"];
+            orientation = :horizontal,
+            framevisible = false,
+            backgroundcolor = :transparent,
+            colgap = 28,
+        )
+        save(path, fig, px_per_unit = 4)
+        save(splitext(path)[1] * ".pdf", fig)
+    end
+    @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) and delivery_delay.csv ($(round(100 * summary.fraction_within, digits = 1)) % within $(requirement_hours) h)."
     return path
 end
 

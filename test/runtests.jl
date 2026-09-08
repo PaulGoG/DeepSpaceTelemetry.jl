@@ -430,7 +430,7 @@ end
                     halt_id;
                     deadline = now() + Second(30),
                     orig_stdout = devnull,
-                    max_batches_per_hour = 1800.0,
+                    batch_transfer_sec = 2.0,
                 )
             end
             sleep(2.0)
@@ -565,7 +565,7 @@ end
                     floor_id;
                     deadline = now() + Second(4),
                     orig_stdout = devnull,
-                    max_batches_per_hour = 1800.0,
+                    batch_transfer_sec = 2.0,
                     min_link_factor = 0.6,
                 )
             end
@@ -646,7 +646,7 @@ end
                             ra_id;
                             deadline = now() + Second(3),
                             orig_stdout = devnull,
-                            max_batches_per_hour = 1800.0,
+                            batch_transfer_sec = 2.0,
                         )
                     end
                     wait(em)
@@ -1526,7 +1526,7 @@ end
                     run_id;
                     deadline = now() + Second(6),
                     orig_stdout = devnull,
-                    max_batches_per_hour = 1800.0,
+                    batch_transfer_sec = 2.0,
                 )
             end
             wait(em)
@@ -1681,7 +1681,7 @@ end
                     run_id;
                     deadline = now() + Second(6),
                     orig_stdout = devnull,
-                    max_batches_per_hour = 1800.0,
+                    batch_transfer_sec = 2.0,
                     retention = retention,
                 )
             end
@@ -1800,7 +1800,7 @@ end
                     run_id;
                     deadline = now() + Second(6),
                     orig_stdout = devnull,
-                    max_batches_per_hour = 1800.0,
+                    batch_transfer_sec = 2.0,
                     loss_model = loss,
                     max_retries = 2,
                 )
@@ -2450,7 +2450,7 @@ end
                     link,
                     run_id;
                     orig_stdout = devnull,
-                    max_batches_per_hour = 3600.0,
+                    batch_transfer_sec = 1.0,
                     loss_model = loss,
                     max_retries = 3,
                     deadline = now() + Second(3),
@@ -2478,4 +2478,78 @@ end
     ingest_2 = findfirst(e -> e[1] == "LIVE_batch_2" && e[2] == "ingested", events0)
     ingest_1 = findfirst(e -> e[1] == "LIVE_batch_1" && e[2] == "ingested", events0)
     @test retry_1 < ingest_1 < ingest_2
+end
+
+@testset "Link-rate parameterization and delivery-delay metric" begin
+    base = valid_test_cfg()
+    # Physical rates: one 10-minute batch at 75 kbit/s production over a
+    # 230 kbit/s downlink takes 600 · 75 / 230 s; capacity 18.4 batches/h.
+    rates = deepcopy(base)
+    delete!(rates["telemetry"], "max_batches_per_hour")
+    rates["telemetry"]["downlink_kbps"] = 230.0
+    rates["telemetry"]["onboard_data_rate_kbps"] = 75.0
+    tel = TelemetryCore.telemetry_settings(rates)
+    @test tel.nominal_batch_transfer_sec ≈ 600 * 75 / 230
+    @test tel.max_batches_per_hour ≈ 3600 / (600 * 75 / 230)
+    @test tel.catch_up_ratio ≈ 230 / 75
+    @test TelemetryCore.validate_config(rates) isa AbstractDict
+    both = deepcopy(rates)
+    both["telemetry"]["max_batches_per_hour"] = 60.0
+    @test_throws ArgumentError TelemetryCore.telemetry_settings(both)
+    neither = deepcopy(base)
+    delete!(neither["telemetry"], "max_batches_per_hour")
+    @test_throws ArgumentError TelemetryCore.validate_config(neither)
+    abstraction = TelemetryCore.telemetry_settings(base)
+    @test abstraction.nominal_batch_transfer_sec ≈ 180.0 &&
+          isnan(abstraction.catch_up_ratio)
+
+    # Delivery delay on a synthetic schedule: three batches, one undelivered.
+    mktempdir() do dir
+        t0 = DateTime(2035, 1, 1, 6)
+        D = Minute(3)
+        open(joinpath(dir, "config_snapshot.toml"), "w") do io
+            write(
+                io,
+                """
+                [simulation]
+                speed_up = 60.0
+                start_sim_time = "2035-01-01T06:00:00"
+                mission_wall_seconds = 60.0
+                [physics]
+                data_source = "synthetic"
+                sample_rate = 4.0
+                segment_duration_sec = 60.0
+                batch_size = 3
+                """,
+            )
+        end
+        for (name, epoch) in
+            (("ARCH_batch_1", t0 - 2D), ("ARCH_batch_2", t0 - D), ("LIVE_batch_3", t0))
+            bdir = mkpath(joinpath(dir, "ground", name))
+            write(
+                joinpath(bdir, "metadata.json"),
+                """{"batch_id":$(TelemetryCore.batch_id(name)),"segment_count":3,"created_at":"$(epoch + D)","content_epoch":"$epoch"}""",
+            )
+            TelemetryCore.log_tx_event(dir, epoch + D, name, "gen")
+        end
+        # ARCH_batch_1 ends at t0 − D, so ingestion at t0 + 30 h is a 30 h + D delay.
+        TelemetryCore.log_rx_event(dir, t0 + Hour(30), "ARCH_batch_1", "ingested", 0)
+        TelemetryCore.log_rx_event(dir, t0 + Minute(10), "LIVE_batch_3", "ingested", 0)
+        table = Metrology.delivery_delay_table(dir)
+        @test table.Batch == ["ARCH_batch_1", "ARCH_batch_2", "LIVE_batch_3"]
+        @test ismissing(table.Delay_Hours[2])
+        @test table.Delay_Hours[1] ≈ 30 + 3 / 60
+        @test table.Delay_Hours[3] ≈ 7 / 60
+        summary = Metrology.delivery_compliance(table, 24.0)
+        @test summary.generated == 3 && summary.delivered == 2 && summary.within == 1
+        @test summary.fraction_within ≈ 1 / 3
+        with_logger(NullLogger()) do
+            @test endswith(
+                Metrology.plot_delivery_delay(dir; requirement_hours = 24.0),
+                "delivery_delay.png",
+            )
+        end
+        @test isfile(joinpath(dir, "delivery_delay.csv"))
+        @test isfile(joinpath(dir, "plots", "delivery_delay.pdf"))
+    end
 end

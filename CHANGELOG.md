@@ -7,6 +7,18 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- Physical link-rate parameterization: `telemetry.downlink_kbps` with
+  `telemetry.onboard_data_rate_kbps` (mutually exclusive with
+  `max_batches_per_hour`) define the batch transfer time through the batch
+  content span; `telemetry_settings` reports `nominal_batch_transfer_sec`
+  and the catch-up ratio, printed in the mission banner; `run_receiver`
+  takes `batch_transfer_sec` instead of `max_batches_per_hour`.
+- Delivery-delay metric: measurement-to-ground delay of every generated
+  batch, the fraction within `post_processing.delivery_requirement_hours`
+  (default 24 h, the LISA requirement; undelivered batches are
+  non-compliant), median and 95th percentile, in `delivery_delay.csv` and
+  `plots/delivery_delay.png` (`post_processing.delivery_delay`, on by
+  default).
 - Round-trip light time in the retransmission loop
   (`telemetry.range_million_km`, default `0` = immediate retry; the shipped
   scenarios use 50 × 10⁶ km ≈ 333 s): a lost transfer is re-served no

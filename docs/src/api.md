@@ -156,6 +156,9 @@ DeepSpaceTelemetry.Metrology.delivery_schedule
 DeepSpaceTelemetry.Metrology.batch_containing
 DeepSpaceTelemetry.Metrology.alert_latency_table
 DeepSpaceTelemetry.Metrology.plot_alert_latency
+DeepSpaceTelemetry.Metrology.delivery_delay_table
+DeepSpaceTelemetry.Metrology.delivery_compliance
+DeepSpaceTelemetry.Metrology.plot_delivery_delay
 DeepSpaceTelemetry.Metrology.quantile_sorted
 ```
 

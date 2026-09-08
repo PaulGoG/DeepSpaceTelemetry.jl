@@ -268,10 +268,13 @@ freely — e.g. `[-1, "10:20", 45]`.
     `simulation.rng_seed`.
 *   **Dynamic bandwidth profiling**: models the horizon-to-horizon satellite
     pass using `sine`, `sigmoid`, `gaussian`, or `flat` capacity profiles.
-*   **Alert-latency metrology** (`Metrology.jl`): from the event logs, how
-    long after a live event the data at look-back `δ` reach the ground —
-    realized live-FIFO/archive-LIFO doctrine against a counterfactual FIFO
-    drain over the same service completions (`alert_latency.csv`, figure).
+*   **Metrology** (`Metrology.jl`), from the event logs: the alert-latency
+    curve — how long after a live event the look-back window `δ` is on the
+    ground, realized live-FIFO/archive-LIFO doctrine against a
+    counterfactual FIFO drain over the same service completions — and the
+    measurement-to-ground delivery delay of every batch against a
+    requirement (LISA: 24 h). Link capacity is configured either as
+    batches per hour or as downlink and on-board data rates.
 *   **Stochastic packet loss** (`ChannelEffects.jl`): every downlink transfer
     attempt draws from a configurable channel model — memoryless **Bernoulli**
     or bursty two-state **Gilbert–Elliott** (validated against its analytic

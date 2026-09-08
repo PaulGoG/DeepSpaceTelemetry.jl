@@ -30,7 +30,7 @@ log_rotate_mb = 64.0                 # Log file rotation limit [MB]. SAFE: > 0.
 [telemetry]
 session_start = "08:00:00"           # Daily DSN window start time. SAFE: HH:MM:SS format.
 session_duration_hours = 8.0         # Daily DSN window duration [h]. SAFE: (0, 24].
-max_batches_per_hour = 60.0          # Peak DSN transmission capacity [batches/h]. SAFE: > 0.
+max_batches_per_hour = 60.0          # Peak DSN capacity [batches/h]; alternatively the pair downlink_kbps + onboard_data_rate_kbps. SAFE: > 0.
 bandwidth_profile = "gaussian"       # Downlink profile. One of: "sine" | "sigmoid" | "gaussian" | "flat".
 max_inflight_batches = 5             # Concurrent batches allowed on the downlink. SAFE: >= 1.
 min_link_factor = 0.05               # Capacity floor below which no transfer is attempted. SAFE: [0, 1).
@@ -86,3 +86,5 @@ expand_to_pointwise_masks = true     # Point-wise mask expansion flag. One of: t
 target_event_rows = [-1]             # Target rows for mask expansion. SAFE: "all", ints, or range strings.
 alert_latency = true                 # Alert-latency metric (realized vs FIFO drain) flag. One of: true | false.
 alert_lookback_hours = 72.0          # Largest look-back tabulated by the alert-latency metric [h]. SAFE: > 0.
+delivery_delay = true                # Delivery-delay metric (measurement-to-ground, requirement compliance) flag. One of: true | false.
+delivery_requirement_hours = 24.0    # Delivery requirement marked by the delivery-delay metric [h]. SAFE: > 0.

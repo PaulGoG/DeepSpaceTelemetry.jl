@@ -341,6 +341,8 @@ const KNOWN_CONFIG_KEYS = Dict(
         "session_start",
         "session_duration_hours",
         "max_batches_per_hour",
+        "downlink_kbps",
+        "onboard_data_rate_kbps",
         "bandwidth_profile",
         "max_inflight_batches",
         "min_link_factor",
@@ -377,6 +379,8 @@ const KNOWN_CONFIG_KEYS = Dict(
         "target_event_rows",
         "alert_latency",
         "alert_lookback_hours",
+        "delivery_delay",
+        "delivery_requirement_hours",
     ],
     "provenance" => String[], # pipeline-generated; free-form by design
     "supervision" => ["on_component_failure", "max_restarts", "watchdog_sec"],
@@ -466,7 +470,14 @@ Validated `[telemetry]` parameters: `session_start::Time`,
 `sigmoid_steepness`, `gaussian_sigma`, `max_batches_per_hour`,
 `max_inflight_batches::Int`, `min_link_factor`, `range_million_km ≥ 0`
 (spacecraft–Earth range; `0` disables the light-time delay), and the
-derived `round_trip_light_time_sec = 2 · range / c`. Bounds are enforced with
+derived `round_trip_light_time_sec = 2 · range / c`. The link capacity is
+given either as `max_batches_per_hour` or as the physical pair
+`downlink_kbps` and `onboard_data_rate_kbps` (both > 0), from which the
+capacity in batches per hour follows through the batch content span
+(`[physics]`); the two forms are mutually exclusive. The result carries
+`nominal_batch_transfer_sec` (the transfer time of one batch at full
+capacity) and `catch_up_ratio` (downlink over production rate; `NaN` in
+the batches-per-hour form). Bounds are enforced with
 `[CONFIG]` errors; absent keys take the documented defaults (post-processing
 of legacy snapshots), while the live-config required-key policy is applied
 by [`validate_config`](@ref).
@@ -486,13 +497,39 @@ function telemetry_settings(cfg::AbstractDict)
     0.0 < session_hours <= 24.0 || config_error(
         "[CONFIG] telemetry.session_duration_hours must lie in (0, 24] (got $session_hours): the daily scheduler wraps Time arithmetic at 24 h.",
     )
-    max_batches_per_hour = checked_number(
-        get(tel, "max_batches_per_hour", 20.0),
-        "telemetry.max_batches_per_hour",
-    )
-    max_batches_per_hour > 0.0 || config_error(
-        "[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $max_batches_per_hour).",
-    )
+    rate_form = haskey(tel, "downlink_kbps") || haskey(tel, "onboard_data_rate_kbps")
+    if rate_form
+        haskey(tel, "max_batches_per_hour") && config_error(
+            "[CONFIG] telemetry.max_batches_per_hour and the rate pair downlink_kbps / onboard_data_rate_kbps are mutually exclusive.",
+        )
+        downlink_kbps =
+            checked_number(get(tel, "downlink_kbps", 0.0), "telemetry.downlink_kbps")
+        downlink_kbps > 0.0 || config_error(
+            "[CONFIG] telemetry.downlink_kbps must be > 0 (got $downlink_kbps).",
+        )
+        onboard_kbps = checked_number(
+            get(tel, "onboard_data_rate_kbps", 0.0),
+            "telemetry.onboard_data_rate_kbps",
+        )
+        onboard_kbps > 0.0 || config_error(
+            "[CONFIG] telemetry.onboard_data_rate_kbps must be > 0 (got $onboard_kbps).",
+        )
+        physics = physics_settings(cfg)
+        batch_span_sec = physics.batch_size * physics.segment_duration_sec
+        nominal_batch_transfer_sec = batch_span_sec * onboard_kbps / downlink_kbps
+        max_batches_per_hour = 3600.0 / nominal_batch_transfer_sec
+        catch_up_ratio = downlink_kbps / onboard_kbps
+    else
+        max_batches_per_hour = checked_number(
+            get(tel, "max_batches_per_hour", 20.0),
+            "telemetry.max_batches_per_hour",
+        )
+        max_batches_per_hour > 0.0 || config_error(
+            "[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $max_batches_per_hour).",
+        )
+        nominal_batch_transfer_sec = 3600.0 / max_batches_per_hour
+        catch_up_ratio = NaN
+    end
     bandwidth_profile =
         checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
     max_inflight = checked_integer(
@@ -528,6 +565,8 @@ function telemetry_settings(cfg::AbstractDict)
         sigmoid_steepness = sigmoid_steepness,
         gaussian_sigma = gaussian_sigma,
         max_batches_per_hour = max_batches_per_hour,
+        nominal_batch_transfer_sec = nominal_batch_transfer_sec,
+        catch_up_ratio = catch_up_ratio,
         max_inflight_batches = max_inflight,
         min_link_factor = min_link_factor,
         range_million_km = range_million_km,
@@ -846,11 +885,7 @@ function validate_config(cfg::AbstractDict)
     # error, never a silently invented default.
     for (section, sec_name, required) in (
         (sim, "simulation", ("speed_up", "start_sim_time")),
-        (
-            tel,
-            "telemetry",
-            ("session_start", "session_duration_hours", "max_batches_per_hour"),
-        ),
+        (tel, "telemetry", ("session_start", "session_duration_hours")),
         (
             phy,
             "physics",
@@ -862,6 +897,12 @@ function validate_config(cfg::AbstractDict)
                 config_error("[CONFIG] Missing required key $sec_name.$key.")
         end
     end
+
+    haskey(tel, "max_batches_per_hour") ||
+        (haskey(tel, "downlink_kbps") && haskey(tel, "onboard_data_rate_kbps")) ||
+        config_error(
+            "[CONFIG] Missing link capacity: give telemetry.max_batches_per_hour or the pair telemetry.downlink_kbps + telemetry.onboard_data_rate_kbps.",
+        )
 
     # -- [simulation] --
     speed_up = checked_number(get(sim, "speed_up", 0.0), "simulation.speed_up")
@@ -916,7 +957,6 @@ function validate_config(cfg::AbstractDict)
     # the link builder, the receiver, and the entry point); only the
     # non-fatal profile check lives here.
     tel_settings = telemetry_settings(cfg)
-    max_batches_per_hour = tel_settings.max_batches_per_hour
     tel_settings.bandwidth_profile in ("sine", "sigmoid", "gaussian", "flat") ||
         @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$(tel_settings.bandwidth_profile)\"; falling back to \"sine\"."
 
@@ -928,11 +968,11 @@ function validate_config(cfg::AbstractDict)
               "pace with the accelerated clock and batch timestamps desynchronize. " *
               "Increase segment_duration_sec or decrease speed_up."
     end
-    rx_slot_ms = 3600.0 / (max_batches_per_hour * speed_up) * 1000.0
+    rx_slot_ms = tel_settings.nominal_batch_transfer_sec / speed_up * 1000.0
     if rx_slot_ms < 2.0
         @warn "[CONFIG] Receiver download slot is $(round(rx_slot_ms, digits=2)) ms " *
-              "(3600 / (max_batches_per_hour × speed_up)). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
-              "the effective downlink rate. Decrease speed_up or max_batches_per_hour."
+              "(batch transfer time / speed_up). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
+              "the effective downlink rate. Decrease speed_up or the link capacity."
     end
 
     # -- [packet_loss] --
@@ -1021,17 +1061,17 @@ function validate_config(cfg::AbstractDict)
         "generate_batch_matrix",
         "expand_to_pointwise_masks",
         "alert_latency",
+        "delivery_delay",
     )
         haskey(pp, key) && checked_flag(pp[key], "post_processing.$key")
     end
-    if haskey(pp, "alert_lookback_hours")
-        lookback = checked_number(
-            pp["alert_lookback_hours"],
-            "post_processing.alert_lookback_hours",
-        )
-        lookback > 0.0 || config_error(
-            "[CONFIG] post_processing.alert_lookback_hours must be > 0 (got $lookback).",
-        )
+    for (key, label) in (
+        ("alert_lookback_hours", "look-back"),
+        ("delivery_requirement_hours", "delivery requirement"),
+    )
+        haskey(pp, key) || continue
+        v = checked_number(pp[key], "post_processing.$key")
+        v > 0.0 || config_error("[CONFIG] post_processing.$key must be > 0 (got $v).")
     end
     # Canonicalization warns on unrecognized entries at validation time, not
     # first at estimation/expansion time.
@@ -1330,8 +1370,8 @@ function estimate_artifacts(cfg::AbstractDict)
         do_expand ? (target_rows isa Vector{Int} ? length(target_rows) : metrics_rows) : 0
     pointwise_bytes = n_expansions * n_points * cal("bytes_pointwise_cell")
 
-    # Mission summary, one session figure per day, the alert-latency figure.
-    plot_bytes = (mission_days + 2) * (cal("bytes_plot") + cal("bytes_plot_pdf"))
+    # Mission summary, one session figure per day, the two metric figures.
+    plot_bytes = (mission_days + 3) * (cal("bytes_plot") + cal("bytes_plot_pdf"))
     log_bytes = n_batches * cal("bytes_log_per_batch") + LOG_FIXED_OVERHEAD_BYTES
 
     # Post-processing replay RAM: the exact replay materializes one category
@@ -1359,7 +1399,7 @@ function estimate_artifacts(cfg::AbstractDict)
         1 +
         (do_matrix ? 1 : 0) +
         n_expansions +
-        2 * (mission_days + 2) +
+        2 * (mission_days + 3) +
         2 +
         1 +
         2 +

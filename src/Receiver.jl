@@ -1167,7 +1167,8 @@ materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
 # Keyword arguments
 
   - `orig_stdout`: stream receiving the dashboard rendering.
-  - `max_batches_per_hour`: peak DSN service capacity [batches/h].
+  - `batch_transfer_sec`: transfer time of one batch at full link capacity
+    [mission s] (`telemetry_settings(cfg).nominal_batch_transfer_sec`).
   - `loss_model`: stochastic packet-loss channel (`ChannelEffects.LossModel`).
   - `max_retries`: failed attempts before a batch moves to `lost/`.
   - `retention`: the custodian's [`TelemetryCore.RetentionPolicy`](@ref).
@@ -1183,7 +1184,7 @@ function run_receiver(
     link::ChannelEffects.LinkModel,
     run_id::String;
     orig_stdout::IO = stdout,
-    max_batches_per_hour::Float64 = 20.0,
+    batch_transfer_sec::Float64 = 180.0,
     loss_model::ChannelEffects.LossModel = ChannelEffects.NoLoss(),
     max_retries::Int = 3,
     retention::TelemetryCore.RetentionPolicy = TelemetryCore.retention_settings(
@@ -1437,8 +1438,7 @@ function run_receiver(
                 )
                 batch_name = first(eligible)
 
-                nominal_slot_sec = (3600.0 / max_batches_per_hour)
-                effective_slot_sec = nominal_slot_sec / (bw_factor * clock.speed_up)
+                effective_slot_sec = batch_transfer_sec / (bw_factor * clock.speed_up)
                 sleep(max(TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC, effective_slot_sec))
 
                 loss_mult =
