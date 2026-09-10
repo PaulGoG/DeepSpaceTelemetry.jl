@@ -37,6 +37,9 @@ This guide records the working conventions of the repository.
   `docs/src/`.
 - Deployment to GitHub Pages is added when the repository becomes public; until
   then the CI docs job only builds.
+- Docstring examples are `jldoctest` blocks executed by the docs build; a
+  changed output fails the build, so the example is updated with the
+  behaviour.
 
 ## Configuration changes
 

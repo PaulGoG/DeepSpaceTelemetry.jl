@@ -103,6 +103,15 @@ end
 
 Directory name of batch `id`: `LIVE_batch_<id>` for a batch finalized while
 the link was transmittable, `ARCH_batch_<id>` otherwise.
+
+# Examples
+```jldoctest
+julia> TelemetryCore.batch_name(42, true)
+"LIVE_batch_42"
+
+julia> TelemetryCore.batch_name(42, false)
+"ARCH_batch_42"
+```
 """
 batch_name(id::Integer, live::Bool) = string(live ? "LIVE_batch_" : "ARCH_batch_", id)
 
@@ -112,6 +121,15 @@ batch_name(id::Integer, live::Bool) = string(live ? "LIVE_batch_" : "ARCH_batch_
 Numeric ID parsed from a batch directory name (the trailing `_<id>` field);
 `0` for a name that does not carry one, so directory sweeps tolerate stray
 entries instead of throwing.
+
+# Examples
+```jldoctest
+julia> TelemetryCore.batch_id("LIVE_batch_42")
+42
+
+julia> TelemetryCore.batch_id("stray_entry")
+0
+```
 """
 batch_id(name::AbstractString) = something(tryparse(Int, String(last(split(name, '_')))), 0)
 
@@ -120,6 +138,12 @@ batch_id(name::AbstractString) = something(tryparse(Int, String(last(split(name,
 
 `true` for a `LIVE_batch_<id>` directory name (finalized while the link was
 transmittable).
+
+# Examples
+```jldoctest
+julia> TelemetryCore.is_live_batch("LIVE_batch_7"), TelemetryCore.is_live_batch("ARCH_batch_7")
+(true, false)
+```
 """
 is_live_batch(name::AbstractString) = startswith(name, "LIVE_batch_")
 
@@ -265,6 +289,19 @@ indices (`-1` meaning the final row), `"start:stop"` range strings, and the
 string `"all"`. Returns the symbol `:all` when every row is requested,
 otherwise a sorted vector of unique row indices. Unrecognized entries are
 skipped with a warning.
+
+# Examples
+```jldoctest
+julia> TelemetryCore.normalize_target_rows("all")
+:all
+
+julia> TelemetryCore.normalize_target_rows([3, "1:2", 3, -1])
+4-element Vector{Int64}:
+ -1
+  1
+  2
+  3
+```
 """
 function normalize_target_rows(raw)
     raw == "all" && return :all
@@ -455,6 +492,12 @@ end
 
 Validated wall-clock mission span `simulation.mission_wall_seconds` (> 0);
 the deprecated `simulation.test_duration_sec` is accepted with a warning.
+
+# Examples
+```jldoctest
+julia> TelemetryCore.mission_wall_seconds(Dict{String,Any}("simulation" => Dict{String,Any}("mission_wall_seconds" => 168.0)))
+168.0
+```
 """
 function mission_wall_seconds(cfg::AbstractDict)
     sim = get(cfg, "simulation", Dict{String,Any}())
@@ -512,6 +555,29 @@ batches-per-hour form), and `onboard_data_rate_kbps` (`NaN` likewise). Bounds ar
 `[CONFIG]` errors; absent keys take the documented defaults (post-processing
 of legacy snapshots), while the live-config required-key policy is applied
 by [`validate_config`](@ref).
+
+# Examples
+```jldoctest
+julia> cfg = Dict{String,Any}(
+           "telemetry" => Dict{String,Any}("downlink_kbps" => 230.0, "onboard_data_rate_kbps" => 75.0),
+           "physics" => Dict{String,Any}(
+               "data_source" => "synthetic",
+               "sample_rate" => 4.0,
+               "segment_duration_sec" => 60.0,
+               "batch_size" => 10,
+           ),
+       );
+
+julia> tel = TelemetryCore.telemetry_settings(cfg);
+
+julia> round(tel.nominal_batch_transfer_sec; digits = 1), round(tel.max_batches_per_hour; digits = 1), round(tel.catch_up_ratio; digits = 2)
+(195.7, 18.4, 3.07)
+
+julia> tel = TelemetryCore.telemetry_settings(Dict{String,Any}("telemetry" => Dict{String,Any}("max_batches_per_hour" => 20.0)));
+
+julia> tel.nominal_batch_transfer_sec, isnan(tel.catch_up_ratio)
+(180.0, true)
+```
 """
 function telemetry_settings(cfg::AbstractDict)
     tel = get(cfg, "telemetry", Dict{String,Any}())
@@ -2721,6 +2787,17 @@ replace the window of a date verbatim; a non-empty `schedule` of explicit
 passes replaces the daily generator altogether; `low_latency` periods are
 additional windows at constant capacity outside the nominal passes. The
 three- to five-argument constructors build the plain daily model.
+
+# Examples
+```jldoctest
+julia> model = TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "sine");
+
+julia> TelemetryCore.is_visible(model, DateTime(2035, 1, 1, 10)), TelemetryCore.is_visible(model, DateTime(2035, 1, 1, 3))
+(true, false)
+
+julia> round(TelemetryCore.profile_mean(model); digits = 3)
+0.5
+```
 """
 struct VisibilityModel
     session_start::Time
@@ -2906,6 +2983,20 @@ end
 Effective link capacity in `[0, 1]` at `t`: the pass profile evaluated at
 the position of `t` within the active nominal window, the constant
 capacity fraction inside a low-latency period, and `0` out of contact.
+
+# Examples
+```jldoctest
+julia> model = TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "sine");
+
+julia> TelemetryCore.get_bandwidth_factor(model, DateTime(2035, 1, 1, 12))
+1.0
+
+julia> TelemetryCore.get_bandwidth_factor(model, DateTime(2035, 1, 1, 8))
+0.0
+
+julia> TelemetryCore.get_bandwidth_factor(model, DateTime(2035, 1, 1, 20))
+0.0
+```
 """
 function get_bandwidth_factor(model::VisibilityModel, t::DateTime)
     w = active_window(model, t)

@@ -14,6 +14,11 @@ Notable changes to DeepSpaceTelemetry. The format follows
   as a second blocking job.
 
 ### Added
+- Doctests: `jldoctest` examples on the pure accessors (`batch_name`,
+  `batch_id`, `is_live_batch`, `VisibilityModel`, `get_bandwidth_factor`,
+  `normalize_target_rows`, `telemetry_settings` in both capacity forms,
+  `mission_wall_seconds`, `stationary_loss_rate`,
+  `disruption_loss_multiplier`), executed by the docs build.
 - Profile-mean guardrail: `TelemetryCore.profile_mean` (quadrature mean of
   the pass profile) and `TelemetryCore.capacity_balance` (capacity of one
   nominal pass against the daily production); `validate_config` warns when

@@ -100,6 +100,17 @@ Analytic long-run loss probability of the model (used for physics-style
 validation of the sampled stream). For Gilbert–Elliott this is
 `π_bad·p_loss_bad + π_good·p_loss_good` with the stationary state occupancies
 `π_bad = p_g2b / (p_g2b + p_b2g)`.
+
+# Examples
+```jldoctest
+julia> ChannelEffects.stationary_loss_rate(ChannelEffects.BernoulliLoss(0.1, Xoshiro(1)))
+0.1
+
+julia> ge = ChannelEffects.GilbertElliottLoss(0.03, 0.25, 0.01, 0.5, false, Xoshiro(1));
+
+julia> round(ChannelEffects.stationary_loss_rate(ge); digits = 4)
+0.0625
+```
 """
 stationary_loss_rate(::NoLoss) = 0.0
 stationary_loss_rate(m::BernoulliLoss) = m.p
@@ -172,6 +183,29 @@ end
 
 Multiplier (≥ 1) applied to the stochastic loss probability at time `t`.
 Active from event start through the end of the recovery ramp.
+
+# Examples
+```jldoctest
+julia> cfg = Dict{String,Any}(
+           "disruption" => Dict{String,Any}(
+               "events" => [Dict{String,Any}(
+                   "start_day" => 2.0,
+                   "duration_hours" => 12.0,
+                   "recovery_hours" => 6.0,
+                   "severity" => 1.0,
+                   "loss_multiplier" => 4.0,
+               )],
+           ),
+       );
+
+julia> tl = ChannelEffects.build_disruption_timeline(cfg, DateTime(2035, 1, 1));
+
+julia> ChannelEffects.disruption_loss_multiplier(tl, DateTime(2035, 1, 3, 6))
+4.0
+
+julia> ChannelEffects.disruption_loss_multiplier(tl, DateTime(2035, 1, 4))
+1.0
+```
 """
 function disruption_loss_multiplier(tl::DisruptionTimeline, t::DateTime)
     m = 1.0

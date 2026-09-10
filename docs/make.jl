@@ -5,6 +5,17 @@ Pkg.instantiate(; io = devnull)
 using Documenter
 using DeepSpaceTelemetry
 
+# Doctest blocks in the docstrings run in a fresh module with these imports.
+DocMeta.setdocmeta!(
+    DeepSpaceTelemetry,
+    :DocTestSetup,
+    :(using DeepSpaceTelemetry;
+    using DeepSpaceTelemetry: TelemetryCore, ChannelEffects;
+    using Dates;
+    using Random: Xoshiro);
+    recursive = true,
+)
+
 # Deployment (`deploydocs`) is added when the repository becomes public: GitHub
 # Pages does not serve a private repository on the free plan, so the CI docs
 # job only builds the manual until then.
