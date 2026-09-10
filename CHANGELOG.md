@@ -6,6 +6,13 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Dependency Manifests of the package and of the test, docs, scripts, and
+  bench environments re-resolved on Julia 1.13.0 (patch updates taken; the
+  test and root Manifests agree again); `SHA` compat widened to `"0.7, 1"`
+  for the stdlib version shipped with 1.13; CI tests the 1.12 compat floor
+  as a second blocking job.
+
 ### Added
 - Publication figure export (`Publication.export_publication_figures`,
   `[post_processing.publication]`, `scripts/postprocessing/export_publication_figures.jl`):

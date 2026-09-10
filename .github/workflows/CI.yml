@@ -11,9 +11,9 @@ jobs:
   test:
     name: Tests — Julia ${{ matrix.version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # "1" is the blocking job on the current stable release (the compat
-    # floor is 1.12); "pre" watches the next prerelease and may fail without
-    # failing the workflow. Coverage runs once: it disables package images
+    # "1" is the blocking job on the current stable release and "1.12" on
+    # the compat floor; "pre" watches the next prerelease and may fail
+    # without failing the workflow. Coverage runs once: it disables package images
     # and roughly doubles the precompile time.
     continue-on-error: ${{ matrix.experimental }}
     strategy:
@@ -23,6 +23,10 @@ jobs:
           - version: "1"
             os: ubuntu-latest
             coverage: true
+            experimental: false
+          - version: "1.12"
+            os: ubuntu-latest
+            coverage: false
             experimental: false
           - version: "pre"
             os: ubuntu-latest
