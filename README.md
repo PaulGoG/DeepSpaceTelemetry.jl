@@ -10,7 +10,7 @@ near-real-time (FIFO) transmission with LIFO archival backfill, stochastic
 packet loss (Bernoulli / Gilbert–Elliott channels with retransmission), and
 scheduled link-disruption events (blackouts with recovery ramps and elevated
 loss). The telemetry, channel, and queuing layers are mission-agnostic; the
-shipped scenario and the synthetic physics payload model the LISA (Laser
+shipped scenarios and the synthetic physics payload model the LISA (Laser
 Interferometer Space Antenna) mission, and external instrument data ingests
 through the same pipeline.
 
@@ -61,6 +61,19 @@ DeepSpaceTelemetry/
 │   ├── Manifest.toml            # Resolved docs environment (committed for portability)
 │   ├── make.jl                  # Documenter.jl build script
 │   └── src/                     # Manual pages (index, physics, usage, interfaces, api/ per module)
+├── scenarios/
+│   ├── README.md                # Coverage matrix and expected regime of every scenario
+│   ├── smoke_1d.toml            # 12 s smoke run (suite end-to-end)
+│   ├── nominal_8h.toml          # Balanced nominal operations
+│   ├── stress_8h_bursty.toml    # 8 h January passes, bursty loss, disruptions: backlog growth
+│   ├── recovery_12h_seasonal.toml # Reference scenario (= config.toml): seasonal-peak recovery
+│   ├── abstraction_gaussian_peak.toml # Pre-library default: 60 batches/h peak, Gaussian profile
+│   ├── backlog_recovery_sine.toml # Presentation scenario: 3-day backlog, 10 % loss
+│   ├── drop_policy.toml         # 20 % loss without retransmission
+│   ├── explicit_schedule.toml   # Explicit pass list with missed, shortened, extended passes
+│   ├── long_30d_seasonal.toml   # 30 days, contact gap reaching the recorder ceiling
+│   ├── long_segments_confusion_band.toml # 2400 s segments resolving the confusion band
+│   └── external_ingest.toml     # External CSV ingestion
 ├── data/
 │   ├── example_external_strain.csv # Generated demo input (gitignored)
 │   └── runs/                    # Ephemeral run directories (gitignored)
@@ -79,7 +92,7 @@ DeepSpaceTelemetry/
 ├── CHANGELOG.md                 # Notable changes (Keep a Changelog format)
 ├── CITATION.cff                 # Citation metadata (Citation File Format 1.2.0)
 ├── CONTRIBUTING.md              # Working conventions: environments, tests, formatting, commits
-├── config.toml                  # The shipped config — safe intervals documented per key
+├── config.toml                  # Default entry point (= scenarios/recovery_12h_seasonal.toml)
 ├── Project.toml                 # Package metadata, deps, compat bounds
 ├── Manifest.toml                # Resolved dependency graph (committed for portability)
 ├── LICENSE
@@ -247,15 +260,21 @@ is added at publication.
 ## Configuration
 
 The framework is driven entirely by TOML files, free of hardcoded parameters.
-**Safe parameter intervals are documented inline, key by key, in
-`config.toml`** and enforced at startup by `validate_config` (hard `error`
-for code-breaking values, `@warn` for suspicious ones). Exactly one
-configuration ships with the repository — `config.toml`, the "complex
-disruption & bursty loss" scenario (7.0 mission days, 2-day launch backlog,
-Gilbert–Elliott bursty loss, two scheduled disruption events, ~3 min wall
-time; rationale in `docs/src/usage.md` §Shipped Scenario). Alternative
-scenario configs are kept outside the repository and passed by path on the
-CLI; each run archives the exact configuration it used as
+**Safe parameter intervals are documented inline, key by key, in every
+configuration file** and enforced at startup by `validate_config` (hard
+`error` for code-breaking values, `@warn` for suspicious ones). A scenario
+library ships under `scenarios/`: eleven complete configurations, from a
+12-second smoke run to a 30-day seasonal mission, covering the physical
+link rates and the peak-capacity abstraction, bursty and memoryless
+channels, the drop policy, explicit pass schedules, the recorder ceiling,
+long segments that resolve the galactic-confusion band, and external
+ingestion; the coverage matrix with the expected regime of each file is
+`scenarios/README.md`. `config.toml` at the package root is the default
+entry point, a copy of the reference scenario
+`scenarios/recovery_12h_seasonal.toml` (7 mission days at the seasonal peak
+on the physical link, 2-day backlog, Gilbert–Elliott loss, three disruption
+events, one marker, ~3 min wall time; rationale in `docs/src/usage.md`
+§Scenario Library). Every run archives the exact configuration it used as
 `config_snapshot.toml`, so provenance never depends on the driving file's
 location.
 

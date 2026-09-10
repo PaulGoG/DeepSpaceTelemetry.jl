@@ -4,7 +4,7 @@
 Simulation framework for the telemetry environment of deep-space science
 missions: duty-cycled ground-station contact windows, a physical downlink
 with stochastic loss and scheduled disruptions, live-FIFO/archive-LIFO
-routing, and provenance-tracked data products. The shipped scenario models
+routing, and provenance-tracked data products. The shipped scenarios model
 the LISA mission; the telemetry, channel, and queuing layers are
 mission-agnostic. Submodules: `TelemetryCore`, `ChannelEffects`,
 `VirtualInstrument`, `PlotTheme`, `Emitter`, `Receiver`, `Metrology`,

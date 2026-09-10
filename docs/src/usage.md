@@ -20,34 +20,54 @@ footprint — non-prunable classes plus delivered payload capped at
 within `grace_hours` of mission time, and records every pruning as a
 `pruned` event; event logs, metrics, masks, snapshots, and `lost/` are never
 pruned. Log files rotate at `log_rotate_mb` regardless of `enabled`.
-### Shipped Scenario
+### Scenario Library
 
-Exactly one configuration ships with the repository. Per the
-configuration-comment policy, the TOML file carries only per-key descriptions,
-admissible choices, and safe intervals — the scenario rationale lives here.
+The repository ships a library of complete configurations under
+`scenarios/`, each runnable by path; `scenarios/README.md` carries the
+coverage matrix and the expected regime of every file. `config.toml` at the
+package root is the default entry point and is a copy of
+`scenarios/recovery_12h_seasonal.toml`. Per the configuration-comment
+policy, the TOML files carry only per-key descriptions, admissible choices,
+and safe intervals — the scenario rationale lives in the library README and
+here.
 
-`config.toml` — **"complex disruption & bursty loss"** scenario (~3 min wall
-time, 7.0 mission days). The mission opens with a 2-day blind-spot backlog
-(288 batches at the shipped physics rates: 60 s segments, 10 segments per
-batch → 144 batches/day) draining against a Gaussian pass profile with peak
-capacity 60 batches/h. The downlink runs over a bursty Gilbert–Elliott
-channel (sticky BAD state, 50 % loss while BAD) throughout, and two
-scheduled disruption events stress the link: a day-2.5 solar-flare-class
-full blackout (18 h, then a 12 h linear recovery ramp with 5× elevated
-loss) and a day-5.0 partial DSN outage (severity 0.8, 12 h, 6 h ramp,
-3× loss), leaving a 1.25-day nominal tail after the second recovery
-completes on day 5.75. An event marker at 14:00 on day 4 (mission time
-2035-01-05) triggers, six hours later, a 3-hour low-latency period at half
-capacity that drains part of the flare backlog between the day-4 and day-5
-passes.
+The reference scenario — **recovery at the seasonal peak** (~3 min wall
+time, 7 mission days from 21 June 2035) — runs the physical link:
+230 kbit/s downlink against 75 kbit/s production, flat within the pass
+(the Definition Study Report's sustained rate), with the daily 8-hour
+window widened by the 4-hour seasonal extension to 12-hour passes. The
+mission opens with a 2-day blind-spot backlog (288 batches at the shipped
+physics: 60 s segments, 10 segments per batch → 144 batches/day) served by
+12-hour passes of about 190 batches each over a bursty Gilbert–Elliott channel
+(sticky BAD state, 50 % loss while BAD). Three scheduled events stress the
+mission: a 15-minute antenna repointing on day 1.5 (a generation gap), a
+day-2.5 solar-flare-class full blackout (18 h, then a 12 h linear recovery
+ramp with 5× elevated loss), and a day-5.0 partial DSN outage (severity
+0.8, 12 h, 6 h ramp, 3× loss). An event marker at 14:00 on day 4 triggers,
+six hours later, a 3-hour low-latency period at half capacity. The flare
+and the outage each cost about one pass, so the week ends with the backlog
+near its initial level (the buffer oscillates between 120 and 300 batches)
+where the same timeline under 8-hour passes doubles it.
 
-Alternative scenario configurations (e.g. multi-week recovery studies or
-lossless baselines) are maintained outside the repository and passed by
-path: any CLI argument ending in `.toml` selects the config (relative paths
-resolve against the current directory, then the package root); any other
-argument sets the run ID (both optional, order-independent):
+The same disruption timeline under 8-hour January passes is
+`scenarios/stress_8h_bursty.toml`, where the link delivers 138 batches per
+day against 144 produced and the backlog grows; `scenarios/nominal_8h.toml`
+is the balanced case without backlog or disruptions; the pre-library
+default — a 60 batches/h peak under a Gaussian profile — is
+`scenarios/abstraction_gaussian_peak.toml`. The library also covers a drop
+policy, an explicit pass schedule, a 30-day seasonal mission reaching the
+recorder ceiling, 2400 s segments that resolve the galactic-confusion band,
+and external ingestion. Under the physical rate pair only the flat profile
+sustains production: a day's capacity is the link rate times the pass
+length times the profile mean (flat 1.0, sine 0.5, Gaussian σ = 0.15 0.38),
+so the shaped profiles remain stress abstractions of a partially usable
+pass.
+
+Any CLI argument ending in `.toml` selects the configuration (relative
+paths resolve against the current directory, then the package root); any
+other argument sets the run ID (both optional, order-independent):
 ```bash
-julia --project=. scripts/run_full_sim.jl MY_RUN path/to/scenario.toml
+julia -t 3 --project=. scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
 ```
 Every run archives the exact configuration it used as its own
 `config_snapshot.toml`, so reproducibility never depends on the driving

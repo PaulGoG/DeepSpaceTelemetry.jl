@@ -41,8 +41,8 @@ This guide records the working conventions of the repository.
 ## Configuration changes
 
 - A new key gets a checked coercion and bounds in `TelemetryCore` with a precise
-  `[CONFIG]` error naming the key, a one-line comment in `config.toml` stating
-  what it is, its allowed values or bounds, and its units, and a mention in
+  `[CONFIG]` error naming the key, a one-line comment in `config.toml` and in every file under `scenarios/`
+  stating what it is, its allowed values or bounds, and its units, and a mention in
   `docs/src/usage.md`.
 - Configuration comments carry no scenario rationale; that belongs in the
   manual.

@@ -2385,6 +2385,59 @@ end
     end
 end
 
+@testset "Scenario library" begin
+    scenario_dir = joinpath(TelemetryCore.PROJECT_ROOT, "scenarios")
+    files = sort(filter(f -> endswith(f, ".toml"), readdir(scenario_dir)))
+    @test length(files) >= 11
+    @test "smoke_1d.toml" in files && "recovery_12h_seasonal.toml" in files
+    mktempdir() do tmp
+        ext_path = joinpath(tmp, "ext.csv")
+        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:10_000)))
+        for f in files
+            cfg = TelemetryCore.load_config(joinpath(scenario_dir, f))
+            if cfg["physics"]["data_source"] == "external"
+                cfg["physics"]["external_data_path"] = ext_path
+            end
+            validated = with_logger(NullLogger()) do
+                TelemetryCore.validate_config(cfg)
+            end
+            @test validated isa AbstractDict
+        end
+    end
+    # The root configuration is the reference scenario, section by section.
+    root = TelemetryCore.load_config(joinpath(TelemetryCore.PROJECT_ROOT, "config.toml"))
+    ref = TelemetryCore.load_config(joinpath(scenario_dir, "recovery_12h_seasonal.toml"))
+    for section in (
+        "simulation",
+        "storage",
+        "telemetry",
+        "contacts",
+        "ground",
+        "events",
+        "physics",
+        "packet_loss",
+        "disruption",
+        "post_processing",
+    )
+        @test get(root, section, nothing) == get(ref, section, nothing)
+    end
+    # The smoke scenario runs end to end as shipped.
+    cfg = TelemetryCore.load_config(joinpath(scenario_dir, "smoke_1d.toml"))
+    run_id = "TEST_RUN_smoke_pid$(getpid())"
+    run_dir = with_logger(NullLogger()) do
+        Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull)
+    end
+    try
+        @test isfile(joinpath(run_dir, "RUN_COMPLETE"))
+        @test isfile(joinpath(run_dir, "delivery_delay.csv"))
+        @test isfile(joinpath(run_dir, "plots", "mission_summary_global.png"))
+        rx = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+        @test count(==("ingested"), rx.Event) > 50
+    finally
+        rm(run_dir; recursive = true, force = true)
+    end
+end
+
 @testset "Alert-latency metrology (synthetic schedule)" begin
     # Four archive batches of blind-spot backlog, then two live batches;
     # realized deliveries follow the live-first / archive-newest-first
@@ -2814,11 +2867,13 @@ end
             Any[Dict{String,Any}("start" => "2035-01-05T08:00:00", "duration_hours" => 1.0)]
         @test_throws ArgumentError TelemetryCore.contacts_settings(both)
     end
+    # The default configuration (the seasonal-peak reference scenario) carries
+    # one marker-triggered period on the evening of 25 June 2035.
     shipped = TelemetryCore.load_config(joinpath(dirname(@__DIR__), "config.toml"))
     @test length(TelemetryCore.contacts_settings(shipped).low_latency_periods) == 1
     @test TelemetryCore.is_visible(
         TelemetryCore.visibility_model(shipped),
-        DateTime(2035, 1, 5, 21),
+        DateTime(2035, 6, 25, 21),
     )
 
     # Delivery-delay table: a batch ingested inside a low-latency period is

@@ -1,6 +1,6 @@
 # Physics & Queuing Theory
 
-`DeepSpaceTelemetry` models the telemetry environment of a deep-space science mission: a duty-cycled ground-station contact, a physical downlink with stochastic loss and scheduled disruptions, and the routing doctrine that decides which data reach the ground first. The telemetry, channel, and queuing layers are mission-agnostic; the shipped scenario and the synthetic payload model the LISA mission.
+`DeepSpaceTelemetry` models the telemetry environment of a deep-space science mission: a duty-cycled ground-station contact, a physical downlink with stochastic loss and scheduled disruptions, and the routing doctrine that decides which data reach the ground first. The telemetry, channel, and queuing layers are mission-agnostic; the shipped scenarios and the synthetic payload model the LISA mission.
 
 ## Virtual Instrument (Noise Generation)
 In synthetic mode, the simulator generates amplitude-calibrated LISA strain from the sky- and polarization-averaged sensitivity of Robson, Cornish & Liu, *The construction and use of LISA sensitivity curves*, Class. Quantum Grav. 36, 105011 (2019), `S(f) = S_n(f) + S_c(f)`. The instrument term (their Eq. 1) is

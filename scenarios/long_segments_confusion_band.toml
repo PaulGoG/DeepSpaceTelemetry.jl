@@ -1,12 +1,12 @@
-# DeepSpaceTelemetry default configuration: identical to scenarios/recovery_12h_seasonal.toml (the reference scenario of the library; see scenarios/README.md).
-# Run with:  julia -t 3 --project=. scripts/run_full_sim.jl [RUN_ID]
+# DeepSpaceTelemetry scenario "long_segments_confusion_band": long segments: 7 days on the physical rate pair with 2400 s segments (first resolved bin 0.21 mHz) so the galactic-confusion band is synthesized, 1 % Bernoulli loss, no disruptions.
+# Run with:  julia --project=. scripts/run_full_sim.jl <RUN_ID> scenarios/long_segments_confusion_band.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.
-start_sim_time = "2035-06-21T06:00:00"# Mission epoch. SAFE: ISO-8601 datetime.
+start_sim_time = "2035-01-01T06:00:00"# Mission epoch. SAFE: ISO-8601 datetime.
 mission_wall_seconds = 168.0         # Wall-clock simulation span [s]. SAFE: > 0.
-initial_downtime_days = 2.0          # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
-rng_seed = 2035                      # Seeds physics and packet-loss RNGs. SAFE: integer.
+initial_downtime_days = 1.0          # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
+rng_seed = 11                        # Seeds physics and packet-loss RNGs. SAFE: integer.
 
 [storage]
 max_storage_gb = 5.0                 # Run-directory disk budget [GB]. SAFE: > 0.
@@ -42,7 +42,7 @@ sigmoid_steepness = 10.0             # Sigmoid profile edge steepness. SAFE: > 0
 gaussian_sigma = 0.15                # Gaussian profile standard deviation. SAFE: > 0.
 
 [contacts]
-seasonal_extension_hours = 4.0       # Peak seasonal extension of the daily window [h]. SAFE: >= 0, session_duration_hours + extension <= 24.
+seasonal_extension_hours = 0.0       # Peak seasonal extension of the daily window [h]. SAFE: >= 0, session_duration_hours + extension <= 24.
 season_period_days = 365.25          # Period of the seasonal modulation [days]. SAFE: > 0.
 season_peak_day_of_year = 172.0      # Day of year at which the extension peaks. SAFE: [1, 366].
 schedule_csv = ""                    # Explicit pass list (columns Start, DurationHours) replacing the daily window. SAFE: file path or "".
@@ -52,57 +52,25 @@ low_latency_capacity_fraction = 1.0  # Default capacity of a low-latency period 
 [ground]
 processing_latency_hours = 1.0       # Ground processing budget added to every alert latency [h]. SAFE: >= 0.
 
-[[events.markers]]
-time = "2035-06-25T14:00:00"         # Event instant on the mission timeline. SAFE: ISO-8601 datetime.
-label = "transient candidate"        # Display name; unique per marker. Free string.
-low_latency_after_hours = 6.0        # Delay from the marker to its triggered low-latency period [h]. SAFE: >= 0.
-low_latency_duration_hours = 3.0     # Duration of the triggered period [h]; 0 = none. SAFE: >= 0.
-low_latency_capacity_fraction = 0.5  # Capacity of the triggered period relative to peak. SAFE: (0, 1].
-
 [physics]
 data_source = "synthetic"            # Data stream mode. One of: "synthetic" | "external".
 external_data_path = "data/example_external_strain.csv"# File path when data_source = "external".
-sample_rate = 4.0                    # Strain sampling frequency [Hz]. SAFE: > 0.
-segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
-batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
+sample_rate = 0.5                    # Strain sampling frequency [Hz]. SAFE: > 0.
+segment_duration_sec = 2400.0        # Segment duration [s]. SAFE: > 0.
+batch_size = 3                       # Segments per telemetry batch. SAFE: >= 1.
 confusion_observation_years = 1.0    # Galactic-confusion fit of the noise model by observation time [yr]. One of: 0.5 | 1.0 | 2.0 | 4.0.
 noise_f_min_hz = 1.0e-5              # Lower edge of the synthesized noise band [Hz]; bins below carry no power. SAFE: > 0.
 
 [packet_loss]
 enabled = true                       # Packet loss toggle. One of: true | false.
-model = "gilbert_elliott"            # Loss model. One of: "bernoulli" | "gilbert_elliott".
+model = "bernoulli"                  # Loss model. One of: "bernoulli" | "gilbert_elliott".
 p_good_to_bad = 0.03                 # Good-to-bad state transition probability. SAFE: [0, 1].
 p_bad_to_good = 0.25                 # Bad-to-good state transition probability. SAFE: [0, 1].
 p_loss_good = 0.01                   # Loss probability in good state. SAFE: [0, 1].
 p_loss_bad = 0.5                     # Loss probability in bad state. SAFE: [0, 1].
-p_loss = 0.1                         # Loss probability when model = "bernoulli". SAFE: [0, 1].
+p_loss = 0.01                        # Loss probability when model = "bernoulli". SAFE: [0, 1].
 on_loss = "retransmit"               # Action on loss. One of: "retransmit" | "drop".
 max_retries = 3                      # Retry limit before moving batch to lost/. SAFE: >= 0.
-
-[[disruption.events]]
-type = "solar_flare"                 # Event type identifier.
-label = "solar flare"                # Display label for logs and viewer.
-start_day = 2.5                      # Event onset time [mission days]. SAFE: >= 0.
-duration_hours = 18.0                # Duration of full blackout phase [h]. SAFE: > 0.
-severity = 1.0                       # Link capacity reduction factor. SAFE: [0, 1].
-recovery_hours = 12.0                # Duration of linear recovery ramp [h]. SAFE: >= 0.
-loss_multiplier = 5.0                # Loss probability multiplier during event. SAFE: >= 1.0.
-
-[[disruption.events]]
-type = "antenna_repointing"          # Event type identifier; "antenna_repointing" affects generation by default.
-label = "antenna repointing"         # Display label for logs and viewer.
-start_day = 1.5                      # Event onset time [mission days]. SAFE: >= 0.
-duration_hours = 0.25                # Duration of the generation gap [h]. SAFE: > 0.
-affects = "generation"               # What the event interrupts. One of: "link" | "generation".
-
-[[disruption.events]]
-type = "dsn_outage"                  # Event type identifier.
-label = "DSN outage"                 # Display label for logs and viewer.
-start_day = 5.0                      # Event onset time [mission days]. SAFE: >= 0.
-duration_hours = 12.0                # Duration of partial blackout phase [h]. SAFE: > 0.
-severity = 0.8                       # Link capacity reduction factor. SAFE: [0, 1].
-recovery_hours = 6.0                 # Duration of linear recovery ramp [h]. SAFE: >= 0.
-loss_multiplier = 3.0                # Loss probability multiplier during event. SAFE: >= 1.0.
 
 [dashboard]
 open_live_viewer = false             # Live viewer terminal flag. One of: true | false.

@@ -21,6 +21,14 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - Tag-triggered CI runs and the TagBot workflow (active once the package is
   registered); the docs build declares doctests explicitly and records that
   deployment is deferred until the repository is public.
+- Scenario library under `scenarios/`: eleven complete configurations with a
+  coverage matrix and the expected regime of each (`scenarios/README.md`),
+  every file validated by the suite and the smoke scenario run end to end
+  in it. `config.toml` is now a copy of the reference scenario
+  `recovery_12h_seasonal.toml` (physical link rates, flat profile, 12 h
+  seasonal-peak passes, bursty loss, three disruptions, one marker); the
+  previous default is preserved as `abstraction_gaussian_peak.toml` and the
+  presentation scenario as `backlog_recovery_sine.toml`.
 - Publication figure export (`Publication.export_publication_figures`,
   `[post_processing.publication]`, `scripts/postprocessing/export_publication_figures.jl`):
   every figure re-rendered at a declared printed width in PDF or SVG with

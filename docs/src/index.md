@@ -1,6 +1,6 @@
 # DeepSpaceTelemetry
 
-A Julia framework simulating the telemetry environment of deep-space science missions — contact windows, link physics, queuing, loss, and disruption — with the **LISA (Laser Interferometer Space Antenna)** mission as the shipped scenario.
+A Julia framework simulating the telemetry environment of deep-space science missions — contact windows, link physics, queuing, loss, and disruption — with the **LISA (Laser Interferometer Space Antenna)** mission as the shipped scenarios (a library under `scenarios/`).
 
 ## Overview
 Deep-space missions communicate on asymmetric duty cycles: a daily ground-station contact window followed by a long blind spot in which science data accumulates onboard. This framework simulates the physics, link constraints, and queuing logic of that regime end to end. The shipped configuration models LISA — orbiting the Sun 50 million kilometers behind Earth, with an 8-hour DSN window against a 16-hour blind spot, and amplitude-calibrated gravitational-wave strain as the payload — while the telemetry, channel, and queuing layers remain mission-agnostic.

@@ -1,9 +1,9 @@
-# DeepSpaceTelemetry default configuration: identical to scenarios/recovery_12h_seasonal.toml (the reference scenario of the library; see scenarios/README.md).
-# Run with:  julia -t 3 --project=. scripts/run_full_sim.jl [RUN_ID]
+# DeepSpaceTelemetry scenario "stress_8h_bursty": stress regime: 7 January days, 8 h passes on the physical rate pair, bursty Gilbert–Elliott loss, 2-day backlog, three disruptions, one marker.
+# Run with:  julia --project=. scripts/run_full_sim.jl <RUN_ID> scenarios/stress_8h_bursty.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.
-start_sim_time = "2035-06-21T06:00:00"# Mission epoch. SAFE: ISO-8601 datetime.
+start_sim_time = "2035-01-01T06:00:00"# Mission epoch. SAFE: ISO-8601 datetime.
 mission_wall_seconds = 168.0         # Wall-clock simulation span [s]. SAFE: > 0.
 initial_downtime_days = 2.0          # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
 rng_seed = 2035                      # Seeds physics and packet-loss RNGs. SAFE: integer.
@@ -42,7 +42,7 @@ sigmoid_steepness = 10.0             # Sigmoid profile edge steepness. SAFE: > 0
 gaussian_sigma = 0.15                # Gaussian profile standard deviation. SAFE: > 0.
 
 [contacts]
-seasonal_extension_hours = 4.0       # Peak seasonal extension of the daily window [h]. SAFE: >= 0, session_duration_hours + extension <= 24.
+seasonal_extension_hours = 0.0       # Peak seasonal extension of the daily window [h]. SAFE: >= 0, session_duration_hours + extension <= 24.
 season_period_days = 365.25          # Period of the seasonal modulation [days]. SAFE: > 0.
 season_peak_day_of_year = 172.0      # Day of year at which the extension peaks. SAFE: [1, 366].
 schedule_csv = ""                    # Explicit pass list (columns Start, DurationHours) replacing the daily window. SAFE: file path or "".
@@ -53,7 +53,7 @@ low_latency_capacity_fraction = 1.0  # Default capacity of a low-latency period 
 processing_latency_hours = 1.0       # Ground processing budget added to every alert latency [h]. SAFE: >= 0.
 
 [[events.markers]]
-time = "2035-06-25T14:00:00"         # Event instant on the mission timeline. SAFE: ISO-8601 datetime.
+time = "2035-01-05T14:00:00"         # Event instant on the mission timeline. SAFE: ISO-8601 datetime.
 label = "transient candidate"        # Display name; unique per marker. Free string.
 low_latency_after_hours = 6.0        # Delay from the marker to its triggered low-latency period [h]. SAFE: >= 0.
 low_latency_duration_hours = 3.0     # Duration of the triggered period [h]; 0 = none. SAFE: >= 0.

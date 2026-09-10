@@ -1,5 +1,5 @@
-# DeepSpaceTelemetry default configuration: identical to scenarios/recovery_12h_seasonal.toml (the reference scenario of the library; see scenarios/README.md).
-# Run with:  julia -t 3 --project=. scripts/run_full_sim.jl [RUN_ID]
+# DeepSpaceTelemetry scenario "recovery_12h_seasonal": recovery regime: 7 days at the seasonal peak (12 h passes) on the physical rate pair, bursty Gilbert–Elliott loss, 2-day backlog, three disruptions, one marker.
+# Run with:  julia --project=. scripts/run_full_sim.jl <RUN_ID> scenarios/recovery_12h_seasonal.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.
