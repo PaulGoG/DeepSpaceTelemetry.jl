@@ -44,7 +44,6 @@ end setup = (
         1,
         Dates.DateTime(2035, 1, 1),
         Float32[1.0, 2.0, 3.0],
-        false,
     );
     batch = DeepSpaceTelemetry.TelemetryCore.DataBatch(
         1,
@@ -56,11 +55,8 @@ end setup = (
 # Benchmark Pre-Run Safety Check
 suite["storage"] = BenchmarkGroup()
 cfg_test = Dict(
-    "simulation" => Dict(
-        "speed_up" => 5000.0,
-        "mission_wall_seconds" => 10.0,
-        "max_storage_gb" => 10.0,
-    ),
+    "simulation" => Dict("speed_up" => 5000.0, "mission_wall_seconds" => 10.0),
+    "storage" => Dict("max_storage_gb" => 10.0),
     "physics" => Dict(
         "segment_duration_sec" => 60.0,
         "sample_rate" => 1024.0,
@@ -129,10 +125,10 @@ suite["core"]["validate_config"] =
                 "speed_up" => 3600.0,
                 "mission_wall_seconds" => 150.0,
                 "initial_downtime_days" => 3.0,
-                "max_storage_gb" => 2.0,
                 "start_sim_time" => "2035-01-01T06:00:00",
                 "rng_seed" => 42,
             ),
+            "storage" => Dict{String,Any}("max_storage_gb" => 2.0),
             "telemetry" => Dict{String,Any}(
                 "session_start" => "08:00:00",
                 "session_duration_hours" => 8.0,
@@ -185,7 +181,7 @@ let n_batches = 1500, n_rows = 2000
 end
 suite["postproc"] = BenchmarkGroup()
 suite["postproc"]["exact_reconstruction"] =
-    @benchmarkable DeepSpaceTelemetry.Receiver.reconstruct_batch_states_exact(
+    @benchmarkable DeepSpaceTelemetry.Receiver.reconstruct_batch_states(
         $bench_dir,
         $bench_profile,
     ) samples = 10 evals = 1

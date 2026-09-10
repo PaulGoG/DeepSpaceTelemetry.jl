@@ -250,6 +250,11 @@ Notable changes to DeepSpaceTelemetry. The format follows
   file count) and uses named constants for its margins and slacks.
 
 ### Fixed
+- `bench/benchmarks.jl` runs again against the current API: the exact replay
+  is `Receiver.reconstruct_batch_states` (renamed in the schema pass), the
+  segment fixture drops the removed flag argument of `DataSegment`, and the
+  benchmark configurations declare the storage budget under `[storage]` instead
+  of the deprecated `simulation.max_storage_gb` alias.
 - `VirtualInstrument.lisa_noise_psd` now implements the sky-averaged LISA
   sensitivity of Robson, Cornish & Liu (2019) exactly: the instrument term
   gains the 10/3 prefactor and the (1 + 0.6 (f/f*)²) response factor, and
