@@ -9,21 +9,21 @@ function generate_telemetry_gif(run_id::String)
     log_path = joinpath(run_dir, "mission_profile.csv")
 
     if !isfile(log_path)
-        println("Error: mission_profile.csv not found for Run $run_id")
+        "mission_profile.csv not found for run "
         return
     end
 
     df = DeepSpaceTelemetry.TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
     if isempty(df)
-        println("Error: mission_profile.csv is empty.")
+        "mission_profile.csv of run  is empty"
         return
     end
 
     println("Generating high-resolution GIF animation for Run $run_id...")
     println("Rendering time scales with the mission length.")
 
-    # Shared state-machine replay (exact event-log reconstruction when the run
-    # carries events_tx.csv / events_rx.csv; heuristic fallback otherwise)
+    # Shared state-machine replay: the exact event-log reconstruction (a run
+    # without events_tx.csv / events_rx.csv is rejected).
     row_states = DeepSpaceTelemetry.Receiver.batch_states(run_dir, df)
     show_lost = !isempty(row_states) && !isempty(last(row_states).lost)
 

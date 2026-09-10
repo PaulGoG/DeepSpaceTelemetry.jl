@@ -16,6 +16,7 @@ DeepSpaceTelemetry.Receiver.shade_disruptions!
 DeepSpaceTelemetry.Receiver.shade_outages!
 DeepSpaceTelemetry.Receiver.shade_generation_gaps!
 DeepSpaceTelemetry.Receiver.add_figure_legend!
+DeepSpaceTelemetry.Receiver.legend_banks
 DeepSpaceTelemetry.Receiver.summary_tick_step_hours
 DeepSpaceTelemetry.Receiver.BatchStates
 DeepSpaceTelemetry.Receiver.reconstruct_batch_states

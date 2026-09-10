@@ -32,21 +32,25 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `ground/<BATCH>/` | receiver | **Read/copy.** The delivery surface (see below). |
 | `lost/<BATCH>/` | receiver | Read/copy. Retry-exhausted batches, preserved but never ground-available. |
 | `events_rx.csv` | receiver (single writer) | **Tail/read.** The authoritative arrival feed. |
-| `events_tx.csv` | emitter (single writer) | Tail/read. Generation and transmission milestones. |
-| `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics (change-driven cadence). |
+| `events_tx.csv` | emitter; the supervisor appends the `STREAM` gap pair while the emitter is down (one live writer at a time) | Tail/read. Generation and transmission milestones. |
+| `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics at a change-driven cadence, columns `SimTime, WallTime, Mission_Day, Hours_Elapsed, Bandwidth_Pct, Onboard_Buffer, Link_Buffer, Ground_Total, Ground_Live, Ground_Arch, Nominal_Bandwidth_Pct, Lost_Count, Retry_Count, Disruption_Active` (a pre-rename `Ground_Archive` column is normalized to `Ground_Total` on read). |
 | `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
-| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters (+ `[provenance]` input identity for external data). |
+| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `julia_threads`, `blas_threads` — and, for external data, the input identity at `[provenance]` (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`). |
 | `RUN_ACTIVE` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
-| `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor + absolute deadline; re-attaching components reconstruct the identical clock from it. |
-| `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record: `down`, `restart`, `stalled`, `recovered`. |
-| `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs. |
+| `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor and absolute deadline (`wall_epoch`, `start_sim_time`, `speed_up`, `deadline_wall`); re-attaching components reconstruct the identical clock from it. |
+| `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` one of `down`, `restart`, `stalled`, `recovered`. |
+| `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs and deleted when it exits: absence means finished, a stale mtime means stalled. |
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run (`SimTime, Label`) — the instants the alert-latency metric is evaluated at (`alert_latency_markers.csv`). |
-| `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, with a `LowLatency` flag for deliveries inside a low-latency period (`plots/delivery_delay.png` renders the distribution against the delivery requirement). |
-| `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine vs counterfactual FIFO drain (`plots/alert_latency.png` renders it). |
-| `products.h5` | post-processing (`hdf5_export`) | Read/copy. Every product above in one HDF5 file with provenance attributes (section below); regenerable from the CSV products. |
-| `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map: `GenSimTime` (finalization instant from the event log) and `ContentEpoch` (first-sample timestamp from the batch metadata); re-anchors point-wise mask rows on the mission timeline across generation gaps. |
-| `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline consumes the file at lifecycle end. |
-| `emitter.log`, `receiver.log` | logger | Read. Human diagnostics; not machine-parsed interfaces. |
+| `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period); `plots/delivery_delay.png` renders the distribution against the requirement. |
+| `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine against the counterfactual FIFO drain — columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
+| `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
+| `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, the point-wise masks, and the provenance attributes in one HDF5 file (section below) — not the batch payloads, the clock anchor, the sentinels, or the logs; regenerable from the CSV products. |
+| `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact, `alert_latency`, and `delivery_delay`, each as `.png` and `.pdf`. |
+| `publication/` | post-processing (`[post_processing.publication]`) | Read/copy. Journal-width figure export, `<stem>__<run_id>.<format>`, with a `PROVENANCE.toml` sidecar (`[export]`: `run_id`, `run_directory`, `exported_at`, `column_width_mm`, `format`, `package_version`, `git_commit`, `config_snapshot_sha256`, `figures`). |
+| `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch`: the finalization instant from the event log and the first-sample timestamp from the batch metadata (missing when the metadata lacks it); written when the run has `gen` rows, it re-anchors point-wise mask rows when gap events are present. |
+| `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`. |
+| `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline removes the file once the components have joined, before post-processing. |
+| `emitter.log`, `receiver.log` | logger | Read. Human diagnostics, rotated to `<name>#k.log` at `retention.log_rotate_mb`; not machine-parsed interfaces. |
 | `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; the emitter counts in-flight batches from the `link/` listing, so a slot frees when the receiver moves a batch out. |
 
 A batch directory contains `metadata.json` and one `seg_<id>.csv` per segment
@@ -112,21 +116,30 @@ itself treats gap events as state-preserving.
 
 ## Event Feeds
 
-`events_rx.csv` — columns `SimTime, Batch, Event, Attempt`:
+`events_rx.csv` — columns `SimTime, Batch, Event, Attempt`; `Attempt` is
+populated on every row:
 
-* `ingested` — the batch reached the ground archive. **Ordering guarantee:**
-  the payload is moved into `ground/` *before* this row is appended, so a
-  consumer that reads an `ingested` event may open the batch immediately.
+* `ingested` — the batch reached the ground archive; `Attempt` is the
+  number of failed attempts before the successful transfer (`0` for a batch
+  reconciled at receiver start-up). **Ordering guarantee:** the payload is
+  moved into `ground/` *before* this row is appended, so a consumer that
+  reads an `ingested` event may open the batch immediately.
 * `retry` — a transfer attempt was lost; the batch remains on the link and
   is re-served no earlier than one round-trip light time later, other
   in-flight batches first. `Attempt` counts failed attempts so far.
-* `lost` — retry budget exhausted; the batch was moved to `lost/` (also
-  before the row is appended) and will never become ground-available.
+* `lost` — retry budget exhausted (`Attempt` = `max_retries + 1`); the
+  batch was moved to `lost/` (also before the row is appended) and will
+  never become ground-available.
+* `pruned` — the retention custodian removed the payload of a delivered
+  batch (`Attempt` = `0`); the `PRUNED` marker and `metadata.json` remain
+  (Retention above).
 
 `events_tx.csv` — columns `SimTime, Batch, Event`, with `gen` (batch
-finalized onboard), `tx` (batch placed on the downlink), and `marker`
+finalized onboard), `tx` (batch placed on the downlink), `marker`
 (`SimTime` = an event-marker instant, `Batch` = the batch holding it,
-appended when that batch is finalized; state-preserving).
+appended when that batch is finalized; state-preserving), and the
+`gap_start` / `gap_end` pair bounding a generation gap (`Batch` = `STREAM`,
+`SCHEDULED`, or `RECORDER`, see above; state-preserving).
 
 ## Batch Identity → Sample Interval
 
@@ -177,9 +190,11 @@ log is the ground truth from which the framework's own mask reconstruction is
 computed, so replayed availability is bit-identical to the live view.
 Alternatively, consume the prepared products:
 
-* `masks/telemetry_mask_timeline.csv` — rows = time snapshots, columns =
-  `Batch_<k>`, values `0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost`. A
-  window anchored at snapshot `r` may use exactly the batches with state 3 in
+* `masks/telemetry_mask_timeline.csv` — rows = time snapshots; the first
+  column is `SimTime` (the snapshot instant), then `Batch_<k>` for
+  `k = 1 … <largest batch ID>` (an ID never generated is an all-zero
+  column), values `0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost`. A window
+  anchored at snapshot `r` may use exactly the batches with state 3 in
   row `r`.
 * Point-wise 0/1 expansions via
   `scripts/postprocessing/apply_telemetry_mask.jl` (config-aware) or the
@@ -202,7 +217,7 @@ derived view of them and can be regenerated at any time.
 | root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `julia_version`, …), and `config_snapshot` — the run's configuration as TOML text |
 | `events/tx`, `events/rx` | the event logs, one dataset per column |
 | `metrics/mission_profile` | the metrics profile, one dataset per column |
-| `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants, and the state-code attribute |
+| `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants (`SimTime`, `SimTime_iso`), and the attributes `state_codes` and `layout` |
 | `masks/batch_epochs` | the batch → epoch map |
 | `masks/pointwise/<stem>` | every point-wise expansion, `Ground_Available` as `Int8` per sample |
 | `metrology/alert_latency`, `metrology/alert_latency_markers`, `metrology/delivery_delay` | the metrology tables |
@@ -210,10 +225,12 @@ derived view of them and can be regenerated at any time.
 
 Column conventions: a `DateTime` column is stored as `Float64` seconds
 since `start_sim_time` (attribute `unit`) with an ISO-8601 twin `<name>_iso`;
-booleans as `UInt8`; integers as `Int64` (or `Float64` with `NaN` when a
-value is missing); other numbers as `Float64` with `NaN` for missing; the
-rest as strings with `""` for missing. Each table group carries the
-attributes `source` (the CSV it was read from) and `rows`.
+booleans as `UInt8` (`0xff` for missing); integers as `Int64` (or `Float64`
+with `NaN` when a value is missing); other numbers as `Float64` with `NaN`
+for missing; the rest as strings with `""` for missing. Each table group
+carries the attributes `source` (the CSV it was read from) and `rows`;
+`masks/timeline` carries `source`, `state_codes`, and `layout`, and the
+point-wise groups `source`.
 
 ## Real-Time Operation
 

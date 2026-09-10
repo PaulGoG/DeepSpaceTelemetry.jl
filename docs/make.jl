@@ -24,7 +24,12 @@ makedocs(
     sitename = "DeepSpaceTelemetry",
     authors = "Paul-Adrian Gogîță <gogitapaul@yahoo.ro>",
     repo = Documenter.Remotes.GitHub("PaulGoG", "DeepSpaceTelemetry.jl"),
-    format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
+    format = Documenter.HTML(
+        prettyurls = get(ENV, "CI", nothing) == "true",
+        # The TelemetryCore API page renders at about 105 KiB; the default
+        # 100 KiB warning threshold is raised, the 200 KiB error stays.
+        size_threshold_warn = 150 * 2^10,
+    ),
     modules = [
         DeepSpaceTelemetry,
         DeepSpaceTelemetry.TelemetryCore,

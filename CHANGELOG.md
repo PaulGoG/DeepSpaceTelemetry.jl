@@ -6,13 +6,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
-### Changed
-- Dependency Manifests of the package and of the test, docs, scripts, and
-  bench environments re-resolved on Julia 1.13.0 (patch updates taken; the
-  test and root Manifests agree again); `SHA` compat widened to `"0.7, 1"`
-  for the stdlib version shipped with 1.13; CI tests the 1.12 compat floor
-  as a second blocking job.
-
 ### Added
 - A plain reference list closing the physics page (Definition Study Report,
   Rosetta Stone, Gilbert 1960, Elliott 1963, Kleinrock 1975,
@@ -159,47 +152,23 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `[provenance.platform]` — hostname, OS, CPU model and core count, memory,
   Julia version, thread and BLAS-thread counts.
 
-### Deprecated
-- Configuration keys `simulation.test_duration_sec` (now
-  `simulation.mission_wall_seconds`) and
-  `post_processing.generate_batch_matrix` (now
-  `post_processing.generate_mask_timeline`), and the `[disaster]` section
-  name: accepted with a one-time warning until 1.0.0.
-
-### Removed
-- The pre-1.0 configuration aliases `simulation.test_duration_sec`,
-  `simulation.max_storage_gb`, `physics.signal_injection_probability`,
-  `post_processing.generate_batch_matrix`, and the `[disaster]` section name:
-  a configuration carrying one is rejected with a `[CONFIG]` error naming the
-  replacement (`TelemetryCore.reject_removed_key`, `reject_removed_section`);
-  `aliased_value` is gone. Legacy run-artifact read paths (profile column
-  normalization, snapshot fallbacks) are unchanged.
-- The count-delta heuristic batch-state replay for runs without event logs
-  (`reconstruct_batch_states` now names the exact replay, formerly
-  `reconstruct_batch_states_exact`; `batch_states(run_dir, df)` drops the
-  visibility-model argument and errors on a run without `events_tx.csv`).
-- Submodule `export` lists: every public name is addressed qualified
-  (`TelemetryCore.x`, `ChannelEffects.x`, `PlotTheme.x`, ...), as the code
-  base already did.
-- The `DrWatson` dependency: its only use was `savename` in
-  `generate_run_id`, whose `RUN_pid=<pid>_t=<stamp>` layout is now produced
-  directly; `safesave`-style backup rotation and snapshot provenance were
-  already implemented in `TelemetryCore`.
-- The `.ack` marker files in `link/`: the receiver created them and the
-  emitter only deleted them, while in-flight occupancy has always been the
-  `link/` directory listing. Consumers never depended on them (`link/` is
-  off-limits by contract).
-
-### Removed
-- `DataSegment.is_signal` and the instrument's per-segment signal flag:
-  event instants are markers, not random draws. The synthetic noise
-  realization of a given seed changes (one fewer RNG draw per segment).
-
-### Deprecated
-- `physics.signal_injection_probability` is accepted with a warning and
-  ignored (removed at 1.0.0).
-
 ### Changed
+- Documentation currency for 1.0.0: the interfaces page states every column
+  of every product as the writers produce it (metrics profile, metrology
+  tables, component events, point-wise masks, batch epochs), the complete
+  event vocabularies with the `Attempt` semantics, the `[provenance.platform]`
+  table, the heartbeat deletion on exit, the `HALT` removal before
+  post-processing, and the `plots/` and `publication/` products; the manual
+  index lists the current capabilities; the README gains a component-status
+  table and drops the stale logging and count-delta claims; the changelog
+  block is consolidated to one heading per category; CLI wrappers report
+  errors through the logging macros.
+- Dependency Manifests of the package and of the test, docs, scripts, and
+  bench environments re-resolved on Julia 1.13.0 (patch updates taken; the
+  test and root Manifests agree again); `SHA` compat widened to `"0.7, 1"`
+  for the stdlib version shipped with 1.13; CI tests the 1.12 compat floor
+  as a second blocking job.
+
 - `Receiver.generate_mission_plots`, `plot_mission_summary`,
   `plot_session`, `Metrology.plot_alert_latency`, and `plot_delivery_delay`
   take `style`, `plots_dir`, `formats`, and `suffix` keywords (defaults
@@ -270,7 +239,43 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - Storage estimator counts the vector-PDF twin of every figure (bytes and
   file count) and uses named constants for its margins and slacks.
 
+- Renamed (2026-08-02, recorded here for consumers): the package, module, and
+  repository **SpaceTelemetrySim → DeepSpaceTelemetry** — a breaking change
+  for any code `using` the old module name.
+
+### Removed
+- The pre-1.0 configuration aliases `simulation.test_duration_sec`,
+  `simulation.max_storage_gb`, `physics.signal_injection_probability`,
+  `post_processing.generate_batch_matrix`, and the `[disaster]` section name:
+  a configuration carrying one is rejected with a `[CONFIG]` error naming the
+  replacement (`TelemetryCore.reject_removed_key`, `reject_removed_section`);
+  `aliased_value` is gone. Legacy run-artifact read paths (profile column
+  normalization, snapshot fallbacks) are unchanged.
+- The count-delta heuristic batch-state replay for runs without event logs
+  (`reconstruct_batch_states` now names the exact replay, formerly
+  `reconstruct_batch_states_exact`; `batch_states(run_dir, df)` drops the
+  visibility-model argument and errors on a run without `events_tx.csv`).
+- Submodule `export` lists: every public name is addressed qualified
+  (`TelemetryCore.x`, `ChannelEffects.x`, `PlotTheme.x`, ...), as the code
+  base already did.
+- The `DrWatson` dependency: its only use was `savename` in
+  `generate_run_id`, whose `RUN_pid=<pid>_t=<stamp>` layout is now produced
+  directly; `safesave`-style backup rotation and snapshot provenance were
+  already implemented in `TelemetryCore`.
+- The `.ack` marker files in `link/`: the receiver created them and the
+  emitter only deleted them, while in-flight occupancy has always been the
+  `link/` directory listing. Consumers never depended on them (`link/` is
+  off-limits by contract).
+
+- `DataSegment.is_signal` and the instrument's per-segment signal flag:
+  event instants are markers, not random draws. The synthetic noise
+  realization of a given seed changes (one fewer RNG draw per segment).
+
 ### Fixed
+- Figure legends size their rows from the entry widths (Makie packs a
+  horizontal legend column-major), so the mission summary with the recorder
+  bank no longer runs past the right figure edge at the design width; the
+  day ticks of long missions are thinned to at most eleven labels.
 - `bench/benchmarks.jl` runs again against the current API: the exact replay
   is `Receiver.reconstruct_batch_states` (renamed in the schema pass), the
   segment fixture drops the removed flag argument of `DataSegment`, and the
@@ -317,11 +322,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - Documentation currency: README project tree (docs environment files,
   repository dotfiles, full run-directory contract) and the figure-export
   description (vector PDF alongside raster PNG).
-
-### Changed
-- Renamed (2026-08-02, recorded here for consumers): the package, module, and
-  repository **SpaceTelemetrySim → DeepSpaceTelemetry** — a breaking change
-  for any code `using` the old module name.
 
 ## [0.9.0] - 2026-08-07
 

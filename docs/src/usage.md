@@ -227,7 +227,7 @@ hash, file list), each file named `<stem>__<run_id>.<format>`:
 enabled = true
 format = "pdf"              # or "svg"
 column_width_mm = 86.0      # single column; 178 = the double-column design width
-export_dir = "../paper/figures"   # "" = <run_dir>/publication
+export_dir = "figures_export"     # "" = <run_dir>/publication
 ```
 Text keeps at least 7 pt at the printed size and narrow figures gain
 height for the wrapped legends. The same export runs afterwards for any

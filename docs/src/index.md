@@ -17,12 +17,16 @@ Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl")
 ```
 
 ## Capabilities
-* **Continuous Physics Engine**: Natively generates amplitude-calibrated, phase-continuous synthetic LISA strain, or ingests external continuous CSV time-series arrays.
-* **Dynamic Bandwidth**: Models the horizon-to-horizon satellite pass using `sine`, `sigmoid`, `gaussian`, or `flat` curves.
-* **FIFO/LIFO Routing**: Prioritizes live transmission (FIFO) while backfilling the archive in strict LIFO order, so alert pipelines can extend a live event's waveform backwards in time without gaps.
-* **Stochastic Packet Loss**: Per-transfer downlink loss drawn from a configurable channel model — memoryless Bernoulli or bursty two-state Gilbert–Elliott — with a retransmit/drop retry policy; retry-exhausted batches land in `lost/` (data preserved) and appear as mask state `4`.
-* **Disruption Events**: Scheduled link disruptions (solar flares, safe-mode entries, ground-station outages) declared in the config: full or partial blackout, a linear recovery ramp, and elevated loss rates while the event is active. Onboard backlog accumulation and post-event drain emerge from the same queuing mechanics as the daily blind spots.
-* **Automated Post-Processing**: Tracks the exact state of every batch across time (the 2D `telemetry_mask_timeline.csv` matrix, reconstructed exactly from ground-truth event logs) and provides utilities to expand it into point-wise 0/1 ground-availability masks for external datasets.
-* **Validated Configuration**: Every tunable has a documented safe interval; `validate_config` aborts on code-breaking values and warns on suspicious ones before a single byte is generated. All RNGs are seeded from the config for full reproducibility.
+* **Continuous physics engine**: amplitude-calibrated, phase-continuous synthetic LISA strain from the sky-averaged sensitivity of Robson, Cornish & Liu (2019) with a selectable galactic-confusion fit, or ingestion of external continuous CSV time series.
+* **Link capacity**: either the batches-per-hour abstraction or the physical rate pair `downlink_kbps` / `onboard_data_rate_kbps`, with the catch-up ratio and the capacity of one nominal pass against the daily production reported at start-up.
+* **Pass profiles**: `sine`, `sigmoid`, `gaussian`, or `flat` capacity over the pass; the validator states the profile mean when a shaped profile meets a physical rate.
+* **Contact schedule**: seasonal pass-duration modulation, per-date exceptions, explicit pass lists (TOML or CSV), and low-latency periods at a station-availability capacity fraction.
+* **FIFO/LIFO routing**: live transmission first (FIFO), then the archive backfill in strict LIFO order, so alert pipelines extend a live event's waveform backwards in time without gaps.
+* **Stochastic packet loss**: per-transfer loss from a memoryless Bernoulli or a bursty Gilbert–Elliott channel, a retransmit/drop policy, and retransmissions deferred by the round-trip light time of the configured range; retry-exhausted batches land in `lost/` (data preserved, mask state `4`).
+* **Disruption events**: scheduled link disruptions (full or partial blackout, linear recovery ramp, elevated loss) and scheduled generation gaps such as antenna repointing; the on-board recorder ceiling discards data at capacity and records the loss as a gap.
+* **Event markers**: declared instants stamped into the batch metadata and the transmit log; the alert-latency and delivery-delay metrics are evaluated at each marker, with an optional triggered low-latency period.
+* **Post-processing products**: the exact batch-state history replayed from the event logs (`telemetry_mask_timeline.csv`), point-wise 0/1 availability masks, metrology tables, mission and session figures, an HDF5 export of every product with provenance attributes, and a publication export at a declared printed width with a provenance sidecar.
+* **Scenario library**: eleven complete configurations under `scenarios/`, from a 12-second smoke run to a 30-day seasonal mission, each validated by the test suite.
+* **Validated configuration**: every tunable has a documented safe interval; `validate_config` rejects code-breaking values and retired keys with a precise `[CONFIG]` message and warns on suspicious ones before any data is generated. All RNGs are seeded from the configuration.
 
 Navigate the manual using the sidebar: the physics engine, usage and configuration, the filesystem analysis interfaces, and the full API reference.

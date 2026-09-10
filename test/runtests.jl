@@ -3548,3 +3548,14 @@ end
         )
     end
 end
+
+@testset "Mission summary tick spacing" begin
+    # At most eleven day labels: daily up to 10 days, then 2, 5, 10, 20, 30,
+    # 60-day steps, 120 days beyond 600.
+    step_days(d) = Receiver.summary_tick_step_hours(Float64(d)) / 24
+    @test step_days(7) == 1 && step_days(10) == 1
+    @test step_days(12) == 2 && step_days(30) == 5 && step_days(45) == 5
+    @test step_days(60) == 10 && step_days(200) == 20 && step_days(365) == 60
+    @test step_days(1000) == 120
+    @test all(d / step_days(d) <= 10 for d in 1:600)
+end

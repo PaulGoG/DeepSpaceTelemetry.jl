@@ -474,25 +474,57 @@ function add_figure_legend!(
         elems,
         labels;
         orientation = :horizontal,
-        nbanks = ceil(Int, length(elems) / max(1, floor(Int, style.size_summary[1] / 160))),
+        nbanks = legend_banks(labels, style),
         framevisible = false,
         backgroundcolor = :transparent,
-        colgap = 28,
+        colgap = LEGEND_COLGAP,
     )
     return fig
+end
+
+# Column gap of the figure legends (Makie units).
+const LEGEND_COLGAP = 28
+
+"""
+    legend_banks(labels::Vector{String}, style::PlotTheme.PlotStyle) -> Int
+
+Number of rows of the horizontal figure legend so that no row runs past the
+figure width. Makie packs a horizontal legend column-major into `nbanks`
+rows, so a row is as wide as the sum of the widest entry of each column;
+entry widths are estimated as the patch and its gap plus the label at
+0.45 em per character (measured for the Computer Modern face), and the
+smallest row count whose widest row fits the figure width less the padding
+is returned.
+"""
+function legend_banks(labels::Vector{String}, style::PlotTheme.PlotStyle)
+    patch = 20 + 5                     # Makie patchsize + patchlabelgap
+    widths = [patch + 0.45 * style.fontsize_legend * length(l) for l in labels]
+    available = style.size_summary[1] - 40
+    n = length(widths)
+    for banks in 1:n
+        columns = ceil(Int, n / banks)
+        total = (columns - 1) * LEGEND_COLGAP
+        for c in 1:columns
+            lo = (c - 1) * banks + 1
+            total += maximum(view(widths, lo:min(c*banks, n)))
+        end
+        total <= available && return banks
+    end
+    return n
 end
 
 """
     summary_tick_step_hours(total_days) -> Float64
 
-Day-tick spacing of the mission summary [h]: daily up to 10 days, every
-other day up to 45, monthly up to 200, bi-monthly beyond.
+Day-tick spacing of the mission summary [h]: the smallest step of 1, 2, 5,
+10, 20, 30, or 60 days that places at most eleven `Day n` labels on the
+axis (the labels touch beyond that at the design width), 120 days beyond.
 """
 function summary_tick_step_hours(total_days::Float64)
-    total_days <= 10 && return 24.0
-    total_days <= 45 && return 24.0 * 2
-    total_days <= 200 && return 24.0 * 30
-    return 24.0 * 60
+    for step in (1, 2, 5, 10, 20, 30, 60)
+        total_days / step <= 10 && return 24.0 * step
+    end
+    return 24.0 * 120
 end
 
 """

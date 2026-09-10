@@ -1,14 +1,12 @@
 """
-Standalone Mask Expander
+Standalone mask expander
 ========================
 
-This is an independent script designed to be shared with external collaborators.
-It does NOT require the full `DeepSpaceTelemetry` package or any custom modules.
-It only requires standard open-source Julia packages (`CSV`, `DataFrames`).
-
-It converts a compact 2D `telemetry_mask_timeline.csv` (provided by the
-simulator) into a high-resolution 1D column of 0s and 1s that can be multiplied
-against raw time-series data in Python, MATLAB, or C++.
+Dependency-light copy of the point-wise mask expansion for collaborators who
+consume run products without the package: only the registered packages `CSV`
+and `DataFrames` are needed. Expands one row of a run's compact
+`telemetry_mask_timeline.csv` into a point-wise 0/1 availability column that
+multiplies raw time series in Python, MATLAB, or C++.
 
 Usage:
     julia standalone_mask_expander.jl <path_to_matrix.csv> <points_per_batch> <target_row_idx> <output.csv>
@@ -124,14 +122,11 @@ if abspath(PROGRAM_FILE) == @__FILE__
     idx = tryparse(Int, ARGS[3])
     out_csv = ARGS[4]
     if ppb === nothing || idx === nothing
-        println(
-            "Error: <points_per_batch> and <target_row_idx> must be integers " *
-            "(got \"$(ARGS[2])\", \"$(ARGS[3])\").",
-        )
+        "<points_per_batch> and <target_row_idx> must be integers (got \"1000 10 1000ARGS[2])\", \"1000 10 1000ARGS[3])\")"
         exit(1)
     end
     if !isfile(mat_csv)
-        println("Error: matrix CSV not found at $mat_csv")
+        "matrix CSV not found at "
         exit(1)
     end
 

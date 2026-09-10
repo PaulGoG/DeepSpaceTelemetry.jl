@@ -300,6 +300,22 @@ freely — e.g. `[-1, "10:20", 45]`.
 
 ---
 
+## Component Status
+
+| Component | Role | Status |
+|---|---|---|
+| `TelemetryCore` | configuration accessors and validation, run layout, batch I/O, event logs, provenance | stable; unit, guardrail, and static-QA coverage |
+| `ChannelEffects` | loss channels, disruption timeline, composite link model | stable; validated against the analytic stationary loss rate |
+| `VirtualInstrument` | calibrated strain synthesis, Robson–Cornish–Liu noise model, external ingestion | stable; noise model checked against reference values |
+| `Emitter` / `Receiver` | spacecraft and ground-station state machines, post-processing products and figures | stable; four end-to-end integration missions in the suite |
+| `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
+| `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
+| `Supervisor` | mission plan, supervised tasks, sentinels, banner | stable; restart and policy tests |
+| `PlotTheme` | figure theme and scale-aware styling | stable |
+| Scenario library | eleven configurations under `scenarios/` | every file validated and the smoke scenario run by the suite |
+
+---
+
 ## Key Features
 
 *   **Continuous physics engine**: generates amplitude-calibrated synthetic
@@ -362,7 +378,7 @@ freely — e.g. `[-1, "10:20", 45]`.
 *   **Ground-truth event logs**: emitter and receiver append every batch
     milestone (`gen`, `tx`, `ingested`, `retry`, `lost`) to `events_tx.csv` /
     `events_rx.csv`; post-processing replays them for an **exact** batch-state
-    reconstruction (legacy runs fall back to the count-delta heuristic).
+    reconstruction (a run without event logs is rejected).
 *   **2D telemetry mask matrices**: tracks the state of every batch across
     time (`0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost`) in
     `telemetry_mask_timeline.csv`.
@@ -378,8 +394,8 @@ freely — e.g. `[-1, "10:20", 45]`.
     costs completed run data.
 *   **Terminal dashboards**: zero-flicker, change-driven terminal UI
     (`UnicodePlots.jl`) with live disruption/loss status lines, alongside
-    background `.log` tracking (`TerminalLoggers` + `LoggingExtras`, file logs
-    ANSI-sanitized).
+    background `.log` tracking (a size-rotated file logger that keeps the logs
+    free of ANSI sequences).
 *   **Publication-oriented outputs**: static figures as vector `.pdf` plus
     raster `.png` (nominal vs
     effective bandwidth, disruption-window shading fading across the recovery
