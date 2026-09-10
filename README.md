@@ -112,7 +112,8 @@ cd DeepSpaceTelemetry.jl
 ```
 
 To consume the package as a library from another environment instead
-(registration in General is pending):
+(version 1.0.0 is not registered in the General registry; the package is
+added by URL, at a release tag):
 
 ```julia
 using Pkg

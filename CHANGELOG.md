@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-10
+
 ### Added
 - A plain reference list closing the physics page (Definition Study Report,
   Rosetta Stone, Gilbert 1960, Elliott 1963, Kleinrock 1975,
@@ -352,5 +354,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - Static QA shipped with the tests: Aqua, ExplicitImports, and JET alongside
   unit, physics-validation, and three end-to-end integration suites.
 
-[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/releases/tag/v0.9.0

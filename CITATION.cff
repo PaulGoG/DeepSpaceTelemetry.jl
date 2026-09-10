@@ -6,8 +6,8 @@ authors:
   - family-names: "Gogîță"
     given-names: "Paul-Adrian"
     email: "gogitapaul@yahoo.ro"
-version: "0.9.0"
-date-released: "2026-08-07"
+version: "1.0.0"
+date-released: "2026-09-10"
 license: MIT
 repository-code: "https://github.com/PaulGoG/DeepSpaceTelemetry.jl"
 keywords:
