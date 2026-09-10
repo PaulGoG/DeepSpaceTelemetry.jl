@@ -14,6 +14,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
   as a second blocking job.
 
 ### Added
+- A plain reference list closing the physics page (Definition Study Report,
+  Rosetta Stone, Gilbert 1960, Elliott 1963, Kleinrock 1975,
+  Robson–Cornish–Liu 2019); the in-text mentions point at it by author and
+  year, without a citation dependency.
 - Doctests: `jldoctest` examples on the pure accessors (`batch_name`,
   `batch_id`, `is_live_batch`, `VisibilityModel`, `get_bandwidth_factor`,
   `normalize_target_rows`, `telemetry_settings` in both capacity forms,
