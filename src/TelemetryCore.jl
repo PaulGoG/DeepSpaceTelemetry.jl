@@ -364,10 +364,8 @@ const KNOWN_CONFIG_KEYS = Dict(
         "speed_up",
         "start_sim_time",
         "mission_wall_seconds",
-        "test_duration_sec", # deprecated alias of mission_wall_seconds
         "initial_downtime_days",
         "rng_seed",
-        "max_storage_gb",
     ],
     "storage" => vcat(
         ["max_storage_gb", "max_file_count", "max_ram_gb", "onboard_capacity_days"],
@@ -395,7 +393,6 @@ const KNOWN_CONFIG_KEYS = Dict(
         "batch_size",
         "confusion_observation_years",
         "noise_f_min_hz",
-        "signal_injection_probability",
     ],
     "packet_loss" => [
         "enabled",
@@ -409,11 +406,9 @@ const KNOWN_CONFIG_KEYS = Dict(
         "max_retries",
     ],
     "disruption" => ["events"],
-    "disaster" => ["events"],
     "dashboard" => ["open_live_viewer", "open_receiver_log", "open_emitter_log"],
     "post_processing" => [
         "generate_mask_timeline",
-        "generate_batch_matrix", # deprecated alias of generate_mask_timeline
         "expand_to_pointwise_masks",
         "target_event_rows",
         "alert_latency",
@@ -464,34 +459,54 @@ const KNOWN_CONTACT_ENTRY_KEYS = Dict(
 )
 
 # --- Configuration accessors ---
-"""
-    aliased_value(section, sec_name, key, legacy_key, default)
-
-Reads `key` from `section`, falling back to the deprecated `legacy_key` with
-a one-time warning, or to `default` when neither is present. Deprecated
-keys are accepted until 1.0.0.
-"""
-function aliased_value(
-    section::AbstractDict,
-    sec_name::String,
-    key::String,
-    legacy_key::String,
-    default,
+# Configuration keys retired at 1.0.0, (section, key) => replacement. A
+# configuration that still carries one is rejected with the replacement named
+# instead of being read through a silent fallback.
+const REMOVED_CONFIG_KEYS = Dict(
+    ("simulation", "test_duration_sec") => "simulation.mission_wall_seconds",
+    ("simulation", "max_storage_gb") => "storage.max_storage_gb",
+    ("physics", "signal_injection_probability") => "[[events.markers]]",
+    (
+        "post_processing",
+        "generate_batch_matrix",
+    ) => "post_processing.generate_mask_timeline",
 )
-    haskey(section, key) && return section[key]
-    if haskey(section, legacy_key)
-        @warn "[CONFIG] $sec_name.$legacy_key is deprecated — rename it to $sec_name.$key (the alias is removed at 1.0.0)." maxlog =
-            1
-        return section[legacy_key]
-    end
-    return default
+
+"""
+    reject_removed_key(section::AbstractDict, sec_name::String, key::String)
+
+Raises a `[CONFIG]` `ArgumentError` naming the replacement when `section`
+still carries `key`, a configuration key retired at 1.0.0
+(`REMOVED_CONFIG_KEYS`); returns `nothing` otherwise. Called by the
+accessors that once read the key through a fallback and by
+[`validate_config`](@ref).
+"""
+function reject_removed_key(section::AbstractDict, sec_name::String, key::String)
+    haskey(section, key) || return nothing
+    replacement = REMOVED_CONFIG_KEYS[(sec_name, key)]
+    config_error("[CONFIG] $sec_name.$key was removed at 1.0.0 — use $replacement.")
+end
+
+"""
+    reject_removed_section(cfg::AbstractDict)
+
+Raises a `[CONFIG]` `ArgumentError` when the configuration carries the
+`[disaster]` section, renamed `[disruption]` before 1.0.0; returns `nothing`
+otherwise.
+"""
+function reject_removed_section(cfg::AbstractDict)
+    haskey(cfg, "disaster") && config_error(
+        "[CONFIG] The [disaster] section was removed at 1.0.0 — rename it to [disruption].",
+    )
+    return nothing
 end
 
 """
     mission_wall_seconds(cfg::AbstractDict) -> Float64
 
 Validated wall-clock mission span `simulation.mission_wall_seconds` (> 0);
-the deprecated `simulation.test_duration_sec` is accepted with a warning.
+the retired alias `simulation.test_duration_sec` is rejected with the
+replacement named.
 
 # Examples
 ```jldoctest
@@ -501,13 +516,8 @@ julia> TelemetryCore.mission_wall_seconds(Dict{String,Any}("simulation" => Dict{
 """
 function mission_wall_seconds(cfg::AbstractDict)
     sim = get(cfg, "simulation", Dict{String,Any}())
-    raw = aliased_value(
-        sim,
-        "simulation",
-        "mission_wall_seconds",
-        "test_duration_sec",
-        nothing,
-    )
+    reject_removed_key(sim, "simulation", "test_duration_sec")
+    raw = get(sim, "mission_wall_seconds", nothing)
     raw === nothing &&
         config_error("[CONFIG] Missing required key simulation.mission_wall_seconds.")
     v = checked_number(raw, "simulation.mission_wall_seconds")
@@ -782,8 +792,8 @@ synthesis block). The four core keys are required. The optional
 `confusion_observation_years` (one of 0.5, 1.0, 2.0, 4.0; default 1.0)
 selects the galactic-confusion fit of the noise model and
 `noise_f_min_hz > 0` (default 1e-5) the lower edge of the synthesized band.
-The retired `signal_injection_probability` is accepted with a deprecation
-warning and ignored (event instants are `[[events.markers]]`). The
+The retired `signal_injection_probability` is rejected (event instants are
+`[[events.markers]]`). The
 existence of the external file is checked by [`validate_config`](@ref)
 only, so post-processing of a finished run does not depend on the input
 file still being present.
@@ -826,9 +836,7 @@ function physics_settings(cfg::AbstractDict)
     noise_f_min = checked_number(get(phy, "noise_f_min_hz", 1e-5), "physics.noise_f_min_hz")
     noise_f_min > 0.0 ||
         config_error("[CONFIG] physics.noise_f_min_hz must be > 0 (got $noise_f_min).")
-    haskey(phy, "signal_injection_probability") &&
-        @warn "[CONFIG] physics.signal_injection_probability is deprecated and ignored — declare event instants as [[events.markers]] (the key is removed at 1.0.0)." maxlog =
-            1
+    reject_removed_key(phy, "physics", "signal_injection_probability")
     return (
         data_source = data_source,
         external_data_path = external_data_path,
@@ -1062,8 +1070,8 @@ const DisruptionEventSettings = NamedTuple{
 """
     disruption_event_settings(cfg::AbstractDict) -> Vector{DisruptionEventSettings}
 
-Validated `[[disruption.events]]` entries in file order (the legacy
-`[[disaster.events]]` section name is accepted): `type`, `label`,
+Validated `[[disruption.events]]` entries in file order (the pre-1.0
+`[[disaster.events]]` section name is rejected): `type`, `label`,
 `start_day ≥ 0`, `duration_hours > 0`, `recovery_hours ≥ 0`,
 `severity ∈ [0, 1]`, `loss_multiplier`, and `affects` — `"link"` (the
 default: a capacity and loss disruption) or `"generation"` (a scheduled
@@ -1073,7 +1081,8 @@ keys are ignored). `type = "antenna_repointing"` defaults to
 skipped: a silently missing disruption invalidates the scenario.
 """
 function disruption_event_settings(cfg::AbstractDict)
-    d = get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}()))
+    reject_removed_section(cfg)
+    d = get(cfg, "disruption", Dict{String,Any}())
     events = DisruptionEventSettings[]
     for (i, e) in enumerate(get(d, "events", Any[]))
         e isa AbstractDict ||
@@ -1508,6 +1517,10 @@ Hard errors (would break the pipeline):
   - type-mismatched values anywhere (a quoted `"3600"` where a number is
     expected, a float where an integer is expected) — reported as a precise
     `[CONFIG]` message instead of a raw conversion stacktrace
+  - configuration keys retired at 1.0.0 (`simulation.test_duration_sec`,
+    `simulation.max_storage_gb`, `physics.signal_injection_probability`,
+    `post_processing.generate_batch_matrix`) and the `[disaster]` section
+    name — rejected with the replacement named
 
 Warnings (runnable but likely unintended):
   - emitter wall-clock period `segment_duration_sec / speed_up` below 5 ms
@@ -1531,6 +1544,13 @@ Warnings (runnable but likely unintended):
     fails while that regime is active)
 """
 function validate_config(cfg::AbstractDict)
+    # Retired aliases fail fast with the replacement named — no fallback
+    # survives 1.0.0 — so the typo sweep below sees only live keys.
+    reject_removed_section(cfg)
+    for (section, key) in keys(REMOVED_CONFIG_KEYS)
+        content = get(cfg, section, nothing)
+        content isa AbstractDict && reject_removed_key(content, section, key)
+    end
     # Unrecognized-key sweep (silent-failure guard): a mistyped key would
     # otherwise fall back to a default without a trace.
     for (section, content) in cfg
@@ -1543,13 +1563,8 @@ function validate_config(cfg::AbstractDict)
             end
         end
     end
-    for (i, e) in enumerate(
-        get(
-            get(cfg, "disruption", get(cfg, "disaster", Dict{String,Any}())),
-            "events",
-            Any[],
-        ),
-    )
+    for (i, e) in
+        enumerate(get(get(cfg, "disruption", Dict{String,Any}()), "events", Any[]))
         e isa AbstractDict || continue
         for key in keys(e)
             key in KNOWN_EVENT_KEYS ||
@@ -1737,9 +1752,6 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [disruption] --
-    haskey(cfg, "disaster") &&
-        !haskey(cfg, "disruption") &&
-        @warn "[CONFIG] The [disaster] section name is deprecated — rename it to [disruption]."
     mission_days = mission_wall_sec * speed_up / 86_400.0
     event_windows = Tuple{Float64,Float64,Int}[] # (start_h, end_h incl. ramp, event index)
     for (i, ev) in enumerate(events)
@@ -1795,7 +1807,6 @@ function validate_config(cfg::AbstractDict)
     pp = get(cfg, "post_processing", Dict{String,Any}())
     for key in (
         "generate_mask_timeline",
-        "generate_batch_matrix",
         "expand_to_pointwise_masks",
         "alert_latency",
         "delivery_delay",
@@ -1952,22 +1963,15 @@ const RUN_FILE_COUNT_SLACK = 8
     storage_budget(cfg::AbstractDict) -> (max_gb, max_files, max_ram_gb)
 
 Resolves the run-directory disk budget [GB] and inode budget from `[storage]`.
-`simulation.max_storage_gb` is honored as a deprecated fallback (with a
-warning); with neither present the legacy default of 5.0 GB applies.
+The retired `simulation.max_storage_gb` is rejected with the replacement
+named; without the key the default of 5.0 GB applies.
 `max_ram_gb` (default 8.0) budgets the post-processing replay RAM.
 """
 function storage_budget(cfg::AbstractDict)
     st = get(cfg, "storage", Dict{String,Any}())
     sim = get(cfg, "simulation", Dict{String,Any}())
-    max_gb = if haskey(st, "max_storage_gb")
-        checked_number(st["max_storage_gb"], "storage.max_storage_gb")
-    elseif haskey(sim, "max_storage_gb")
-        @warn "[CONFIG] simulation.max_storage_gb is deprecated — move the key to [storage]." maxlog =
-            1
-        checked_number(sim["max_storage_gb"], "simulation.max_storage_gb")
-    else
-        5.0
-    end
+    reject_removed_key(sim, "simulation", "max_storage_gb")
+    max_gb = checked_number(get(st, "max_storage_gb", 5.0), "storage.max_storage_gb")
     max_files =
         checked_integer(get(st, "max_file_count", 1_000_000), "storage.max_file_count")
     max_ram_gb = checked_number(get(st, "max_ram_gb", 8.0), "storage.max_ram_gb")
@@ -2083,14 +2087,9 @@ function estimate_artifacts(cfg::AbstractDict)
     metrics_bytes = metrics_rows * cal("bytes_metrics_row")
 
     pp = get(cfg, "post_processing", Dict{String,Any}())
+    reject_removed_key(pp, "post_processing", "generate_batch_matrix")
     do_matrix = checked_flag(
-        aliased_value(
-            pp,
-            "post_processing",
-            "generate_mask_timeline",
-            "generate_batch_matrix",
-            true,
-        ),
+        get(pp, "generate_mask_timeline", true),
         "post_processing.generate_mask_timeline",
     )
     mask_bytes =

@@ -163,6 +163,13 @@ Notable changes to DeepSpaceTelemetry. The format follows
   name: accepted with a one-time warning until 1.0.0.
 
 ### Removed
+- The pre-1.0 configuration aliases `simulation.test_duration_sec`,
+  `simulation.max_storage_gb`, `physics.signal_injection_probability`,
+  `post_processing.generate_batch_matrix`, and the `[disaster]` section name:
+  a configuration carrying one is rejected with a `[CONFIG]` error naming the
+  replacement (`TelemetryCore.reject_removed_key`, `reject_removed_section`);
+  `aliased_value` is gone. Legacy run-artifact read paths (profile column
+  normalization, snapshot fallbacks) are unchanged.
 - The count-delta heuristic batch-state replay for runs without event logs
   (`reconstruct_batch_states` now names the exact replay, formerly
   `reconstruct_batch_states_exact`; `batch_states(run_dir, df)` drops the

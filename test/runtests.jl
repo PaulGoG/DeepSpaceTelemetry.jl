@@ -95,13 +95,10 @@ end
     end
 end
 
-@testset "Storage safety (legacy simulation.max_storage_gb fallback)" begin
+@testset "Storage safety (budget gate)" begin
     cfg_oversized = Dict(
-        "simulation" => Dict(
-            "speed_up" => 1.0,
-            "mission_wall_seconds" => 1000000.0,
-            "max_storage_gb" => 0.0001,
-        ),
+        "simulation" => Dict("speed_up" => 1.0, "mission_wall_seconds" => 1000000.0),
+        "storage" => Dict("max_storage_gb" => 0.0001),
         "physics" => Dict(
             "segment_duration_sec" => 60.0,
             "sample_rate" => 1024.0,
@@ -112,11 +109,8 @@ end
     @test TelemetryCore.storage_budget(cfg_oversized).max_gb == 0.0001
 
     cfg_safe = Dict(
-        "simulation" => Dict(
-            "speed_up" => 1.0,
-            "mission_wall_seconds" => 100.0,
-            "max_storage_gb" => 10.0,
-        ),
+        "simulation" => Dict("speed_up" => 1.0, "mission_wall_seconds" => 100.0),
+        "storage" => Dict("max_storage_gb" => 10.0),
         "physics" => Dict(
             "segment_duration_sec" => 60.0,
             "sample_rate" => 1024.0,
@@ -126,6 +120,12 @@ end
     # Should not throw
     TelemetryCore.check_storage_limits(cfg_safe)
     @test true
+    # Without the key the default budget applies; the retired simulation key
+    # is rejected rather than read.
+    @test TelemetryCore.storage_budget(Dict{String,Any}()).max_gb == 5.0
+    @test_throws ArgumentError TelemetryCore.storage_budget(
+        Dict{String,Any}("simulation" => Dict{String,Any}("max_storage_gb" => 1.0)),
+    )
 end
 
 # Complete, in-range configuration used as the mutation baseline below.
@@ -135,10 +135,10 @@ function valid_test_cfg()
             "speed_up" => 3600.0,
             "mission_wall_seconds" => 10.0,
             "initial_downtime_days" => 0.0,
-            "max_storage_gb" => 2.0,
             "start_sim_time" => "2035-01-01T06:00:00",
             "rng_seed" => 1,
         ),
+        "storage" => Dict{String,Any}("max_storage_gb" => 2.0),
         "telemetry" => Dict{String,Any}(
             "session_start" => "08:00:00",
             "session_duration_hours" => 8.0,
@@ -161,7 +161,7 @@ end
         ("simulation", "speed_up", 0.0),
         ("simulation", "mission_wall_seconds", -1.0),
         ("simulation", "initial_downtime_days", -0.5),
-        ("simulation", "max_storage_gb", 0.0),
+        ("storage", "max_storage_gb", 0.0),
         ("simulation", "rng_seed", "not-an-int"),
         ("telemetry", "session_duration_hours", 0.0),
         ("telemetry", "session_duration_hours", 25.0),
@@ -229,7 +229,7 @@ end
         @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
 
-    # legacy [disaster] section still validated (deprecation warning + same rules)
+    # the retired [disaster] section name is rejected outright
     cfg = valid_test_cfg()
     cfg["disaster"] = Dict{String,Any}("events" => [Dict("start_day" => -1.0)])
     @test_throws ArgumentError TelemetryCore.validate_config(cfg)
@@ -953,24 +953,14 @@ end
     @test isapprox(ChannelEffects.disruption_factor(tl2, start + Hour(6)), 0.6, atol = 1e-9)
     @test ChannelEffects.active_disruption_label(tl2, start + Hour(6)) == ""
 
-    # Legacy [disaster] section name (pre-rename run snapshots) still parses
+    # The retired [disaster] section name is rejected, not read through a fallback.
     legacy = Dict{String,Any}(
         "disaster" => Dict{String,Any}(
-            "events" => [
-                Dict{String,Any}(
-                    "start_day" => 0.0,
-                    "duration_hours" => 12.0,
-                    "severity" => 0.4,
-                ),
-            ],
+            "events" =>
+                [Dict{String,Any}("start_day" => 0.0, "duration_hours" => 12.0)],
         ),
     )
-    tl_legacy = ChannelEffects.build_disruption_timeline(legacy, start)
-    @test isapprox(
-        ChannelEffects.disruption_factor(tl_legacy, start + Hour(6)),
-        0.6,
-        atol = 1e-9,
-    )
+    @test_throws ArgumentError ChannelEffects.build_disruption_timeline(legacy, start)
 
     # Empty timeline is a no-op
     @test ChannelEffects.disruption_factor(ChannelEffects.DisruptionTimeline(), start) ==
@@ -2153,24 +2143,56 @@ end
     )
 end
 
-@testset "Deprecated configuration keys (aliases until 1.0.0)" begin
+@testset "Retired configuration aliases (1.0.0)" begin
+    # Every retired key is rejected with the replacement named, in the accessor
+    # and in the validator; the current keys pass untouched.
+    message_of(f) =
+        try
+            f()
+            ""
+        catch e
+            sprint(showerror, e)
+        end
     cfg = valid_test_cfg()
     span = pop!(cfg["simulation"], "mission_wall_seconds")
     cfg["simulation"]["test_duration_sec"] = span
-    @test_logs (:warn, r"deprecated") match_mode = :any TelemetryCore.validate_config(cfg)
-    @test TelemetryCore.mission_wall_seconds(cfg) == span
+    @test occursin(
+        "simulation.mission_wall_seconds",
+        message_of(() -> TelemetryCore.mission_wall_seconds(cfg)),
+    )
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     @test_throws ArgumentError TelemetryCore.mission_wall_seconds(
         Dict{String,Any}("simulation" => Dict{String,Any}()),
     )
-    pp = Dict{String,Any}("generate_batch_matrix" => false)
-    @test TelemetryCore.aliased_value(
-        pp,
-        "post_processing",
-        "generate_mask_timeline",
-        "generate_batch_matrix",
-        true,
-    ) == false
-    # A legacy profile column is normalized on read.
+    cfg = valid_test_cfg()
+    cfg["simulation"]["max_storage_gb"] = 1.0
+    @test occursin(
+        "storage.max_storage_gb",
+        message_of(() -> TelemetryCore.storage_budget(cfg)),
+    )
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+    cfg = valid_test_cfg()
+    cfg["post_processing"] = Dict{String,Any}("generate_batch_matrix" => false)
+    @test occursin(
+        "post_processing.generate_mask_timeline",
+        message_of(() -> TelemetryCore.estimate_artifacts(cfg)),
+    )
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+    cfg = valid_test_cfg()
+    cfg["disaster"] = Dict{String,Any}("events" => Any[])
+    @test occursin(
+        "[disruption]",
+        message_of(() -> TelemetryCore.disruption_event_settings(cfg)),
+    )
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+    @test TelemetryCore.reject_removed_key(
+        Dict{String,Any}(),
+        "simulation",
+        "test_duration_sec",
+    ) === nothing
+    @test TelemetryCore.validate_config(valid_test_cfg()) isa AbstractDict
+    # A legacy profile column is a data artifact, not a configuration alias,
+    # and is still normalized on read.
     legacy = DataFrame(SimTime = [DateTime(2035)], Ground_Archive = [3], Ground_Live = [1])
     @test hasproperty(TelemetryCore.normalize_profile!(legacy), :Ground_Total)
     @test !hasproperty(legacy, :Ground_Archive)
@@ -2182,9 +2204,7 @@ end
     @test !haskey(phys, :signal_injection_probability)
     legacy = valid_test_cfg()
     legacy["physics"]["signal_injection_probability"] = 0.02
-    @test_logs (:warn, r"signal_injection_probability is deprecated") match_mode = :any TelemetryCore.physics_settings(
-        legacy,
-    )
+    @test_throws ArgumentError TelemetryCore.physics_settings(legacy)
     bad = valid_test_cfg()
     bad["physics"]["data_source"] = "tape"
     @test_throws ArgumentError TelemetryCore.physics_settings(bad)

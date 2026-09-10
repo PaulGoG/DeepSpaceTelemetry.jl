@@ -442,12 +442,10 @@ post-processing scripts).
 """
 function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = stdout)
     pp = get(plan.cfg, "post_processing", Dict{String,Any}())
-    if TelemetryCore.aliased_value(
-        pp,
-        "post_processing",
-        "generate_mask_timeline",
-        "generate_batch_matrix",
-        true,
+    TelemetryCore.reject_removed_key(pp, "post_processing", "generate_batch_matrix")
+    if TelemetryCore.checked_flag(
+        get(pp, "generate_mask_timeline", true),
+        "post_processing.generate_mask_timeline",
     )
         println(orig_stdout, "\nGenerating Post-Processing Telemetry Masks...")
         try
