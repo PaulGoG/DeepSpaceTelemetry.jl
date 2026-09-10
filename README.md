@@ -72,6 +72,7 @@ DeepSpaceTelemetry/
 │                                #   sentinels (interfaces.md documents the full contract)
 ├── .github/workflows/CI.yml     # Test matrix + formatter + docs build (activates on remote)
 ├── .github/workflows/CompatHelper.yml # Weekly compat-bound update pull requests
+├── .github/workflows/TagBot.yml # Release tags after registry merges (active once registered)
 ├── .github/dependabot.yml       # Monthly GitHub Actions version updates
 ├── .gitignore                   # Excludes run data and generated artifacts
 ├── .JuliaFormatter.toml         # Committed formatter configuration
@@ -237,7 +238,9 @@ julia --project=docs docs/make.jl
 ```
 
 renders the Documenter.jl manual (physics, usage, analysis interfaces, API
-reference) into `docs/build/`.
+reference) into `docs/build/`. The manual is not deployed while the repository
+is private; the CI docs job builds it as a check, and GitHub Pages deployment
+is added at publication.
 
 ---
 

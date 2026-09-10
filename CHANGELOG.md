@@ -18,8 +18,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   conventions), a monthly dependabot schedule for GitHub Actions, and the
   CompatHelper workflow (weekly, covering the package and its four auxiliary
   environments).
-
-### Added
+- Tag-triggered CI runs and the TagBot workflow (active once the package is
+  registered); the docs build declares doctests explicitly and records that
+  deployment is deferred until the repository is public.
 - Publication figure export (`Publication.export_publication_figures`,
   `[post_processing.publication]`, `scripts/postprocessing/export_publication_figures.jl`):
   every figure re-rendered at a declared printed width in PDF or SVG with

@@ -5,7 +5,11 @@ Pkg.instantiate(; io = devnull)
 using Documenter
 using DeepSpaceTelemetry
 
+# Deployment (`deploydocs`) is added when the repository becomes public: GitHub
+# Pages does not serve a private repository on the free plan, so the CI docs
+# job only builds the manual until then.
 makedocs(
+    doctest = true,
     sitename = "DeepSpaceTelemetry",
     authors = "Paul-Adrian Gogîță <gogitapaul@yahoo.ro>",
     repo = Documenter.Remotes.GitHub("PaulGoG", "DeepSpaceTelemetry.jl"),
