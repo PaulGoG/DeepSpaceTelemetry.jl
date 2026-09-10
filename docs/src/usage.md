@@ -61,7 +61,10 @@ and external ingestion. Under the physical rate pair only the flat profile
 sustains production: a day's capacity is the link rate times the pass
 length times the profile mean (flat 1.0, sine 0.5, Gaussian σ = 0.15 0.38),
 so the shaped profiles remain stress abstractions of a partially usable
-pass.
+pass. `validate_config` warns when the rate pair meets a shaped profile,
+stating the profile mean and the capacity of one nominal pass against the
+daily production (`TelemetryCore.capacity_balance`), and the mission banner
+prints the same balance as its `Capacity:` line for every run.
 
 Any CLI argument ending in `.toml` selects the configuration (relative
 paths resolve against the current directory, then the package root); any

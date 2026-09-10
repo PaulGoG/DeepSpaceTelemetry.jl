@@ -634,6 +634,33 @@ function visibility_model(cfg::AbstractDict)
 end
 
 """
+    capacity_balance(cfg::AbstractDict) -> NamedTuple
+
+Capacity of one nominal pass against the daily production, from
+[`telemetry_settings`](@ref), [`physics_settings`](@ref), and the pass
+profile: `rate_form` (the capacity is given as the physical rate pair),
+`profile_mean` ([`profile_mean`](@ref) of the pass profile), `pass_hours`
+(`telemetry.session_duration_hours`), `capacity_per_pass` (batches,
+`max_batches_per_hour × profile_mean × pass_hours`), and `produced_per_day`
+(batches, `86 400 / (batch_size × segment_duration_sec)`). Seasonal
+extensions, exceptions, and low-latency periods are not included: the
+figure is the balance of the nominal daily pass.
+"""
+function capacity_balance(cfg::AbstractDict)
+    tel = telemetry_settings(cfg)
+    physics = physics_settings(cfg)
+    mean = profile_mean(visibility_model(cfg))
+    pass_hours = tel.session_duration.value / 3600
+    return (
+        rate_form = !isnan(tel.catch_up_ratio),
+        profile_mean = mean,
+        pass_hours = pass_hours,
+        capacity_per_pass = tel.max_batches_per_hour * mean * pass_hours,
+        produced_per_day = 86_400 / (physics.batch_size * physics.segment_duration_sec),
+    )
+end
+
+"""
     loss_channel_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[packet_loss]` parameters: `enabled`, `model` (`"bernoulli"` or
@@ -1422,6 +1449,9 @@ Warnings (runnable but likely unintended):
   - receiver nominal download slot `3600 / (max_batches_per_hour · speed_up)`
     below 2 ms (the 1 ms sleep floor distorts the download rate)
   - unknown `bandwidth_profile` (falls back to `"sine"`)
+  - the physical rate pair combined with a shaped `bandwidth_profile` (the
+    profile mean scales a link rate that the pass sustains; the capacity of
+    one nominal pass against the daily production is stated)
   - non-integer `sample_rate * segment_duration_sec` (rounded)
   - Gilbert–Elliott `p_bad_to_good = 0` (the channel never recovers)
   - disruption events starting at or after mission end (never fire), events
@@ -1560,6 +1590,17 @@ function validate_config(cfg::AbstractDict)
     tel_settings = telemetry_settings(cfg)
     tel_settings.bandwidth_profile in ("sine", "sigmoid", "gaussian", "flat") ||
         @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$(tel_settings.bandwidth_profile)\"; falling back to \"sine\"."
+    # A physical link rate is sustained across the pass; a shaped profile
+    # scales it by the profile mean and the daily balance changes regime.
+    balance = capacity_balance(cfg)
+    if balance.rate_form && tel_settings.bandwidth_profile != "flat"
+        @warn "[CONFIG] telemetry.downlink_kbps / onboard_data_rate_kbps state a physical link rate, which the pass sustains, " *
+              "but telemetry.bandwidth_profile = \"$(tel_settings.bandwidth_profile)\" scales it by the pass profile " *
+              "(mean $(round(balance.profile_mean, digits = 2)) over the pass): " *
+              "$(round(Int, balance.capacity_per_pass)) batches per $(balance.pass_hours) h nominal pass against " *
+              "$(round(Int, balance.produced_per_day)) produced per day. Use \"flat\" for the physical link; " *
+              "a shaped profile with max_batches_per_hour is the abstraction of a partially usable pass."
+    end
 
     # -- Real-time pacing sanity (loop-scheduler corner cases) --
     emitter_period_ms = seg_dur / speed_up * 1000.0
@@ -2833,6 +2874,30 @@ function profile_factor(model::VisibilityModel, progress::Float64)
     else
         return sin(pi * progress)^2
     end
+end
+
+# Composite Simpson subintervals for the profile mean: 10⁻¹⁰ accuracy on the
+# shipped profiles at negligible cost (one evaluation per validation and banner).
+const PROFILE_MEAN_SUBINTERVALS = 1024
+
+"""
+    profile_mean(model::VisibilityModel) -> Float64
+
+Mean of the capacity profile over one nominal pass,
+`∫₀¹ profile_factor(model, p) dp`, by composite Simpson quadrature on
+`PROFILE_MEAN_SUBINTERVALS`: `1` for `flat`, `1/2` for `sine`, `ln(cosh k)/k`
+for `sigmoid` with steepness `k`, and `σ √(2π) erf(1/(2√2 σ))` for
+`gaussian`. Multiplied by the full-capacity rate and the pass length it
+gives the capacity of one pass in batches ([`capacity_balance`](@ref)).
+"""
+function profile_mean(model::VisibilityModel)
+    n = PROFILE_MEAN_SUBINTERVALS
+    h = 1.0 / n
+    acc = profile_factor(model, 0.0) + profile_factor(model, 1.0)
+    for i in 1:(n-1)
+        acc += (isodd(i) ? 4.0 : 2.0) * profile_factor(model, i * h)
+    end
+    return acc * h / 3.0
 end
 
 """

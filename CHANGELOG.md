@@ -14,6 +14,11 @@ Notable changes to DeepSpaceTelemetry. The format follows
   as a second blocking job.
 
 ### Added
+- Profile-mean guardrail: `TelemetryCore.profile_mean` (quadrature mean of
+  the pass profile) and `TelemetryCore.capacity_balance` (capacity of one
+  nominal pass against the daily production); `validate_config` warns when
+  the physical rate pair meets a shaped `bandwidth_profile`, stating the mean
+  and the balance, and the mission banner prints a `Capacity:` line.
 - `CITATION.cff` (Citation File Format 1.2.0), `CONTRIBUTING.md` (working
   conventions), a monthly dependabot schedule for GitHub Actions, and the
   CompatHelper workflow (weekly, covering the package and its four auxiliary

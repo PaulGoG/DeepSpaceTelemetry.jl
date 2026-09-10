@@ -613,6 +613,14 @@ function print_banner(io::IO, plan::MissionPlan, run_dir::String)
         "catch-up ratio $(round(plan.telemetry.catch_up_ratio, digits = 2)) (downlink over production), " *
         "$(round(plan.telemetry.max_batches_per_hour, digits = 1)) batches/h at full capacity"
     println(io, rpad("Link:", 20), link_line)
+    balance = TelemetryCore.capacity_balance(plan.cfg)
+    println(
+        io,
+        rpad("Capacity:", 20),
+        "profile mean $(round(balance.profile_mean, digits = 2)) ($(plan.telemetry.bandwidth_profile)); " *
+        "$(round(Int, balance.capacity_per_pass)) batches per $(balance.pass_hours) h nominal pass, " *
+        "$(round(Int, balance.produced_per_day)) produced per day",
+    )
     println(io, rpad("Contacts:", 20), contact_summary(plan))
     isempty(plan.markers) || println(
         io,

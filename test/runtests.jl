@@ -2629,6 +2629,7 @@ end
     @test tel.nominal_batch_transfer_sec ≈ 600 * 75 / 230
     @test tel.max_batches_per_hour ≈ 3600 / (600 * 75 / 230)
     @test tel.catch_up_ratio ≈ 230 / 75
+    rates["telemetry"]["bandwidth_profile"] = "flat"  # the profile guardrail has its own testset
     @test TelemetryCore.validate_config(rates) isa AbstractDict
     both = deepcopy(rates)
     both["telemetry"]["max_batches_per_hour"] = 60.0
@@ -2689,6 +2690,45 @@ end
         @test isfile(joinpath(dir, "delivery_delay.csv"))
         @test isfile(joinpath(dir, "plots", "delivery_delay.pdf"))
     end
+end
+
+@testset "Capacity balance and profile-mean guardrail" begin
+    start, dur = Time(8), Second(8 * 3600)
+    mean_of(profile; k = 10.0, σ = 0.15) =
+        TelemetryCore.profile_mean(TelemetryCore.VisibilityModel(start, dur, profile, k, σ))
+    @test mean_of("flat") ≈ 1.0 atol = 1e-12
+    @test mean_of("sine") ≈ 0.5 atol = 1e-9
+    @test mean_of("sigmoid") ≈ log(cosh(10.0)) / 10 rtol = 1e-9
+    @test mean_of("sigmoid"; k = 4.0) ≈ log(cosh(4.0)) / 4 rtol = 1e-9
+    # σ √(2π) erf(1 / (2√2 σ)) at σ = 0.15, evaluated to 12 digits offline.
+    @test mean_of("gaussian") ≈ 0.375671592766 rtol = 1e-9
+    @test mean_of("gaussian"; σ = 0.3) > mean_of("gaussian")
+
+    # Abstraction form: 20 batches/h × 0.5 × 8 h = 80 batches per pass against
+    # 600 s batches, 144 per day.
+    base = valid_test_cfg()
+    balance = TelemetryCore.capacity_balance(base)
+    @test !balance.rate_form
+    @test balance.pass_hours ≈ 8.0
+    @test balance.capacity_per_pass ≈ 80.0 rtol = 1e-9
+    @test balance.produced_per_day ≈ 144.0
+
+    # Rate pair under a shaped profile: the validator warns with the profile
+    # mean and the balance; under the flat profile it stays silent.
+    rates = deepcopy(base)
+    delete!(rates["telemetry"], "max_batches_per_hour")
+    rates["telemetry"]["downlink_kbps"] = 230.0
+    rates["telemetry"]["onboard_data_rate_kbps"] = 75.0
+    shaped = TelemetryCore.capacity_balance(rates)
+    @test shaped.rate_form
+    @test shaped.capacity_per_pass ≈ 3600 / (600 * 75 / 230) * 0.5 * 8 rtol = 1e-9
+    @test_logs (:warn, r"mean 0\.5 over the pass") match_mode=:any TelemetryCore.validate_config(
+        rates,
+    )
+    rates["telemetry"]["bandwidth_profile"] = "flat"
+    records, _ = Test.collect_test_logs(() -> TelemetryCore.validate_config(rates))
+    @test !any(occursin("pass profile", string(r.message)) for r in records)
+    @test TelemetryCore.capacity_balance(rates).profile_mean ≈ 1.0
 end
 
 @testset "Contact schedule and low-latency periods" begin

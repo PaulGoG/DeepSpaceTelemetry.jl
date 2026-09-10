@@ -30,6 +30,7 @@ DeepSpaceTelemetry.TelemetryCore.telemetry_settings
 DeepSpaceTelemetry.TelemetryCore.physics_settings
 DeepSpaceTelemetry.TelemetryCore.supervision_settings
 DeepSpaceTelemetry.TelemetryCore.visibility_model
+DeepSpaceTelemetry.TelemetryCore.capacity_balance
 DeepSpaceTelemetry.TelemetryCore.ContactWindow
 DeepSpaceTelemetry.TelemetryCore.ContactsSettings
 DeepSpaceTelemetry.TelemetryCore.contacts_settings
@@ -97,5 +98,6 @@ DeepSpaceTelemetry.TelemetryCore.contact_windows
 DeepSpaceTelemetry.TelemetryCore.active_window
 DeepSpaceTelemetry.TelemetryCore.is_visible
 DeepSpaceTelemetry.TelemetryCore.profile_factor
+DeepSpaceTelemetry.TelemetryCore.profile_mean
 DeepSpaceTelemetry.TelemetryCore.get_bandwidth_factor
 ```
