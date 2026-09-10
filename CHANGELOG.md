@@ -14,6 +14,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
   as a second blocking job.
 
 ### Added
+- `CITATION.cff` (Citation File Format 1.2.0), `CONTRIBUTING.md` (working
+  conventions), a monthly dependabot schedule for GitHub Actions, and the
+  CompatHelper workflow (weekly, covering the package and its four auxiliary
+  environments).
+
+### Added
 - Publication figure export (`Publication.export_publication_figures`,
   `[post_processing.publication]`, `scripts/postprocessing/export_publication_figures.jl`):
   every figure re-rendered at a declared printed width in PDF or SVG with

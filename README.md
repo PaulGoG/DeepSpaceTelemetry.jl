@@ -71,9 +71,13 @@ DeepSpaceTelemetry/
 │                                #   heartbeats and RUN_ACTIVE/RUN_COMPLETE/RUN_ABORTED
 │                                #   sentinels (interfaces.md documents the full contract)
 ├── .github/workflows/CI.yml     # Test matrix + formatter + docs build (activates on remote)
+├── .github/workflows/CompatHelper.yml # Weekly compat-bound update pull requests
+├── .github/dependabot.yml       # Monthly GitHub Actions version updates
 ├── .gitignore                   # Excludes run data and generated artifacts
 ├── .JuliaFormatter.toml         # Committed formatter configuration
 ├── CHANGELOG.md                 # Notable changes (Keep a Changelog format)
+├── CITATION.cff                 # Citation metadata (Citation File Format 1.2.0)
+├── CONTRIBUTING.md              # Working conventions: environments, tests, formatting, commits
 ├── config.toml                  # The shipped config — safe intervals documented per key
 ├── Project.toml                 # Package metadata, deps, compat bounds
 ├── Manifest.toml                # Resolved dependency graph (committed for portability)
@@ -398,6 +402,22 @@ products — under a read/copy-only contract that admits any number of
 concurrent consumer instances; see `docs/src/interfaces.md`. For the noise
 model, channel models, and configuration reference, see `docs/src/physics.md`
 and `docs/src/usage.md` (or build the manual, §6 above).
+
+---
+
+## Citing
+
+Citation metadata is in `CITATION.cff` (Citation File Format 1.2.0). GitHub
+renders it as a citation widget, and `cffconvert` turns it into BibTeX. Cite
+the version used, by tag.
+
+---
+
+## Contributing
+
+`CONTRIBUTING.md` states the working conventions: environment activation, the
+test suite with its static-analysis checks, formatting, documentation,
+configuration changes, and the commit and pull-request format.
 
 ---
 
