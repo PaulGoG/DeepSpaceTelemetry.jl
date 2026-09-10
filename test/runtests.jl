@@ -1097,6 +1097,96 @@ end
     end
 end
 
+@testset "Noise model (Robson, Cornish & Liu 2019)" begin
+    # Independent evaluation of Eq. 1 and Eq. 14 with the paper's constants.
+    L = 2.5e9
+    f_star = 2.99792458e8 / (2π * L)
+    p_oms(f) = (1.5e-11)^2 * (1 + (2e-3 / f)^4)
+    p_acc(f) = (3e-15)^2 * (1 + (0.4e-3 / f)^2) * (1 + (f / 8e-3)^4)
+    s_inst(f) =
+        (10 / (3 * L^2)) *
+        (p_oms(f) + 2 * (1 + cos(f / f_star)^2) * p_acc(f) / (2π * f)^4) *
+        (1 + 0.6 * (f / f_star)^2)
+    fits = Dict(
+        0.5 => (0.133, 243.0, 482.0, 917.0, 0.00258),
+        1.0 => (0.171, 292.0, 1020.0, 1680.0, 0.00215),
+        2.0 => (0.165, 299.0, 611.0, 1340.0, 0.00173),
+        4.0 => (0.138, -221.0, 521.0, 1680.0, 0.00113),
+    )
+    # The cutoff 1 + tanh(x) is written as 2 / (1 + exp(-2x)): the direct sum
+    # cancels catastrophically above the knee (x ≈ -13 at 10 mHz).
+    function s_conf(f, T)
+        α, β, κ, γ, f_k = fits[T]
+        return 9e-45 *
+               f^(-7 / 3) *
+               exp(-f^α + β * f * sin(κ * f)) *
+               (2 / (1 + exp(-2 * γ * (f_k - f))))
+    end
+    for f in (1e-3, 3e-3, 1e-2)
+        @test VirtualInstrument.lisa_instrument_psd(f) ≈ s_inst(f) rtol = 1e-12
+        for T in (0.5, 1.0, 2.0, 4.0)
+            @test VirtualInstrument.lisa_confusion_psd(f, T) ≈ s_conf(f, T) rtol = 1e-12
+        end
+        @test VirtualInstrument.lisa_noise_psd(f; observation_years = 2.0) ≈
+              s_inst(f) + s_conf(f, 2.0) rtol = 1e-12
+    end
+    # Reference values of the paper's formulas [Hz⁻¹].
+    @test VirtualInstrument.lisa_instrument_psd(1e-3) ≈ 1.634101e-38 rtol = 1e-6
+    @test VirtualInstrument.lisa_instrument_psd(1e-2) ≈ 1.443169e-40 rtol = 1e-6
+    @test VirtualInstrument.lisa_confusion_psd(1e-3, 1.0) ≈ 1.663516e-37 rtol = 1e-6
+    # The confusion foreground dominates the instrument term at 1 mHz.
+    @test VirtualInstrument.lisa_confusion_psd(1e-3, 1.0) > 0.0
+    @test VirtualInstrument.lisa_confusion_psd(1e-3, 1.0) >
+          VirtualInstrument.lisa_instrument_psd(1e-3)
+    # Outside the model's domain: no floor value.
+    @test VirtualInstrument.lisa_noise_psd(0.0) == Inf
+    @test VirtualInstrument.lisa_noise_psd(-1.0) == Inf
+    @test_throws ArgumentError VirtualInstrument.lisa_confusion_psd(1e-3, 3.0)
+    @test_throws ArgumentError VirtualInstrument.InstrumentState(
+        DateTime(2030),
+        10.0,
+        1.0,
+        "synthetic",
+        "";
+        confusion_observation_years = 3.0,
+    )
+    @test_throws ArgumentError VirtualInstrument.InstrumentState(
+        DateTime(2030),
+        10.0,
+        1.0,
+        "synthetic",
+        "";
+        noise_f_min_hz = 0.0,
+    )
+    # Band floor: 40 samples at 4e-4 Hz give a bin spacing of 5e-6 Hz, so the
+    # DC bin and the first bin lie below the 1e-5 Hz floor and carry no power.
+    vi = VirtualInstrument.InstrumentState(
+        DateTime(2030),
+        4e-4,
+        1e5,
+        "synthetic",
+        "";
+        rng = StableRNG(1),
+    )
+    @test vi.noise_amp[1] == 0.0 && vi.noise_amp[2] == 0.0
+    @test vi.noise_amp[4] > 0.0
+    @test all(isfinite, vi.noise_amp)
+    @test all(isfinite, VirtualInstrument.next_segment!(vi).data)
+    # Configuration keys: defaults, accepted values, and rejections.
+    cfg = valid_test_cfg()
+    phys = TelemetryCore.physics_settings(cfg)
+    @test phys.confusion_observation_years == 1.0 && phys.noise_f_min_hz == 1e-5
+    cfg["physics"]["confusion_observation_years"] = 4
+    cfg["physics"]["noise_f_min_hz"] = 2e-4
+    phys = TelemetryCore.physics_settings(cfg)
+    @test phys.confusion_observation_years == 4.0 && phys.noise_f_min_hz == 2e-4
+    cfg["physics"]["confusion_observation_years"] = 3.0
+    @test_throws ArgumentError TelemetryCore.physics_settings(cfg)
+    cfg["physics"]["confusion_observation_years"] = 1.0
+    cfg["physics"]["noise_f_min_hz"] = 0.0
+    @test_throws ArgumentError TelemetryCore.physics_settings(cfg)
+end
+
 @testset "VirtualInstrument Synthetic" begin
     fs = 10.0
     seg_dur = 1.0

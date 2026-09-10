@@ -41,6 +41,8 @@ function pre_populate(
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
+    confusion_observation_years::Float64 = 1.0,
+    noise_f_min_hz::Float64 = 1e-5,
 )
     downtime_ms = max(0, round(Int, initial_downtime_days * 86_400_000))
     downtime_start = start_sim_time - Millisecond(downtime_ms)
@@ -52,6 +54,8 @@ function pre_populate(
         data_source,
         ext_path;
         rng = rng,
+        confusion_observation_years = confusion_observation_years,
+        noise_f_min_hz = noise_f_min_hz,
     )
     pending = TelemetryCore.DataSegment[]
 
@@ -200,6 +204,10 @@ stop/deadline checks stay responsive at low `speed_up`. A content lag that
 persists above one period for longer than
 [`TelemetryCore.EMITTER_LAG_WARN_SEC`](@ref) is reported once as a warning
 (the host cannot keep pace); the maximum lag is logged at loop exit.
+
+`confusion_observation_years` and `noise_f_min_hz` select the
+galactic-confusion fit and the lower band edge of the synthetic noise model
+of a freshly created instrument (see [`VirtualInstrument.lisa_noise_psd`](@ref)).
 """
 function run_emitter(
     clock::TelemetryCore.SimulationClock,
@@ -220,6 +228,8 @@ function run_emitter(
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
+    confusion_observation_years::Float64 = 1.0,
+    noise_f_min_hz::Float64 = 1e-5,
 )
     # A fresh instrument anchors at the *current* mission time, not the
     # mission epoch: on a mid-mission restart the outage becomes an honest
@@ -233,6 +243,8 @@ function run_emitter(
             data_source,
             ext_path;
             rng = rng,
+            confusion_observation_years = confusion_observation_years,
+            noise_f_min_hz = noise_f_min_hz,
         ) : instrument
     run_dir = TelemetryCore.run_directory(run_id)
     buffer_path = joinpath(run_dir, "onboard")

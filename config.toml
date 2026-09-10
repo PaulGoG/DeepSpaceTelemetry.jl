@@ -63,6 +63,8 @@ external_data_path = "data/example_external_strain.csv" # File path when data_so
 sample_rate = 4.0                    # Strain sampling frequency [Hz]. SAFE: > 0.
 segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
 batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
+confusion_observation_years = 1.0    # Galactic-confusion fit of the noise model by observation time [yr]. One of: 0.5 | 1.0 | 2.0 | 4.0.
+noise_f_min_hz = 1e-5                # Lower edge of the synthesized noise band [Hz]; bins below carry no power. SAFE: > 0.
 
 [packet_loss]
 enabled = true                       # Packet loss toggle. One of: true | false.

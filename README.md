@@ -286,7 +286,8 @@ freely — e.g. `[-1, "10:20", 45]`.
 *   **Continuous physics engine**: generates amplitude-calibrated synthetic
     LISA strain (`VirtualInstrument.jl`) via windowed overlap-add FFT
     synthesis — the stream is phase-continuous across segments and reproduces
-    the one-sided LISA PSD at the correct absolute level — or ingests external
+    the sky-averaged LISA sensitivity of Robson, Cornish & Liu (2019), with a
+    selectable galactic-confusion fit, at the correct absolute level — or ingests external
     continuous CSV time series without gaps or duplication across the
     pre-population boundary. All stochastic draws are seeded from
     `simulation.rng_seed`.

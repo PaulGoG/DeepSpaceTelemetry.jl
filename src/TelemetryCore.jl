@@ -356,6 +356,8 @@ const KNOWN_CONFIG_KEYS = Dict(
         "sample_rate",
         "segment_duration_sec",
         "batch_size",
+        "confusion_observation_years",
+        "noise_f_min_hz",
         "signal_injection_probability",
     ],
     "packet_loss" => [
@@ -683,11 +685,15 @@ Validated `[physics]` parameters: `data_source` (`"synthetic"` or
 `"external"`), `external_data_path` (as configured; consumers resolve it
 against the package root), `sample_rate > 0`, `segment_duration_sec > 0`,
 and `batch_size ≥ 1`, with at least two samples per segment (the FFT
-synthesis block). The four core keys are required; the retired
-`signal_injection_probability` is accepted with a deprecation warning and
-ignored (event instants are `[[events.markers]]`). The existence of the external file is checked by
-[`validate_config`](@ref) only, so post-processing of a finished run does
-not depend on the input file still being present.
+synthesis block). The four core keys are required. The optional
+`confusion_observation_years` (one of 0.5, 1.0, 2.0, 4.0; default 1.0)
+selects the galactic-confusion fit of the noise model and
+`noise_f_min_hz > 0` (default 1e-5) the lower edge of the synthesized band.
+The retired `signal_injection_probability` is accepted with a deprecation
+warning and ignored (event instants are `[[events.markers]]`). The
+existence of the external file is checked by [`validate_config`](@ref)
+only, so post-processing of a finished run does not depend on the input
+file still being present.
 """
 function physics_settings(cfg::AbstractDict)
     phy = get(cfg, "physics", Dict{String,Any}())
@@ -717,6 +723,16 @@ function physics_settings(cfg::AbstractDict)
     )
     external_data_path =
         checked_string(get(phy, "external_data_path", ""), "physics.external_data_path")
+    confusion_years = checked_number(
+        get(phy, "confusion_observation_years", 1.0),
+        "physics.confusion_observation_years",
+    )
+    confusion_years in (0.5, 1.0, 2.0, 4.0) || config_error(
+        "[CONFIG] physics.confusion_observation_years must be one of 0.5, 1.0, 2.0, 4.0 (got $confusion_years).",
+    )
+    noise_f_min = checked_number(get(phy, "noise_f_min_hz", 1e-5), "physics.noise_f_min_hz")
+    noise_f_min > 0.0 ||
+        config_error("[CONFIG] physics.noise_f_min_hz must be > 0 (got $noise_f_min).")
     haskey(phy, "signal_injection_probability") &&
         @warn "[CONFIG] physics.signal_injection_probability is deprecated and ignored — declare event instants as [[events.markers]] (the key is removed at 1.0.0)." maxlog =
             1
@@ -726,6 +742,8 @@ function physics_settings(cfg::AbstractDict)
         sample_rate = sample_rate,
         segment_duration_sec = segment_duration,
         batch_size = batch_size,
+        confusion_observation_years = confusion_years,
+        noise_f_min_hz = noise_f_min,
     )
 end
 

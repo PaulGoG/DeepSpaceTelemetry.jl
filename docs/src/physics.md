@@ -3,12 +3,26 @@
 `DeepSpaceTelemetry` models the telemetry environment of a deep-space science mission: a duty-cycled ground-station contact, a physical downlink with stochastic loss and scheduled disruptions, and the routing doctrine that decides which data reach the ground first. The telemetry, channel, and queuing layers are mission-agnostic; the shipped scenario and the synthetic payload model the LISA mission.
 
 ## Virtual Instrument (Noise Generation)
-In synthetic mode, the simulator generates amplitude-calibrated LISA strain from the analytic one-sided PSD combining:
-1. **Optical Metrology System (OMS) Noise**
-2. **Test Mass Acceleration Noise**
-3. **Galactic Binary Confusion Noise**
+In synthetic mode, the simulator generates amplitude-calibrated LISA strain from the sky- and polarization-averaged sensitivity of Robson, Cornish & Liu, *The construction and use of LISA sensitivity curves*, Class. Quantum Grav. 36, 105011 (2019), `S(f) = S_n(f) + S_c(f)`. The instrument term (their Eq. 1) is
 
-Time series are synthesized in the frequency domain (`X_k = z_k √(S(f_k) f_s M/2)` with complex standard-normal `z_k`) on blocks of twice the segment length, shaped with a periodic sqrt-Hann window, and overlap-added at 50%. Because the squared window tiles to unity, the emitted stream is stationary, phase-continuous across segment boundaries, and reproduces `S(f)` at the correct absolute level. Spectral content below `1/(2·segment_duration_sec)` Hz is not representable at this block length — increase the segment duration for low-frequency fidelity.
+`S_n(f) = 10 / (3 L²) · [P_OMS(f) + 2 (1 + cos²(f/f*)) P_acc(f) / (2π f)⁴] · [1 + 0.6 (f/f*)²]`,
+
+with the optical-metrology noise `P_OMS = (1.5 × 10⁻¹¹ m)² (1 + (2 mHz / f)⁴) Hz⁻¹`, the test-mass acceleration noise `P_acc = (3 × 10⁻¹⁵ m s⁻²)² (1 + (0.4 mHz / f)²) (1 + (f / 8 mHz)⁴) Hz⁻¹`, the arm length `L = 2.5 × 10⁶ km`, and the transfer frequency `f* = c / (2π L) ≈ 19.1 mHz`. The unresolved galactic-binary confusion foreground (their Eq. 14) is
+
+`S_c(f) = A f^(−7/3) exp(−f^α + β f sin(κ f)) [1 + tanh(γ (f_k − f))]`, `A = 9 × 10⁻⁴⁵ Hz⁻¹`,
+
+with the fit parameters of their Table 1, selected by `physics.confusion_observation_years`:
+
+| Observation time | α | β | κ | γ | f_k [mHz] |
+|---|---|---|---|---|---|
+| 0.5 yr | 0.133 | 243 | 482 | 917 | 2.58 |
+| 1 yr (default) | 0.171 | 292 | 1020 | 1680 | 2.15 |
+| 2 yr | 0.165 | 299 | 611 | 1340 | 1.73 |
+| 4 yr | 0.138 | −221 | 521 | 1680 | 1.13 |
+
+`S(f)` is the noise PSD divided by the sky-averaged response, the quantity a strain stream is whitened against; the downstream classifier MilliHertzQML.jl uses the same function with the same fit. Reference values: `S_n(1 mHz) = 1.634 × 10⁻³⁸ Hz⁻¹`, `S_c(1 mHz, 1 yr) = 1.664 × 10⁻³⁷ Hz⁻¹`, `S_n(10 mHz) = 1.443 × 10⁻⁴⁰ Hz⁻¹`. The function returns `Inf` at `f ≤ 0`; no floor value exists that could leak into a whitening.
+
+Time series are synthesized in the frequency domain (`X_k = z_k √(S(f_k) f_s M/2)` with complex standard-normal `z_k`) on blocks of twice the segment length, shaped with a periodic sqrt-Hann window, and overlap-added at 50%. Because the squared window tiles to unity, the emitted stream is stationary, phase-continuous across segment boundaries, and reproduces `S(f)` at the correct absolute level. Spectral content below `1/(2·segment_duration_sec)` Hz is not representable at this block length, and bins below `physics.noise_f_min_hz` (default 10⁻⁵ Hz, the lower edge of the model's band; the DC bin included) carry no power, so a stream never contains the model's low-frequency extrapolation. The default scenario synthesizes 60 s segments (block length 120 s, first resolved bin 8.3 mHz): the confusion band of 0.5–3 mHz is unresolved in it, and the foreground is observable only for `segment_duration_sec ≳ 2000 s`.
 
 ## Bandwidth Profiling
 Satellite-to-ground communication is constrained by the ground station's line of sight. The daily contact window opens at `telemetry.session_start` for `telemetry.session_duration_hours` (sessions crossing midnight are handled); outside it the capacity is zero, and within it the fractional capacity follows a selectable profile of the window progress `x ∈ [0, 1]`:

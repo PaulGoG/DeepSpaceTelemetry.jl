@@ -242,6 +242,18 @@ Notable changes to DeepSpaceTelemetry. The format follows
   file count) and uses named constants for its margins and slacks.
 
 ### Fixed
+- `VirtualInstrument.lisa_noise_psd` now implements the sky-averaged LISA
+  sensitivity of Robson, Cornish & Liu (2019) exactly: the instrument term
+  gains the 10/3 prefactor and the (1 + 0.6 (f/f*)²) response factor, and
+  the galactic-confusion foreground follows their Eq. 14 with the Table 1
+  fit selected by the new `physics.confusion_observation_years` (0.5 | 1.0 |
+  2.0 | 4.0, default 1.0); the previous form misused the one-year β as an
+  exponent and vanished above ≈ 0.2 mHz. The function returns `Inf` at
+  `f ≤ 0` instead of a floor, and the synthesis zeroes every bin below the
+  new `physics.noise_f_min_hz` (default 10⁻⁵ Hz). The calibration
+  `E|X_k|² = S(f_k) f_s M/2` is unchanged; seeded streams change their
+  amplitude spectrum. Observable only for `segment_duration_sec ≳ 2000 s`
+  (60 s segments resolve no bin below 8.3 mHz).
 - A 24-hour contact window (`telemetry.session_duration_hours = 24`, the
   validator's upper bound) was never visible: `Time` arithmetic wrapped the
   window end onto its start. A full-day session is now always visible.

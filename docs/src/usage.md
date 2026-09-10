@@ -134,6 +134,15 @@ low_latency_duration_hours = 3.0
 low_latency_capacity_fraction = 0.5
 ```
 
+### Synthetic Noise Model
+Two optional `[physics]` keys govern the synthetic strain (the model is stated on the physics page):
+```toml
+[physics]
+confusion_observation_years = 1.0   # galactic-confusion fit: 0.5 | 1.0 | 2.0 | 4.0
+noise_f_min_hz = 1e-5               # bins below this frequency carry no power
+```
+The confusion band (0.5–3 mHz) is resolved only for `segment_duration_sec ≳ 2000 s`; at 60 s segments the first resolved bin is 8.3 mHz.
+
 ### External Data Ingestion
 To use your own high-frequency CSV time series instead of synthetic noise:
 ```toml
