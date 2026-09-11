@@ -8,14 +8,17 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+permissions:
+  contents: read
 jobs:
   test:
     name: Tests — Julia ${{ matrix.version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # "1" is the blocking job on the current stable release and "1.12" on
-    # the compat floor; "pre" watches the next prerelease and may fail
-    # without failing the workflow. Coverage runs once: it disables package images
-    # and roughly doubles the precompile time.
+    # Linux "1" (current stable) and "1.12" (the compat floor) block the
+    # workflow. "pre" watches the next prerelease; the macOS and Windows legs
+    # run the suite on the current stable release. These three may fail without
+    # failing the workflow. Coverage runs once: it disables package images and
+    # roughly doubles the precompile time.
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
@@ -31,6 +34,14 @@ jobs:
             experimental: false
           - version: "pre"
             os: ubuntu-latest
+            coverage: false
+            experimental: true
+          - version: "1"
+            os: macos-latest
+            coverage: false
+            experimental: true
+          - version: "1"
+            os: windows-latest
             coverage: false
             experimental: true
     steps:
@@ -63,8 +74,13 @@ jobs:
           julia -e 'using Pkg; Pkg.add("JuliaFormatter"); using JuliaFormatter;
                     format(".", verbose = false) || error("Formatting check failed: run JuliaFormatter over the repository.")'
   docs:
-    name: Documentation build
+    name: Documentation
     runs-on: ubuntu-latest
+    # deploydocs pushes docs/build to gh-pages with the workflow token.
+    permissions:
+      contents: write
+      pull-requests: read
+      statuses: write
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -72,3 +88,5 @@ jobs:
           version: "1"
       - uses: julia-actions/cache@v3
       - run: julia docs/make.jl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

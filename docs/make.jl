@@ -16,9 +16,6 @@ DocMeta.setdocmeta!(
     recursive = true,
 )
 
-# Deployment (`deploydocs`) is added when the repository becomes public: GitHub
-# Pages does not serve a private repository on the free plan, so the CI docs
-# job only builds the manual until then.
 makedocs(
     doctest = true,
     sitename = "DeepSpaceTelemetry",
@@ -26,6 +23,7 @@ makedocs(
     repo = Documenter.Remotes.GitHub("PaulGoG", "DeepSpaceTelemetry.jl"),
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
+        canonical = "https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/",
         # The TelemetryCore API page renders at about 105 KiB; the default
         # 100 KiB warning threshold is raised, the 200 KiB error stays.
         size_threshold_warn = 150 * 2^10,
@@ -62,4 +60,14 @@ makedocs(
             "PlotTheme" => "api/plottheme.md",
         ],
     ],
+)
+
+# The CI docs job pushes the build to the `gh-pages` branch: `dev` from
+# `main`, `stable` and `vX.Y.Z` from version tags. Outside CI, or without a
+# token, Documenter skips the deployment and the local build stays in
+# `docs/build/`.
+deploydocs(
+    repo = "github.com/PaulGoG/DeepSpaceTelemetry.jl",
+    devbranch = "main",
+    push_preview = false,
 )
