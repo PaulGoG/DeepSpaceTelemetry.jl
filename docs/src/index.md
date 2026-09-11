@@ -3,18 +3,18 @@
 A Julia framework simulating the telemetry environment of deep-space science missions — contact windows, link physics, queuing, loss, and disruption — with the **LISA (Laser Interferometer Space Antenna)** mission as the shipped scenarios (a library under `scenarios/`).
 
 ## Overview
-Deep-space missions communicate on asymmetric duty cycles: a daily ground-station contact window followed by a long blind spot in which science data accumulates onboard. This framework simulates the physics, link constraints, and queuing logic of that regime end to end. The shipped configuration models LISA — orbiting the Sun 50 million kilometers behind Earth, with an 8-hour DSN window against a 16-hour blind spot, and amplitude-calibrated gravitational-wave strain as the payload — while the telemetry, channel, and queuing layers remain mission-agnostic.
+Deep-space missions communicate on asymmetric duty cycles: a daily ground-station contact window followed by a long blind spot in which science data accumulates onboard. This framework simulates the physics, link constraints, and queuing logic of that regime end to end. The shipped configuration models LISA — orbiting the Sun 50 million kilometers behind Earth, with an 8-hour DSN window against a 16-hour blind spot, and amplitude-calibrated gravitational-wave strain as the payload — while the telemetry, channel, and queuing layers remain mission-agnostic. "DSN" denotes throughout a deep-space ground-station network in the generic sense; the LISA passes are ESA ESTRACK 35 m antenna passes.
 
 ## Installation
 
 Requires Julia ≥ 1.12. Version 1.0.0 is not registered in the General
 registry; add the package by URL (at a release tag), or
-clone the repository for the full pipeline workflow (scripts, shipped
-scenario, benchmarks):
+clone the repository for the full pipeline workflow (scripts, scenario
+library, benchmarks):
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl")
+Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.0.0")
 ```
 
 ## Capabilities

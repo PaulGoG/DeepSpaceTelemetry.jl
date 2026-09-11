@@ -4,7 +4,7 @@ Every file in this directory is a complete configuration, runnable by path
 from the package root:
 
 ```bash
-julia -t 3 --project=. scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
+julia --threads=3 --project=. scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
 ```
 
 `config.toml` at the package root is the default entry point and is a copy

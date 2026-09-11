@@ -1,7 +1,5 @@
 # Contributing
 
-This guide records the working conventions of the repository.
-
 ## Environment
 
 - Development requires Julia 1.12 or later, installed with juliaup; Julia 1.13
@@ -17,29 +15,36 @@ This guide records the working conventions of the repository.
 
 ## Tests and static analysis
 
-- Run `julia -t 3 --project=. -e 'using Pkg; Pkg.test()'`; the suite includes
-  Aqua, JET, and ExplicitImports checks and four integration missions and takes
-  about four minutes.
-- Every change lands with a green suite; new behaviour comes with a test.
+- Run `julia --threads=3 --project=. -e 'using Pkg; Pkg.test()'`; the suite
+  includes Aqua, JET, and ExplicitImports checks and four integration missions
+  and takes about four minutes.
+- CI runs the suite on Linux for Julia 1.12 (the compat floor), the current
+  release, and the prerelease, and on macOS and Windows for the current
+  release.
+- Every change lands with a green suite; new behavior comes with a test.
   Floating-point comparisons use `isapprox` with explicit tolerances; test
   randomness uses StableRNGs.
 
 ## Formatting
 
-- JuliaFormatter runs against the committed `.JuliaFormatter.toml` via
-  `julia -e 'using JuliaFormatter; format(".")'` from the package root; the CI
-  formatting job fails on unformatted files.
+- JuliaFormatter is in none of the committed environments; it is installed
+  once into the default environment with
+  `julia -e 'using Pkg; Pkg.add("JuliaFormatter")'`. The format command,
+  `julia -e 'using JuliaFormatter; format(".")'`, runs from the package root
+  against the committed `.JuliaFormatter.toml`; the CI formatting job fails on
+  unformatted files.
 
 ## Documentation
 
 - `julia docs/make.jl` builds the manual into `docs/build/`; every public
   function and struct carries a docstring; the manual pages live under
   `docs/src/`.
-- Deployment to GitHub Pages is added when the repository becomes public; until
-  then the CI docs job only builds.
+- The CI docs job deploys the manual to GitHub Pages (`dev` from `main`,
+  `stable` from version tags), so a docs change is visible at
+  <https://PaulGoG.github.io/DeepSpaceTelemetry.jl/dev/> after the push.
 - Docstring examples are `jldoctest` blocks executed by the docs build; a
   changed output fails the build, so the example is updated with the
-  behaviour.
+  behavior.
 
 ## Configuration changes
 

@@ -18,7 +18,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 3. **The contract is invariant under `speed_up`.** A consumer developed
    against an accelerated run (`speed_up = 3600`) works unchanged against a
    real-time run (`speed_up = 1.0`); only the wall-clock arrival cadence
-   differs. Develop fast, rehearse at mission cadence.
+   differs. Development runs accelerated; rehearsal runs at mission cadence.
 4. **`config_snapshot.toml` is the only source of derived quantities.**
    Sample rates, segment/batch geometry, and session parameters are read from
    the run's own snapshot, never from the live `config.toml`.
@@ -76,8 +76,8 @@ interactive `scripts/maintenance/cleanup.jl`.
 
 With `retention.enabled = true`, the receiver's custodian bounds the
 delivered-payload footprint: **a batch's payload is guaranteed readable for
-`retention.grace_hours` of mission time after its `ingested` event** — copy
-what your pipeline needs within that window. Beyond it, once the payload
+`retention.grace_hours` of mission time after its `ingested` event** — a
+pipeline copies what it needs within that window. Beyond it, once the payload
 tally exceeds `retention.high_watermark_gb`, the oldest-ingested batches lose
 their `seg_*.csv` files; the batch directory remains, keeps `metadata.json`,
 gains a zero-byte `PRUNED` marker, and a `pruned` row (state-preserving,

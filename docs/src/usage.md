@@ -70,7 +70,7 @@ Any CLI argument ending in `.toml` selects the configuration (relative
 paths resolve against the current directory, then the package root); any
 other argument sets the run ID (both optional, order-independent):
 ```bash
-julia -t 3 --project=. scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
+julia --threads=3 --project=. scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
 ```
 Every run archives the exact configuration it used as its own
 `config_snapshot.toml`, so reproducibility never depends on the driving
@@ -118,7 +118,7 @@ and identical loss realizations.
 [contacts]
 seasonal_extension_hours = 4.0      # 8 h window at the trough, 12 h at the peak
 season_peak_day_of_year = 172.0
-low_latency_enabled = true          # flip to false for the counterfactual run
+low_latency_enabled = true          # set to false for the counterfactual run
 
 [[contacts.exceptions]]             # the window of one date, verbatim
 date = "2035-01-04"
@@ -167,16 +167,16 @@ noise_f_min_hz = 1e-5               # bins below this frequency carry no power
 The confusion band (0.5–3 mHz) is resolved only for `segment_duration_sec ≳ 2000 s`; at 60 s segments the first resolved bin is 8.3 mHz.
 
 ### External Data Ingestion
-To use your own high-frequency CSV time series instead of synthetic noise:
+An external high-frequency CSV time series replaces the synthetic noise with:
 ```toml
 [physics]
 data_source = "external"
-external_data_path = "path/to/your/data.csv"
+external_data_path = "path/to/data.csv"
 sample_rate = 1024.0
 segment_duration_sec = 60.0
 batch_size = 15
 ```
-The simulator will automatically slice your data into batches, consuming the first portion to simulate the pre-existing blind spot.
+The simulator slices the series into batches, consuming its first portion as the pre-existing blind-spot backlog.
 
 ## Running the Simulation
 The emitter, the receiver, and the supervisor are three cooperative tasks;
@@ -187,25 +187,29 @@ by catch-up — but a non-yielding stretch in one component (compilation
 warm-up, garbage collection, figure rendering) pauses the others until it
 yields, and the entry point prints an advisory.
 
-**Interactive Dashboard (Mission Control):**
+**Interactive Dashboard:**
 ```bash
 julia --project=. --threads=3 scripts/launch_dashboard.jl
 ```
-This spawns real-time logs and a flicker-free `UnicodePlots` Live Viewer.
+This spawns the log terminals and the change-driven `UnicodePlots` live viewer (redrawn only on state change).
 
 **Headless Mode:**
 ```bash
 julia --project=. --threads=3 scripts/run_full_sim.jl
 ```
+The receiver's console status panel (a text panel redrawn on every receiver
+iteration, which clears the terminal) is off by default;
+`dashboard.receiver_status_panel = true` enables it for a headless run whose
+terminal shows nothing else.
 
 ## Post-Processing & Masks
 After a run, the system outputs `masks/telemetry_mask_timeline.csv`. This 2D matrix logs the exact state of every batch (`0=Future`, `1=Onboard`, `2=Link`, `3=Ground`, `4=Lost`) at every telemetry event. The reconstruction is exact: the emitter and receiver append every batch milestone to `events_tx.csv` / `events_rx.csv` (generation, transmission, ingest, retry, loss) and post-processing replays those ground-truth logs. Runs without event logs (pre-0.9 layouts) are not supported by the replay.
 
 Post-processing always reads the run's own `config_snapshot.toml`, so analyzing an old run stays correct after `config.toml` edits.
 
-To expand one matrix row into a high-resolution point-wise 0/1 availability array (multiply it against your raw time series to blank out undelivered data):
+One matrix row expands into a high-resolution point-wise 0/1 availability array (multiplied against the raw time series, it blanks out undelivered data):
 ```bash
-julia --project=. scripts/postprocessing/apply_telemetry_mask.jl [RUN_ID] <total_points> <event_row_index> <output.csv>
+julia --project=. scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> <total_points> <event_row_index> <output.csv>
 ```
 `event_row_index = -1` selects the final snapshot. To automate this after every run, set `expand_to_pointwise_masks = true` in `config.toml` and list the rows in `target_event_rows` (accepts `"all"`, integers with `-1` for the last row, and `"start:stop"` range strings).
 
