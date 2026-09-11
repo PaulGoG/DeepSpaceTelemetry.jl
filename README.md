@@ -23,6 +23,21 @@ pipeline.
 > "DSN" denotes throughout a deep-space ground-station network in the generic
 > sense; the LISA passes are ESA ESTRACK 35 m antenna passes.
 
+![Mission summary of the stress scenario: seven daily passes against a
+growing onboard buffer, an 18 h solar-flare blackout with a 12 h recovery
+ramp, a partial ground-station outage, and a scheduled generation
+gap](docs/src/assets/mission_summary.png)
+
+One week of the shipped `scenarios/stress_8h_bursty.toml`: 8 h daily passes
+on the physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare
+blackout followed by a 12 h recovery ramp on day 2.5, a 12 h partial
+ground-station outage on day 5, and a scheduled generation gap on day 1.5.
+The onboard buffer doubles from 288 to 583 batches across the week — the
+disruption debt the link never recovers — while 706 batches reach the ground
+and retransmission recovers all 42 rejected transfers, leaving the
+lost-batch strip at zero. Every number here comes from the run recorded in
+[`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml).
+
 ## Project Structure
 
 ```text
@@ -34,7 +49,7 @@ DeepSpaceTelemetry/
 ├── scenarios/      # Eleven complete configurations and their coverage matrix
 ├── test/           # Static QA, unit, physics, and four integration missions
 ├── bench/          # BenchmarkTools suites
-├── docs/           # Documenter manual sources
+├── docs/           # Documenter manual sources and the README figures
 ├── data/runs/      # Ephemeral run directories (gitignored)
 ├── config.toml     # Default entry point (= scenarios/recovery_12h_seasonal.toml)
 └── Project.toml    # Package metadata, deps, compat bounds (+ Manifest.toml)
@@ -395,6 +410,16 @@ The routing invariant mirrors the LISA operational concept: **live data is
 transmitted FIFO with absolute priority; residual bandwidth backfills the
 archive LIFO (newest first)**, so alert pipelines can extend a live event's
 waveform backwards in time without temporal gaps.
+
+![Batch-routing animation: circles are live batches and diamonds archive
+ones, moving from the satellite row through the link to the
+ground](docs/src/assets/batch_routing.gif)
+
+The same run, batch by batch. Color marks the stage — orange onboard, blue
+on the link, sky blue and green on the ground — and marker shape the family,
+circles live and diamonds archive. The archive segment grows backwards in
+batch identifier, contiguous with the live tail, and both rows stand still
+through the blackout while the buffer fills.
 
 External analysis pipelines couple to a run exclusively through the
 filesystem — batch directories delivered by atomic `mv`, append-only event

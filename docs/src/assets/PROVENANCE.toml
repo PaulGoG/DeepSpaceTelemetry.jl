@@ -1,0 +1,35 @@
+# Provenance of the figures shown in README.md. Both derive from one run of
+# the shipped scenario; regenerate them with the commands below.
+
+[run]
+scenario = "scenarios/stress_8h_bursty.toml"
+run_id = "RUN_README_SHOWCASE"
+commit = "fb491f7713562370646102621f8e643c4133f6a2"
+package_version = "1.1.0"
+julia_version = "1.13.0"
+date = "2026-09-11"
+command = "julia --project=. --threads=3 scripts/run_full_sim.jl RUN_README_SHOWCASE scenarios/stress_8h_bursty.toml"
+
+[run.realized]
+# Final row of mission_profile.csv.
+ground_total = 706
+ground_live = 329
+ground_archive = 377
+failed_transfers = 42
+lost = 0
+onboard_buffer_start = 288
+onboard_buffer_end = 583
+
+["mission_summary.png"]
+source = "data/runs/RUN_README_SHOWCASE/plots/mission_summary_global.png"
+transform = "magick <source> -resize 1400x -strip <target>"
+width_px = 1400
+sha256_prefix = "92be158f1033d9cd"
+
+["batch_routing.gif"]
+source = "data/runs/RUN_README_SHOWCASE/plots/telemetry_animation.gif"
+generator = "julia --project=. scripts/postprocessing/generate_gif.jl RUN_README_SHOWCASE"
+transform = "ffmpeg palettegen/paletteuse: every fifth frame, 900 px wide, 64 colors, no dithering, 12 fps"
+width_px = 900
+frames = 260
+sha256_prefix = "55463613988d1107"

@@ -6,6 +6,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- Two figures from the shipped `scenarios/stress_8h_bursty.toml` under
+  `docs/src/assets/`, shown in the README and on the manual's landing page:
+  the mission summary of a week carrying an 18 h solar-flare blackout, its
+  recovery ramp, a partial ground-station outage, and a scheduled generation
+  gap; and the batch-routing animation of the same run. `PROVENANCE.toml`
+  beside them records the run, the commit, the realized totals, and the
+  transform that produced each file from the run's own export.
+
 ### Fixed
 - The emitter-pacing testset asserted a production count that presumes the
   host keeps pace with the accelerated clock — one 60 s segment synthesized
