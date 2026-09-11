@@ -22,7 +22,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
   runner misses. The epoch arithmetic and the causality bounds are asserted
   unconditionally; the end-of-span coverage and the steady-state lag are
   asserted only when the run kept pace, and a warning names the shortfall
-  otherwise.
+  otherwise. The scenario testset asserted a delivered-batch count from the
+  12-second smoke run for the same reason; its floor now separates a pipeline
+  that moved data from one that stalled, and the per-segment cost that sets
+  the rate stays a benchmark.
 
 ## [1.1.0] - 2026-09-11
 

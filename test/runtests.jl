@@ -2026,8 +2026,10 @@ end
             # must be synthesized and written every 100 ms, which a cold or
             # loaded machine misses — the regime the emitter itself reports
             # through EMITTER_LAG_WARN_SEC. Production rate is therefore a
-            # precondition here and a measurement in bench/; the epoch
-            # arithmetic and the causality bounds below hold either way.
+            # precondition here and a measurement in bench/ (the per-segment
+            # cost that sets it is physics/next_segment plus
+            # io/batch_save_load); the epoch arithmetic and the causality
+            # bounds below hold either way.
             kept_pace = length(epochs) >= expected_batches - 1
             kept_pace ||
                 @warn "[TEST] Host did not keep pace with the accelerated clock; " *
@@ -2501,7 +2503,12 @@ end
         @test isfile(joinpath(run_dir, "delivery_delay.csv"))
         @test isfile(joinpath(run_dir, "plots", "mission_summary_global.png"))
         rx = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
-        @test count(==("ingested"), rx.Event) > 50
+        # How many batches the scenario delivers within its 12 s wall-clock
+        # budget depends on the host keeping pace with the accelerated clock,
+        # so the floor only separates a pipeline that moved data from one that
+        # stalled; the per-segment cost that sets the rate is measured by the
+        # physics/next_segment and io/batch_save_load benchmarks.
+        @test count(==("ingested"), rx.Event) > 10
     finally
         rm(run_dir; recursive = true, force = true)
     end
