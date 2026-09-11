@@ -1,0 +1,40 @@
+name: Feature request
+description: A modeling capability, data product, or interface the framework lacks
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: capability
+    attributes:
+      label: Capability
+      description: What the framework should be able to model, produce, or expose.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: >
+        The mission-operations or analysis question it answers, and why the
+        current scenarios, metrics, or interfaces cannot answer it.
+    validations:
+      required: true
+  - type: textarea
+    id: formulation
+    attributes:
+      label: Formulation
+      description: >
+        The physics or queuing formulation, where one applies: governing
+        relations, parameters with units and admissible ranges, limiting
+        cases, and a reference from the literature if the model is
+        established.
+    validations:
+      required: false
+  - type: textarea
+    id: interface
+    attributes:
+      label: Configuration and products
+      description: >
+        The configuration keys it would introduce, and the columns, files, or
+        figures it would add to a run directory.
+    validations:
+      required: false

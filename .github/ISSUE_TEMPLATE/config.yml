@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/
+    about: The physics, the configuration reference, and the analysis interfaces.
+  - name: Working conventions
+    url: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/blob/main/CONTRIBUTING.md
+    about: Environments, tests, formatting, and the commit and pull-request format.

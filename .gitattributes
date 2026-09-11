@@ -1,0 +1,14 @@
+# Normalize line endings in the repository: LF in the object database, the
+# platform's convention in the working tree. The CI matrix runs the suite on
+# Windows, where a CRLF checkout would otherwise reach the CSV readers.
+* text=auto eol=lf
+
+# Binary assets keep their bytes.
+*.png binary
+*.pdf binary
+*.gif binary
+*.jld2 binary
+*.h5 binary
+
+# Generated environments: keep them out of diff noise but under review.
+Manifest.toml linguist-generated=true

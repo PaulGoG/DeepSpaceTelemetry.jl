@@ -1,0 +1,54 @@
+name: Bug report
+description: A defect in the simulation, the post-processing, or the tooling
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happens
+      description: The observed behavior, and the behavior expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >
+        The command and the configuration that produce it. Attach the
+        configuration file or name the scenario under `scenarios/`, and give
+        the run ID if a run directory exists.
+      placeholder: julia --project=. --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/nominal_8h.toml
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: >
+        The error message with its stacktrace, or the relevant lines of
+        `emitter.log` / `receiver.log`. Paste the text rather than a
+        screenshot.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        The output of `versioninfo()` and the package version (the run's
+        `config_snapshot.toml` records both under `[provenance.platform]`,
+        together with the git commit).
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: The environment was instantiated from the committed manifests
+          required: true
+        - label: The configuration passes `validate_config` (the run starts)
+          required: false

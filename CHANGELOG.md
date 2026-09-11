@@ -39,6 +39,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `Emitter.pre_populate` and `Emitter.run_emitter`.
 - Tests: the caller's configuration is unchanged by `mission_plan`; the
   dashboard accessor and its validation; the specific exception types.
+- Repository files for the public release: `CODE_OF_CONDUCT.md` (Contributor
+  Covenant 2.1), `SECURITY.md`, issue forms and a pull-request template under
+  `.github/`, `codecov.yml` (thresholds, excluded paths), and `.gitattributes`
+  normalizing line endings for the Windows CI checkout.
 
 ### Changed
 - Figures: the counterfactual FIFO drain is drawn dotted in reddish purple

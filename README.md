@@ -4,6 +4,7 @@
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/dev/)
 [![CI](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml)
 [![Coverage](https://codecov.io/gh/PaulGoG/DeepSpaceTelemetry.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/PaulGoG/DeepSpaceTelemetry.jl)
+[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A Julia framework simulating the telemetry environment of deep-space science
@@ -98,16 +99,22 @@ DeepSpaceTelemetry/
 ├── .github/workflows/CompatHelper.yml # Weekly compat-bound update pull requests
 ├── .github/workflows/TagBot.yml # Release tags after registry merges (active once registered)
 ├── .github/dependabot.yml       # Monthly GitHub Actions version updates
+├── .github/ISSUE_TEMPLATE/      # Bug-report and feature-request forms
+├── .github/PULL_REQUEST_TEMPLATE.md # Change, verification, open points
+├── .gitattributes               # LF in the object database (Windows CI checkouts)
 ├── .gitignore                   # Excludes run data and generated artifacts
 ├── .JuliaFormatter.toml         # Committed formatter configuration
 ├── CHANGELOG.md                 # Notable changes (Keep a Changelog format)
 ├── CITATION.cff                 # Citation metadata (Citation File Format 1.2.0)
+├── CODE_OF_CONDUCT.md           # Contributor Covenant 2.1
+├── codecov.yml                  # Coverage thresholds and excluded paths
 ├── CONTRIBUTING.md              # Working conventions: environments, tests, formatting, commits
 ├── config.toml                  # Default entry point (= scenarios/recovery_12h_seasonal.toml)
 ├── Project.toml                 # Package metadata, deps, compat bounds
 ├── Manifest.toml                # Resolved dependency graph (committed for portability)
 ├── LICENSE
-└── README.md                    # Project documentation
+├── README.md                    # Project documentation
+└── SECURITY.md                  # Supported versions and vulnerability reporting
 ```
 
 ---
@@ -474,7 +481,10 @@ the version used, by tag.
 
 `CONTRIBUTING.md` states the working conventions: environment activation, the
 test suite with its static-analysis checks, formatting, documentation,
-configuration changes, and the commit and pull-request format.
+configuration changes, and the commit and pull-request format. Participation
+follows `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1). Vulnerabilities go
+through the private reporting channel described in `SECURITY.md`, not through
+an issue.
 
 ---
 

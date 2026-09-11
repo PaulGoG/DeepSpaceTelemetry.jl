@@ -1,0 +1,22 @@
+# Coverage reporting. The suite covers the library; entry-point scripts,
+# benchmarks, and the documentation build are excluded from the measurement
+# because they are exercised end to end rather than line by line.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+        informational: true
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        informational: true
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: true
+ignore:
+  - "scripts/"
+  - "bench/"
+  - "docs/"
