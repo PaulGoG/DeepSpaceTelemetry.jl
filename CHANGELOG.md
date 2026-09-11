@@ -6,6 +6,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The emitter-pacing testset asserted a production count that presumes the
+  host keeps pace with the accelerated clock — one 60 s segment synthesized
+  and written every 100 ms at `speed_up = 600` — which a cold or loaded CI
+  runner misses. The epoch arithmetic and the causality bounds are asserted
+  unconditionally; the end-of-span coverage and the steady-state lag are
+  asserted only when the run kept pace, and a warning names the shortfall
+  otherwise.
+
 ## [1.1.0] - 2026-09-11
 
 ### Added
