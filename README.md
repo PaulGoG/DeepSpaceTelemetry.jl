@@ -106,15 +106,13 @@ DeepSpaceTelemetry/
 ├── .JuliaFormatter.toml         # Committed formatter configuration
 ├── CHANGELOG.md                 # Notable changes (Keep a Changelog format)
 ├── CITATION.cff                 # Citation metadata (Citation File Format 1.2.0)
-├── CODE_OF_CONDUCT.md           # Contributor Covenant 2.1
 ├── codecov.yml                  # Coverage thresholds and excluded paths
 ├── CONTRIBUTING.md              # Working conventions: environments, tests, formatting, commits
 ├── config.toml                  # Default entry point (= scenarios/recovery_12h_seasonal.toml)
 ├── Project.toml                 # Package metadata, deps, compat bounds
 ├── Manifest.toml                # Resolved dependency graph (committed for portability)
 ├── LICENSE
-├── README.md                    # Project documentation
-└── SECURITY.md                  # Supported versions and vulnerability reporting
+└── README.md                    # Project documentation
 ```
 
 ---
@@ -481,10 +479,7 @@ the version used, by tag.
 
 `CONTRIBUTING.md` states the working conventions: environment activation, the
 test suite with its static-analysis checks, formatting, documentation,
-configuration changes, and the commit and pull-request format. Participation
-follows `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1). Vulnerabilities go
-through the private reporting channel described in `SECURITY.md`, not through
-an issue.
+configuration changes, and the commit and pull-request format.
 
 ---
 
