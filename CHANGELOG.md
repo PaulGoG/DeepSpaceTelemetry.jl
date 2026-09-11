@@ -15,7 +15,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
   every version tag, the build declares its canonical URL, and the README
   carries the docs badges.
 - CI test legs on macOS and Windows for the current Julia release, and
-  explicit `permissions:` blocks on the workflow.
+  explicit `permissions:` blocks on the workflow. Legs on a Julia version
+  other than the one the manifests were resolved on discard them and resolve
+  their own environment, because standard-library membership moves between
+  versions (`Zstd_jll` is a standard library on 1.13 and a registered package
+  on 1.12); those legs verify the `julia` compat bound, and the blocking
+  Linux leg on the current release verifies the manifests as committed.
 - `dashboard.receiver_status_panel` (default `false`): the receiver's
   console status panel, a text panel that clears the terminal on every
   receiver iteration, is opt-in. `TelemetryCore.dashboard_settings` returns

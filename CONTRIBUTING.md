@@ -12,6 +12,11 @@
 - After any change to a `Project.toml`, re-resolve all five Manifests (root,
   test, docs, scripts, bench) with `Pkg.resolve()` in each environment and
   commit them; the committed Manifests are the portability guarantee.
+- The Manifests are resolved on the development version and pin its
+  standard-library membership, which moves between Julia versions, so they
+  reproduce the tested environment on that version rather than on every
+  supported one. The CI legs below the current release resolve their own
+  environment; the compat bound, not the Manifest, is what those legs verify.
 
 ## Tests and static analysis
 
