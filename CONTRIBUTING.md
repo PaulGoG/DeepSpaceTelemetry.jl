@@ -7,6 +7,10 @@
 - Every entry-point script activates and instantiates its own environment
   silently; the one-time explicit instantiation is
   `julia --project=. -e 'using Pkg; Pkg.instantiate()'` from the package root.
+- Each environment ships an `activate.jl` that activates and instantiates it
+  without output, for interactive work: `julia -i test/activate.jl` leaves a
+  REPL in the test environment, and the same file `include`d from a REPL has
+  the same effect. A new environment gets one.
 - The test, docs, scripts, and bench environments consume the package by path
   through a `[sources]` entry, so they always run against the local source.
 - After any change to a `Project.toml`, re-resolve all five Manifests (root,
@@ -44,9 +48,10 @@
 - `julia docs/make.jl` builds the manual into `docs/build/`; every public
   function and struct carries a docstring; the manual pages live under
   `docs/src/`.
-- The CI docs job deploys the manual to GitHub Pages (`dev` from `main`,
-  `stable` from version tags), so a docs change is visible at
-  <https://PaulGoG.github.io/DeepSpaceTelemetry.jl/dev/> after the push.
+- The CI docs job deploys the manual to GitHub Pages: `stable` from version
+  tags and `dev` from `main`, so a docs change is visible under the version
+  selector's `dev` entry after the push. The README links the stable manual
+  only.
 - Docstring examples are `jldoctest` blocks executed by the docs build; a
   changed output fails the build, so the example is updated with the
   behavior.

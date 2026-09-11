@@ -1,7 +1,6 @@
 # DeepSpaceTelemetry
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/dev/)
+[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/)
 [![CI](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml)
 [![Coverage](https://codecov.io/gh/PaulGoG/DeepSpaceTelemetry.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/PaulGoG/DeepSpaceTelemetry.jl)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
@@ -51,6 +50,7 @@ DeepSpaceTelemetry/
 ├── bench/          # BenchmarkTools suites
 ├── docs/           # Documenter manual sources and the README figures
 ├── data/runs/      # Ephemeral run directories (gitignored)
+├── activate.jl     # Activates and instantiates this environment (one per environment)
 ├── config.toml     # Default entry point (= scenarios/recovery_12h_seasonal.toml)
 └── Project.toml    # Package metadata, deps, compat bounds (+ Manifest.toml)
 ```
@@ -78,6 +78,7 @@ DeepSpaceTelemetry/
 │   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
 ├── scripts/
 │   ├── Project.toml             # Script environment (terminal UI and logging dependencies; package consumed by path ([sources]))
+│   ├── activate.jl              # Activates and instantiates the script environment
 │   ├── Manifest.toml            # Resolved script environment (committed for portability)
 │   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
 │   ├── run_full_sim.jl          # Headless entry point ([run_id] [config.toml]) → Supervisor.run_mission
@@ -94,14 +95,17 @@ DeepSpaceTelemetry/
 │       └── cleanup.jl                   # Run-directory purger (asks for confirmation)
 ├── test/
 │   ├── Project.toml             # Test environment (QA deps; package consumed by path ([sources]))
+│   ├── activate.jl              # Activates and instantiates the test environment
 │   ├── Manifest.toml            # Resolved test environment (committed for portability)
 │   └── runtests.jl              # Static QA + unit + physics + 4 integration suites
 ├── bench/
 │   ├── Project.toml             # Benchmark environment (BenchmarkTools; package consumed by path ([sources]))
+│   ├── activate.jl              # Activates and instantiates the benchmark environment
 │   ├── Manifest.toml            # Resolved benchmark environment
 │   └── benchmarks.jl            # Performance benchmarks (incl. channel hot paths)
 ├── docs/
 │   ├── Project.toml             # Docs environment (Documenter; package consumed by path ([sources]))
+│   ├── activate.jl              # Activates and instantiates the docs environment
 │   ├── Manifest.toml            # Resolved docs environment (committed for portability)
 │   ├── make.jl                  # Documenter.jl build script
 │   └── src/                     # Manual pages
@@ -140,6 +144,7 @@ DeepSpaceTelemetry/
 ├── .github/dependabot.yml       # Monthly GitHub Actions version updates
 ├── .github/ISSUE_TEMPLATE/      # Bug-report and feature-request forms
 ├── .github/PULL_REQUEST_TEMPLATE.md # Change, verification, open points
+├── activate.jl                  # Activates and instantiates the package environment
 ├── .gitattributes               # LF in the object database (Windows CI checkouts)
 ├── .gitignore                   # Excludes run data and generated artifacts
 ├── .JuliaFormatter.toml         # Committed formatter configuration
@@ -190,8 +195,23 @@ julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
 Every entry-point script also activates and instantiates the environment
-automatically (silently), so this step is optional but avoids a first-run
-delay.
+automatically and silently, so this step is optional; it only avoids a
+first-run delay.
+
+Each environment additionally ships an activation script for interactive
+work, which activates it and instantiates its manifest without output:
+
+```bash
+julia -i activate.jl           # the package environment
+julia -i test/activate.jl      # the test environment (Aqua, JET, StableRNGs, …)
+julia -i docs/activate.jl      # Documenter
+julia -i bench/activate.jl     # BenchmarkTools
+julia -i scripts/activate.jl   # the entry points' environment (terminal UI, logging)
+```
+
+Each leaves a REPL with that environment active; from an existing REPL,
+`include` the same file. The first instantiation of an environment resolves
+and precompiles and is therefore slow, afterwards it is a no-op.
 
 ## Usage & Execution
 
@@ -243,9 +263,10 @@ The suite (equivalently `Pkg.test()`) runs the Aqua, ExplicitImports, and JET
 checks beside the unit and physics-validation testsets and four end-to-end
 integration missions: lossless, retention custodian, deterministic total
 loss, and a headless mission through the supervisor. The manual is published
-at <https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/> (latest release) and
-<https://PaulGoG.github.io/DeepSpaceTelemetry.jl/dev/> (the `main` branch),
-deployed by the CI docs job on every push to `main` and on every version tag.
+at <https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/>, deployed by the
+CI docs job on every version tag. The build of the `main` branch is deployed
+alongside it on every push and reachable from the version selector at the top
+of any page.
 
 <details>
 <summary>Post-processing and maintenance commands</summary>

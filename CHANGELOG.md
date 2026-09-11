@@ -7,6 +7,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Added
+- An `activate.jl` for every environment — the package, `test/`, `docs/`,
+  `bench/`, `scripts/` — activating and instantiating it without output, so
+  `julia -i test/activate.jl` opens a REPL in that environment. The entry
+  points already did this on start-up; these files serve interactive work.
 - Two figures from the shipped `scenarios/stress_8h_bursty.toml` under
   `docs/src/assets/`, shown in the README and on the manual's landing page:
   the mission summary of a week carrying an 18 h solar-flare blackout, its
@@ -14,6 +18,13 @@ Notable changes to DeepSpaceTelemetry. The format follows
   gap; and the batch-routing animation of the same run. `PROVENANCE.toml`
   beside them records the run, the commit, the realized totals, and the
   transform that produced each file from the run's own export.
+
+### Changed
+- The README carries one documentation badge, pointing at the manual of the
+  latest release; the build of `main` stays deployed and is reached through
+  the version selector.
+- `Project.toml` opens the development version `1.2.0-DEV` after the 1.1.0
+  release, and all five manifests are re-resolved onto it.
 
 ### Fixed
 - The emitter-pacing testset asserted a production count that presumes the
