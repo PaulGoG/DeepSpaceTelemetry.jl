@@ -28,7 +28,11 @@ total_points = tryparse(Int, ARGS[2])
 event_idx = tryparse(Int, ARGS[3])
 output_csv = ARGS[4]
 if total_points === nothing || event_idx === nothing
-    "<total_points> and <event_row_index> must be integers (got \"1000 10 1000ARGS[2])\", \"1000 10 1000ARGS[3])\")"
+    @error(
+        "<total_points> and <event_row_index> must be integers",
+        total_points = ARGS[2],
+        event_row_index = ARGS[3],
+    )
     exit(1)
 end
 

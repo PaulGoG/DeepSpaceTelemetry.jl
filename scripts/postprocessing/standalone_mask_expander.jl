@@ -15,11 +15,12 @@ Example:
     julia standalone_mask_expander.jl telemetry_mask_timeline.csv 921600 100 pointwise_mask.csv
 """
 
-# Required registered packages; never installed implicitly — installing into
-# the caller's active environment without consent is not this script's call.
+# Required registered packages; never installed implicitly — installation into
+# the caller's active environment requires explicit consent.
 try
     using CSV, DataFrames
-catch
+catch e
+    e isa ArgumentError || rethrow()
     println(
         "Missing required packages (CSV, DataFrames). Install them into " *
         "your active environment first:",
@@ -31,9 +32,9 @@ end
 """
     expand_pointwise_mask(matrix_path::String, points_per_batch::Int, event_idx::Int, output_path::String)
 
-Reads a given `telemetry_mask_timeline.csv` matrix and extracts a single row 
-(specified by `event_idx`). It then expands each batch status (0-4) into a 
-high-resolution pointwise boolean array of size `points_per_batch` per batch. 
+Reads a given `telemetry_mask_timeline.csv` matrix and extracts a single row
+(specified by `event_idx`). It then expands each batch status (0-4) into a
+high-resolution pointwise boolean array of size `points_per_batch` per batch.
 Only successfully downlinked batches (status == 3) result in 1s; batches that
 were still onboard/in transit (1, 2), not yet generated (0), or permanently
 lost to packet loss (4) stay 0.
@@ -122,11 +123,15 @@ if abspath(PROGRAM_FILE) == @__FILE__
     idx = tryparse(Int, ARGS[3])
     out_csv = ARGS[4]
     if ppb === nothing || idx === nothing
-        "<points_per_batch> and <target_row_idx> must be integers (got \"1000 10 1000ARGS[2])\", \"1000 10 1000ARGS[3])\")"
+        @error(
+            "<points_per_batch> and <target_row_idx> must be integers",
+            points_per_batch = ARGS[2],
+            target_row_idx = ARGS[3],
+        )
         exit(1)
     end
     if !isfile(mat_csv)
-        "matrix CSV not found at "
+        @error "Matrix CSV not found" path = mat_csv
         exit(1)
     end
 

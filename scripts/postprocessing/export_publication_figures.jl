@@ -21,7 +21,7 @@ using DeepSpaceTelemetry
 
 run_id = isempty(ARGS) ? DeepSpaceTelemetry.TelemetryCore.latest_run_id() : ARGS[1]
 if run_id === nothing
-    "no run directory found; pass a run ID"
+    @error "No run directory found; pass a run ID."
     exit(1)
 end
 run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
