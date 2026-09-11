@@ -6,6 +6,95 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-11
+
+### Added
+- The manual is published on GitHub Pages
+  (`https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/`, `dev` for the
+  `main` branch); the CI docs job deploys it on every push to `main` and on
+  every version tag, the build declares its canonical URL, and the README
+  carries the docs badges.
+- CI test legs on macOS and Windows for the current Julia release, and
+  explicit `permissions:` blocks on the workflow.
+- `dashboard.receiver_status_panel` (default `false`): the receiver's
+  console status panel, a text panel that clears the terminal on every
+  receiver iteration, is opt-in. `TelemetryCore.dashboard_settings` returns
+  the validated `[dashboard]` flags; `Receiver.run_receiver` takes the
+  keyword `status_panel`; `scripts/launch_dashboard.jl` reads the accessor.
+- `TelemetryCore.StorageBudgetError`, thrown by the storage gate in place of
+  a generic error.
+- Named constants for values that were inline literals:
+  `TelemetryCore.HEARTBEAT_INTERVAL_MS`, `MS_PER_HOUR`, `MS_PER_DAY`,
+  `EMITTER_PERIOD_WARN_MS`, `RECEIVER_SLOT_WARN_MS`;
+  `Supervisor.RESTART_SEED_OFFSET`; the six coefficients of the
+  Robson–Cornish–Liu instrument PSD in `VirtualInstrument`;
+  `Metrology.QUARTILE_BAND_ALPHA`; `PlotTheme.COLOR_COUNTERFACTUAL`,
+  `COLOR_OUTAGE`, `COLOR_MARKER`, `COLOR_GUIDE`.
+- `PlotTheme.line_advance` (line height of the annotation face at a print
+  style) and `Receiver.shading_patch` (legend entry carrying the edge style
+  of an in-axis shading).
+- Docstrings on `PROJECT_ROOT`, `hours_period`, `PROFILE_MEAN_SUBINTERVALS`,
+  `render_log_value`, `print_banner`, `LEGEND_COLGAP`; field lists on
+  `SimulationClock`, `DataBatch`, `DataSegment`; keyword-argument lists on
+  `Emitter.pre_populate` and `Emitter.run_emitter`.
+- Tests: the caller's configuration is unchanged by `mission_plan`; the
+  dashboard accessor and its validation; the specific exception types.
+
+### Changed
+- Figures: the counterfactual FIFO drain is drawn dotted in reddish purple
+  instead of the onboard-buffer signature (orange, dashed); interquartile
+  bands carry boundary lines; the delivery-delay legend lists only the
+  series drawn; the disruption, outage, and gap legend patches carry the
+  edge style of the in-axis shading; every color comes from `PlotTheme`;
+  axis labels with the look-back symbol are LaTeX strings; the theme's
+  figure padding is the single source of the value; the data-line floor at
+  reduced widths is 0.9 units (≈ 1 pt at 86 mm); edge and reference strokes
+  scale with the print style; the lost-batch strip is labeled "Lost
+  batches"; the delivery-delay requirement label no longer meets the
+  annotation block.
+- Animation: legend and axis typography derive from one `PlotStyle` for the
+  1400-unit canvas, and the raster density is declared explicitly.
+- `Supervisor.mission_plan` no longer mutates its argument; the stamped copy
+  travels in `MissionPlan.cfg`. Component failure, restart, policy-continue,
+  abort, and watchdog notices are logger records tagged `[SUPERVISOR]`;
+  `supervise!` drops its `orig_stdout` keyword; stage messages in sentence
+  case.
+- Specific exceptions at the public interfaces: `[CONFIG]` errors from
+  `load_config`, `ArgumentError` for missing run inputs (`load_clock_anchor`,
+  the run-ID reuse guard, the post-processing readers), `StorageBudgetError`
+  from the storage gate; the replay-RAM message names
+  `generate_mask_timeline`.
+- `estimate_artifacts` requires `physics.batch_size`; `save_clock_anchor`
+  rotates an existing anchor; `validate_config` and the link model read
+  `start_sim_time` through the checked coercion; the grace-window check reads
+  the segment duration through the physics accessor.
+- Keyword `segment_duration_sec` replaces `seg_dur` in `Emitter.pre_populate`,
+  `Emitter.run_emitter`, and the `InstrumentState` field.
+- Configuration files: one canonical invocation line in every header, and
+  scenario headers that name settings only.
+- Test suite: every approximate comparison states its tolerance; the test
+  environment drops `Random`.
+- Documentation: component status follows the entry points and lists the
+  scripts; "DSN" is defined once as the generic ground-network term; the
+  clone URL is HTTPS and `Pkg.add` by URL names the release tag;
+  CONTRIBUTING states the formatter installation and the CI matrix; the
+  usage page documents the status panel; American spelling throughout; the
+  physics page no longer names a downstream project; the repository-rename
+  entry sits under 0.9.0.
+- Register and comment currency across the sources: plan references,
+  former-implementation narratives, and colloquial phrasing removed.
+
+### Fixed
+- The CLI wrappers `apply_telemetry_mask.jl`, `standalone_mask_expander.jl`,
+  `export_hdf5.jl`, `export_publication_figures.jl`, and `generate_gif.jl`
+  exited silently on a missing run directory or malformed arguments: their
+  messages had been reduced to discarded string literals in 1.0.0. They
+  report through `@error` and exit with status 1.
+- The manifests of the test, docs, bench, and scripts environments recorded
+  the package at version 0.9.0.
+- `Receiver`: a malformed `start_sim_time` in the run snapshot is reported
+  instead of silently re-anchoring the time axis.
+
 ## [1.0.0] - 2026-09-10
 
 ### Added
@@ -170,7 +259,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
   test and root Manifests agree again); `SHA` compat widened to `"0.7, 1"`
   for the stdlib version shipped with 1.13; CI tests the 1.12 compat floor
   as a second blocking job.
-
 - `Receiver.generate_mission_plots`, `plot_mission_summary`,
   `plot_session`, `Metrology.plot_alert_latency`, and `plot_delivery_delay`
   take `style`, `plots_dir`, `formats`, and `suffix` keywords (defaults
@@ -222,7 +310,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
   the terminal viewer. `runs_root` and `latest_run_id` single-source the
   run-directory discovery of the scripts; `cleanup.jl` and
   `apply_telemetry_mask.jl` resolve paths through `run_directory` (they
-  honour a redirected `DATA_ROOT`), and the latter loads the package instead
+  honor a redirected `DATA_ROOT`), and the latter loads the package instead
   of including a second copy of `TelemetryCore`.
 - Pre-populated batches stamp `created_at` and their `gen` event at the
   finalization instant (end of the last segment's content), consistently
@@ -240,10 +328,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
   worst-channel-state loss with the largest disruption `loss_multiplier`.
 - Storage estimator counts the vector-PDF twin of every figure (bytes and
   file count) and uses named constants for its margins and slacks.
-
-- Renamed (2026-08-02, recorded here for consumers): the package, module, and
-  repository **SpaceTelemetrySim → DeepSpaceTelemetry** — a breaking change
-  for any code `using` the old module name.
 
 ### Removed
 - The pre-1.0 configuration aliases `simulation.test_duration_sec`,
@@ -268,7 +352,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
   emitter only deleted them, while in-flight occupancy has always been the
   `link/` directory listing. Consumers never depended on them (`link/` is
   off-limits by contract).
-
 - `DataSegment.is_signal` and the instrument's per-segment signal flag:
   event instants are markers, not random draws. The synthetic noise
   realization of a given seed changes (one fewer RNG draw per segment).
@@ -354,6 +437,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - Static QA shipped with the tests: Aqua, ExplicitImports, and JET alongside
   unit, physics-validation, and three end-to-end integration suites.
 
-[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.0.0...HEAD
+### Changed
+- Renamed (2026-08-02, recorded here for consumers): the package, module, and
+  repository **SpaceTelemetrySim → DeepSpaceTelemetry** — a breaking change
+  for any code `using` the old module name.
+
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/releases/tag/v0.9.0
