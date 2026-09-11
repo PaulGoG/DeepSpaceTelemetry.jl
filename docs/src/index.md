@@ -7,8 +7,8 @@ Deep-space missions communicate on asymmetric duty cycles: a daily ground-statio
 
 ## Installation
 
-Requires Julia ≥ 1.12. Version 1.0.0 is not registered in the General
-registry; add the package by URL (at a release tag), or
+Requires Julia ≥ 1.12. The package is not registered in the General
+registry; add it by URL at a release tag, or
 clone the repository for the full pipeline workflow (scripts, scenario
 library, benchmarks):
 
