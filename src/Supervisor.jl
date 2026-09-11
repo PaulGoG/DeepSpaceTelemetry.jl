@@ -5,7 +5,7 @@ The mission orchestration layer: assembles a validated [`MissionPlan`](@ref)
 from the configuration, runs the emitter and the receiver as supervised
 tasks (abort / continue / restart policies, heartbeat watchdog, the
 single-writer `component_events.csv`), keeps the lifecycle sentinels
-truthful on every exit path, and drives the failure-isolated
+consistent on every exit path, and drives the failure-isolated
 post-processing stages. The headless entry point `scripts/run_full_sim.jl`
 is argument parsing plus one call to [`run_mission`](@ref).
 """
@@ -13,6 +13,7 @@ module Supervisor
 
 using ..TelemetryCore
 using ..ChannelEffects
+using ..VirtualInstrument
 using ..Emitter
 using ..Receiver
 using ..Metrology
@@ -38,7 +39,7 @@ escape sequences are stripped so the file reads cleanly after the run.
 Records are appended per write (log rates are a few lines per batch), which
 allows size-capped rotation to `name#k.log` (`retention.log_rotate_mb`)
 without a held-open stream across the rotation boundary. Formatting never
-throws: a throwing logger would kill the task it logs for.
+throws: a throwing logger would terminate the task it logs for.
 """
 struct CleanFileLogger <: Logging.AbstractLogger
     path::String
@@ -56,6 +57,15 @@ Removes ANSI escape sequences (colors, cursor motion) from a log message.
 """
 strip_ansi(text::AbstractString) = replace(text, r"\e\[[0-9;]*[a-zA-Z]" => "")
 
+"""
+    render_log_value(v) -> String
+
+Text of one structured log value for [`CleanFileLogger`](@ref): exceptions
+(also the exception of an `(exception, backtrace)` tuple) through
+`showerror`, everything else through `string`; a value whose rendering
+throws yields a `<unprintable T>` placeholder, so the logger itself never
+throws.
+"""
 function render_log_value(v)
     return try
         if v isa Exception
@@ -131,6 +141,17 @@ struct MissionPlan{T<:NamedTuple,P<:NamedTuple,S<:NamedTuple,L<:ChannelEffects.L
 end
 
 """
+    RESTART_SEED_OFFSET
+
+Offset of the RNG seed of a restarted emitter: attempt `k ≥ 1` seeds its
+fresh instrument with `rng_seed + RESTART_SEED_OFFSET + k`, so the noise
+realization after a restart is reproducible from `simulation.rng_seed` yet
+distinct from the primary stream (`rng_seed`) and from the loss channel
+(`rng_seed + 1`).
+"""
+const RESTART_SEED_OFFSET = 100
+
+"""
     stamp_external_provenance!(cfg, physics, needed_days)
 
 External-input coverage report and provenance stamp: row count and SHA-256
@@ -171,14 +192,22 @@ channel models — the physics stream is seeded with `simulation.rng_seed`,
 the loss channel with `rng_seed + 1`, so both are independently
 reproducible — stamps external-input provenance when
 `physics.data_source = "external"`, and fixes the run ID (generated when
-empty). Writes nothing to disk.
+empty). Writes nothing to disk and leaves `cfg` unmodified: the plan
+carries a shallow copy of it, which is what receives the provenance stamp
+and becomes the run's configuration snapshot.
 """
 function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
     TelemetryCore.validate_config(cfg)
     TelemetryCore.check_storage_limits(cfg)
+    # Shallow copy: the provenance stamp below adds a top-level section and
+    # must not surface in the caller's dictionary.
+    cfg = Dict{String,Any}(cfg)
     sim = cfg["simulation"]
     speed_up = Float64(sim["speed_up"])
-    start_sim = DateTime(sim["start_sim_time"])
+    start_sim = TelemetryCore.parsed_datetime(
+        TelemetryCore.required_value(sim, "simulation", "start_sim_time"),
+        "simulation.start_sim_time",
+    )
     wall_seconds = TelemetryCore.mission_wall_seconds(cfg)
     downtime_days = Float64(get(sim, "initial_downtime_days", 0.0))
     seed = Int(get(sim, "rng_seed", 0))
@@ -261,7 +290,7 @@ end
 
 """
     supervise!(spawners, run_dir, clock, stop_flag, heartbeats, policy;
-               orig_stdout = stdout, on_restart = (name, attempt) -> nothing,
+               on_restart = (name, attempt) -> nothing,
                poll_sec = TelemetryCore.RECEIVER_POLL_INTERVAL_SEC) -> Dict{Symbol,Int}
 
 Runs the components until all of them have finished. `spawners[name](attempt)`
@@ -274,7 +303,11 @@ calling `on_restart(name, attempt)`. A component whose heartbeat file in
 `heartbeats` stays untouched for longer than `policy.watchdog_sec` is
 recorded as `stalled` (and `recovered` when it resumes); the watchdog only
 records, it never intervenes. Every lifecycle transition is appended to
-`component_events.csv`. Returns the restart count per component.
+`component_events.csv`, and failures, policy decisions, restarts, and
+watchdog trips are reported as `[SUPERVISOR]` log records through the
+logger active in the calling task (the global logger under
+[`run_mission`](@ref); the component tasks log to their own files).
+Returns the restart count per component.
 """
 function supervise!(
     spawners::Dict{Symbol,<:Function},
@@ -283,7 +316,6 @@ function supervise!(
     stop_flag::Threads.Atomic{Bool},
     heartbeats::Dict{Symbol,String},
     policy::NamedTuple;
-    orig_stdout::IO = stdout,
     on_restart::Function = (name, attempt) -> nothing,
     poll_sec::Float64 = TelemetryCore.RECEIVER_POLL_INTERVAL_SEC,
 )
@@ -295,9 +327,10 @@ function supervise!(
         sleep(poll_sec)
         for (name, t) in collect(tasks)
             (istaskfailed(t) && !(name in failure_handled)) || continue
-            println(orig_stdout, "\n[SUPERVISOR] Component $name failed:")
-            showerror(orig_stdout, t.result)
-            println(orig_stdout)
+            stack = current_exceptions(t)
+            failure =
+                isempty(stack) ? t.result : (stack[end].exception, stack[end].backtrace)
+            @error "[SUPERVISOR] Component $name failed." exception = failure
             log_component_event!(run_dir, clock, name, "down")
             if policy.on_component_failure == "restart" &&
                restart_counts[name] < policy.max_restarts
@@ -305,20 +338,14 @@ function supervise!(
                 on_restart(name, restart_counts[name])
                 tasks[name] = spawners[name](restart_counts[name])
                 log_component_event!(run_dir, clock, name, "restart")
-                println(
-                    orig_stdout,
-                    "[SUPERVISOR] Restarted $name (attempt $(restart_counts[name]) of $(policy.max_restarts)).",
-                )
+                @warn "[SUPERVISOR] Restarted $name (attempt $(restart_counts[name]) of $(policy.max_restarts))."
             elseif policy.on_component_failure == "continue"
                 push!(failure_handled, name)
-                println(orig_stdout, "[SUPERVISOR] Policy continue: $name stays down.")
+                @warn "[SUPERVISOR] Policy continue: $name stays down."
             else
                 push!(failure_handled, name)
                 stop_flag[] = true
-                println(
-                    orig_stdout,
-                    "[SUPERVISOR] Policy abort: stopping the partner component.",
-                )
+                @error "[SUPERVISOR] Policy abort: stopping the partner component."
             end
         end
         # Watchdog: a hung (not dead) component stops heartbeating.
@@ -329,10 +356,7 @@ function supervise!(
             if stalled && !(name in watchdog_tripped)
                 push!(watchdog_tripped, name)
                 log_component_event!(run_dir, clock, name, "stalled")
-                println(
-                    orig_stdout,
-                    "\n[SUPERVISOR] Watchdog: no heartbeat from $name for > $(policy.watchdog_sec) s.",
-                )
+                @warn "[SUPERVISOR] Watchdog: no heartbeat from $name for > $(policy.watchdog_sec) s."
             elseif !stalled && name in watchdog_tripped
                 delete!(watchdog_tripped, name)
                 log_component_event!(run_dir, clock, name, "recovered")
@@ -342,8 +366,10 @@ function supervise!(
     for t in values(tasks)
         try
             wait(t)
-        catch
-            # Failure already reported above.
+        catch e
+            # A failed task was already reported above; anything else is
+            # the supervisor's own fault and propagates.
+            e isa TaskFailedException || rethrow()
         end
     end
     return restart_counts
@@ -357,8 +383,9 @@ end
 The emitter and receiver launchers consumed by [`supervise!`](@ref).
 Attempt 0 continues the pre-populated instrument and partial batch; a
 restarted emitter (attempt ≥ 1) takes a fresh instrument anchored at the
-current mission time — an honest generation gap with a new noise
-realization on a derived seed — and no carried-over partial batch.
+current mission time — a genuine generation gap with a new noise
+realization on the seed `rng_seed + RESTART_SEED_OFFSET + attempt` — and
+no carried-over partial batch.
 """
 function component_spawners(
     plan::MissionPlan,
@@ -367,7 +394,7 @@ function component_spawners(
     deadline::DateTime,
     stop_flag::Threads.Atomic{Bool},
     heartbeats::Dict{Symbol,String},
-    instrument,
+    instrument::VirtualInstrument.InstrumentState,
     pending_segments::Vector{TelemetryCore.DataSegment},
     emitter_logger::CleanFileLogger,
     receiver_logger::CleanFileLogger,
@@ -375,20 +402,21 @@ function component_spawners(
 )
     physics = plan.physics
     telemetry = plan.telemetry
+    dashboard = TelemetryCore.dashboard_settings(plan.cfg)
     run_emitter_logged(attempt::Int) = with_logger(emitter_logger) do
         Emitter.run_emitter(
             clock,
             plan.link,
             plan.run_id;
             sample_rate = physics.sample_rate,
-            seg_dur = physics.segment_duration_sec,
+            segment_duration_sec = physics.segment_duration_sec,
             batch_size = physics.batch_size,
             data_source = physics.data_source,
             ext_path = physics.external_data_path,
             instrument = attempt == 0 ? instrument : nothing,
             pending_segments = attempt == 0 ? pending_segments :
                                TelemetryCore.DataSegment[],
-            rng = Xoshiro(plan.rng_seed + 100 + attempt),
+            rng = Xoshiro(plan.rng_seed + RESTART_SEED_OFFSET + attempt),
             confusion_observation_years = physics.confusion_observation_years,
             noise_f_min_hz = physics.noise_f_min_hz,
             markers = plan.markers,
@@ -406,6 +434,7 @@ function component_spawners(
             plan.link,
             plan.run_id;
             orig_stdout = orig_stdout,
+            status_panel = dashboard.receiver_status_panel,
             batch_transfer_sec = telemetry.nominal_batch_transfer_sec,
             loss_model = plan.loss_model,
             max_retries = plan.max_retries,
@@ -447,7 +476,7 @@ function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = std
         get(pp, "generate_mask_timeline", true),
         "post_processing.generate_mask_timeline",
     )
-        println(orig_stdout, "\nGenerating Post-Processing Telemetry Masks...")
+        println(orig_stdout, "\nGenerating the post-processing telemetry masks")
         try
             Receiver.generate_telemetry_masks(run_dir)
         catch e
@@ -456,7 +485,7 @@ function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = std
         end
     end
     if get(pp, "alert_latency", true)
-        println(orig_stdout, "\nComputing the alert-latency metric...")
+        println(orig_stdout, "\nComputing the alert-latency metric")
         try
             Metrology.plot_alert_latency(
                 run_dir;
@@ -469,7 +498,7 @@ function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = std
         end
     end
     if get(pp, "delivery_delay", true)
-        println(orig_stdout, "\nComputing the delivery-delay metric...")
+        println(orig_stdout, "\nComputing the delivery-delay metric")
         try
             Metrology.plot_delivery_delay(
                 run_dir;
@@ -483,7 +512,7 @@ function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = std
     get(pp, "expand_to_pointwise_masks", false) &&
         expand_pointwise_masks!(plan, run_dir, orig_stdout)
     if get(pp, "hdf5_export", false)
-        println(orig_stdout, "\nExporting the run products to HDF5...")
+        println(orig_stdout, "\nExporting the run products to HDF5")
         try
             Export.export_hdf5(run_dir)
         catch e
@@ -493,7 +522,7 @@ function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = std
     end
     publication = TelemetryCore.publication_settings(plan.cfg)
     if publication.enabled
-        println(orig_stdout, "\nExporting publication figures...")
+        println(orig_stdout, "\nExporting the publication figures")
         try
             Publication.export_publication_figures(
                 run_dir;
@@ -519,7 +548,7 @@ failure-isolated.
 """
 function expand_pointwise_masks!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
     pp = get(plan.cfg, "post_processing", Dict{String,Any}())
-    println(orig_stdout, "\nExpanding Telemetry Masks to Point-Wise 0/1 Arrays...")
+    println(orig_stdout, "\nExpanding the telemetry masks to point-wise 0/1 arrays")
     try
         physics = plan.physics
         total_sim_sec =
@@ -594,6 +623,14 @@ function contact_summary(plan::MissionPlan)
            (contacts.low_latency_enabled ? "" : " disabled")
 end
 
+"""
+    print_banner(io::IO, plan::MissionPlan, run_dir::String)
+
+Writes the mission-start banner to `io`: run ID, mission span and speed-up,
+link capacity and the daily capacity balance, the contact schedule
+([`contact_summary`](@ref)), markers, generation gaps, the on-board
+recorder ceiling, and the log location.
+"""
 function print_banner(io::IO, plan::MissionPlan, run_dir::String)
     println(io, "="^55)
     println(io, lpad("DEEP-SPACE TELEMETRY MISSION START", 44))
@@ -674,7 +711,7 @@ function warm_up_components!(plan::MissionPlan, orig_stdout::IO)
                 plan.link,
                 warm_id;
                 sample_rate = physics.sample_rate,
-                seg_dur = physics.segment_duration_sec,
+                segment_duration_sec = physics.segment_duration_sec,
                 batch_size = physics.batch_size,
                 data_source = physics.data_source,
                 ext_path = physics.external_data_path,
@@ -691,6 +728,7 @@ function warm_up_components!(plan::MissionPlan, orig_stdout::IO)
                 plan.link,
                 warm_id;
                 orig_stdout = orig_stdout,
+                status_panel = TelemetryCore.dashboard_settings(plan.cfg).receiver_status_panel,
                 batch_transfer_sec = plan.telemetry.nominal_batch_transfer_sec,
                 loss_model = plan.loss_model,
                 max_retries = plan.max_retries,
@@ -732,14 +770,14 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
     # the returned instrument and partial batch continue into the main loop.
     println(
         orig_stdout,
-        "Pre-populating onboard buffer for $(plan.initial_downtime_days) days...",
+        "Pre-populating the onboard buffer for $(plan.initial_downtime_days) days",
     )
     instrument, pending_segments = with_logger(emitter_logger) do
         Emitter.pre_populate(
             plan.start_sim,
             plan.run_id;
             sample_rate = physics.sample_rate,
-            seg_dur = physics.segment_duration_sec,
+            segment_duration_sec = physics.segment_duration_sec,
             batch_size = physics.batch_size,
             initial_downtime_days = plan.initial_downtime_days,
             data_source = physics.data_source,
@@ -797,7 +835,6 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
         stop_flag,
         heartbeats,
         plan.supervision;
-        orig_stdout = orig_stdout,
         on_restart = (name, _) ->
             name == :emitter && record_generation_gap!(run_dir, clock),
     )
@@ -837,7 +874,7 @@ function run_mission(
         execute_mission!(plan, run_dir, orig_stdout)
         completed = true
     finally
-        # Sentinel truthfulness on every exit path: an abort before lifecycle
+        # Sentinels consistent on every exit path: an abort before lifecycle
         # end must not strand RUN_ACTIVE (a consumer would see a live run
         # with no process).
         rm(joinpath(run_dir, "RUN_ACTIVE"), force = true)

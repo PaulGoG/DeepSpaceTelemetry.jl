@@ -31,7 +31,7 @@ segment) are shaped with a periodic sqrt-Hann window and summed at 50% overlap.
 The squared window tiles to exactly 1, so the emitted stream is stationary,
 continuous across segment boundaries, and reproduces the sky-averaged LISA
 sensitivity with the correct absolute amplitude (spectral content below
-`1/(2·seg_dur)` Hz is not representable at this block length — increase
+`1/(2·segment_duration_sec)` Hz is not representable at this block length — increase
 `segment_duration_sec` for low-frequency fidelity). The constructor keywords
 `confusion_observation_years` (0.5, 1.0, 2.0, or 4.0) select the confusion
 fit and `noise_f_min_hz` the lower edge of the synthesized band: bins below
@@ -54,14 +54,14 @@ mutable struct InstrumentState{R<:Random.AbstractRNG}
     last_t::DateTime
     id_counter::Int
     sample_rate::Float64
-    seg_dur::Float64
+    segment_duration_sec::Float64
 
     use_external::Bool
     noise_amp::Vector{Float64}   # scaled amplitude spectrum of one 2N synthesis block
     window::Vector{Float64}      # periodic sqrt-Hann window of length 2N
     carry::Vector{Float64}       # overlap-add tail carried into the next segment
     # Cached inverse-FFT plan and reusable draw/output buffers of the
-    # synthesis hot path (R17). The plan field is annotated with the abstract
+    # synthesis hot path. The plan field is annotated with the abstract
     # `AbstractFFTs.Plan` — the concrete FFTW plan type is an implementation
     # detail, and the single dynamic dispatch per block is negligible against
     # the transform itself.
@@ -75,14 +75,14 @@ mutable struct InstrumentState{R<:Random.AbstractRNG}
     function InstrumentState(
         start_t::DateTime,
         sample_rate::Float64,
-        seg_dur::Float64,
+        segment_duration_sec::Float64,
         data_source::String,
         ext_path::String;
         rng::Random.AbstractRNG = Xoshiro(0),
         confusion_observation_years::Real = 1.0,
         noise_f_min_hz::Real = 1e-5,
     )
-        n_samples = round(Int, sample_rate * seg_dur)
+        n_samples = round(Int, sample_rate * segment_duration_sec)
         haskey(CONFUSION_FITS, Float64(confusion_observation_years)) || throw(
             ArgumentError(
                 "confusion_observation_years must be one of 0.5, 1.0, 2.0, 4.0 (got $confusion_observation_years).",
@@ -124,7 +124,7 @@ mutable struct InstrumentState{R<:Random.AbstractRNG}
                 start_t,
                 1,
                 sample_rate,
-                seg_dur,
+                segment_duration_sec,
                 true,
                 Float64[],
                 Float64[],
@@ -171,7 +171,7 @@ mutable struct InstrumentState{R<:Random.AbstractRNG}
                 start_t,
                 1,
                 sample_rate,
-                seg_dur,
+                segment_duration_sec,
                 false,
                 noise_amp,
                 window,
@@ -256,6 +256,55 @@ Cornish & Liu 2019, Eq. 14).
 const CONFUSION_AMPLITUDE = 9e-45
 
 """
+    OMS_NOISE_AMPLITUDE
+
+Amplitude `1.5 × 10⁻¹¹ m Hz⁻¹ᐟ²` of the optical-metrology-system
+displacement noise `P_OMS(f)` in Robson, Cornish & Liu (2019), Eq. 1.
+"""
+const OMS_NOISE_AMPLITUDE = 1.5e-11
+
+"""
+    OMS_NOISE_KNEE_HZ
+
+Knee frequency `2 mHz` of the low-frequency rise `(1 + (f_knee / f)⁴)` of
+`P_OMS(f)` [Hz].
+"""
+const OMS_NOISE_KNEE_HZ = 2e-3
+
+"""
+    ACCELERATION_NOISE_AMPLITUDE
+
+Amplitude `3 × 10⁻¹⁵ m s⁻² Hz⁻¹ᐟ²` of the test-mass acceleration noise
+`P_acc(f)` in Robson, Cornish & Liu (2019), Eq. 1.
+"""
+const ACCELERATION_NOISE_AMPLITUDE = 3e-15
+
+"""
+    ACCELERATION_NOISE_LOW_KNEE_HZ
+
+Knee frequency `0.4 mHz` of the low-frequency rise `(1 + (f_knee / f)²)` of
+`P_acc(f)` [Hz].
+"""
+const ACCELERATION_NOISE_LOW_KNEE_HZ = 0.4e-3
+
+"""
+    ACCELERATION_NOISE_HIGH_KNEE_HZ
+
+Knee frequency `8 mHz` of the high-frequency rise `(1 + (f / f_knee)⁴)` of
+`P_acc(f)` [Hz].
+"""
+const ACCELERATION_NOISE_HIGH_KNEE_HZ = 8e-3
+
+"""
+    RESPONSE_CORRECTION_COEFFICIENT
+
+Dimensionless coefficient `0.6` of the high-frequency correction
+`1 + 0.6 (f / f*)²` to the sky-averaged response in Robson, Cornish & Liu
+(2019), Eq. 1.
+"""
+const RESPONSE_CORRECTION_COEFFICIENT = 0.6
+
+"""
     lisa_instrument_psd(f) -> Float64
 
 Sky- and polarization-averaged LISA instrument sensitivity `S_n(f)` [Hz⁻¹]
@@ -264,8 +313,13 @@ at frequency `f` [Hz], Robson, Cornish & Liu (2019) Eq. 1:
     S_n(f) = 10 / (3 L²) · [P_OMS(f) + 2 (1 + cos²(f/f*)) P_acc(f) / (2π f)⁴] · [1 + 0.6 (f/f*)²]
 
 with `P_OMS = (1.5 × 10⁻¹¹)² (1 + (2 mHz / f)⁴) m² Hz⁻¹`,
-`P_acc = (3 × 10⁻¹⁵)² (1 + (0.4 mHz / f)²) (1 + (f / 8 mHz)⁴) m² s⁻⁴ Hz⁻¹`,
-`L = 2.5 × 10⁹ m`, and `f* = c / (2π L)`. This is the noise PSD divided by
+`P_acc = (3 × 10⁻¹⁵)² (1 + (0.4 mHz / f)²) (1 + (f / 8 mHz)⁴) m² s⁻⁴ Hz⁻¹`
+(the constants [`OMS_NOISE_AMPLITUDE`](@ref), [`OMS_NOISE_KNEE_HZ`](@ref),
+[`ACCELERATION_NOISE_AMPLITUDE`](@ref),
+[`ACCELERATION_NOISE_LOW_KNEE_HZ`](@ref),
+[`ACCELERATION_NOISE_HIGH_KNEE_HZ`](@ref), and
+[`RESPONSE_CORRECTION_COEFFICIENT`](@ref)), `L = 2.5 × 10⁹ m`, and
+`f* = c / (2π L)`. This is the noise PSD divided by
 the sky-averaged response, the quantity a strain stream is whitened
 against. Returns `Inf` for `f ≤ 0`.
 """
@@ -274,11 +328,14 @@ function lisa_instrument_psd(f)
     f <= 0.0 && return Inf
     L = TelemetryCore.L_ARM
     f_star = TelemetryCore.F_STAR
-    p_oms = (1.5e-11)^2 * (1 + (2e-3 / f)^4)
-    p_acc = (3e-15)^2 * (1 + (0.4e-3 / f)^2) * (1 + (f / 8e-3)^4)
+    p_oms = OMS_NOISE_AMPLITUDE^2 * (1 + (OMS_NOISE_KNEE_HZ / f)^4)
+    p_acc =
+        ACCELERATION_NOISE_AMPLITUDE^2 *
+        (1 + (ACCELERATION_NOISE_LOW_KNEE_HZ / f)^2) *
+        (1 + (f / ACCELERATION_NOISE_HIGH_KNEE_HZ)^4)
     return (10 / (3 * L^2)) *
            (p_oms + 2 * (1 + cos(f / f_star)^2) * p_acc / (2π * f)^4) *
-           (1 + 0.6 * (f / f_star)^2)
+           (1 + RESPONSE_CORRECTION_COEFFICIENT * (f / f_star)^2)
 end
 
 """
@@ -342,7 +399,7 @@ previous block's overlap-add tail and the head of a freshly synthesized
 windowed block (see [`InstrumentState`](@ref)).
 """
 function next_segment!(vi::InstrumentState)
-    n_samples = round(Int, vi.sample_rate * vi.seg_dur)
+    n_samples = round(Int, vi.sample_rate * vi.segment_duration_sec)
 
     if vi.use_external
         # Slice from external array
@@ -377,7 +434,7 @@ function next_segment!(vi::InstrumentState)
     end
 
     seg = TelemetryCore.DataSegment(vi.id_counter, vi.last_t, data)
-    vi.last_t += Second(round(Int, vi.seg_dur))
+    vi.last_t += Second(round(Int, vi.segment_duration_sec))
     vi.id_counter += 1
     return seg
 end

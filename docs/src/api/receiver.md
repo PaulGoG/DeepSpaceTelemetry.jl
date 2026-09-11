@@ -13,9 +13,11 @@ DeepSpaceTelemetry.Receiver.component_outage_spans
 DeepSpaceTelemetry.Receiver.generation_gap_spans
 DeepSpaceTelemetry.Receiver.spans_overlap
 DeepSpaceTelemetry.Receiver.shade_disruptions!
+DeepSpaceTelemetry.Receiver.shading_patch
 DeepSpaceTelemetry.Receiver.shade_outages!
 DeepSpaceTelemetry.Receiver.shade_generation_gaps!
 DeepSpaceTelemetry.Receiver.add_figure_legend!
+DeepSpaceTelemetry.Receiver.LEGEND_COLGAP
 DeepSpaceTelemetry.Receiver.legend_banks
 DeepSpaceTelemetry.Receiver.summary_tick_step_hours
 DeepSpaceTelemetry.Receiver.BatchStates

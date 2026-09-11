@@ -71,17 +71,11 @@ follow_log = joinpath(@__DIR__, "follow_log.jl")
 tail_rx_cmd = "$julia_scripts \"$follow_log\" \"$(joinpath(run_dir, "receiver.log"))\""
 tail_tx_cmd = "$julia_scripts \"$follow_log\" \"$(joinpath(run_dir, "emitter.log"))\""
 
-# Choose which windows to open based on config
-db_cfg = get(cfg, "dashboard", Dict())
-if get(db_cfg, "open_live_viewer", true)
-    launch_terminal("Telemetry Live Viewer", live_viewer_cmd)
-end
-if get(db_cfg, "open_receiver_log", true)
-    launch_terminal("Receiver Log", tail_rx_cmd)
-end
-if get(db_cfg, "open_emitter_log", true)
-    launch_terminal("Emitter Log", tail_tx_cmd)
-end
+# Windows to open, from the validated [dashboard] settings.
+dashboard = DeepSpaceTelemetry.TelemetryCore.dashboard_settings(cfg)
+dashboard.open_live_viewer && launch_terminal("Telemetry Live Viewer", live_viewer_cmd)
+dashboard.open_receiver_log && launch_terminal("Receiver Log", tail_rx_cmd)
+dashboard.open_emitter_log && launch_terminal("Emitter Log", tail_tx_cmd)
 
 println("Dashboard launched: live viewer and log-tail terminals spawned.")
 println(

@@ -9,17 +9,17 @@ function generate_telemetry_gif(run_id::String)
     log_path = joinpath(run_dir, "mission_profile.csv")
 
     if !isfile(log_path)
-        "mission_profile.csv not found for run "
-        return
+        @error "mission_profile.csv not found" run_id
+        exit(1)
     end
 
     df = DeepSpaceTelemetry.TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
     if isempty(df)
-        "mission_profile.csv of run  is empty"
-        return
+        @error "mission_profile.csv is empty" run_id
+        exit(1)
     end
 
-    println("Generating high-resolution GIF animation for Run $run_id...")
+    println("Generating the batch-routing animation for run $run_id...")
     println("Rendering time scales with the mission length.")
 
     # Shared state-machine replay: the exact event-log reconstruction (a run
@@ -30,11 +30,16 @@ function generate_telemetry_gif(run_id::String)
     # Frame budget: at most `max_frames` snapshots, sampled uniformly.
     max_frames = min(nrow(df), 800)
     step_size = max(1, floor(Int, nrow(df) / max_frames))
-    # Marker sizes derive from the print-scale theme constant; the animation
-    # canvas (1400 × 780 units) is wider than the static figures, hence the
-    # scale factor. Batches on the link are drawn slightly larger.
-    marker_size = round(Int, 1.25 * DeepSpaceTelemetry.PlotTheme.MARKERSIZE_DATA)
-    marker_size_link = marker_size + 2
+    # One print-scale style, scaled from the 673-unit design width to the
+    # animation canvas, drives the axis theme, the legend typography, and
+    # the marker sizes, so they agree within every frame. Batches on the
+    # link are drawn slightly larger.
+    canvas = (1400, 780)
+    style = DeepSpaceTelemetry.PlotTheme.PlotStyle(
+        canvas[1] / DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SUMMARY[1],
+    )
+    marker_size = round(Int, style.markersize)
+    marker_size_link = round(Int, 1.25 * style.markersize)
     # Okabe–Ito semantics shared with the static figures: color encodes the
     # stage (onboard buffer, link, ground), marker shape encodes the family
     # (circle = live/FIFO, diamond = archive/LIFO).
@@ -64,12 +69,18 @@ function generate_telemetry_gif(run_id::String)
         fig -> begin
             groups = [
                 [
-                    MarkerElement(marker = :circle, color = c, markersize = 14) for
-                    c in (color_onboard, color_link, color_ground_live)
+                    MarkerElement(
+                        marker = :circle,
+                        color = c,
+                        markersize = style.markersize,
+                    ) for c in (color_onboard, color_link, color_ground_live)
                 ],
                 [
-                    MarkerElement(marker = :diamond, color = c, markersize = 14) for
-                    c in (color_onboard, color_link, color_ground_archive)
+                    MarkerElement(
+                        marker = :diamond,
+                        color = c,
+                        markersize = style.markersize,
+                    ) for c in (color_onboard, color_link, color_ground_archive)
                 ],
             ]
             glabels = [["Satellite", "Link", "Ground"], ["Satellite", "Link", "Ground"]]
@@ -77,7 +88,13 @@ function generate_telemetry_gif(run_id::String)
             if show_lost
                 push!(
                     groups,
-                    [MarkerElement(marker = :xcross, color = color_lost, markersize = 14)],
+                    [
+                        MarkerElement(
+                            marker = :xcross,
+                            color = color_lost,
+                            markersize = style.markersize,
+                        ),
+                    ],
                 )
                 push!(glabels, ["Retry-exhausted"])
                 push!(gtitles, "Lost:")
@@ -91,21 +108,22 @@ function generate_telemetry_gif(run_id::String)
                 titleposition = :left,
                 framevisible = false,
                 backgroundcolor = :transparent,
-                labelsize = 18,
-                titlesize = 20,
-                titlegap = 8,
-                colgap = 16,
-                groupgap = 36,
-                patchsize = (22, 18),
+                labelsize = style.fontsize_legend,
+                titlesize = style.fontsize_label,
+                titlegap = round(Int, 4 * style.scale),
+                colgap = round(Int, 8 * style.scale),
+                groupgap = round(Int, 18 * style.scale),
             )
         end
 
-    CairoMakie.with_theme(DeepSpaceTelemetry.PlotTheme.telemetry_theme()) do
-        fig = Figure(size = (1400, 780), figure_padding = 20)
+    CairoMakie.with_theme(DeepSpaceTelemetry.PlotTheme.telemetry_theme(style)) do
+        # Outer margin scaled with the canvas, as the theme's 10 units are
+        # set for the design width.
+        fig = Figure(size = canvas, figure_padding = round(Int, 10 * style.scale))
 
         frame_iterator = 1:step_size:nrow(df)
 
-        record(fig, gif_path, frame_iterator; framerate = 12) do i
+        record(fig, gif_path, frame_iterator; framerate = 12, px_per_unit = 2) do i
             empty!(fig)
             add_gif_legend!(fig)
 
@@ -142,7 +160,7 @@ function generate_telemetry_gif(run_id::String)
             xlims!(ax, xlim_min, xlim_max)
             ylims!(ax, show_lost ? -0.5 : 0.5, 3.5)
 
-            # Live points (Circles)
+            # Live points (circles)
             if !isempty(x_onb_l)
                 scatter!(
                     ax,
@@ -174,7 +192,7 @@ function generate_telemetry_gif(run_id::String)
                 )
             end
 
-            # Arch points (Diamonds)
+            # Archive points (diamonds)
             if !isempty(x_onb_a)
                 scatter!(
                     ax,
@@ -206,7 +224,7 @@ function generate_telemetry_gif(run_id::String)
                 )
             end
 
-            # Lost points (X crosses, terminal state)
+            # Lost points (crosses, terminal state)
             if !isempty(x_lost)
                 scatter!(
                     ax,

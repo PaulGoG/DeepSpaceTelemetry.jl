@@ -4,6 +4,8 @@
 DeepSpaceTelemetry.Supervisor
 DeepSpaceTelemetry.Supervisor.CleanFileLogger
 DeepSpaceTelemetry.Supervisor.strip_ansi
+DeepSpaceTelemetry.Supervisor.render_log_value
+DeepSpaceTelemetry.Supervisor.RESTART_SEED_OFFSET
 DeepSpaceTelemetry.Supervisor.MissionPlan
 DeepSpaceTelemetry.Supervisor.mission_plan
 DeepSpaceTelemetry.Supervisor.stamp_external_provenance!
@@ -14,6 +16,7 @@ DeepSpaceTelemetry.Supervisor.component_spawners
 DeepSpaceTelemetry.Supervisor.post_process!
 DeepSpaceTelemetry.Supervisor.expand_pointwise_masks!
 DeepSpaceTelemetry.Supervisor.contact_summary
+DeepSpaceTelemetry.Supervisor.print_banner
 DeepSpaceTelemetry.Supervisor.warm_up_components!
 DeepSpaceTelemetry.Supervisor.execute_mission!
 DeepSpaceTelemetry.Supervisor.run_mission

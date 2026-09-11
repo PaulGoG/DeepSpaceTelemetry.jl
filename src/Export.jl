@@ -61,16 +61,17 @@ function ensure_group(parent::Union{HDF5.File,HDF5.Group}, path::String)
 end
 
 """
-    write_column!(g, name::String, values::AbstractVector, epoch::DateTime)
+    write_column!(g::HDF5.Group, name::String, values::AbstractVector, epoch::DateTime)
 
 One CSV column as HDF5 datasets under `g`: a `DateTime` column becomes
 `name` (`Float64` seconds since `epoch`, `NaN` for missing) plus
-`name_iso` (ISO-8601 strings); booleans become `UInt8`; integers stay
-`Int64` unless a value is missing (then `Float64` with `NaN`); other reals
-become `Float64` with `NaN` for missing; everything else is written as
-strings with `""` for missing.
+`name_iso` (ISO-8601 strings); booleans become `UInt8` (`0`/`1`, the
+sentinel `0xff` for missing); integers stay `Int64` unless a value is
+missing (then `Float64` with `NaN`); other reals become `Float64` with
+`NaN` for missing; everything else is written as strings with `""` for
+missing.
 """
-function write_column!(g, name::String, values::AbstractVector, epoch::DateTime)
+function write_column!(g::HDF5.Group, name::String, values::AbstractVector, epoch::DateTime)
     T = Base.nonmissingtype(eltype(values))
     has_missing = any(ismissing, values)
     if T <: DateTime
@@ -90,14 +91,20 @@ function write_column!(g, name::String, values::AbstractVector, epoch::DateTime)
 end
 
 """
-    write_table!(file, group::String, df::DataFrame, epoch::DateTime, source::String)
+    write_table!(file::HDF5.File, group::String, df::DataFrame, epoch::DateTime, source::String)
 
 A CSV product as one HDF5 group: one dataset per column
 ([`write_column!`](@ref)), the attributes `source` (the relative CSV path)
 and `rows`; an empty table yields the group with its attributes only.
 """
-function write_table!(file, group::String, df::DataFrame, epoch::DateTime, source::String)
-    g = ensure_group(file, group)
+function write_table!(
+    file::HDF5.File,
+    group::String,
+    df::DataFrame,
+    epoch::DateTime,
+    source::String,
+)
+    g = ensure_group(file, group)::HDF5.Group
     HDF5.write_attribute(g, "source", source)
     HDF5.write_attribute(g, "rows", nrow(df))
     nrow(df) == 0 && return g
@@ -108,7 +115,7 @@ function write_table!(file, group::String, df::DataFrame, epoch::DateTime, sourc
 end
 
 """
-    write_mask_timeline!(file, run_dir::String, epoch::DateTime)
+    write_mask_timeline!(file::HDF5.File, run_dir::String, epoch::DateTime)
 
 `masks/telemetry_mask_timeline.csv` as `masks/timeline`: `states` — the
 `Int8` state matrix laid out so that C-order readers (h5py, NumPy) index
@@ -117,11 +124,11 @@ snapshot)` — with `batch_id`, the snapshot instants (`SimTime`,
 `SimTime_iso`), and the state-code attribute. Nothing is written when the
 timeline is absent.
 """
-function write_mask_timeline!(file, run_dir::String, epoch::DateTime)
+function write_mask_timeline!(file::HDF5.File, run_dir::String, epoch::DateTime)
     csv = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
     isfile(csv) || return nothing
     df = CSV.read(csv, DataFrame)
-    g = ensure_group(file, "masks/timeline")
+    g = ensure_group(file, "masks/timeline")::HDF5.Group
     HDF5.write_attribute(g, "source", joinpath("masks", "telemetry_mask_timeline.csv"))
     HDF5.write_attribute(
         g,
@@ -139,19 +146,19 @@ function write_mask_timeline!(file, run_dir::String, epoch::DateTime)
         states[j, :] = Int8.(df[!, c])
     end
     g["states"] = states
-    g["batch_id"] = Int64[parse(Int, c[7:end]) for c in batch_cols]
+    g["batch_id"] = Int64[parse(Int, chopprefix(c, "Batch_")) for c in batch_cols]
     write_column!(g, "SimTime", df.SimTime, epoch)
     return g
 end
 
 """
-    write_pointwise_masks!(file, run_dir::String)
+    write_pointwise_masks!(file::HDF5.File, run_dir::String)
 
 Every `masks/pointwise_mask_*.csv` expansion as
 `masks/pointwise/<stem>/Ground_Available` (`Int8` 0/1 per sample, sample
 `k` at index `k`).
 """
-function write_pointwise_masks!(file, run_dir::String)
+function write_pointwise_masks!(file::HDF5.File, run_dir::String)
     masks_dir = joinpath(run_dir, "masks")
     isdir(masks_dir) || return nothing
     for f in sort!(filter(startswith("pointwise_mask_"), readdir(masks_dir)))
@@ -166,7 +173,7 @@ function write_pointwise_masks!(file, run_dir::String)
 end
 
 """
-    write_provenance!(file, run_dir::String, cfg::AbstractDict, epoch::DateTime)
+    write_provenance!(file::HDF5.File, run_dir::String, cfg::AbstractDict, epoch::DateTime)
 
 Root attributes: `format_version`, `run_id`, `start_sim_time`, `speed_up`,
 `exported_at`, the platform fingerprint of the run snapshot
@@ -174,7 +181,12 @@ Root attributes: `format_version`, `run_id`, `start_sim_time`, `speed_up`,
 version, …), and `config_snapshot` — the run's configuration as TOML
 text.
 """
-function write_provenance!(file, run_dir::String, cfg::AbstractDict, epoch::DateTime)
+function write_provenance!(
+    file::HDF5.File,
+    run_dir::String,
+    cfg::AbstractDict,
+    epoch::DateTime,
+)
     HDF5.write_attribute(file, "format_version", FORMAT_VERSION)
     HDF5.write_attribute(file, "run_id", basename(rstrip(run_dir, '/')))
     HDF5.write_attribute(file, "start_sim_time", string(epoch))

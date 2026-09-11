@@ -49,7 +49,7 @@ using FileWatching: FileWatching, watch_folder
 Elapsed mission hours from `t0` to `t` — the plot-coordinate transform of
 every figure (time axes are anchored at `start_sim_time`, 0-based days).
 """
-hours_since(t::DateTime, t0::DateTime) = Float64((t - t0).value) / (1000 * 3600)
+hours_since(t::DateTime, t0::DateTime) = Float64((t - t0).value) / TelemetryCore.MS_PER_HOUR
 
 """
     PlotContext
@@ -167,15 +167,14 @@ function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
         ChannelEffects.build_disruption_timeline(cfg, DateTime(sim["start_sim_time"])) :
         ChannelEffects.DisruptionTimeline()
     catch e
-        @warn "[RECEIVER] Could not parse disruption events from the run snapshot; plotting without disruption shading." exception =
+        @warn "[POST] Could not parse disruption events from the run snapshot; plotting without disruption shading." exception =
             e
         ChannelEffects.DisruptionTimeline()
     end
-    sim_start = try
-        DateTime(get(sim, "start_sim_time", ""))
-    catch
-        nothing
-    end
+    start_text = string(get(sim, "start_sim_time", ""))
+    sim_start = tryparse(DateTime, start_text)
+    sim_start === nothing &&
+        @warn "[POST] start_sim_time \"$start_text\" of the run snapshot is not an ISO-8601 datetime; anchoring the time axis at the first metrics row."
     t_start = something(sim_start, df.SimTime[1])
     df_x = [hours_since(t, t_start) for t in df.SimTime]
     disruption_spans = [
@@ -197,7 +196,7 @@ function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
         try
             Float64(TelemetryCore.onboard_capacity(cfg).batches)
         catch e
-            @warn "[RECEIVER] Could not derive the recorder capacity from the run snapshot." exception =
+            @warn "[POST] Could not derive the recorder capacity from the run snapshot." exception =
                 e
             NaN
         end
@@ -230,10 +229,11 @@ spans_overlap(spans, x_lo::Float64, x_hi::Float64, lo::Int, hi::Int) =
     any(s -> s[lo] < x_hi && s[hi] > x_lo, spans)
 
 """
-    shade_outages!(ax, x_lo, x_hi, outage_spans)
+    shade_outages!(ax, x_lo, x_hi, outage_spans; color, edgecolor, linestyle, style)
 
 Shades component-outage windows onto `ax`, clamped to the plotted range: a
-neutral grey wash with dotted edge lines, pushed behind the data. Distinct
+neutral wash ([`PlotTheme.COLOR_OUTAGE`](@ref)) with dotted same-hue edge
+lines at the data line width of `style`, pushed behind the data. Distinct
 from the configured disruption shading — these are unscheduled
 infrastructure outages.
 """
@@ -242,9 +242,10 @@ function shade_outages!(
     x_lo::Float64,
     x_hi::Float64,
     outage_spans;
-    color = (:black, 0.10),
-    edgecolor = (:gray40, 0.8),
+    color = (PlotTheme.COLOR_OUTAGE, 0.10),
+    edgecolor = (PlotTheme.COLOR_OUTAGE, 0.5),
     linestyle = :dot,
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
 )
     for (o0, o1) in outage_spans
         o0c, o1c = max(o0, x_lo), min(o1, x_hi)
@@ -258,7 +259,7 @@ function shade_outages!(
                     [x_edge],
                     color = edgecolor,
                     linestyle = linestyle,
-                    linewidth = 1.5,
+                    linewidth = style.linewidth,
                 )
                 translate!(l, 0, 0, -98)
             end
@@ -268,12 +269,19 @@ function shade_outages!(
 end
 
 """
-    shade_generation_gaps!(ax, x_lo, x_hi, ctx::PlotContext)
+    shade_generation_gaps!(ax, x_lo, x_hi, ctx::PlotContext; style)
 
-Scheduled generation gaps (onboard-family colour, dash-dot edges) and
-recorder overflows (loss colour, dash-dot edges) behind the data of `ax`.
+Scheduled generation gaps (onboard-family color, dash-dot edges) and
+recorder overflows (loss color, dash-dot edges) behind the data of `ax`,
+edge lines at the data line width of `style`.
 """
-function shade_generation_gaps!(ax, x_lo::Float64, x_hi::Float64, ctx)
+function shade_generation_gaps!(
+    ax,
+    x_lo::Float64,
+    x_hi::Float64,
+    ctx::PlotContext;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+)
     shade_outages!(
         ax,
         x_lo,
@@ -282,6 +290,7 @@ function shade_generation_gaps!(ax, x_lo::Float64, x_hi::Float64, ctx)
         color = (PlotTheme.COLOR_ONBOARD, 0.25),
         edgecolor = (PlotTheme.COLOR_ONBOARD, 0.9),
         linestyle = :dashdot,
+        style = style,
     )
     shade_outages!(
         ax,
@@ -291,22 +300,29 @@ function shade_generation_gaps!(ax, x_lo::Float64, x_hi::Float64, ctx)
         color = (PlotTheme.COLOR_LOST, 0.12),
         edgecolor = (PlotTheme.COLOR_LOST, 0.9),
         linestyle = :dashdot,
+        style = style,
     )
     return ax
 end
 
 """
-    shade_disruptions!(ax, x_lo, x_hi, disruption_spans)
+    shade_disruptions!(ax, x_lo, x_hi, disruption_spans; style)
 
 Shades every disruption event onto `ax`, clamped to the plotted range: a
 uniform wash over the blackout, fading linearly to zero alpha across the
-recovery ramp (mirroring the capacity ramp), with dashed lines delimiting
-event start and full recovery. All shading is pushed far back along z so it
-renders behind the data identically on every panel — but strictly above
-z = -100, where the white background of a twin axis (dual-y panels) would
-cover it.
+recovery ramp (mirroring the capacity ramp), with dashed same-hue lines at
+the data line width of `style` delimiting event start and full recovery.
+All shading is pushed far back along z so it renders behind the data
+identically on every panel — but strictly above z = -100, where the white
+background of a twin axis (dual-y panels) would cover it.
 """
-function shade_disruptions!(ax, x_lo::Float64, x_hi::Float64, disruption_spans)
+function shade_disruptions!(
+    ax,
+    x_lo::Float64,
+    x_hi::Float64,
+    disruption_spans;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+)
     for (b0, b1, r1) in disruption_spans
         b0c, b1c = max(b0, x_lo), min(b1, x_hi)
         if b0c < b1c
@@ -333,9 +349,9 @@ function shade_disruptions!(ax, x_lo::Float64, x_hi::Float64, disruption_spans)
                 l = vlines!(
                     ax,
                     [x_edge],
-                    color = (:gray30, 0.8),
+                    color = (PlotTheme.COLOR_DISRUPTION, 0.55),
                     linestyle = :dash,
-                    linewidth = 1.5,
+                    linewidth = style.linewidth,
                 )
                 translate!(l, 0, 0, -98)
             end
@@ -403,7 +419,7 @@ function add_figure_legend!(
         PolyElement(
             color = (PlotTheme.COLOR_LIVE, 0.4),
             strokecolor = PlotTheme.COLOR_LIVE,
-            strokewidth = 3,
+            strokewidth = 2 * style.linewidth,
         ),
     )
     push!(labels, "Total received (live + archive)")
@@ -412,7 +428,7 @@ function add_figure_legend!(
         PolyElement(
             color = (PlotTheme.COLOR_ARCHIVE, 0.4),
             strokecolor = PlotTheme.COLOR_ARCHIVE,
-            strokewidth = 3,
+            strokewidth = 2 * style.linewidth,
         ),
     )
     push!(labels, "Archive backfill (LIFO)")
@@ -440,24 +456,66 @@ function add_figure_legend!(
         )
         push!(labels, "Lost")
     end
+    # Shaded windows: fill patch plus the line style of the window's edge
+    # lines, so blackout, ramp, and outage stay apart in grayscale.
     if blackout
-        push!(elems, PolyElement(color = (PlotTheme.COLOR_DISRUPTION, 0.18)))
+        push!(
+            elems,
+            shading_patch(
+                (PlotTheme.COLOR_DISRUPTION, 0.18),
+                (PlotTheme.COLOR_DISRUPTION, 0.55),
+                :dash,
+                style,
+            ),
+        )
         push!(labels, "Blackout")
     end
     if ramp
-        push!(elems, PolyElement(color = (PlotTheme.COLOR_DISRUPTION, 0.08)))
+        push!(
+            elems,
+            shading_patch(
+                (PlotTheme.COLOR_DISRUPTION, 0.08),
+                (PlotTheme.COLOR_DISRUPTION, 0.55),
+                :dash,
+                style,
+            ),
+        )
         push!(labels, "Recovery ramp")
     end
     if outage
-        push!(elems, PolyElement(color = (:black, 0.10)))
+        push!(
+            elems,
+            shading_patch(
+                (PlotTheme.COLOR_OUTAGE, 0.10),
+                (PlotTheme.COLOR_OUTAGE, 0.5),
+                :dot,
+                style,
+            ),
+        )
         push!(labels, "Component outage")
     end
     if scheduled_gap
-        push!(elems, PolyElement(color = (PlotTheme.COLOR_ONBOARD, 0.25)))
+        push!(
+            elems,
+            shading_patch(
+                (PlotTheme.COLOR_ONBOARD, 0.25),
+                (PlotTheme.COLOR_ONBOARD, 0.9),
+                :dashdot,
+                style,
+            ),
+        )
         push!(labels, "Scheduled generation gap")
     end
     if recorder
-        push!(elems, PolyElement(color = (PlotTheme.COLOR_LOST, 0.12)))
+        push!(
+            elems,
+            shading_patch(
+                (PlotTheme.COLOR_LOST, 0.12),
+                (PlotTheme.COLOR_LOST, 0.9),
+                :dashdot,
+                style,
+            ),
+        )
         push!(labels, "Recorder full (data discarded)")
         push!(
             elems,
@@ -482,7 +540,25 @@ function add_figure_legend!(
     return fig
 end
 
-# Column gap of the figure legends (Makie units).
+"""
+    shading_patch(fill, edge, linestyle::Symbol, style::PlotTheme.PlotStyle) -> Vector
+
+Legend entry of a shaded event window: the fill patch under a line in the
+color and line style of the window's edge lines, at the legend line weight
+of `style`.
+"""
+shading_patch(fill, edge, linestyle::Symbol, style::PlotTheme.PlotStyle) = [
+    PolyElement(color = fill),
+    LineElement(color = edge, linestyle = linestyle, linewidth = 2 * style.linewidth),
+]
+
+"""
+    LEGEND_COLGAP
+
+Column gap of the horizontal figure legends in Makie units, shared by
+[`add_figure_legend!`](@ref) and the row-count estimate of
+[`legend_banks`](@ref).
+"""
 const LEGEND_COLGAP = 28
 
 """
@@ -556,7 +632,6 @@ function plot_mission_summary(
             ctx.show_lost_panel ? style.size_summary[2] + round(Int, 90 * style.scale) :
             style.size_summary[2],
         ),
-        figure_padding = 10,
     )
 
     ax1 = Axis(
@@ -579,9 +654,9 @@ function plot_mission_summary(
     xlims!(ax1_twin, 0, max_x_h)
     ylims!(ax1_twin, 0, max(10.0, 1.3 * maximum(df.Onboard_Buffer)))
 
-    shade_disruptions!(ax1, 0.0, max_x_h, ctx.disruption_spans)
-    shade_outages!(ax1, 0.0, max_x_h, ctx.outage_spans)
-    shade_generation_gaps!(ax1, 0.0, max_x_h, ctx)
+    shade_disruptions!(ax1, 0.0, max_x_h, ctx.disruption_spans; style)
+    shade_outages!(ax1, 0.0, max_x_h, ctx.outage_spans; style)
+    shade_generation_gaps!(ax1, 0.0, max_x_h, ctx; style)
     if !isnan(ctx.recorder_capacity)
         hlines!(
             ax1_twin,
@@ -624,9 +699,9 @@ function plot_mission_summary(
     xlims!(ax2, 0, max_x_h)
     ylims!(ax2, 0, max(10.0, 1.2 * maximum(df.Ground_Total)))
 
-    shade_disruptions!(ax2, 0.0, max_x_h, ctx.disruption_spans)
-    shade_outages!(ax2, 0.0, max_x_h, ctx.outage_spans)
-    shade_generation_gaps!(ax2, 0.0, max_x_h, ctx)
+    shade_disruptions!(ax2, 0.0, max_x_h, ctx.disruption_spans; style)
+    shade_outages!(ax2, 0.0, max_x_h, ctx.outage_spans; style)
+    shade_generation_gaps!(ax2, 0.0, max_x_h, ctx; style)
 
     band!(
         ax2,
@@ -654,7 +729,7 @@ function plot_mission_summary(
         ax3 = Axis(
             fig[3, 1],
             xlabel = "Mission time",
-            ylabel = "Lost",
+            ylabel = "Lost batches",
             xticks = (tick_vals_h, tick_labels),
             yticks = LinearTicks(3),
         )
@@ -662,8 +737,8 @@ function plot_mission_summary(
         xlims!(ax3, 0, max_x_h)
         lost_curve = ctx.has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
         ylims!(ax3, 0, max(4.0, 1.35 * maximum(lost_curve)))
-        shade_disruptions!(ax3, 0.0, max_x_h, ctx.disruption_spans)
-        shade_outages!(ax3, 0.0, max_x_h, ctx.outage_spans)
+        shade_disruptions!(ax3, 0.0, max_x_h, ctx.disruption_spans; style)
+        shade_outages!(ax3, 0.0, max_x_h, ctx.outage_spans; style)
         stairs!(ax3, df_x, lost_curve, color = PlotTheme.COLOR_LOST)
         inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
         scatter!(
@@ -779,7 +854,7 @@ function plot_session(
         session_df.Ground_Arch[end] - session_df.Ground_Arch[1]
     ]
 
-    fig = Figure(size = style.size_session, figure_padding = 10)
+    fig = Figure(size = style.size_session)
 
     ax_s1 = Axis(
         fig[1, 1],
@@ -801,9 +876,9 @@ function plot_session(
     xlims!(ax_s1_twin, min_sess_h, max_sess_h)
     ylims!(ax_s1_twin, 0, max(10.0, 1.3 * maximum(session_df.Onboard_Buffer)))
 
-    shade_disruptions!(ax_s1, min_sess_h, max_sess_h, ctx.disruption_spans)
-    shade_outages!(ax_s1, min_sess_h, max_sess_h, ctx.outage_spans)
-    shade_generation_gaps!(ax_s1, min_sess_h, max_sess_h, ctx)
+    shade_disruptions!(ax_s1, min_sess_h, max_sess_h, ctx.disruption_spans; style)
+    shade_outages!(ax_s1, min_sess_h, max_sess_h, ctx.outage_spans; style)
+    shade_generation_gaps!(ax_s1, min_sess_h, max_sess_h, ctx; style)
     if sess_degraded
         lines!(
             ax_s1,
@@ -836,9 +911,9 @@ function plot_session(
     y_max_s2 = max(10.0, 1.2 * maximum(plot_gnd))
     ylims!(ax_s2, 0, y_max_s2)
 
-    shade_disruptions!(ax_s2, min_sess_h, max_sess_h, ctx.disruption_spans)
-    shade_outages!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans)
-    shade_generation_gaps!(ax_s2, min_sess_h, max_sess_h, ctx)
+    shade_disruptions!(ax_s2, min_sess_h, max_sess_h, ctx.disruption_spans; style)
+    shade_outages!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans; style)
+    shade_generation_gaps!(ax_s2, min_sess_h, max_sess_h, ctx; style)
 
     band!(
         ax_s2,
@@ -944,7 +1019,7 @@ function session_figure_stems(
     stems = Tuple{String,TelemetryCore.ContactWindow}[]
     seen = Dict{String,Int}()
     for w in TelemetryCore.contact_windows(model, t_start, t_end)
-        day_k = max(0, floor(Int, (w.start - t_start).value / 86_400_000))
+        day_k = max(0, floor(Int, (w.start - t_start).value / TelemetryCore.MS_PER_DAY))
         base = "day$(lpad(day_k, 2, '0'))" * (w.low_latency ? "_low_latency" : "")
         n = get(seen, base, 0)
         seen[base] = n + 1
@@ -974,7 +1049,7 @@ function generate_mission_plots(
     formats = ("png", "pdf"),
     suffix::String = "",
 )
-    @info "[RECEIVER] Generating mission and session plots..."
+    @info "[POST] Generating mission and session plots..."
     paths = String[]
     log_path = joinpath(run_dir, "mission_profile.csv")
     if !isfile(log_path)
@@ -988,13 +1063,15 @@ function generate_mission_plots(
     with_theme(PlotTheme.telemetry_theme(style)) do
         global_path = plot_mission_summary(ctx; style, plots_dir, formats, suffix)
         push!(paths, global_path)
-        @info "[RECEIVER] Saved Global Summary Plot: $(relpath(global_path, run_dir))"
-        t_end = ctx.t_start + Millisecond(round(Int, 3.6e6 * max(ctx.df_x[end], 1.0)))
+        @info "[POST] Saved mission summary figure: $(relpath(global_path, run_dir))"
+        t_end =
+            ctx.t_start +
+            Millisecond(round(Int, TelemetryCore.MS_PER_HOUR * max(ctx.df_x[end], 1.0)))
         for (stem, window) in session_figure_stems(ctx.vis_model, ctx.t_start, t_end)
             p = plot_session(ctx, window, stem; style, plots_dir, formats, suffix)
             p === nothing || push!(paths, p)
         end
-        @info "[RECEIVER] Saved Session-specific plots."
+        @info "[POST] Saved session figures."
     end
     return paths
 end
@@ -1028,8 +1105,8 @@ Exact replay of every batch's location from the ground-truth event logs
 state-preserving `retry` events are skipped). Returns one [`BatchStates`](@ref)
 record per `mission_profile.csv` row, evaluated at that row's `SimTime`.
 
-Unlike the count-delta heuristic this attributes each packet loss to its exact
-batch ID, which is what makes mask state `4 = Lost` possible. Emitter and
+Each packet loss is attributed to its exact batch ID, which is what makes
+mask state `4 = Lost` possible. Emitter and
 receiver stamp milestones from separate clock reads, so recorded timestamps
 can invert within a batch at high speed-up; the replay enforces per-batch
 causal order (`gen` → `tx` → terminal) with later stages absorbing, keeping
@@ -1072,10 +1149,10 @@ function reconstruct_batch_states(run_dir::String, df::DataFrame)
     sort!(events, by = e -> (e[1], e[2]))
 
     # Category vectors plus a batch-ID → (category, index) position map:
-    # every event application is O(1) via swap-remove, replacing the former
-    # per-event `filter!` scans that made the replay quadratic over a
-    # mission. Order within a category is not part of the contract (masks
-    # index by batch ID; scatters are unordered).
+    # every event application is O(1) via swap-remove, so the replay stays
+    # linear in the event count over a mission. Order within a category is
+    # not part of the contract (masks index by batch ID; scatters are
+    # unordered).
     category = Dict(
         :onboard_live => Int[],
         :onboard_archive => Int[],
@@ -1172,11 +1249,13 @@ end
 Batch-location history of a run: the exact event-log replay
 ([`reconstruct_batch_states`](@ref)) over the metrics frame `df`. Runs
 without `events_tx.csv` (pre-0.9 layouts) are not supported and raise an
-error.
+`ArgumentError`.
 """
 function batch_states(run_dir::String, df::DataFrame)
-    isfile(joinpath(run_dir, "events_tx.csv")) || error(
-        "[POST] events_tx.csv missing in $run_dir — the batch-state replay needs the ground-truth event log; runs without it are not supported.",
+    isfile(joinpath(run_dir, "events_tx.csv")) || throw(
+        ArgumentError(
+            "[POST] events_tx.csv missing in $run_dir — the batch-state replay needs the ground-truth event log; runs without it are not supported.",
+        ),
     )
     return reconstruct_batch_states(run_dir, df)
 end
@@ -1227,7 +1306,6 @@ function generate_telemetry_masks(run_dir::String)
         end
     end
 
-    # Construct DataFrame
     mask_df = DataFrame(SimTime = df.SimTime)
     for id in 1:max_id_ever
         mask_df[!, Symbol("Batch_$id")] = mask_matrix[:, id]
@@ -1235,7 +1313,7 @@ function generate_telemetry_masks(run_dir::String)
 
     mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
     TelemetryCore.safe_csv_write(mask_path, mask_df)
-    @info "[RECEIVER] Saved 2D telemetry data masks to: $(relpath(mask_path, run_dir))"
+    @info "[POST] Saved 2D telemetry data masks to: $(relpath(mask_path, run_dir))"
 
     # Batch → epoch sidecar: the point-wise mask's row-index contract assumes
     # a contiguous series, which emitter outages break; this map lets
@@ -1272,7 +1350,8 @@ selects the final snapshot) into a point-wise 0/1 availability array of
 lost batch never becoming available — and writes it as
 `Time_Index, Ground_Available` to `output_path` (with `safe_csv_write`
 rotation). Points per batch follow the run's own configuration snapshot.
-Returns the number of available points.
+Returns the number of available points; throws an `ArgumentError` when the
+mask file is absent or `event_idx` lies outside the timeline.
 """
 function expand_pointwise_mask(
     run_dir::String,
@@ -1281,14 +1360,17 @@ function expand_pointwise_mask(
     output_path::String,
 )
     mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
-    isfile(mask_path) || error("[POST] Telemetry mask not found at: $mask_path")
+    isfile(mask_path) ||
+        throw(ArgumentError("[POST] Telemetry mask not found at: $mask_path"))
     physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
     points_per_batch =
         round(Int, physics.sample_rate * physics.segment_duration_sec * physics.batch_size)
     mask_df = CSV.read(mask_path, DataFrame)
     target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
-    1 <= target_idx <= nrow(mask_df) || error(
-        "[POST] Event index $target_idx is out of bounds: the timeline has $(nrow(mask_df)) events.",
+    1 <= target_idx <= nrow(mask_df) || throw(
+        ArgumentError(
+            "[POST] Event index $target_idx is out of bounds: the timeline has $(nrow(mask_df)) events.",
+        ),
     )
     event_row = mask_df[target_idx, :]
     @info "[POST] Expanding mask row $target_idx ($(event_row.SimTime)) to $total_points points ($points_per_batch per batch)."
@@ -1354,8 +1436,8 @@ The main ground-station loop. It continually checks the `link/` directory for
 incoming data batches, simulates a delay based on the effective link capacity
 (visibility profile × disruption factor), draws a stochastic loss realization
 per transfer attempt from `loss_model`, moves successful batches to `ground/`
-and exhausted ones to `lost/`, and outputs real-time dashboard metrics
-directly to the `stdout` buffer.
+and exhausted ones to `lost/`, and — when `status_panel` is set — renders a
+console status panel to `orig_stdout`.
 
 A lost transfer leaves the batch on the link; its retransmission is served
 no earlier than one round-trip light time after the loss was detected
@@ -1380,7 +1462,11 @@ materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
 
 # Keyword arguments
 
-  - `orig_stdout`: stream receiving the dashboard rendering.
+  - `orig_stdout`: stream receiving the console status panel.
+  - `status_panel`: render the clear-screen console status panel (mission
+    day, link state, ground and lost tallies) to `orig_stdout` on every
+    loop iteration; off by default, the supervisor sets it from
+    `dashboard.receiver_status_panel`.
   - `batch_transfer_sec`: transfer time of one batch at full link capacity
     [mission s] (`telemetry_settings(cfg).nominal_batch_transfer_sec`).
   - `loss_model`: stochastic packet-loss channel (`ChannelEffects.LossModel`).
@@ -1398,6 +1484,7 @@ function run_receiver(
     link::ChannelEffects.LinkModel,
     run_id::String;
     orig_stdout::IO = stdout,
+    status_panel::Bool = false,
     batch_transfer_sec::Float64 = 180.0,
     loss_model::ChannelEffects.LossModel = ChannelEffects.NoLoss(),
     max_retries::Int = 3,
@@ -1499,7 +1586,7 @@ function run_receiver(
         end
     end
 
-    @info "Initializing Receiver Dashboard..."
+    @info "[RECEIVER] Ground-station loop started."
 
     try
         while true
@@ -1514,7 +1601,8 @@ function run_receiver(
             if deadline !== nothing && now() >= deadline
                 break
             end
-            if heartbeat_path !== nothing && (now() - last_heartbeat).value >= 1000
+            if heartbeat_path !== nothing &&
+               (now() - last_heartbeat).value >= TelemetryCore.HEARTBEAT_INTERVAL_MS
                 touch(heartbeat_path)
                 last_heartbeat = now()
             end
@@ -1523,7 +1611,7 @@ function run_receiver(
             nominal_factor = TelemetryCore.get_bandwidth_factor(link.visibility, sim_t)
             disruption_scale = ChannelEffects.disruption_factor(link.disruptions, sim_t)
             bw_factor = nominal_factor * disruption_scale
-            hours_elapsed = (sim_t - clock.start_sim_time).value / (1000 * 3600)
+            hours_elapsed = (sim_t - clock.start_sim_time).value / TelemetryCore.MS_PER_HOUR
             bandwidth_pct = bw_factor * 100
             nominal_pct = nominal_factor * 100
             disruption_active = disruption_scale < 1.0
@@ -1598,36 +1686,39 @@ function run_receiver(
                 end
             end
 
-            status_text = if disruption_active && nominal_factor > 0.0
-                ev_label = ChannelEffects.active_disruption_label(link.disruptions, sim_t)
-                ev_name = isempty(ev_label) ? "DISRUPTION" : uppercase(ev_label)
-                disruption_scale == 0.0 ? "$ev_name (Link down)" :
-                "$ev_name RECOVERY (Link: $(round(bandwidth_pct, digits=1))%)"
-            elseif bw_factor > 0.0
-                "ACTIVE (Link: $(round(bandwidth_pct, digits=1))%)"
-            else
-                "DORMANT (Out of window)"
+            if status_panel
+                status_text = if disruption_active && nominal_factor > 0.0
+                    ev_label =
+                        ChannelEffects.active_disruption_label(link.disruptions, sim_t)
+                    ev_name = isempty(ev_label) ? "DISRUPTION" : uppercase(ev_label)
+                    disruption_scale == 0.0 ? "$ev_name (Link down)" :
+                    "$ev_name RECOVERY (Link: $(round(bandwidth_pct, digits=1))%)"
+                elseif bw_factor > 0.0
+                    "ACTIVE (Link: $(round(bandwidth_pct, digits=1))%)"
+                else
+                    "DORMANT (Out of window)"
+                end
+                panel_text =
+                    "\e[H\e[J" *
+                    "="^55 *
+                    "\n" *
+                    lpad("DEEP-SPACE TELEMETRY DASHBOARD", 42) *
+                    "\n" *
+                    "="^55 *
+                    "\n" *
+                    rpad("Mission Day:", 20) *
+                    "$(round(hours_elapsed / 24.0, digits=2))\n" *
+                    rpad("Current Status:", 20) *
+                    "$status_text\n" *
+                    rpad("Ground total:", 20) *
+                    "$ground_count received data batches\n" *
+                    rpad("Lost Batches:", 20) *
+                    "$lost_count ($total_retries failed transfers)\n" *
+                    "="^55 *
+                    "\n"
+                print(orig_stdout, panel_text)
+                flush(orig_stdout)
             end
-            dashboard_text =
-                "\e[H\e[J" *
-                "="^55 *
-                "\n" *
-                lpad("DEEP-SPACE TELEMETRY DASHBOARD", 42) *
-                "\n" *
-                "="^55 *
-                "\n" *
-                rpad("Mission Day:", 20) *
-                "$(round(hours_elapsed / 24.0, digits=2))\n" *
-                rpad("Current Status:", 20) *
-                "$status_text\n" *
-                rpad("Ground total:", 20) *
-                "$ground_count received data batches\n" *
-                rpad("Lost Batches:", 20) *
-                "$lost_count ($total_retries failed transfers)\n" *
-                "="^55 *
-                "\n"
-            print(orig_stdout, dashboard_text)
-            flush(orig_stdout)
 
             pending_batches = filter(
                 f -> TelemetryCore.is_batch_name(f) && isdir(joinpath(link_path, f)),
@@ -1691,7 +1782,7 @@ function run_receiver(
                     end
                 else
                     @info "[RECEIVER] Ingesting: $batch_name @ SimTime: $sim_t"
-                    @info "Bandwidth: $(round(bandwidth_pct))% | Batches buffered: $onboard_count | Total Data Batches: $ground_count"
+                    @info "[RECEIVER] Bandwidth: $(round(bandwidth_pct))% | Batches buffered: $onboard_count | Total Data Batches: $ground_count"
 
                     prior_attempts = get(retry_counts, batch_name, 0)
                     TelemetryCore.backup_existing_dir(joinpath(ground_path, batch_name))
@@ -1746,7 +1837,7 @@ function run_receiver(
         # (potentially slow) plot rendering tells the watchdog this component
         # finished rather than stalled.
         heartbeat_path !== nothing && rm(heartbeat_path; force = true)
-        println(orig_stdout, "\n")
+        status_panel && println(orig_stdout, "\n")
         # A plotting failure must never cost a completed run: the CSVs and
         # batch directories are already on disk and plots can be regenerated.
         try

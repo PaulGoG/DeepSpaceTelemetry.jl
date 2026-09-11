@@ -99,7 +99,7 @@ end
 Analytic long-run loss probability of the model (used for physics-style
 validation of the sampled stream). For Gilbert–Elliott this is
 `π_bad·p_loss_bad + π_good·p_loss_good` with the stationary state occupancies
-`π_bad = p_g2b / (p_g2b + p_b2g)`.
+`π_bad = p_good_to_bad / (p_good_to_bad + p_bad_to_good)`.
 
 # Examples
 ```jldoctest
@@ -149,7 +149,8 @@ end
 
 Chronologically sorted collection of [`DisruptionEvent`](@ref)s. Overlapping
 events compose conservatively: the *minimum* capacity factor and the *maximum*
-loss multiplier apply.
+loss multiplier apply. `DisruptionTimeline()` builds the empty timeline of a
+disruption-free link.
 """
 struct DisruptionTimeline
     events::Vector{DisruptionEvent}
@@ -319,9 +320,9 @@ function build_disruption_timeline(cfg::AbstractDict, start_sim::DateTime)
     events = DisruptionEvent[]
     for ev in TelemetryCore.disruption_event_settings(cfg)
         ev.affects == "link" || continue
-        t0 = start_sim + Millisecond(round(Int, ev.start_day * 86_400_000))
-        t1 = t0 + Millisecond(round(Int, ev.duration_hours * 3_600_000))
-        t2 = t1 + Millisecond(round(Int, ev.recovery_hours * 3_600_000))
+        t0 = start_sim + Millisecond(round(Int, ev.start_day * TelemetryCore.MS_PER_DAY))
+        t1 = t0 + Millisecond(round(Int, ev.duration_hours * TelemetryCore.MS_PER_HOUR))
+        t2 = t1 + Millisecond(round(Int, ev.recovery_hours * TelemetryCore.MS_PER_HOUR))
         push!(
             events,
             DisruptionEvent(ev.type, ev.label, t0, t1, t2, ev.severity, ev.loss_multiplier),
@@ -343,8 +344,14 @@ function generation_gaps(cfg::AbstractDict, start_sim::DateTime)
     gaps = Tuple{DateTime,DateTime}[]
     for ev in TelemetryCore.disruption_event_settings(cfg)
         ev.affects == "generation" || continue
-        t0 = start_sim + Millisecond(round(Int, ev.start_day * 86_400_000))
-        push!(gaps, (t0, t0 + Millisecond(round(Int, ev.duration_hours * 3_600_000))))
+        t0 = start_sim + Millisecond(round(Int, ev.start_day * TelemetryCore.MS_PER_DAY))
+        push!(
+            gaps,
+            (
+                t0,
+                t0 + Millisecond(round(Int, ev.duration_hours * TelemetryCore.MS_PER_HOUR)),
+            ),
+        )
     end
     return sort!(gaps; by = first)
 end
@@ -357,7 +364,11 @@ visibility from [`TelemetryCore.visibility_model`](@ref), disruptions from
 `[disruption]` anchored at `simulation.start_sim_time`.
 """
 function build_link_model(cfg::AbstractDict)
-    start_sim = DateTime(cfg["simulation"]["start_sim_time"])
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    start_sim = TelemetryCore.parsed_datetime(
+        TelemetryCore.required_value(sim, "simulation", "start_sim_time"),
+        "simulation.start_sim_time",
+    )
     return LinkModel(
         TelemetryCore.visibility_model(cfg),
         build_disruption_timeline(cfg, start_sim),

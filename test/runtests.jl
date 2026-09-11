@@ -6,7 +6,7 @@
 using Pkg;
 Pkg.activate(@__DIR__; io = devnull);
 Pkg.instantiate(; io = devnull)
-using Test, Dates, Statistics, CSV, DataFrames, Logging, Random, FFTW, TOML
+using Test, Dates, Statistics, CSV, DataFrames, Logging, FFTW, TOML
 using StableRNGs
 using Aqua, JET, ExplicitImports
 using DeepSpaceTelemetry
@@ -105,7 +105,9 @@ end
             "batch_size" => 15,
         ),
     )
-    @test_throws ErrorException TelemetryCore.check_storage_limits(cfg_oversized)
+    @test_throws TelemetryCore.StorageBudgetError TelemetryCore.check_storage_limits(
+        cfg_oversized,
+    )
     @test TelemetryCore.storage_budget(cfg_oversized).max_gb == 0.0001
 
     cfg_safe = Dict(
@@ -351,7 +353,7 @@ end
     reuse_id = "TEST_RUN_reuse_pid$(getpid())"
     run_dir = TelemetryCore.setup_run_dir(reuse_id; cfg = valid_test_cfg())
     try
-        @test_throws ErrorException TelemetryCore.setup_run_dir(reuse_id)
+        @test_throws ArgumentError TelemetryCore.setup_run_dir(reuse_id)
         # Platform provenance is stamped into every snapshot
         snap = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
         @test haskey(snap, "provenance") && haskey(snap["provenance"], "platform")
@@ -375,7 +377,7 @@ end
         restored = TelemetryCore.load_clock_anchor(tmp)
         @test restored.clock == clock
         @test restored.deadline == deadline
-        @test_throws ErrorException TelemetryCore.load_clock_anchor(joinpath(tmp, "absent"))
+        @test_throws ArgumentError TelemetryCore.load_clock_anchor(joinpath(tmp, "absent"))
     end
 
     # HALT sentinel: both loops exit promptly, well before their duration
@@ -399,7 +401,7 @@ end
                     start_sim,
                     halt_id;
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     initial_downtime_days = 0.01,
                     data_source = "external",
@@ -414,7 +416,7 @@ end
                     halt_id;
                     deadline = now() + Second(30),
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
@@ -473,7 +475,7 @@ end
                     start_sim,
                     cap_id;
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     initial_downtime_days = 0.01,
                     data_source = "external",
@@ -488,7 +490,7 @@ end
                     cap_id;
                     deadline = now() + Second(3),
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
@@ -534,7 +536,7 @@ end
                     start_sim,
                     floor_id;
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     initial_downtime_days = 0.01,
                     data_source = "external",
@@ -549,7 +551,7 @@ end
                     floor_id;
                     deadline = now() + Second(4),
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
@@ -610,7 +612,7 @@ end
                     start_sim,
                     ra_id;
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     initial_downtime_days = 0.01,
                     data_source = "external",
@@ -629,7 +631,7 @@ end
                             ra_id;
                             deadline = now() + Second(3),
                             sample_rate = 4.0,
-                            seg_dur = 60.0,
+                            segment_duration_sec = 60.0,
                             batch_size = 3,
                             data_source = "external",
                             ext_path = ext_path,
@@ -756,13 +758,15 @@ end
     # Over budget, retention off: hard stop
     over = deepcopy(base)
     over["storage"]["max_storage_gb"] = 1.0e-8
-    @test_throws ErrorException TelemetryCore.check_storage_limits(over)
+    @test_throws TelemetryCore.StorageBudgetError TelemetryCore.check_storage_limits(over)
 
     # Over budget, retention on, steady state also over: hard stop
     over_steady = deepcopy(over)
     over_steady["retention"] =
         Dict{String,Any}("enabled" => true, "high_watermark_gb" => 1.0e-9)
-    @test_throws ErrorException TelemetryCore.check_storage_limits(over_steady)
+    @test_throws TelemetryCore.StorageBudgetError TelemetryCore.check_storage_limits(
+        over_steady,
+    )
 
     # Unbounded projection over budget, retention bounds the steady state: pass
     mitigated = deepcopy(base)
@@ -780,7 +784,9 @@ end
     # File-count budget, retention off: hard stop
     over_files = deepcopy(base)
     over_files["storage"]["max_file_count"] = 3
-    @test_throws ErrorException TelemetryCore.check_storage_limits(over_files)
+    @test_throws TelemetryCore.StorageBudgetError TelemetryCore.check_storage_limits(
+        over_files,
+    )
 
     # retention_settings defaults (disabled custodian, 75 % watermark)
     r = TelemetryCore.retention_settings(base)
@@ -842,7 +848,7 @@ end
     mktempdir() do dir
         bad_toml = joinpath(dir, "config.toml")
         write(bad_toml, "[simulation\nspeed_up = ")
-        @test_throws ErrorException TelemetryCore.load_config(bad_toml)
+        @test_throws ArgumentError TelemetryCore.load_config(bad_toml)
 
         run_dir = joinpath(dir, "run")
         mkpath(run_dir)
@@ -1360,7 +1366,8 @@ end
     @test TelemetryCore.is_visible(m, DateTime(2030, 1, 1, 23, 0, 0))
     @test TelemetryCore.is_visible(m, DateTime(2030, 1, 2, 3, 0, 0))
     @test !TelemetryCore.is_visible(m, DateTime(2030, 1, 1, 12, 0, 0))
-    @test TelemetryCore.get_bandwidth_factor(m, DateTime(2030, 1, 2, 2, 0, 0)) ≈ 1.0
+    @test TelemetryCore.get_bandwidth_factor(m, DateTime(2030, 1, 2, 2, 0, 0)) ≈ 1.0 rtol =
+        1e-12
     ms = TelemetryCore.VisibilityModel(Time(20, 0, 0), Second(8 * 3600), "sine")
     # Sine profile peaks at the session midpoint (midnight)
     @test isapprox(
@@ -1552,7 +1559,7 @@ end
                     start_sim,
                     run_id;
                     sample_rate = sample_rate,
-                    seg_dur = seg_dur,
+                    segment_duration_sec = seg_dur,
                     batch_size = 3,
                     initial_downtime_days = 0.02,
                     data_source = "external",
@@ -1580,7 +1587,7 @@ end
                     run_id;
                     deadline = now() + Second(6),
                     sample_rate = sample_rate,
-                    seg_dur = seg_dur,
+                    segment_duration_sec = seg_dur,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
@@ -1714,7 +1721,7 @@ end
                     start_sim,
                     run_id;
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     initial_downtime_days = 0.02,
                     data_source = "external",
@@ -1735,7 +1742,7 @@ end
                     run_id;
                     deadline = now() + Second(6),
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
@@ -1838,7 +1845,7 @@ end
                     start_sim,
                     run_id;
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     initial_downtime_days = 0.02,
                     data_source = "external",
@@ -1854,7 +1861,7 @@ end
                     run_id;
                     deadline = now() + Second(6),
                     sample_rate = 4.0,
-                    seg_dur = 60.0,
+                    segment_duration_sec = 60.0,
                     batch_size = 3,
                     data_source = "external",
                     ext_path = ext_path,
@@ -1979,7 +1986,7 @@ end
                     start_sim,
                     pace_id;
                     sample_rate = 4.0,
-                    seg_dur = seg_dur,
+                    segment_duration_sec = seg_dur,
                     batch_size = batch_size,
                     initial_downtime_days = 0.0,
                     data_source = "external",
@@ -1995,7 +2002,7 @@ end
                     link,
                     pace_id;
                     sample_rate = 4.0,
-                    seg_dur = seg_dur,
+                    segment_duration_sec = seg_dur,
                     batch_size = batch_size,
                     data_source = "external",
                     ext_path = ext_path,
@@ -2220,6 +2227,28 @@ end
     )
 end
 
+@testset "Configuration accessors: dashboard" begin
+    # Absent section: the launcher terminals default open, the receiver
+    # status panel default off; every flag is validated as a boolean.
+    db = TelemetryCore.dashboard_settings(Dict{String,Any}())
+    @test db.open_live_viewer && db.open_receiver_log && db.open_emitter_log
+    @test db.receiver_status_panel == false
+    cfg = valid_test_cfg()
+    cfg["dashboard"] = Dict{String,Any}("receiver_status_panel" => true)
+    @test TelemetryCore.dashboard_settings(cfg).receiver_status_panel
+    @test TelemetryCore.validate_config(cfg) isa AbstractDict
+    cfg["dashboard"]["receiver_status_panel"] = "yes"
+    err = try
+        TelemetryCore.dashboard_settings(cfg)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError &&
+          occursin("[CONFIG] dashboard.receiver_status_panel", err.msg)
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+end
+
 @testset "CleanFileLogger" begin
     mktempdir() do tmp
         path = joinpath(tmp, "component.log")
@@ -2245,115 +2274,114 @@ end
         (on_component_failure = p, max_restarts = restarts, watchdog_sec = watchdog)
     clock = TelemetryCore.SimulationClock(now(), DateTime(2035), 1.0)
     events(dir) = CSV.read(joinpath(dir, "component_events.csv"), DataFrame)
-    mktempdir() do tmp
-        # abort: a failure raises the stop flag and the partner stops.
-        dir = mkpath(joinpath(tmp, "abort"))
-        stop = Threads.Atomic{Bool}(false)
-        heartbeats = Dict{Symbol,String}(
-            :a => joinpath(dir, "a_alive"),
-            :b => joinpath(dir, "b_alive"),
-        )
-        spawners = Dict{Symbol,Function}(
-            :a => attempt -> Threads.@spawn(begin
-                sleep(0.2)
-                error("component a failed")
-            end),
-            :b => attempt -> Threads.@spawn(begin
-                while !stop[]
-                    sleep(0.02)
-                end
-                :stopped
-            end),
-        )
-        t0 = time()
-        counts = Supervisor.supervise!(
-            spawners,
-            dir,
-            clock,
-            stop,
-            heartbeats,
-            policy("abort");
-            orig_stdout = devnull,
-            poll_sec = 0.05,
-        )
-        @test stop[] && time() - t0 < 5.0
-        @test counts == Dict(:a => 0, :b => 0)
-        ev = events(dir)
-        @test any((ev.Component .== "a") .& (ev.Event .== "down"))
+    # The [SUPERVISOR] failure and policy records go to the active logger.
+    with_logger(NullLogger()) do
+        mktempdir() do tmp
+            # abort: a failure raises the stop flag and the partner stops.
+            dir = mkpath(joinpath(tmp, "abort"))
+            stop = Threads.Atomic{Bool}(false)
+            heartbeats = Dict{Symbol,String}(
+                :a => joinpath(dir, "a_alive"),
+                :b => joinpath(dir, "b_alive"),
+            )
+            spawners = Dict{Symbol,Function}(
+                :a => attempt -> Threads.@spawn(begin
+                    sleep(0.2)
+                    error("component a failed")
+                end),
+                :b => attempt -> Threads.@spawn(begin
+                    while !stop[]
+                        sleep(0.02)
+                    end
+                    :stopped
+                end),
+            )
+            t0 = time()
+            counts = Supervisor.supervise!(
+                spawners,
+                dir,
+                clock,
+                stop,
+                heartbeats,
+                policy("abort");
+                poll_sec = 0.05,
+            )
+            @test stop[] && time() - t0 < 5.0
+            @test counts == Dict(:a => 0, :b => 0)
+            ev = events(dir)
+            @test any((ev.Component .== "a") .& (ev.Event .== "down"))
 
-        # restart: the failed component is relaunched after the hook ran.
-        dir = mkpath(joinpath(tmp, "restart"))
-        stop = Threads.Atomic{Bool}(false)
-        hook_calls = Tuple{Symbol,Int}[]
-        spawners = Dict{Symbol,Function}(
-            :a =>
-                attempt -> Threads.@spawn(
-                    attempt == 0 ? error("first launch fails") : sleep(0.05)
-                ),
-            :b => attempt -> Threads.@spawn(sleep(0.05)),
-        )
-        counts = Supervisor.supervise!(
-            spawners,
-            dir,
-            clock,
-            stop,
-            heartbeats,
-            policy("restart");
-            orig_stdout = devnull,
-            poll_sec = 0.05,
-            on_restart = (name, attempt) -> push!(hook_calls, (name, attempt)),
-        )
-        @test counts[:a] == 1 && counts[:b] == 0 && !stop[]
-        @test hook_calls == [(:a, 1)]
-        ev = events(dir)
-        @test [String(e) for e in ev[ev.Component .== "a", :Event]] == ["down", "restart"]
+            # restart: the failed component is relaunched after the hook ran.
+            dir = mkpath(joinpath(tmp, "restart"))
+            stop = Threads.Atomic{Bool}(false)
+            hook_calls = Tuple{Symbol,Int}[]
+            spawners = Dict{Symbol,Function}(
+                :a =>
+                    attempt -> Threads.@spawn(
+                        attempt == 0 ? error("first launch fails") : sleep(0.05)
+                    ),
+                :b => attempt -> Threads.@spawn(sleep(0.05)),
+            )
+            counts = Supervisor.supervise!(
+                spawners,
+                dir,
+                clock,
+                stop,
+                heartbeats,
+                policy("restart");
+                poll_sec = 0.05,
+                on_restart = (name, attempt) -> push!(hook_calls, (name, attempt)),
+            )
+            @test counts[:a] == 1 && counts[:b] == 0 && !stop[]
+            @test hook_calls == [(:a, 1)]
+            ev = events(dir)
+            @test [String(e) for e in ev[ev.Component .== "a", :Event]] == ["down", "restart"]
 
-        # continue: the partner keeps running one-sided.
-        dir = mkpath(joinpath(tmp, "continue"))
-        stop = Threads.Atomic{Bool}(false)
-        spawners = Dict{Symbol,Function}(
-            :a => attempt -> Threads.@spawn(error("down for good")),
-            :b => attempt -> Threads.@spawn(sleep(0.4)),
-        )
-        counts = Supervisor.supervise!(
-            spawners,
-            dir,
-            clock,
-            stop,
-            heartbeats,
-            policy("continue");
-            orig_stdout = devnull,
-            poll_sec = 0.05,
-        )
-        @test !stop[] && counts[:a] == 0
-        ev = events(dir)
-        @test all(==("down"), ev.Event) && nrow(ev) == 1
+            # continue: the partner keeps running one-sided.
+            dir = mkpath(joinpath(tmp, "continue"))
+            stop = Threads.Atomic{Bool}(false)
+            spawners = Dict{Symbol,Function}(
+                :a => attempt -> Threads.@spawn(error("down for good")),
+                :b => attempt -> Threads.@spawn(sleep(0.4)),
+            )
+            counts = Supervisor.supervise!(
+                spawners,
+                dir,
+                clock,
+                stop,
+                heartbeats,
+                policy("continue");
+                poll_sec = 0.05,
+            )
+            @test !stop[] && counts[:a] == 0
+            ev = events(dir)
+            @test all(==("down"), ev.Event) && nrow(ev) == 1
 
-        # watchdog: a silent heartbeat is recorded as stalled, then recovered.
-        dir = mkpath(joinpath(tmp, "watchdog"))
-        stop = Threads.Atomic{Bool}(false)
-        spawners = Dict{Symbol,Function}(
-            :a => attempt -> Threads.@spawn(begin
-                touch(heartbeats[:a])
-                sleep(1.0) # silent for longer than the watchdog threshold
-                touch(heartbeats[:a])
-                sleep(0.2) # heartbeat fresh again, observed by at least one poll
-                rm(heartbeats[:a]; force = true)
-            end),
-            :b => attempt -> Threads.@spawn(sleep(0.05)),
-        )
-        Supervisor.supervise!(
-            spawners,
-            dir,
-            clock,
-            stop,
-            heartbeats,
-            policy("abort"; watchdog = 0.3);
-            orig_stdout = devnull,
-            poll_sec = 0.05,
-        )
-        ev = events(dir)
-        @test [String(e) for e in ev[ev.Component .== "a", :Event]] == ["stalled", "recovered"]
+            # watchdog: a silent heartbeat is recorded as stalled, then recovered.
+            dir = mkpath(joinpath(tmp, "watchdog"))
+            stop = Threads.Atomic{Bool}(false)
+            spawners = Dict{Symbol,Function}(
+                :a => attempt -> Threads.@spawn(begin
+                    touch(heartbeats[:a])
+                    sleep(1.0) # silent for longer than the watchdog threshold
+                    touch(heartbeats[:a])
+                    sleep(0.2) # heartbeat fresh again, observed by at least one poll
+                    rm(heartbeats[:a]; force = true)
+                end),
+                :b => attempt -> Threads.@spawn(sleep(0.05)),
+            )
+            Supervisor.supervise!(
+                spawners,
+                dir,
+                clock,
+                stop,
+                heartbeats,
+                policy("abort"; watchdog = 0.3);
+                poll_sec = 0.05,
+            )
+            ev = events(dir)
+            @test [String(e) for e in ev[ev.Component .== "a", :Event]] == ["stalled", "recovered"]
+        end
     end
 end
 
@@ -2378,6 +2406,14 @@ end
             "target_event_rows" => [-1],
         )
         run_id = "TEST_RUN_mission_pid$(getpid())"
+        # mission_plan leaves the caller's configuration untouched: the
+        # provenance stamp lands on the plan's own copy.
+        original = deepcopy(cfg)
+        plan = with_logger(NullLogger()) do
+            Supervisor.mission_plan(cfg; run_id = run_id)
+        end
+        @test cfg == original && !haskey(cfg, "provenance")
+        @test haskey(plan.cfg, "provenance") && plan.cfg !== cfg
         run_dir = with_logger(NullLogger()) do
             Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull)
         end
@@ -2521,7 +2557,7 @@ end
         @test Metrology.batch_containing(schedule, t0 - 4D - Millisecond(1)) === nothing
 
         table = Metrology.alert_latency_table(dir; lookback_hours = 0.25)
-        @test table.Lookback_Hours ≈ [0.0, 0.05, 0.1, 0.15, 0.2, 0.25]
+        @test table.Lookback_Hours ≈ [0.0, 0.05, 0.1, 0.15, 0.2, 0.25] rtol = 1e-12
         @test table.N_Alerts == fill(2, 6)
         minutes = x -> x / 60
         # Window-completeness medians over the two alerts (LIVE_5 at
@@ -2530,8 +2566,9 @@ end
         # FIFO drain hands the same instants to ARCH_1 … LIVE_6 in order. The
         # window [t_m − δ, t_m) holds only the alert batch for δ ≤ D and one
         # older batch per further D.
-        @test table.LIFO_Median_Hours ≈ minutes.([1.0, 1.0, 1.5, 2.0, 3.0, 4.0])
-        @test table.FIFO_Median_Hours ≈ minutes.(fill(4.0, 6))
+        @test table.LIFO_Median_Hours ≈ minutes.([1.0, 1.0, 1.5, 2.0, 3.0, 4.0]) rtol =
+            1e-12
+        @test table.FIFO_Median_Hours ≈ minutes.(fill(4.0, 6)) rtol = 1e-12
         @test issorted(table.LIFO_Median_Hours)
         @test all(table.LIFO_Q25_Hours .<= table.LIFO_Median_Hours .<= table.LIFO_Q75_Hours)
 
@@ -2562,7 +2599,7 @@ end
     tel = TelemetryCore.telemetry_settings(
         Dict{String,Any}("telemetry" => Dict{String,Any}("range_million_km" => 50.0)),
     )
-    @test tel.round_trip_light_time_sec ≈ 2 * 50e9 / TelemetryCore.C_LIGHT
+    @test tel.round_trip_light_time_sec ≈ 2 * 50e9 / TelemetryCore.C_LIGHT rtol = 1e-12
     @test TelemetryCore.telemetry_settings(Dict{String,Any}()).round_trip_light_time_sec ==
           0.0
     @test_throws ArgumentError TelemetryCore.telemetry_settings(
@@ -2646,9 +2683,9 @@ end
     rates["telemetry"]["downlink_kbps"] = 230.0
     rates["telemetry"]["onboard_data_rate_kbps"] = 75.0
     tel = TelemetryCore.telemetry_settings(rates)
-    @test tel.nominal_batch_transfer_sec ≈ 600 * 75 / 230
-    @test tel.max_batches_per_hour ≈ 3600 / (600 * 75 / 230)
-    @test tel.catch_up_ratio ≈ 230 / 75
+    @test tel.nominal_batch_transfer_sec ≈ 600 * 75 / 230 rtol = 1e-12
+    @test tel.max_batches_per_hour ≈ 3600 / (600 * 75 / 230) rtol = 1e-12
+    @test tel.catch_up_ratio ≈ 230 / 75 rtol = 1e-12
     rates["telemetry"]["bandwidth_profile"] = "flat"  # the profile guardrail has its own testset
     @test TelemetryCore.validate_config(rates) isa AbstractDict
     both = deepcopy(rates)
@@ -2658,7 +2695,7 @@ end
     delete!(neither["telemetry"], "max_batches_per_hour")
     @test_throws ArgumentError TelemetryCore.validate_config(neither)
     abstraction = TelemetryCore.telemetry_settings(base)
-    @test abstraction.nominal_batch_transfer_sec ≈ 180.0 &&
+    @test isapprox(abstraction.nominal_batch_transfer_sec, 180.0; rtol = 1e-12) &&
           isnan(abstraction.catch_up_ratio)
 
     # Delivery delay on a synthetic schedule: three batches, one undelivered.
@@ -2696,11 +2733,11 @@ end
         table = Metrology.delivery_delay_table(dir)
         @test table.Batch == ["ARCH_batch_1", "ARCH_batch_2", "LIVE_batch_3"]
         @test ismissing(table.Delay_Hours[2])
-        @test table.Delay_Hours[1] ≈ 30 + 3 / 60
-        @test table.Delay_Hours[3] ≈ 7 / 60
+        @test table.Delay_Hours[1] ≈ 30 + 3 / 60 rtol = 1e-12
+        @test table.Delay_Hours[3] ≈ 7 / 60 rtol = 1e-12
         summary = Metrology.delivery_compliance(table, 24.0)
         @test summary.generated == 3 && summary.delivered == 2 && summary.within == 1
-        @test summary.fraction_within ≈ 1 / 3
+        @test summary.fraction_within ≈ 1 / 3 rtol = 1e-12
         with_logger(NullLogger()) do
             @test endswith(
                 Metrology.plot_delivery_delay(dir; requirement_hours = 24.0),
@@ -2729,9 +2766,9 @@ end
     base = valid_test_cfg()
     balance = TelemetryCore.capacity_balance(base)
     @test !balance.rate_form
-    @test balance.pass_hours ≈ 8.0
+    @test balance.pass_hours ≈ 8.0 rtol = 1e-12
     @test balance.capacity_per_pass ≈ 80.0 rtol = 1e-9
-    @test balance.produced_per_day ≈ 144.0
+    @test balance.produced_per_day ≈ 144.0 rtol = 1e-12
 
     # Rate pair under a shaped profile: the validator warns with the profile
     # mean and the balance; under the flat profile it stays silent.
@@ -2748,7 +2785,7 @@ end
     rates["telemetry"]["bandwidth_profile"] = "flat"
     records, _ = Test.collect_test_logs(() -> TelemetryCore.validate_config(rates))
     @test !any(occursin("pass profile", string(r.message)) for r in records)
-    @test TelemetryCore.capacity_balance(rates).profile_mean ≈ 1.0
+    @test TelemetryCore.capacity_balance(rates).profile_mean ≈ 1.0 rtol = 1e-12
 end
 
 @testset "Contact schedule and low-latency periods" begin
@@ -2813,7 +2850,8 @@ end
         TelemetryCore.ContactWindow[],
     )
     @test TelemetryCore.is_visible(sched, DateTime(2035, 1, 3, 1))
-    @test TelemetryCore.get_bandwidth_factor(sched, DateTime(2035, 1, 3, 1)) ≈ 1.0
+    @test TelemetryCore.get_bandwidth_factor(sched, DateTime(2035, 1, 3, 1)) ≈ 1.0 rtol =
+        1e-12
     @test !TelemetryCore.is_visible(sched, DateTime(2035, 1, 3, 12))
     @test TelemetryCore.nominal_window(sched, Date(2035, 1, 3)) === nothing
     @test length(
@@ -2834,7 +2872,8 @@ end
         ],
     )
     @test TelemetryCore.is_visible(llp, DateTime(2035, 1, 5, 21))
-    @test TelemetryCore.get_bandwidth_factor(llp, DateTime(2035, 1, 5, 21)) ≈ 0.5
+    @test TelemetryCore.get_bandwidth_factor(llp, DateTime(2035, 1, 5, 21)) ≈ 0.5 rtol =
+        1e-12
     @test !TelemetryCore.is_visible(llp, DateTime(2035, 1, 5, 19))
     @test ChannelEffects.is_transmittable(
         ChannelEffects.LinkModel(llp),
@@ -2868,9 +2907,10 @@ end
     settings = TelemetryCore.contacts_settings(cfg)
     @test haskey(settings.exceptions, Date(2035, 1, 4)) &&
           settings.exceptions[Date(2035, 1, 4)] == (Time(8), Second(0))
-    @test settings.low_latency_periods[1].capacity ≈ 0.4
+    @test settings.low_latency_periods[1].capacity ≈ 0.4 rtol = 1e-12
     model = TelemetryCore.visibility_model(cfg)
-    @test TelemetryCore.get_bandwidth_factor(model, DateTime(2035, 1, 2, 21)) ≈ 0.4
+    @test TelemetryCore.get_bandwidth_factor(model, DateTime(2035, 1, 2, 21)) ≈ 0.4 rtol =
+        1e-12
     @test !TelemetryCore.is_visible(model, DateTime(2035, 1, 4, 12))
     @test TelemetryCore.validate_config(cfg) isa AbstractDict
     disabled = deepcopy(cfg)
@@ -3003,12 +3043,12 @@ end
     @test length(periods) == 1 &&
           periods[1].start == DateTime(2035, 1, 2, 16) &&
           periods[1].stop == DateTime(2035, 1, 2, 17) &&
-          periods[1].capacity ≈ 0.3 &&
+          isapprox(periods[1].capacity, 0.3; rtol = 1e-12) &&
           periods[1].label == "late"
     @test TelemetryCore.get_bandwidth_factor(
         TelemetryCore.visibility_model(cfg),
         DateTime(2035, 1, 2, 16, 30),
-    ) ≈ 0.3
+    ) ≈ 0.3 rtol = 1e-12
     @test TelemetryCore.validate_config(cfg) isa AbstractDict
     @test TelemetryCore.ground_settings(base).processing_latency_hours == 1.0
     for entry in (
@@ -3074,7 +3114,7 @@ end
                 start_sim,
                 stamp_id;
                 sample_rate = 4.0,
-                seg_dur = 60.0,
+                segment_duration_sec = 60.0,
                 batch_size = 3,
                 initial_downtime_days = 0.01,
                 markers = [marker],
@@ -3167,9 +3207,9 @@ end
         # (5 min − 1 min); the FIFO drain hands 4, 5, 6 min to ARCH_1,
         # ARCH_2, LIVE_3 in order.
         @test inside.Batch == fill("LIVE_batch_3", 3)
-        @test inside.Lookback_Hours ≈ [0.0, 0.05, 0.1]
-        @test collect(inside.LIFO_Hours) ≈ [3.0, 4.0, 5.0] ./ 60
-        @test collect(inside.FIFO_Hours) ≈ [5.0, 5.0, 5.0] ./ 60
+        @test inside.Lookback_Hours ≈ [0.0, 0.05, 0.1] rtol = 1e-12
+        @test collect(inside.LIFO_Hours) ≈ [3.0, 4.0, 5.0] ./ 60 rtol = 1e-12
+        @test collect(inside.FIFO_Hours) ≈ [5.0, 5.0, 5.0] ./ 60 rtol = 1e-12
         before = table[table.Label .== "before", :]
         @test nrow(before) == 1 && before.Batch[1] == "" && ismissing(before.LIFO_Hours[1])
         with_logger(NullLogger()) do
@@ -3233,7 +3273,8 @@ end
     delete!(rates["telemetry"], "max_batches_per_hour")
     rates["telemetry"]["downlink_kbps"] = 230.0
     rates["telemetry"]["onboard_data_rate_kbps"] = 75.0
-    @test TelemetryCore.onboard_capacity(rates).gigabit ≈ 14 * 86_400 * 75 / 1e6
+    @test TelemetryCore.onboard_capacity(rates).gigabit ≈ 14 * 86_400 * 75 / 1e6 rtol =
+        1e-12
     small = deepcopy(base)
     small["storage"] = Dict{String,Any}("onboard_capacity_days" => 0.0)
     @test_throws ArgumentError TelemetryCore.onboard_capacity(small)
@@ -3264,7 +3305,7 @@ end
                 start,
                 gap_id;
                 sample_rate = 4.0,
-                seg_dur = 60.0,
+                segment_duration_sec = 60.0,
                 batch_size = 3,
                 initial_downtime_days = 0.01,
                 generation_gaps = [gap],
@@ -3294,7 +3335,7 @@ end
                 start,
                 rec_id;
                 sample_rate = 4.0,
-                seg_dur = 60.0,
+                segment_duration_sec = 60.0,
                 batch_size = 3,
                 initial_downtime_days = 0.01,
                 onboard_capacity_batches = 2,
@@ -3329,7 +3370,7 @@ end
                 live_id;
                 deadline = now() + Second(3),
                 sample_rate = 4.0,
-                seg_dur = 60.0,
+                segment_duration_sec = 60.0,
                 batch_size = 3,
                 onboard_capacity_batches = 2,
             )
@@ -3408,7 +3449,7 @@ end
             @test HDF5.read_attribute(f, "speed_up") == 60.0
             @test occursin("speed_up = 60.0", HDF5.read_attribute(f, "config_snapshot"))
             @test read(f["events/tx/Event"]) == ["gen", "gen"]
-            @test read(f["events/tx/SimTime"]) ≈ [0.0, 180.0]
+            @test read(f["events/tx/SimTime"]) ≈ [0.0, 180.0] rtol = 1e-12
             @test read(f["events/tx/SimTime_iso"]) ==
                   ["2035-01-01T06:00:00", "2035-01-01T06:03:00"]
             @test HDF5.read_attribute(f["events/tx"], "rows") == 2
@@ -3419,7 +3460,7 @@ end
             states = read(f["masks/timeline/states"])
             @test size(states) == (2, 2) && states[2, 2] == 3 # Julia reads (batch, snapshot)
             @test read(f["masks/timeline/batch_id"]) == [1, 2]
-            @test read(f["masks/timeline/SimTime"]) ≈ [0.0, 360.0]
+            @test read(f["masks/timeline/SimTime"]) ≈ [0.0, 360.0] rtol = 1e-12
             @test read(f["masks/pointwise/pointwise_mask_final/Ground_Available"]) ==
                   Int8[0, 0, 1]
             @test !haskey(f, "metrology/delivery_delay")
@@ -3449,7 +3490,8 @@ end
     @test 0.47 < single.scale < 0.49
     @test single.size_summary[1] == round(Int, 673 * single.scale)
     @test single.size_summary[2] > single.scale * PlotTheme.FIG_SIZE_SUMMARY[2] # extra height
-    @test single.fontsize ≈ 12 * 0.85 && single.fontsize_annotation ≈ 9.4
+    @test isapprox(single.fontsize, 12 * 0.85; rtol = 1e-12) &&
+          isapprox(single.fontsize_annotation, 9.4; rtol = 1e-12)
     @test PlotTheme.style_for_width(178.0).scale ≈ 1.0 atol = 0.01
     @test_throws ArgumentError PlotTheme.PlotStyle(0.0)
 

@@ -54,13 +54,50 @@ vermillion; role additionally encoded by ✕ markers).
 const COLOR_LOST = colorant"#D55E00"
 
 """
+    COLOR_COUNTERFACTUAL
+
+Plot color for counterfactual quantities — the first-in, first-out drain
+the alert-latency figure contrasts with the realized doctrine (Okabe–Ito
+reddish purple; role additionally encoded by the dotted line style).
+"""
+const COLOR_COUNTERFACTUAL = colorant"#CC79A7"
+
+"""
     COLOR_DISRUPTION
 
 Base color for disruption-event window shading: a neutral dark wash for the
-blackout span that fades to zero alpha across the recovery ramp. Deliberately
-neutral so it never competes with the series palette.
+blackout span that fades to zero alpha across the recovery ramp, with dashed
+same-hue edge lines at higher alpha. Deliberately neutral so it never
+competes with the series palette.
 """
 const COLOR_DISRUPTION = :black
+
+"""
+    COLOR_OUTAGE
+
+Base color for component-outage window shading: a neutral wash at low alpha
+with dotted same-hue edge lines at higher alpha, so unscheduled
+infrastructure outages stay apart from the series palette and, by line
+style, from the dashed disruption shading.
+"""
+const COLOR_OUTAGE = :black
+
+"""
+    COLOR_MARKER
+
+Plot color for the per-event-marker realized latency curves of the
+alert-latency figure — a family apart from the population bands, its
+members told apart by cycling line styles.
+"""
+const COLOR_MARKER = :black
+
+"""
+    COLOR_GUIDE
+
+Neutral grey for population aggregates and reference guides: the
+all-batches delivery curve, the delivery-requirement line, and its label.
+"""
+const COLOR_GUIDE = colorant"gray40"
 
 # --- Journal sizing: design at the final printed width. ---
 # Makie layout units are 1/96 inch; a PDF exported at these sizes enters
@@ -86,7 +123,9 @@ const FIG_SIZE_SESSION = (673, 420)
 """
     LINEWIDTH_DATA
 
-Data-series line width in Makie units (≈ 1.1 pt at final print scale).
+Data-series line width in Makie units (≈ 1.1 pt at final print scale;
+[`PlotStyle`](@ref) floors the scaled width at 0.9 of it, ≈ 1 pt, for
+narrower figures).
 """
 const LINEWIDTH_DATA = 1.5
 
@@ -138,7 +177,7 @@ function PlotStyle(scale::Real = 1.0)
         s,
         (round(Int, FIG_SIZE_SUMMARY[1] * s), round(Int, FIG_SIZE_SUMMARY[2] * height)),
         (round(Int, FIG_SIZE_SESSION[1] * s), round(Int, FIG_SIZE_SESSION[2] * height)),
-        LINEWIDTH_DATA * max(s, 0.7),
+        LINEWIDTH_DATA * max(s, 0.9),   # ≈ 1 pt floor at print size
         MARKERSIZE_DATA * max(s, 0.75),
         12 * text,
         13 * text,
@@ -149,12 +188,28 @@ function PlotStyle(scale::Real = 1.0)
 end
 
 """
-    label(style::PlotStyle, long::String, short::String) -> String
+    label(style::PlotStyle, long::AbstractString, short::AbstractString) -> AbstractString
 
 `long` at the design width, `short` for narrow figures (`scale < 0.7`),
-where a long axis label would collide with the neighbouring panel.
+where a long axis label would collide with the neighboring panel. Plain
+and LaTeX strings alike.
 """
-label(style::PlotStyle, long::String, short::String) = style.scale < 0.7 ? short : long
+label(style::PlotStyle, long::AbstractString, short::AbstractString) =
+    style.scale < 0.7 ? short : long
+
+"""
+    line_advance(style::PlotStyle) -> Float64
+
+Vertical advance between two lines of in-axis annotation text in Makie
+units: the line height of the theme's text face (`height / units_per_EM`,
+the multiplier Makie applies to multi-line text) times the annotation
+font size. Places a second text primitive directly under a first, e.g. a
+plain block below a LaTeX headline.
+"""
+function line_advance(style::PlotStyle)
+    face = texfont(:text)
+    return face.height / face.units_per_EM * style.fontsize_annotation
+end
 
 """
     style_for_width(column_width_mm::Real) -> PlotStyle
@@ -211,7 +266,7 @@ function telemetry_theme(style::PlotStyle = PlotStyle())
             bold_italic = texfont(:bolditalic),
         ),
         fontsize = style.fontsize,
-        figure_padding = 8,
+        figure_padding = 10,
         Lines = (linewidth = style.linewidth,),
         Stairs = (linewidth = style.linewidth,),
         Legend = (

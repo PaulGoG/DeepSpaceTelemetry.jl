@@ -39,10 +39,14 @@ Characteristic transfer frequency of the LISA arm (Hz).
 """
 const F_STAR = C_LIGHT / (2π * L_ARM)
 
-# Source-anchored package root: @__DIR__ is stable across precompilation and
-# relocation. (The previous DrWatson.projectdir() resolution was evaluated at
-# precompile time and baked whichever environment precompiled last into the
-# cache — docs/ or test/ paths could silently become the data root.)
+"""
+    PROJECT_ROOT
+
+Absolute path of the package root, anchored at this source file through
+`@__DIR__` so that it is stable across precompilation and relocation of the
+checkout. Relative configuration paths (`physics.external_data_path`,
+`contacts.schedule_csv`, the config file itself) resolve against it.
+"""
 const PROJECT_ROOT = abspath(joinpath(@__DIR__, ".."))
 
 """
@@ -180,13 +184,11 @@ function load_config(path::String = "")
         candidate = joinpath(PROJECT_ROOT, path)
         isfile(candidate) && (path = candidate)
     end
-    if !isfile(path)
-        error("Configuration file not found at $path")
-    end
+    isfile(path) || config_error("[CONFIG] Configuration file not found at $path")
     try
         return TOML.parsefile(path)
     catch e
-        error("[CONFIG] Failed to parse $path as TOML: $(sprint(showerror, e))")
+        config_error("[CONFIG] Failed to parse $path as TOML: $(sprint(showerror, e))")
     end
 end
 
@@ -334,8 +336,8 @@ end
 # --- Configuration Validation ---
 
 # Schema of recognized sections and keys. Anything outside it draws a
-# warning in validate_config: a typo'd key silently falling back to a
-# default is the quietest failure mode a config can carry.
+# warning in validate_config: a mistyped key would otherwise fall back to
+# its default without a trace.
 """
     STORAGE_CALIBRATION_DEFAULTS
 
@@ -406,7 +408,12 @@ const KNOWN_CONFIG_KEYS = Dict(
         "max_retries",
     ],
     "disruption" => ["events"],
-    "dashboard" => ["open_live_viewer", "open_receiver_log", "open_emitter_log"],
+    "dashboard" => [
+        "open_live_viewer",
+        "open_receiver_log",
+        "open_emitter_log",
+        "receiver_status_panel",
+    ],
     "post_processing" => [
         "generate_mask_timeline",
         "expand_to_pointwise_masks",
@@ -744,7 +751,8 @@ Validated `[packet_loss]` parameters: `enabled`, `model` (`"bernoulli"` or
 `p_good_to_bad`, `p_bad_to_good`, `p_loss_good`, `p_loss_bad` (each in
 `[0, 1]`), `on_loss` (`"retransmit"` or `"drop"`), and `max_retries ≥ 0`.
 Types, enumerations, and bounds are enforced regardless of `enabled`: a
-malformed-but-disabled section fails fast instead of lying dormant.
+malformed-but-disabled section fails fast instead of surfacing only once
+the channel is enabled.
 """
 function loss_channel_settings(cfg::AbstractDict)
     pl = get(cfg, "packet_loss", Dict{String,Any}())
@@ -855,7 +863,8 @@ One `[[events.markers]]` entry: the mission instant `time` of an event of
 interest (a transient, a glitch), its `label`, and an optional triggered
 low-latency period — `low_latency_after_hours` after the marker, lasting
 `low_latency_duration_hours` (`0` = none) at `low_latency_capacity_fraction`
-of peak capacity (`NaN` = the `[contacts]` default).
+of peak capacity (`NaN` = the `[contacts]` default). `EventMarker(time,
+label)` builds a marker without a triggered period.
 """
 struct EventMarker
     time::DateTime
@@ -953,7 +962,7 @@ function publication_settings(cfg::AbstractDict)
         config_error("[CONFIG] post_processing.publication must be a table of keys.")
     for key in keys(pub)
         key in KNOWN_PUBLICATION_KEYS ||
-            @warn "[CONFIG] Unrecognized key post_processing.publication.$key — ignored (typo?)."
+            @warn "[CONFIG] Unrecognized key post_processing.publication.$key — ignored."
     end
     enabled =
         checked_flag(get(pub, "enabled", false), "post_processing.publication.enabled")
@@ -975,6 +984,32 @@ function publication_settings(cfg::AbstractDict)
         format = format,
         column_width_mm = width,
         export_dir = export_dir,
+    )
+end
+
+"""
+    dashboard_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[dashboard]` flags, each a boolean: `open_live_viewer`,
+`open_receiver_log`, and `open_emitter_log` (the terminals the dashboard
+launcher opens; default `true`) and `receiver_status_panel` (the receiver's
+in-console status panel; default `false`). A non-boolean value is rejected
+with a `[CONFIG]` error.
+
+# Examples
+```jldoctest
+julia> TelemetryCore.dashboard_settings(Dict{String,Any}()).receiver_status_panel
+false
+```
+"""
+function dashboard_settings(cfg::AbstractDict)
+    db = get(cfg, "dashboard", Dict{String,Any}())
+    flag(key, default) = checked_flag(get(db, key, default), "dashboard.$key")
+    return (
+        open_live_viewer = flag("open_live_viewer", true),
+        open_receiver_log = flag("open_receiver_log", true),
+        open_emitter_log = flag("open_emitter_log", true),
+        receiver_status_panel = flag("receiver_status_panel", false),
     )
 end
 
@@ -1286,7 +1321,13 @@ function parsed_time(v, name::String)
     end
 end
 
-hours_period(hours::Float64) = Millisecond(round(Int, 3_600_000 * hours))
+"""
+    hours_period(hours::Float64) -> Millisecond
+
+The `Millisecond` period of a duration given in hours, rounded to the
+millisecond (contact-window and low-latency-period lengths).
+"""
+hours_period(hours::Float64) = Millisecond(round(Int, MS_PER_HOUR * hours))
 
 """
     contacts_settings(cfg::AbstractDict) -> ContactsSettings
@@ -1523,10 +1564,13 @@ Hard errors (would break the pipeline):
     name — rejected with the replacement named
 
 Warnings (runnable but likely unintended):
-  - emitter wall-clock period `segment_duration_sec / speed_up` below 5 ms
-    (the generation loop cannot keep pace; sim-time desync)
+  - emitter wall-clock period `segment_duration_sec / speed_up` below
+    [`EMITTER_PERIOD_WARN_MS`](@ref) (the generation loop cannot keep pace;
+    sim-time desync)
   - receiver nominal download slot `3600 / (max_batches_per_hour · speed_up)`
-    below 2 ms (the 1 ms sleep floor distorts the download rate)
+    below [`RECEIVER_SLOT_WARN_MS`](@ref) (the
+    [`RECEIVER_SLEEP_FLOOR_SEC`](@ref) sleep floor distorts the download
+    rate)
   - unknown `bandwidth_profile` (falls back to `"sine"`)
   - the physical rate pair combined with a shaped `bandwidth_profile` (the
     profile mean scales a link rate that the pass sustains; the capacity of
@@ -1555,11 +1599,11 @@ function validate_config(cfg::AbstractDict)
     # otherwise fall back to a default without a trace.
     for (section, content) in cfg
         if !haskey(KNOWN_CONFIG_KEYS, section)
-            @warn "[CONFIG] Unrecognized section [$section] — its keys are ignored (typo?)."
+            @warn "[CONFIG] Unrecognized section [$section] — its keys are ignored."
         elseif section != "provenance" && content isa AbstractDict
             for key in keys(content)
                 key in KNOWN_CONFIG_KEYS[section] ||
-                    @warn "[CONFIG] Unrecognized key $section.$key — ignored (typo?)."
+                    @warn "[CONFIG] Unrecognized key $section.$key — ignored."
             end
         end
     end
@@ -1568,14 +1612,14 @@ function validate_config(cfg::AbstractDict)
         e isa AbstractDict || continue
         for key in keys(e)
             key in KNOWN_EVENT_KEYS ||
-                @warn "[CONFIG] Unrecognized key disruption.events[$i].$key — ignored (typo?)."
+                @warn "[CONFIG] Unrecognized key disruption.events[$i].$key — ignored."
         end
     end
     for (i, e) in enumerate(get(get(cfg, "events", Dict{String,Any}()), "markers", Any[]))
         e isa AbstractDict || continue
         for key in keys(e)
             key in KNOWN_MARKER_KEYS ||
-                @warn "[CONFIG] Unrecognized key events.markers[$i].$key — ignored (typo?)."
+                @warn "[CONFIG] Unrecognized key events.markers[$i].$key — ignored."
         end
     end
     contacts_section = get(cfg, "contacts", Dict{String,Any}())
@@ -1584,7 +1628,7 @@ function validate_config(cfg::AbstractDict)
             e isa AbstractDict || continue
             for key in keys(e)
                 key in known ||
-                    @warn "[CONFIG] Unrecognized key contacts.$list[$i].$key — ignored (typo?)."
+                    @warn "[CONFIG] Unrecognized key contacts.$list[$i].$key — ignored."
             end
         end
     end
@@ -1593,8 +1637,8 @@ function validate_config(cfg::AbstractDict)
     tel = get(cfg, "telemetry", Dict{String,Any}())
     phy = get(cfg, "physics", Dict{String,Any}())
 
-    # Required keys (R1 policy): a missing core tunable is a configuration
-    # error, never a silently invented default.
+    # Required keys: a missing core tunable is a configuration error, never
+    # a silently invented default.
     for (section, sec_name, required) in (
         (sim, "simulation", ("speed_up", "start_sim_time")),
         (tel, "telemetry", ("session_start", "session_duration_hours")),
@@ -1628,20 +1672,15 @@ function validate_config(cfg::AbstractDict)
     downtime >= 0.0 || config_error(
         "[CONFIG] simulation.initial_downtime_days must be ≥ 0 (got $downtime).",
     )
-    # Budget positivity is checked through storage_budget so both the
-    # [storage] location and the deprecated [simulation] fallback are covered.
+    # Budget positivity is checked through storage_budget, which also rejects
+    # the retired simulation.max_storage_gb alias.
     max_gb = storage_budget(cfg).max_gb
     max_gb > 0.0 ||
         config_error("[CONFIG] storage.max_storage_gb must be > 0 (got $max_gb).")
-    haskey(sim, "start_sim_time") ||
-        config_error("[CONFIG] simulation.start_sim_time is required.")
-    try
-        DateTime(sim["start_sim_time"])
-    catch
-        config_error(
-            "[CONFIG] simulation.start_sim_time is not a parseable ISO datetime: $(sim["start_sim_time"])",
-        )
-    end
+    t_start = parsed_datetime(
+        required_value(sim, "simulation", "start_sim_time"),
+        "simulation.start_sim_time",
+    )
     seed = get(sim, "rng_seed", 0)
     (seed isa Integer && !(seed isa Bool)) ||
         config_error("[CONFIG] simulation.rng_seed must be an integer (got $(repr(seed))).")
@@ -1650,8 +1689,8 @@ function validate_config(cfg::AbstractDict)
     # Types, bounds, and the enumeration through the shared accessor; the
     # rounding warning and the input-file existence check live here.
     physics = physics_settings(cfg)
-    seg_dur = physics.segment_duration_sec
-    n_samples = physics.sample_rate * seg_dur
+    segment_duration_sec = physics.segment_duration_sec
+    n_samples = physics.sample_rate * segment_duration_sec
     if !isapprox(n_samples, round(n_samples); atol = 1e-9)
         @warn "[CONFIG] sample_rate × segment_duration_sec = $n_samples is not an integer; segment length is rounded to $(round(Int, n_samples)) samples."
     end
@@ -1684,15 +1723,15 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- Real-time pacing sanity (loop-scheduler corner cases) --
-    emitter_period_ms = seg_dur / speed_up * 1000.0
-    if emitter_period_ms < 5.0
+    emitter_period_ms = segment_duration_sec / speed_up * 1000.0
+    if emitter_period_ms < EMITTER_PERIOD_WARN_MS
         @warn "[CONFIG] Emitter wall-clock period is $(round(emitter_period_ms, digits=2)) ms " *
-              "(segment_duration_sec / speed_up). Below ~5 ms the generation loop cannot keep " *
+              "(segment_duration_sec / speed_up). Below $(EMITTER_PERIOD_WARN_MS) ms the generation loop cannot keep " *
               "pace with the accelerated clock and batch timestamps desynchronize. " *
               "Increase segment_duration_sec or decrease speed_up."
     end
     rx_slot_ms = tel_settings.nominal_batch_transfer_sec / speed_up * 1000.0
-    if rx_slot_ms < 2.0
+    if rx_slot_ms < RECEIVER_SLOT_WARN_MS
         @warn "[CONFIG] Receiver download slot is $(round(rx_slot_ms, digits=2)) ms " *
               "(batch transfer time / speed_up). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
               "the effective downlink rate. Decrease speed_up or the link capacity."
@@ -1707,22 +1746,18 @@ function validate_config(cfg::AbstractDict)
     if downtime > capacity.days
         @warn "[CONFIG] simulation.initial_downtime_days = $downtime exceeds the on-board recorder capacity ($(capacity.days) days): pre-populated batches beyond $(capacity.batches) are discarded."
     end
-    mission_days = mission_wall_seconds(cfg) * speed_up / 86_400
-    t_start = DateTime(sim["start_sim_time"])
-    windows = contact_windows(
-        visibility_model(cfg),
-        t_start,
-        t_start + Millisecond(round(Int, mission_days * 86_400_000)),
-    )
-    t_end = t_start + Millisecond(round(Int, mission_days * 86_400_000))
+    mission_days = mission_wall_sec * speed_up / 86_400.0
+    t_end = t_start + Millisecond(round(Int, mission_days * MS_PER_DAY))
+    windows = contact_windows(visibility_model(cfg), t_start, t_end)
     longest_gap_hours = 0.0
-    previous_stop = t_start - Millisecond(round(Int, downtime * 86_400_000))
+    previous_stop = t_start - Millisecond(round(Int, downtime * MS_PER_DAY))
     for w in windows
-        longest_gap_hours = max(longest_gap_hours, (w.start - previous_stop).value / 3.6e6)
+        longest_gap_hours =
+            max(longest_gap_hours, (w.start - previous_stop).value / MS_PER_HOUR)
         previous_stop = max(previous_stop, w.stop)
     end
     # Data produced after the last contact accumulates until the mission end.
-    longest_gap_hours = max(longest_gap_hours, (t_end - previous_stop).value / 3.6e6)
+    longest_gap_hours = max(longest_gap_hours, (t_end - previous_stop).value / MS_PER_HOUR)
     if longest_gap_hours > 24 * capacity.days
         @warn "[CONFIG] The longest interval without ground contact ($(round(longest_gap_hours, digits = 1)) h) exceeds the on-board recorder capacity ($(24 * capacity.days) h of production): the emitter discards data once the buffer is full."
     end
@@ -1730,7 +1765,8 @@ function validate_config(cfg::AbstractDict)
     # -- [packet_loss] --
     # Types, enumerations, and bounds are enforced by the shared accessor
     # regardless of `enabled`: a malformed-but-disabled section must fail
-    # fast, not lie dormant. Only the cross-key physics warnings live here.
+    # fast rather than surface once enabled. Only the cross-key physics
+    # warnings live here.
     loss = loss_channel_settings(cfg)
     events = disruption_event_settings(cfg)
     if loss.enabled
@@ -1800,10 +1836,7 @@ function validate_config(cfg::AbstractDict)
     supervision_settings(cfg)
 
     # -- [dashboard] / [post_processing] --
-    db = get(cfg, "dashboard", Dict{String,Any}())
-    for key in ("open_live_viewer", "open_receiver_log", "open_emitter_log")
-        haskey(db, key) && checked_flag(db[key], "dashboard.$key")
-    end
+    dashboard_settings(cfg)
     pp = get(cfg, "post_processing", Dict{String,Any}())
     for key in (
         "generate_mask_timeline",
@@ -1881,6 +1914,26 @@ download-rate distortion so the two can never drift apart.
 const RECEIVER_SLEEP_FLOOR_SEC = 0.001
 
 """
+    EMITTER_PERIOD_WARN_MS
+
+Emitter wall-clock segment period `segment_duration_sec / speed_up` [ms]
+below which [`validate_config`](@ref) warns: at shorter periods the
+generation loop cannot keep pace with the accelerated clock and the batch
+timestamps desynchronize from mission time.
+"""
+const EMITTER_PERIOD_WARN_MS = 5.0
+
+"""
+    RECEIVER_SLOT_WARN_MS
+
+Receiver wall-clock download slot `nominal_batch_transfer_sec / speed_up`
+[ms] below which [`validate_config`](@ref) warns: the
+[`RECEIVER_SLEEP_FLOOR_SEC`](@ref) sleep floor then distorts the effective
+downlink rate.
+"""
+const RECEIVER_SLOT_WARN_MS = 2.0
+
+"""
     EMITTER_MAX_SLEEP_SEC
 
 Upper bound on a single emitter pacing sleep [wall-clock s]. The generation
@@ -1899,6 +1952,30 @@ pace with the accelerated clock. Startup compilation and transient stalls
 are recovered by burst catch-up within this window and never warn.
 """
 const EMITTER_LAG_WARN_SEC = 5.0
+
+"""
+    HEARTBEAT_INTERVAL_MS
+
+Wall-clock interval between two touches of a component's liveness file
+[ms]; the supervisor's watchdog reads the file's modification time.
+"""
+const HEARTBEAT_INTERVAL_MS = 1000
+
+"""
+    MS_PER_HOUR
+
+Milliseconds per hour, converting `Dates.Millisecond` periods of the
+mission clock to mission hours.
+"""
+const MS_PER_HOUR = 3_600_000
+
+"""
+    MS_PER_DAY
+
+Milliseconds per day, converting `Dates.Millisecond` periods of the mission
+clock to mission days.
+"""
+const MS_PER_DAY = 86_400_000
 
 """
     thread_advisory() -> Union{Nothing, String}
@@ -2013,7 +2090,7 @@ function retention_settings(cfg::AbstractDict)
     rotate_mb = checked_number(get(ret, "log_rotate_mb", 64.0), "retention.log_rotate_mb")
     return RetentionPolicy(
         enabled,
-        Millisecond(round(Int, grace_hours * 3_600_000)),
+        Millisecond(round(Int, grace_hours * MS_PER_HOUR)),
         watermark_gb * 1024^3,
         rotate_mb * 1024^2,
     )
@@ -2046,13 +2123,14 @@ function estimate_artifacts(cfg::AbstractDict)
     speed_up =
         checked_number(required_value(sim, "simulation", "speed_up"), "simulation.speed_up")
     mission_wall_sec = mission_wall_seconds(cfg)
-    seg_dur = checked_number(
+    segment_duration_sec = checked_number(
         required_value(phy, "physics", "segment_duration_sec"),
         "physics.segment_duration_sec",
     )
-    sr =
+    sample_rate =
         checked_number(required_value(phy, "physics", "sample_rate"), "physics.sample_rate")
-    batch_sz = checked_integer(get(phy, "batch_size", 15), "physics.batch_size")
+    batch_size =
+        checked_integer(required_value(phy, "physics", "batch_size"), "physics.batch_size")
     downtime_days = checked_number(
         get(sim, "initial_downtime_days", 0.0),
         "simulation.initial_downtime_days",
@@ -2067,9 +2145,9 @@ function estimate_artifacts(cfg::AbstractDict)
 
     sim_sec = mission_wall_sec * speed_up
     total_sec_gen = sim_sec + downtime_days * 86_400.0
-    n_segments = ceil(Int, total_sec_gen / seg_dur)
-    n_batches = ceil(Int, n_segments / batch_sz)
-    n_points = round(Int, n_segments * seg_dur * sr)
+    n_segments = ceil(Int, total_sec_gen / segment_duration_sec)
+    n_batches = ceil(Int, n_segments / batch_size)
+    n_points = round(Int, n_segments * segment_duration_sec * sample_rate)
     mission_days = ceil(Int, sim_sec / 86_400.0)
     # Metrics rows are admitted on batch-count changes (≤ 4 per batch:
     # onboard, link, and ground/lost transitions plus slack) and on
@@ -2136,11 +2214,12 @@ function estimate_artifacts(cfg::AbstractDict)
         plot_bytes +
         log_bytes
 
-    # Files: per batch one directory, one metadata.json, batch_sz segment CSVs;
-    # plus event logs, profile, mask products, plots, logs, snapshot, sentinels
-    # and the six run subdirectories (small fixed slack for rotations).
+    # Files: per batch one directory, one metadata.json, batch_size segment
+    # CSVs; plus event logs, profile, mask products, plots, logs, snapshot,
+    # sentinels and the six run subdirectories (small fixed slack for
+    # rotations).
     file_count =
-        n_batches * (batch_sz + 2) +
+        n_batches * (batch_size + 2) +
         2 +
         1 +
         (do_matrix ? 1 : 0) +
@@ -2194,6 +2273,20 @@ function estimate_artifacts(cfg::AbstractDict)
 end
 
 """
+    StorageBudgetError(msg::String)
+
+Raised by [`check_storage_limits`](@ref) when the projected run footprint —
+disk volume, file count, or post-processing replay RAM — exceeds the
+`[storage]` budget and no configured mitigation bounds it. `msg` carries
+the `[STORAGE]` diagnosis: the estimate, the budget, and the remedies.
+"""
+struct StorageBudgetError <: Exception
+    msg::String
+end
+
+Base.showerror(io::IO, e::StorageBudgetError) = print(io, e.msg)
+
+"""
     check_storage_limits(cfg::AbstractDict)
 
 Pre-run storage safety gate. Prints the per-class artifact estimate
@@ -2211,7 +2304,8 @@ mitigation awareness:
 
 The same logic gates `storage.max_file_count`, and the post-processing
 replay RAM estimate is gated against `storage.max_ram_gb` (a mitigation-free
-hard budget). Returns `nothing`; called before any run directory is created.
+hard budget). Every abort is a [`StorageBudgetError`](@ref). Returns
+`nothing`; called before any run directory is created.
 """
 function check_storage_limits(cfg::AbstractDict)
     est = estimate_artifacts(cfg)
@@ -2235,8 +2329,10 @@ function check_storage_limits(cfg::AbstractDict)
 
     max_ram_bytes = budget.max_ram_gb * 1024^3
     if est.replay_ram_bytes > max_ram_bytes
-        error(
-            "[STORAGE] Post-processing replay RAM estimate ($(to_gb(est.replay_ram_bytes)) GB) exceeds storage.max_ram_gb ($(budget.max_ram_gb) GB). Reduce the mission span, disable post_processing.generate_batch_matrix, or raise storage.max_ram_gb.",
+        throw(
+            StorageBudgetError(
+                "[STORAGE] Post-processing replay RAM estimate ($(to_gb(est.replay_ram_bytes)) GB) exceeds storage.max_ram_gb ($(budget.max_ram_gb) GB). Reduce the mission span, disable post_processing.generate_mask_timeline, or raise storage.max_ram_gb.",
+            ),
         )
     elseif est.replay_ram_bytes > STORAGE_WARN_FRACTION * max_ram_bytes
         @warn "[STORAGE] Post-processing replay RAM estimate ($(to_gb(est.replay_ram_bytes)) GB) is within $(round(Int, 100 * (1 - STORAGE_WARN_FRACTION))) % of storage.max_ram_gb ($(budget.max_ram_gb) GB)."
@@ -2245,12 +2341,16 @@ function check_storage_limits(cfg::AbstractDict)
     max_bytes = budget.max_gb * 1024^3
     if !ret.enabled
         if est.total_bytes > max_bytes
-            error(
-                "[STORAGE] Estimated storage ($(to_gb(est.total_bytes)) GB) exceeds the configured budget ($(budget.max_gb) GB) and no mitigation is active. Enable [retention], reduce the mission span, or raise storage.max_storage_gb.",
+            throw(
+                StorageBudgetError(
+                    "[STORAGE] Estimated storage ($(to_gb(est.total_bytes)) GB) exceeds the configured budget ($(budget.max_gb) GB) and no mitigation is active. Enable [retention], reduce the mission span, or raise storage.max_storage_gb.",
+                ),
             )
         elseif est.file_count > budget.max_files
-            error(
-                "[STORAGE] Estimated file count ($(est.file_count)) exceeds storage.max_file_count ($(budget.max_files)) and no mitigation is active. Enable [retention], reduce the mission span, or raise the budget.",
+            throw(
+                StorageBudgetError(
+                    "[STORAGE] Estimated file count ($(est.file_count)) exceeds storage.max_file_count ($(budget.max_files)) and no mitigation is active. Enable [retention], reduce the mission span, or raise the budget.",
+                ),
             )
         elseif est.total_bytes > STORAGE_WARN_FRACTION * max_bytes
             @warn "[STORAGE] Estimated storage ($(to_gb(est.total_bytes)) GB) is within $(round(Int, 100 * (1 - STORAGE_WARN_FRACTION))) % of the configured budget ($(budget.max_gb) GB)."
@@ -2267,12 +2367,16 @@ function check_storage_limits(cfg::AbstractDict)
         est.file_count - est.prunable_files + ceil(Int, payload_frac * est.prunable_files)
 
     if steady_bytes > max_bytes
-        error(
-            "[STORAGE] Even with retention active, the steady-state footprint ($(to_gb(steady_bytes)) GB: non-prunable classes + payload capped at the $(to_gb(ret.watermark_bytes)) GB watermark) exceeds the configured budget ($(budget.max_gb) GB). Reduce the mission span, lower retention.high_watermark_gb, or raise storage.max_storage_gb.",
+        throw(
+            StorageBudgetError(
+                "[STORAGE] Even with retention active, the steady-state footprint ($(to_gb(steady_bytes)) GB: non-prunable classes + payload capped at the $(to_gb(ret.watermark_bytes)) GB watermark) exceeds the configured budget ($(budget.max_gb) GB). Reduce the mission span, lower retention.high_watermark_gb, or raise storage.max_storage_gb.",
+            ),
         )
     elseif steady_files > budget.max_files
-        error(
-            "[STORAGE] Even with retention active, the steady-state file count ($steady_files) exceeds storage.max_file_count ($(budget.max_files)).",
+        throw(
+            StorageBudgetError(
+                "[STORAGE] Even with retention active, the steady-state file count ($steady_files) exceeds storage.max_file_count ($(budget.max_files)).",
+            ),
         )
     end
     if est.total_bytes > max_bytes
@@ -2280,8 +2384,16 @@ function check_storage_limits(cfg::AbstractDict)
     end
     grace_sec = ret.grace.value / 1000.0
     grace_payload =
-        est.payload_bytes / max(est.n_segments, 1) *
-        (grace_sec / Float64(cfg["physics"]["segment_duration_sec"]))
+        est.payload_bytes / max(est.n_segments, 1) * (
+            grace_sec / checked_number(
+                required_value(
+                    get(cfg, "physics", Dict{String,Any}()),
+                    "physics",
+                    "segment_duration_sec",
+                ),
+                "physics.segment_duration_sec",
+            )
+        )
     if grace_payload > ret.watermark_bytes
         @warn "[STORAGE] Payload generated within one retention.grace_hours window (≈ $(to_gb(grace_payload)) GB) exceeds retention.high_watermark_gb ($(to_gb(ret.watermark_bytes)) GB): the custodian cannot honor the grace guarantee and stay below the watermark; the watermark will be exceeded transiently."
     end
@@ -2289,11 +2401,15 @@ function check_storage_limits(cfg::AbstractDict)
     return nothing
 end
 
-# --- Improved Simulation Timing ---
+# --- Simulation clock ---
 """
-    SimulationClock
+    SimulationClock(start_real_time::DateTime, start_sim_time::DateTime, speed_up::Float64)
 
-Tracks the accelerated simulation time mapping real-world wall clock to mission `SimTime`.
+The accelerated mission clock: mission time advances `speed_up` times
+faster than wall-clock time from the anchor pair `start_real_time` (the
+wall instant of the anchor) and `start_sim_time` (the mission instant at
+that anchor). [`get_current_sim_time`](@ref) maps the wall clock to mission
+`SimTime`; [`due_wall_time`](@ref) is its inverse.
 """
 struct SimulationClock
     start_real_time::DateTime
@@ -2329,13 +2445,17 @@ end
     save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
 
 Persists the mission clock anchor (wall epoch, mission epoch, speed-up) and
-the absolute wall-clock deadline into `<run_dir>/clock_anchor.toml`. Written
-once at mission start; a re-attaching or restarted component reconstructs
+the absolute wall-clock deadline into `<run_dir>/clock_anchor.toml` (an
+existing file is rotated to `clock_anchor#k.toml` first, never
+overwritten). Written once at mission start; a re-attaching or restarted
+component reconstructs
 the identical clock from it ([`load_clock_anchor`](@ref)), so mission time
 survives component outages — the outage simply elapses as mission time.
 """
 function save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
-    open(joinpath(run_dir, "clock_anchor.toml"), "w") do io
+    path = joinpath(run_dir, "clock_anchor.toml")
+    backup_existing(path)
+    open(path, "w") do io
         TOML.print(
             io,
             Dict(
@@ -2352,13 +2472,15 @@ end
     load_clock_anchor(run_dir::String) -> (clock::SimulationClock, deadline::DateTime)
 
 Reconstructs the mission clock and the absolute deadline persisted by
-[`save_clock_anchor`](@ref). Errors when the anchor file is absent (runs
-started by an older pipeline cannot be re-attached).
+[`save_clock_anchor`](@ref). Throws an `ArgumentError` when the anchor
+file is absent (runs started by an older pipeline cannot be re-attached).
 """
 function load_clock_anchor(run_dir::String)
     path = joinpath(run_dir, "clock_anchor.toml")
-    isfile(path) || error(
-        "[RUN] clock_anchor.toml missing in $run_dir — component re-attachment requires the persisted anchor written at mission start.",
+    isfile(path) || throw(
+        ArgumentError(
+            "[RUN] clock_anchor.toml missing in $run_dir — component re-attachment requires the persisted anchor written at mission start.",
+        ),
     )
     a = TOML.parsefile(path)
     clock = SimulationClock(
@@ -2371,10 +2493,12 @@ end
 
 # --- Data Structures ---
 """
-    DataSegment
+    DataSegment(id::Int, timestamp::DateTime, data::Vector{Float32})
 
-One contiguous segment of the observed time series: the samples of
-`segment_duration_sec` starting at `timestamp`.
+One contiguous segment of the observed time series: the `Float32` samples
+`data` of one `segment_duration_sec` span whose first sample lies at the
+mission instant `timestamp`; `id` is the instrument's running segment
+counter.
 """
 struct DataSegment
     id::Int
@@ -2383,9 +2507,12 @@ struct DataSegment
 end
 
 """
-    DataBatch
+    DataBatch(id::Int, segments::Vector{DataSegment}, created_at::DateTime)
 
-A collection of `DataSegment`s prepared for bulk transmission over the DSN.
+A collection of [`DataSegment`](@ref)s prepared for bulk transmission over
+the DSN: `id` is the batch counter, `segments` the payload in content
+order, and `created_at` the mission instant of finalization (when the
+batch became transmittable; the content epoch is `segments[1].timestamp`).
 """
 struct DataBatch
     id::Int
@@ -2446,8 +2573,8 @@ function save_metrics(run_dir::String, m::MissionMetrics)
         Disruption_Active = m.disruption_active,
     )
 
-    # CSV.write in append mode: DrWatson's safesave() has no efficient
-    # line-by-line CSV append path.
+    # Row-wise append: the profile is an append-only log of the run, so no
+    # backup rotation applies to it.
     CSV.write(log_path, df; append = exists)
 end
 
@@ -2534,8 +2661,7 @@ end
 If `path` exists, renames it to `<name>#<k><ext>` using the smallest unused
 `k`, mirroring DrWatson's `safesave` backup rotation so no result file is ever
 silently overwritten. Returns the backup path, or `nothing` if `path` did not
-exist. (DrWatson's own `safesave` routes CSVs through FileIO/CSVFiles, which is
-not a project dependency, hence this native implementation.)
+exist.
 """
 function backup_existing(path::String)
     isfile(path) || return nothing
@@ -2568,7 +2694,7 @@ end
 
 Generates a unique ID for the current simulation run,
 `RUN_pid=<pid>_t=<yyyymmdd_HHMMSS>` (key=value fields in alphabetical order,
-the layout DrWatson's `savename` produced before the dependency was dropped).
+the layout of DrWatson's `savename`).
 """
 function generate_run_id()
     return string("RUN_pid=", getpid(), "_t=", Dates.format(now(), "yyyymmdd_HHMMSS"))
@@ -2628,7 +2754,8 @@ end
     setup_run_dir(run_id::String; cfg=nothing)
 
 Creates and returns the base directory for a simulation run along with its
-required subdirectories. When the parsed configuration `cfg` is provided, a
+required subdirectories; a non-empty directory under the same run ID is
+rejected with an `ArgumentError`. When the parsed configuration `cfg` is provided, a
 `config_snapshot.toml` is written into the run directory (with `safesave`-style
 backup rotation) so every run's exact parameters remain reproducible after
 `config.toml` changes; the snapshot additionally carries the
@@ -2639,8 +2766,10 @@ function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothin
     # Run-ID reuse guard (silent-failure mode): a reused ID would interleave
     # two missions' rows in mission_profile.csv and truncate the prior logs.
     if isdir(base_dir) && !isempty(filter(f -> !startswith(f, "."), readdir(base_dir)))
-        error(
-            "[RUN] Run directory $base_dir already exists and is non-empty — run IDs must be unique. Choose a new run ID or purge the previous run (scripts/maintenance/cleanup.jl).",
+        throw(
+            ArgumentError(
+                "[RUN] Run directory $base_dir already exists and is non-empty — run IDs must be unique. Choose a new run ID or purge the previous run (scripts/maintenance/cleanup.jl).",
+            ),
         )
     end
     paths = [
@@ -2952,8 +3081,13 @@ function profile_factor(model::VisibilityModel, progress::Float64)
     end
 end
 
-# Composite Simpson subintervals for the profile mean: 10⁻¹⁰ accuracy on the
-# shipped profiles at negligible cost (one evaluation per validation and banner).
+"""
+    PROFILE_MEAN_SUBINTERVALS
+
+Number of composite-Simpson subintervals of [`profile_mean`](@ref): 1024
+gives 10⁻¹⁰ accuracy on the shipped profiles at negligible cost (one
+evaluation per validation and banner).
+"""
 const PROFILE_MEAN_SUBINTERVALS = 1024
 
 """

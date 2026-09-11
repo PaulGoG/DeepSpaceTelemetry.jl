@@ -1,9 +1,9 @@
 # DeepSpaceTelemetry scenario "external_ingest": external ingestion: 2 days on the physical rate pair reading the generated example strain series (16 Hz), 1 % Bernoulli loss, no disruptions.
-# Run with:  julia --project=. scripts/run_full_sim.jl <RUN_ID> scenarios/external_ingest.toml
+# Run with:  julia --project=. --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/external_ingest.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.
-start_sim_time = "2035-01-01T06:00:00"# Mission epoch. SAFE: ISO-8601 datetime.
+start_sim_time = "2035-01-01T06:00:00" # Mission epoch. SAFE: ISO-8601 datetime.
 mission_wall_seconds = 48.0          # Wall-clock simulation span [s]. SAFE: > 0.
 initial_downtime_days = 0.5          # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
 rng_seed = 5                         # Seeds physics and packet-loss RNGs. SAFE: integer.
@@ -54,7 +54,7 @@ processing_latency_hours = 1.0       # Ground processing budget added to every a
 
 [physics]
 data_source = "external"             # Data stream mode. One of: "synthetic" | "external".
-external_data_path = "data/example_external_strain.csv"# File path when data_source = "external".
+external_data_path = "data/example_external_strain.csv" # File path when data_source = "external".
 sample_rate = 16.0                   # Strain sampling frequency [Hz]. SAFE: > 0.
 segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
 batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
@@ -76,6 +76,7 @@ max_retries = 3                      # Retry limit before moving batch to lost/.
 open_live_viewer = false             # Live viewer terminal flag. One of: true | false.
 open_receiver_log = false            # Receiver log terminal flag. One of: true | false.
 open_emitter_log = false             # Emitter log terminal flag. One of: true | false.
+receiver_status_panel = false        # Receiver status panel on the console flag. One of: true | false.
 
 [post_processing]
 generate_mask_timeline = true        # 2D telemetry mask timeline flag. One of: true | false.

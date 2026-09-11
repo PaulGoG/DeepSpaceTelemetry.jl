@@ -1,9 +1,9 @@
-# DeepSpaceTelemetry scenario "long_30d_seasonal": long horizon: 30 days from 1 March at 7200x on the physical rate pair with the seasonal window, missed and shortened passes, a 12-day contact gap reaching the recorder ceiling, five disruptions, two markers.
-# Run with:  julia --project=. scripts/run_full_sim.jl <RUN_ID> scenarios/long_30d_seasonal.toml
+# DeepSpaceTelemetry scenario "long_30d_seasonal": long horizon: 30 days from 1 March at 7200x on the physical rate pair with the seasonal window, missed and shortened passes, a 12-day contact gap, five disruptions, two markers.
+# Run with:  julia --project=. --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/long_30d_seasonal.toml
 
 [simulation]
 speed_up = 7200.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.
-start_sim_time = "2035-03-01T06:00:00"# Mission epoch. SAFE: ISO-8601 datetime.
+start_sim_time = "2035-03-01T06:00:00" # Mission epoch. SAFE: ISO-8601 datetime.
 mission_wall_seconds = 360.0         # Wall-clock simulation span [s]. SAFE: > 0.
 initial_downtime_days = 3.0          # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
 rng_seed = 30                        # Seeds physics and packet-loss RNGs. SAFE: integer.
@@ -129,7 +129,7 @@ low_latency_capacity_fraction = 0.5  # Capacity of the triggered period relative
 
 [physics]
 data_source = "synthetic"            # Data stream mode. One of: "synthetic" | "external".
-external_data_path = "data/example_external_strain.csv"# File path when data_source = "external".
+external_data_path = "data/example_external_strain.csv" # File path when data_source = "external".
 sample_rate = 4.0                    # Strain sampling frequency [Hz]. SAFE: > 0.
 segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
 batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
@@ -190,6 +190,7 @@ loss_multiplier = 3.0                # Loss probability multiplier during event.
 open_live_viewer = false             # Live viewer terminal flag. One of: true | false.
 open_receiver_log = false            # Receiver log terminal flag. One of: true | false.
 open_emitter_log = false             # Emitter log terminal flag. One of: true | false.
+receiver_status_panel = false        # Receiver status panel on the console flag. One of: true | false.
 
 [post_processing]
 generate_mask_timeline = true        # 2D telemetry mask timeline flag. One of: true | false.

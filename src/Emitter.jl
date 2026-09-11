@@ -17,7 +17,7 @@ using ProgressMeter: ProgressMeter, @showprogress
 using Random: Random, Xoshiro
 
 """
-    pre_populate(start_sim_time, run_id; ...) -> (instrument, pending_segments)
+    pre_populate(start_sim_time, run_id; kwargs...) -> (instrument, pending_segments)
 
 Simulates satellite downtime prior to the start of the active mission window.
 Fills the onboard SSD buffer with archived data batches to create a starting backlog.
@@ -25,14 +25,32 @@ Fills the onboard SSD buffer with archived data batches to create a starting bac
 Returns the `InstrumentState` used for generation together with any trailing
 segments that did not fill a complete batch. Both must be handed to
 [`run_emitter`](@ref) so that the data stream (in particular an external CSV
-consumed via `ext_index`) continues seamlessly instead of restarting at the
-first sample.
+consumed via `ext_index`) continues without restarting at the first sample.
+
+# Keyword arguments
+
+  - `sample_rate`: instrument sample rate [Hz].
+  - `segment_duration_sec`: content span of one segment [mission s].
+  - `batch_size`: segments per batch.
+  - `initial_downtime_days`: span of the blind spot before `start_sim_time`
+    [days]; `≤ 0` skips the pre-population and returns an instrument
+    anchored at `start_sim_time`.
+  - `data_source`: `"synthetic"` or `"external"`.
+  - `ext_path`: path of the external CSV series (`data_source = "external"`).
+  - `rng`: the instrument's RNG, seeded from `simulation.rng_seed`.
+  - `markers`: event markers, stamped into the batch holding their instant.
+  - `generation_gaps`: scheduled `(start, stop)` intervals without data
+    production ([`skip_generation_gaps!`](@ref)).
+  - `onboard_capacity_batches`: recorder ceiling; data beyond it is discarded.
+  - `confusion_observation_years`, `noise_f_min_hz`: galactic-confusion fit
+    and lower band edge of the synthetic noise model
+    ([`VirtualInstrument.lisa_noise_psd`](@ref)).
 """
 function pre_populate(
     start_sim_time::DateTime,
     run_id::String;
     sample_rate::Float64 = 1024.0,
-    seg_dur::Float64 = 60.0,
+    segment_duration_sec::Float64 = 60.0,
     batch_size::Int = 15,
     initial_downtime_days::Float64 = 3.0,
     data_source::String = "synthetic",
@@ -44,13 +62,13 @@ function pre_populate(
     confusion_observation_years::Float64 = 1.0,
     noise_f_min_hz::Float64 = 1e-5,
 )
-    downtime_ms = max(0, round(Int, initial_downtime_days * 86_400_000))
+    downtime_ms = max(0, round(Int, initial_downtime_days * TelemetryCore.MS_PER_DAY))
     downtime_start = start_sim_time - Millisecond(downtime_ms)
 
     vi = VirtualInstrument.InstrumentState(
         downtime_start,
         sample_rate,
-        seg_dur,
+        segment_duration_sec,
         data_source,
         ext_path;
         rng = rng,
@@ -70,7 +88,8 @@ function pre_populate(
 
     @info "[EMITTER] Pre-populating onboard buffer for $(initial_downtime_days) days of downtime..."
 
-    total_segs = ceil(Int, (start_sim_time - downtime_start).value / 1000 / seg_dur)
+    total_segs =
+        ceil(Int, (start_sim_time - downtime_start).value / 1000 / segment_duration_sec)
 
     recorder_full = false
     @showprogress "Pre-populating onboard buffer..." for _ in 1:total_segs
@@ -175,7 +194,7 @@ end
 
 # --- Emitter Main Loop ---
 """
-    run_emitter(clock, link, run_id; ...)
+    run_emitter(clock, link, run_id; kwargs...)
 
 The main satellite payload loop. Continuously generates scientific data (or reads from external CSV),
 packages it into batches, and manages the DSN transmission queue using strict priority logic
@@ -193,7 +212,7 @@ mission time is created instead (seeded by `rng`).
 
 Generation is paced by the mission clock, not by the loop's own start: a
 segment is produced once the mission clock has passed the end of its content
-interval (`vi.last_t + seg_dur`), and the loop sleeps until the exact wall
+interval (`vi.last_t + segment_duration_sec`), and the loop sleeps until the exact wall
 instant of the next due segment ([`TelemetryCore.due_wall_time`](@ref)).
 A late start or a stall is recovered by generating back-to-back (yielding to
 the partner task on every catch-up iteration) until the content has caught
@@ -205,16 +224,38 @@ persists above one period for longer than
 [`TelemetryCore.EMITTER_LAG_WARN_SEC`](@ref) is reported once as a warning
 (the host cannot keep pace); the maximum lag is logged at loop exit.
 
-`confusion_observation_years` and `noise_f_min_hz` select the
-galactic-confusion fit and the lower band edge of the synthetic noise model
-of a freshly created instrument (see [`VirtualInstrument.lisa_noise_psd`](@ref)).
+# Keyword arguments
+
+  - `sample_rate`: instrument sample rate [Hz].
+  - `segment_duration_sec`: content span of one segment [mission s].
+  - `batch_size`: segments per batch.
+  - `data_source`: `"synthetic"` or `"external"`.
+  - `ext_path`: path of the external CSV series (`data_source = "external"`).
+  - `instrument`: the `InstrumentState` returned by [`pre_populate`](@ref),
+    or `nothing` for a fresh instrument anchored at the current mission time.
+  - `pending_segments`: the partial batch returned by [`pre_populate`](@ref).
+  - `rng`: RNG of a freshly created instrument (ignored when `instrument`
+    is given).
+  - `deadline`: absolute wall-clock stop shared by both components.
+  - `stop`: cooperative stop flag raised by the supervisor.
+  - `heartbeat_path`: liveness file touched every
+    [`TelemetryCore.HEARTBEAT_INTERVAL_MS`](@ref) when set; removed on exit.
+  - `max_inflight_batches`: cap on batches simultaneously on the link.
+  - `markers`: event markers, stamped into the batch holding their instant.
+  - `generation_gaps`: scheduled `(start, stop)` intervals without data
+    production ([`skip_generation_gaps!`](@ref)).
+  - `onboard_capacity_batches`: recorder ceiling; new data is discarded
+    while the buffer holds that many batches.
+  - `confusion_observation_years`, `noise_f_min_hz`: galactic-confusion fit
+    and lower band edge of the synthetic noise model of a freshly created
+    instrument ([`VirtualInstrument.lisa_noise_psd`](@ref)).
 """
 function run_emitter(
     clock::TelemetryCore.SimulationClock,
     link::ChannelEffects.LinkModel,
     run_id::String;
     sample_rate::Float64 = 1024.0,
-    seg_dur::Float64 = 60.0,
+    segment_duration_sec::Float64 = 60.0,
     batch_size::Int = 15,
     data_source::String = "synthetic",
     ext_path::String = "",
@@ -232,14 +273,14 @@ function run_emitter(
     noise_f_min_hz::Float64 = 1e-5,
 )
     # A fresh instrument anchors at the *current* mission time, not the
-    # mission epoch: on a mid-mission restart the outage becomes an honest
+    # mission epoch: on a mid-mission restart the outage becomes a genuine
     # generation gap instead of a replayed stream.
     vi =
         instrument === nothing ?
         VirtualInstrument.InstrumentState(
             TelemetryCore.get_current_sim_time(clock),
             sample_rate,
-            seg_dur,
+            segment_duration_sec,
             data_source,
             ext_path;
             rng = rng,
@@ -283,7 +324,7 @@ function run_emitter(
 
     @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $run_id"
 
-    seg_period = Second(round(Int, vi.seg_dur))
+    seg_period = Second(round(Int, vi.segment_duration_sec))
     # Content-lag telemetry: lag = mission time at finalization − content end
     # of the finalized batch. A persistent lag means the host cannot keep
     # pace; a transient one (startup compilation, GC, a partner stall on a
@@ -306,7 +347,8 @@ function run_emitter(
                 @info "[EMITTER] Mission deadline reached. Shutting down."
                 break
             end
-            if heartbeat_path !== nothing && (now() - last_heartbeat).value >= 1000
+            if heartbeat_path !== nothing &&
+               (now() - last_heartbeat).value >= TelemetryCore.HEARTBEAT_INTERVAL_MS
                 touch(heartbeat_path)
                 last_heartbeat = now()
             end

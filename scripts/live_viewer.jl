@@ -32,7 +32,7 @@ end
 """
     run_viewer(run_id::String)
 
-Runs an active terminal UI visualization using UnicodePlots to track the LIFO/FIFO 
+Runs an active terminal UI visualization using UnicodePlots to track the LIFO/FIFO
 progression of telemetry batches across the mission lifecycle.
 """
 function run_viewer(run_id::String)
@@ -114,7 +114,6 @@ function run_viewer(run_id::String)
                     [y_lo, 3],
                     xlim = (view_lo, max_id+2),
                     ylim = (y_lo, 3),
-                    title = "Telemetry batch distribution",
                     xlabel = "Batch ID",
                     ylabel = "",
                     yticks = false,

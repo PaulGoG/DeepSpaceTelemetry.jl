@@ -9,6 +9,7 @@ DeepSpaceTelemetry.Metrology.completion_curves
 DeepSpaceTelemetry.Metrology.marker_latency_table
 DeepSpaceTelemetry.Metrology.alert_latency_table
 DeepSpaceTelemetry.Metrology.plot_alert_latency
+DeepSpaceTelemetry.Metrology.QUARTILE_BAND_ALPHA
 DeepSpaceTelemetry.Metrology.delivery_delay_table
 DeepSpaceTelemetry.Metrology.delivery_compliance
 DeepSpaceTelemetry.Metrology.plot_delivery_delay

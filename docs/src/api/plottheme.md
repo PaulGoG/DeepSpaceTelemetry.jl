@@ -5,6 +5,7 @@ DeepSpaceTelemetry.PlotTheme
 DeepSpaceTelemetry.PlotTheme.PlotStyle
 DeepSpaceTelemetry.PlotTheme.style_for_width
 DeepSpaceTelemetry.PlotTheme.label
+DeepSpaceTelemetry.PlotTheme.line_advance
 DeepSpaceTelemetry.PlotTheme.save_figure
 DeepSpaceTelemetry.PlotTheme.telemetry_theme
 DeepSpaceTelemetry.PlotTheme.COLOR_LIVE
@@ -12,7 +13,11 @@ DeepSpaceTelemetry.PlotTheme.COLOR_ARCHIVE
 DeepSpaceTelemetry.PlotTheme.COLOR_BANDWIDTH
 DeepSpaceTelemetry.PlotTheme.COLOR_ONBOARD
 DeepSpaceTelemetry.PlotTheme.COLOR_LOST
+DeepSpaceTelemetry.PlotTheme.COLOR_COUNTERFACTUAL
 DeepSpaceTelemetry.PlotTheme.COLOR_DISRUPTION
+DeepSpaceTelemetry.PlotTheme.COLOR_OUTAGE
+DeepSpaceTelemetry.PlotTheme.COLOR_MARKER
+DeepSpaceTelemetry.PlotTheme.COLOR_GUIDE
 DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SUMMARY
 DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SESSION
 DeepSpaceTelemetry.PlotTheme.LINEWIDTH_DATA
