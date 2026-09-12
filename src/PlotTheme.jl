@@ -212,6 +212,58 @@ function line_advance(style::PlotStyle)
 end
 
 """
+    annotation_side(occupied, x_lo, x_hi; fraction = 0.38) -> Symbol
+
+Which end of an axis an in-axis annotation block should occupy: `:right`
+unless one of the `occupied` x positions — the upright rules and shaded
+edges a figure draws — falls within `fraction` of the axis width of the
+right edge, in which case `:left`. `fraction` is the block's own width
+relative to the axis ([`annotation_width_fraction`](@ref)), so the test asks
+exactly whether a rule would cross the text. When both ends are occupied it
+stays `:right`, since moving buys nothing.
+"""
+function annotation_side(occupied, x_lo::Real, x_hi::Real; fraction::Real = 0.38)
+    span = x_hi - x_lo
+    span > 0 || return :right
+    in_right = any(x -> (x - x_lo) / span > 1 - fraction, occupied)
+    in_left = any(x -> (x - x_lo) / span < fraction, occupied)
+    return in_right && !in_left ? :left : :right
+end
+
+"""
+    label_extent(style::PlotStyle, text; fontsize = style.fontsize_label) -> Float64
+
+Estimated rendered length of `text` in Makie units, i.e. the height a
+rotated y-label occupies or the width an annotation line takes. The estimate
+takes half an em per character, the mean advance of the text face, and exists
+to floor panel heights and to place annotation blocks clear of upright
+rules; nothing is positioned precisely with it.
+"""
+label_extent(style::PlotStyle, text; fontsize::Real = style.fontsize_label) =
+    0.5 * fontsize * length(string(text))
+
+"""
+    annotation_width_fraction(style::PlotStyle, text, axis_width) -> Float64
+
+Width of the annotation `text` as a fraction of an axis `axis_width` Makie
+units wide, capped at 0.45 — beyond that neither end of the axis is free and
+[`annotation_side`](@ref) has nothing to choose between.
+"""
+annotation_width_fraction(style::PlotStyle, text, axis_width::Real) = min(
+    0.45,
+    label_extent(style, text; fontsize = style.fontsize_annotation) /
+    max(1.0, Float64(axis_width)),
+)
+
+"""
+    legend_row_height(style::PlotStyle) -> Float64
+
+Height of one row of a horizontal figure legend in Makie units: the entry
+patch and the gap above it, at the legend size of `style`.
+"""
+legend_row_height(style::PlotStyle) = 1.9 * style.fontsize_legend
+
+"""
     style_for_width(column_width_mm::Real) -> PlotStyle
 
 The [`PlotStyle`](@ref) of a figure printed `column_width_mm` wide (Makie

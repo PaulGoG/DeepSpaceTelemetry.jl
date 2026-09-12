@@ -29,7 +29,6 @@ using CairoMakie:
     lines!,
     stairs!,
     text!,
-    vlines!,
     with_theme,
     xlims!,
     ylims!
@@ -43,6 +42,24 @@ Fill alpha of the interquartile bands of the alert-latency figure, shared
 by the realized and the counterfactual series and by their legend patches.
 """
 const QUARTILE_BAND_ALPHA = 0.25
+
+"""
+    ANNOTATION_BLOCK_TOP
+
+Relative height of the delivery-delay figure's corner annotation: four lines
+of text rising this far up the axis from the bottom. The requirement rule
+stops here and its label starts here, so neither crosses the block.
+"""
+const ANNOTATION_BLOCK_TOP = 0.26
+
+"""
+    ANNOTATION_BLOCK_LEFT
+
+Relative abscissa the delivery-delay figure's corner annotation reaches left
+to. A requirement rule beyond it would pass behind the block
+([`ANNOTATION_BLOCK_TOP`](@ref)).
+"""
+const ANNOTATION_BLOCK_LEFT = 0.5
 
 """
     quantile_sorted(values::AbstractVector{<:Real}, p::Real) -> Float64
@@ -718,9 +735,15 @@ function plot_delivery_delay(
         )
         xlims!(ax, 0, x_max)
         ylims!(ax, 0, 1.05)
-        vlines!(
+        # The requirement rule stops above the annotation block when it would
+        # otherwise pass behind it — a requirement beyond every realized delay
+        # lands at 0.87 of the axis, inside the block's corner. The curves
+        # occupy the upper-left, so the block cannot move instead.
+        crosses_annotation = requirement_hours / x_max > ANNOTATION_BLOCK_LEFT
+        lines!(
             ax,
-            [requirement_hours],
+            [requirement_hours, requirement_hours],
+            [crosses_annotation ? ANNOTATION_BLOCK_TOP * 1.05 : 0.0, 1.05],
             color = (PlotTheme.COLOR_GUIDE, 0.8),
             linestyle = :dash,
             linewidth = style.linewidth,
@@ -785,7 +808,7 @@ function plot_delivery_delay(
         text!(
             ax,
             requirement_hours / x_max,
-            0.26,
+            ANNOTATION_BLOCK_TOP,
             text = "Requirement: $(round(requirement_hours, digits = 1)) h",
             space = :relative,
             rotation = π / 2,

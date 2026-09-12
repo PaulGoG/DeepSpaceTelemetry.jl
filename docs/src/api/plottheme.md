@@ -5,6 +5,10 @@ DeepSpaceTelemetry.PlotTheme
 DeepSpaceTelemetry.PlotTheme.PlotStyle
 DeepSpaceTelemetry.PlotTheme.style_for_width
 DeepSpaceTelemetry.PlotTheme.label
+DeepSpaceTelemetry.PlotTheme.annotation_side
+DeepSpaceTelemetry.PlotTheme.annotation_width_fraction
+DeepSpaceTelemetry.PlotTheme.label_extent
+DeepSpaceTelemetry.PlotTheme.legend_row_height
 DeepSpaceTelemetry.PlotTheme.line_advance
 DeepSpaceTelemetry.PlotTheme.save_figure
 DeepSpaceTelemetry.PlotTheme.telemetry_theme

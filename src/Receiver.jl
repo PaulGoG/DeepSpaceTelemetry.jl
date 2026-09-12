@@ -457,18 +457,23 @@ function shade_disruptions!(
 end
 
 """
-    add_figure_legend!(fig; degraded, blackout, ramp, lost, outage = false)
+    figure_legend_entries(; degraded, blackout, ramp, lost, outage = false, …) -> (elements, labels)
 
-One frameless horizontal legend strip above the panels of `fig`, with
-composite fill+edge patches for the band+stair pairs. Entries are strictly
-limited to what that figure draws: `degraded` swaps the single capacity
-entry for the nominal/effective pair,
-`blackout`/`ramp`/`outage`/`scheduled_gap`/`recorder`/`low_latency` gate the
-shading patches, `marker` gates the event-marker rule, and `lost` is
+Legend elements and labels of a figure, with composite fill+edge patches for
+the band+stair pairs. Entries are strictly limited to what that figure
+draws: `degraded` swaps the single capacity entry for the nominal/effective
+pair, `blackout`/`ramp`/`outage`/`scheduled_gap`/`recorder`/`low_latency`
+gate the shading patches, `marker` gates the event-marker rule, and `lost` is
 `:strip` (summary stairs + marks), `:marks` (session ✕ pins), or `:none`.
+Labels shorten below the narrow-figure threshold of
+[`PlotTheme.label`](@ref): a single-column export fits three legend columns
+with the short forms and two with the long ones, and the rows it saves are
+panel height.
+
+Returned separately from [`add_figure_legend!`](@ref) so a caller can size
+its figure for the legend it is about to place ([`legend_banks`](@ref)).
 """
-function add_figure_legend!(
-    fig;
+function figure_legend_entries(;
     degraded::Bool,
     blackout::Bool,
     ramp::Bool,
@@ -491,18 +496,18 @@ function add_figure_legend!(
                 linestyle = :dot,
             ),
         )
-        push!(labels, "Nominal capacity")
+        push!(labels, PlotTheme.label(style, "Nominal capacity", "Nominal"))
         push!(
             elems,
             LineElement(color = PlotTheme.COLOR_BANDWIDTH, linewidth = 2 * style.linewidth),
         )
-        push!(labels, "Effective capacity")
+        push!(labels, PlotTheme.label(style, "Effective capacity", "Effective"))
     else
         push!(
             elems,
             LineElement(color = PlotTheme.COLOR_BANDWIDTH, linewidth = 2 * style.linewidth),
         )
-        push!(labels, "Link capacity")
+        push!(labels, PlotTheme.label(style, "Link capacity", "Capacity"))
     end
     push!(
         elems,
@@ -512,7 +517,7 @@ function add_figure_legend!(
             linestyle = :dash,
         ),
     )
-    push!(labels, "Onboard buffer")
+    push!(labels, PlotTheme.label(style, "Onboard buffer", "Buffer"))
     push!(
         elems,
         PolyElement(
@@ -521,7 +526,7 @@ function add_figure_legend!(
             strokewidth = 2 * style.linewidth,
         ),
     )
-    push!(labels, "Total received (live + archive)")
+    push!(labels, PlotTheme.label(style, "Total received (live + archive)", "Received"))
     push!(
         elems,
         PolyElement(
@@ -530,7 +535,7 @@ function add_figure_legend!(
             strokewidth = 2 * style.linewidth,
         ),
     )
-    push!(labels, "Archive backfill (LIFO)")
+    push!(labels, PlotTheme.label(style, "Archive backfill (LIFO)", "Archive"))
     if lost === :strip
         push!(
             elems,
@@ -579,7 +584,7 @@ function add_figure_legend!(
                 style,
             ),
         )
-        push!(labels, "Recovery ramp")
+        push!(labels, PlotTheme.label(style, "Recovery ramp", "Ramp"))
     end
     if outage
         push!(
@@ -591,7 +596,7 @@ function add_figure_legend!(
                 style,
             ),
         )
-        push!(labels, "Component outage")
+        push!(labels, PlotTheme.label(style, "Component outage", "Outage"))
     end
     if scheduled_gap
         push!(
@@ -603,7 +608,7 @@ function add_figure_legend!(
                 style,
             ),
         )
-        push!(labels, "Scheduled generation gap")
+        push!(labels, PlotTheme.label(style, "Scheduled generation gap", "Gen. gap"))
     end
     if recorder
         push!(
@@ -615,7 +620,10 @@ function add_figure_legend!(
                 style,
             ),
         )
-        push!(labels, "Recorder full (data discarded)")
+        push!(
+            labels,
+            PlotTheme.label(style, "Recorder full (data discarded)", "Recorder full"),
+        )
         push!(
             elems,
             LineElement(
@@ -624,7 +632,7 @@ function add_figure_legend!(
                 linestyle = :dot,
             ),
         )
-        push!(labels, "Recorder capacity")
+        push!(labels, PlotTheme.label(style, "Recorder capacity", "Recorder max"))
     end
     if low_latency
         push!(
@@ -636,7 +644,7 @@ function add_figure_legend!(
                 style,
             ),
         )
-        push!(labels, "Low-latency period")
+        push!(labels, PlotTheme.label(style, "Low-latency period", "Low-latency"))
     end
     if marker
         push!(
@@ -646,8 +654,24 @@ function add_figure_legend!(
                 linewidth = 2 * style.linewidth,
             ),
         )
-        push!(labels, "Event marker")
+        push!(labels, PlotTheme.label(style, "Event marker", "Marker"))
     end
+    return elems, labels
+end
+
+"""
+    add_figure_legend!(fig; degraded, blackout, ramp, lost, outage = false, …) -> fig
+
+One frameless horizontal legend strip above the panels of `fig`, carrying the
+entries [`figure_legend_entries`](@ref) builds from the same keywords, in as
+many rows as the figure width requires ([`legend_banks`](@ref)).
+"""
+function add_figure_legend!(
+    fig;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+    kwargs...,
+)
+    elems, labels = figure_legend_entries(; style = style, kwargs...)
     Legend(
         fig[0, 1],
         elems,
@@ -711,6 +735,91 @@ function legend_banks(labels::Vector{String}, style::PlotTheme.PlotStyle)
 end
 
 """
+    AXIS_MARGIN_UNITS
+
+Makie units a stacked figure spends on its y-axis decorations and outer
+padding, i.e. the difference between the figure width and the plotted axis
+width. An estimate, used only to express an annotation's width as a fraction
+of the axis it sits in ([`PlotTheme.annotation_width_fraction`](@ref)).
+"""
+const AXIS_MARGIN_UNITS = 80
+
+"""
+    upright_rules(ctx::PlotContext) -> Vector{Float64}
+
+Every x position at which a figure of `ctx` draws an upright rule: the
+boundaries of the disruption, outage, generation-gap and low-latency
+windows, and the event markers. In-axis annotations pick their end of the
+axis against this list ([`PlotTheme.annotation_side`](@ref)), so a rule never
+crosses a text block.
+"""
+function upright_rules(ctx::PlotContext)
+    xs = Float64[]
+    for s in ctx.disruption_spans
+        append!(xs, (s[1], s[3]))
+    end
+    for spans in (
+        ctx.outage_spans,
+        ctx.scheduled_gap_spans,
+        ctx.recorder_spans,
+        ctx.low_latency_spans,
+    )
+        for s in spans
+            append!(xs, (s[1], s[2]))
+        end
+    end
+    append!(xs, ctx.marker_times)
+    return xs
+end
+
+"""
+    LOST_STRIP_SHARE
+
+Row share of the Lost strip against a full panel of the mission summary: the
+strip carries rare discrete events and needs about a third of the height its
+neighbours do. Shared by the layout and by the height floor
+([`summary_figure_height`](@ref)), which sizes the figure so the strip's
+label clears the panel above.
+"""
+const LOST_STRIP_SHARE = 0.32
+
+"""
+    summary_figure_height(style, legend_rows, panels, base_height) -> Int
+
+Height of a stacked figure in Makie units: `base_height`, the height the
+figure would take from its width alone, raised whenever the rotated y-labels
+of two adjacent panels would meet. `panels` pairs each panel's y-label with
+its row share, top to bottom.
+
+A rotated label is centred on its panel and overruns it freely, so the
+constraint is not that a label fit its own panel but that two neighbours keep
+apart: the distance between the centres of adjacent panels, `(hᵢ +
+hᵢ₊₁)/2`, must exceed half the sum of their label extents. Solving that for
+the axes height and adding the legend and the x-decorations gives the floor.
+At the design width it never binds; below about 100 mm, where the label sizes
+hold at their 7 pt floor while the panels keep shrinking, it does.
+"""
+function summary_figure_height(
+    style::PlotTheme.PlotStyle,
+    legend_rows::Int,
+    panels::Vector{<:Tuple{Any,Real}},
+    base::Real,
+)
+    length(panels) < 2 && return round(Int, base)
+    extents = [PlotTheme.label_extent(style, first(p)) for p in panels]
+    shares = [Float64(last(p)) for p in panels]
+    total = sum(shares)
+    pad = 8 * max(style.scale, 0.85)
+    axes_min = maximum(
+        (extents[i] + extents[i+1] + pad) * total / (shares[i] + shares[i+1]) for
+        i in 1:(length(panels)-1)
+    )
+    legend_height = legend_rows * PlotTheme.legend_row_height(style) + 12 * style.scale
+    x_decorations = 3.2 * style.fontsize_tick + 1.8 * style.fontsize_label
+    return round(Int, max(base, axes_min + legend_height + x_decorations))
+end
+
+"""
     summary_tick_step_hours(total_days) -> Float64
 
 Day-tick spacing of the mission summary [h]: the smallest step of 1, 2, 5,
@@ -747,18 +856,46 @@ function plot_mission_summary(
     tick_vals_h = collect(0.0:summary_tick_step_hours(max_x_h/24.0):max_x_h)
     tick_labels = ["Day $(Int(floor(v/24)))" for v in tick_vals_h]
 
-    fig = Figure(
-        size = (
-            style.size_summary[1],
-            ctx.show_lost_panel ? style.size_summary[2] + round(Int, 90 * style.scale) :
-            style.size_summary[2],
-        ),
+    # Nominal (visibility-only) capacity is drawn behind the effective curve
+    # when a disruption degraded the link somewhere in the run; the legend
+    # and the figure height both need to know before either is built.
+    show_nominal =
+        hasproperty(df, :Nominal_Bandwidth_Pct) &&
+        maximum(abs.(df.Nominal_Bandwidth_Pct .- df.Bandwidth_Pct)) > 0.1
+    legend_flags = (
+        degraded = show_nominal,
+        blackout = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 1, 2),
+        ramp = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 2, 3),
+        outage = spans_overlap(ctx.outage_spans, 0.0, max_x_h, 1, 2),
+        scheduled_gap = spans_overlap(ctx.scheduled_gap_spans, 0.0, max_x_h, 1, 2),
+        recorder = spans_overlap(ctx.recorder_spans, 0.0, max_x_h, 1, 2),
+        low_latency = spans_overlap(ctx.low_latency_spans, 0.0, max_x_h, 1, 2),
+        marker = any(x -> 0.0 <= x <= max_x_h, ctx.marker_times),
+        lost = ctx.show_lost_panel ? :strip : :none,
     )
+    _, legend_labels = figure_legend_entries(; style = style, legend_flags...)
+    legend_rows = legend_banks(legend_labels, style)
+
+    # Panel labels, decided here because the figure height follows from them.
+    buffer_label = PlotTheme.label(style, "Buffered data batches", "Buffered batches")
+    received_label = PlotTheme.label(style, "Received data batches", "Received batches")
+    lost_label = PlotTheme.label(style, "Lost batches", "Lost")
+    capacity_label = "Bandwidth [%]"
+    top_label =
+        PlotTheme.label_extent(style, buffer_label) >
+        PlotTheme.label_extent(style, capacity_label) ? buffer_label : capacity_label
+    panels = Tuple{Any,Real}[(top_label, 1.0), (received_label, 1.0)]
+    ctx.show_lost_panel && push!(panels, (lost_label, LOST_STRIP_SHARE))
+
+    base_height =
+        style.size_summary[2] + (ctx.show_lost_panel ? round(Int, 90 * style.scale) : 0)
+    height = summary_figure_height(style, legend_rows, panels, base_height)
+    fig = Figure(size = (style.size_summary[1], height))
 
     ax1 = Axis(
         fig[1, 1],
         xlabel = "",
-        ylabel = "Bandwidth [%]",
+        ylabel = capacity_label,
         xticks = (tick_vals_h, tick_labels),
     )
     xlims!(ax1, 0, max_x_h)
@@ -767,7 +904,7 @@ function plot_mission_summary(
     ax1_twin = Axis(
         fig[1, 1],
         yaxisposition = :right,
-        ylabel = PlotTheme.label(style, "Buffered data batches", "Buffered batches"),
+        ylabel = buffer_label,
         yticklabelcolor = PlotTheme.COLOR_ONBOARD,
     )
     hidespines!(ax1_twin)
@@ -790,11 +927,6 @@ function plot_mission_summary(
         )
     end
 
-    # Nominal (visibility-only) capacity behind the effective curve when a
-    # disruption degraded the link somewhere in the run.
-    show_nominal =
-        hasproperty(df, :Nominal_Bandwidth_Pct) &&
-        maximum(abs.(df.Nominal_Bandwidth_Pct .- df.Bandwidth_Pct)) > 0.1
     if show_nominal
         lines!(
             ax1,
@@ -816,7 +948,7 @@ function plot_mission_summary(
     ax2 = Axis(
         fig[2, 1],
         xlabel = ctx.show_lost_panel ? "" : "Mission time",
-        ylabel = PlotTheme.label(style, "Received data batches", "Received batches"),
+        ylabel = received_label,
         xticks = (tick_vals_h, tick_labels),
     )
     xlims!(ax2, 0, max_x_h)
@@ -858,11 +990,11 @@ function plot_mission_summary(
         ax3 = Axis(
             fig[3, 1],
             xlabel = "Mission time",
-            ylabel = "Lost batches",
+            ylabel = lost_label,
             xticks = (tick_vals_h, tick_labels),
             yticks = 0:tick_step:floor(Int, y_top),
         )
-        rowsize!(fig.layout, 3, Auto(0.32))
+        rowsize!(fig.layout, 3, Auto(LOST_STRIP_SHARE))
         xlims!(ax3, 0, max_x_h)
         # A lossless run draws a flat zero stair, which would otherwise
         # coincide with the axis frame and read as an unplotted panel.
@@ -882,17 +1014,33 @@ function plot_mission_summary(
             markersize = style.markersize,
         )
         # The strip states its takeaway in either direction: a lossless run
-        # reads "0 lost (0 %)" instead of presenting an empty panel.
+        # reads "0 lost (0 %)" instead of presenting an empty panel. It sits
+        # at whichever end the upright rules leave free.
         lost_final = Int(lost_curve[end])
         pct = 100 * lost_final / max(1.0, Float64(df.Ground_Total[end]) + lost_final)
+        lost_text = PlotTheme.label(
+            style,
+            lost_final == 0 ? "0 lost (0 %)" :
+            "$lost_final lost ($(round(pct, digits = 2)) %)",
+            "$lost_final lost",
+        )
+        side = PlotTheme.annotation_side(
+            upright_rules(ctx),
+            0.0,
+            max_x_h;
+            fraction = PlotTheme.annotation_width_fraction(
+                style,
+                lost_text,
+                style.size_summary[1] - AXIS_MARGIN_UNITS,
+            ),
+        )
         text!(
             ax3,
-            0.985,
+            side === :right ? 0.985 : 0.015,
             0.88,
-            text = lost_final == 0 ? "0 lost (0 %)" :
-                   "$lost_final lost ($(round(pct, digits = 2)) %)",
+            text = lost_text,
             space = :relative,
-            align = (:right, :top),
+            align = (side, :top),
             fontsize = style.fontsize_annotation,
             color = PlotTheme.COLOR_LOST,
         )
@@ -906,19 +1054,7 @@ function plot_mission_summary(
     # its ylabel inward relative to the 4-digit panels above).
     foreach(ax -> ax.yticklabelspace = 34.0, axes_to_link)
 
-    add_figure_legend!(
-        fig;
-        style = style,
-        degraded = show_nominal,
-        blackout = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 1, 2),
-        ramp = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 2, 3),
-        outage = spans_overlap(ctx.outage_spans, 0.0, max_x_h, 1, 2),
-        scheduled_gap = spans_overlap(ctx.scheduled_gap_spans, 0.0, max_x_h, 1, 2),
-        recorder = spans_overlap(ctx.recorder_spans, 0.0, max_x_h, 1, 2),
-        low_latency = spans_overlap(ctx.low_latency_spans, 0.0, max_x_h, 1, 2),
-        marker = any(x -> 0.0 <= x <= max_x_h, ctx.marker_times),
-        lost = ctx.show_lost_panel ? :strip : :none,
-    )
+    add_figure_legend!(fig; style = style, legend_flags...)
     linkxaxes!(axes_to_link...)
 
     return PlotTheme.save_figure(fig, plots_dir, "mission_summary_global"; formats, suffix)
@@ -1087,13 +1223,29 @@ function plot_session(
             color = PlotTheme.COLOR_LOST,
             markersize = style.markersize,
         )
+        # The left corner belongs to the low-latency note when there is one,
+        # so the count only moves left when that corner is free.
+        lost_text =
+            PlotTheme.label(style, "$n_lost_sess lost this session", "$n_lost_sess lost")
+        side =
+            window.low_latency ? :right :
+            PlotTheme.annotation_side(
+                upright_rules(ctx),
+                min_sess_h,
+                max_sess_h;
+                fraction = PlotTheme.annotation_width_fraction(
+                    style,
+                    lost_text,
+                    style.size_session[1] - AXIS_MARGIN_UNITS,
+                ),
+            )
         text!(
             ax_s2,
+            side === :right ? 0.985 : 0.015,
             0.985,
-            0.985,
-            text = "$n_lost_sess lost this session",
+            text = lost_text,
             space = :relative,
-            align = (:right, :top),
+            align = (side, :top),
             fontsize = style.fontsize_annotation,
             color = PlotTheme.COLOR_LOST,
         )
@@ -1104,9 +1256,13 @@ function plot_session(
             ax_s2,
             0.015,
             0.985,
-            text = "Low-latency period" *
-                   (isempty(window.label) ? "" : " ($(window.label))") *
-                   ", capacity $(round(Int, 100 * window.capacity)) %",
+            text = PlotTheme.label(
+                style,
+                "Low-latency period" *
+                (isempty(window.label) ? "" : " ($(window.label))") *
+                ", capacity $(round(Int, 100 * window.capacity)) %",
+                "Low-latency, $(round(Int, 100 * window.capacity)) %",
+            ),
             space = :relative,
             align = (:left, :top),
             fontsize = style.fontsize_annotation,

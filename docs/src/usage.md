@@ -233,9 +233,16 @@ format = "pdf"              # or "svg"
 column_width_mm = 86.0      # single column; 178 = the double-column design width
 export_dir = "figures_export"     # "" = <run_dir>/publication
 ```
-Text keeps at least 7 pt at the printed size and narrow figures gain
-height for the wrapped legends. The same export runs afterwards for any
-run with the settings of its snapshot:
+Text keeps at least 7 pt at the printed size. Below about 100 mm the figures
+adapt rather than shrink: axis labels, legend entries, and in-axis counts
+take their short forms, which holds the legend to a few rows and leaves the
+panels tall enough that the rotated y-labels of two adjacent panels cannot
+meet; where the short forms are not enough, the figure gains height until
+they clear (`Receiver.summary_figure_height`). In-axis annotations move to
+whichever end of the axis the disruption rules and event markers leave free,
+and the delivery-delay requirement rule stops above its annotation block
+instead of crossing it. The same export runs afterwards for any run with the
+settings of its snapshot:
 ```bash
 julia --project=. scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 ```

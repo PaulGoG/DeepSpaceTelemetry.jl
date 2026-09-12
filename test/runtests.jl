@@ -3515,6 +3515,77 @@ end
     @test PlotTheme.style_for_width(178.0).scale ≈ 1.0 atol = 0.01
     @test_throws ArgumentError PlotTheme.PlotStyle(0.0)
 
+    # Narrow-width legibility: a single-column export shortens its labels,
+    # which is what keeps the legend inside a few rows and the panels tall
+    # enough for their own y-labels.
+    @test PlotTheme.label(full, "Effective capacity", "Effective") == "Effective capacity"
+    @test PlotTheme.label(single, "Effective capacity", "Effective") == "Effective"
+    _, long_labels = Receiver.figure_legend_entries(;
+        style = full,
+        degraded = true,
+        blackout = true,
+        ramp = true,
+        outage = false,
+        scheduled_gap = true,
+        recorder = false,
+        low_latency = true,
+        marker = true,
+        lost = :strip,
+    )
+    _, short_labels = Receiver.figure_legend_entries(;
+        style = single,
+        degraded = true,
+        blackout = true,
+        ramp = true,
+        outage = false,
+        scheduled_gap = true,
+        recorder = false,
+        low_latency = true,
+        marker = true,
+        lost = :strip,
+    )
+    @test length(long_labels) == length(short_labels)
+    @test sum(length, short_labels) < sum(length, long_labels)
+    # The same entries take fewer rows once shortened — the rows the panels
+    # get back.
+    @test Receiver.legend_banks(short_labels, single) <
+          Receiver.legend_banks(long_labels, single)
+
+    # The height floor never binds at the design width and never returns less
+    # than the height the width alone would give.
+    design_panels = Tuple{Any,Real}[
+        ("Buffered data batches", 1.0),
+        ("Received data batches", 1.0),
+        ("Lost batches", Receiver.LOST_STRIP_SHARE),
+    ]
+    base_full = full.size_summary[2] + round(Int, 90 * full.scale)
+    @test Receiver.summary_figure_height(full, 4, design_panels, base_full) == base_full
+    # A strip carrying a label far longer than its share can host raises the
+    # figure until the label clears the panel above it.
+    crowded = Tuple{Any,Real}[
+        ("Received data batches", 1.0),
+        ("A lost-batch strip label nobody would ever write", Receiver.LOST_STRIP_SHARE),
+    ]
+    @test Receiver.summary_figure_height(full, 4, crowded, base_full) > base_full
+    # More legend rows also raise it, the rows coming out of the panels.
+    @test Receiver.summary_figure_height(full, 12, design_panels, base_full) > base_full
+    @test Receiver.summary_figure_height(
+        full,
+        4,
+        Tuple{Any,Real}[("Only one", 1.0)],
+        321,
+    ) == 321
+
+    # An annotation moves to the end of the axis the upright rules leave free,
+    # and stays put when both ends carry one.
+    @test PlotTheme.annotation_side([0.1], 0.0, 10.0; fraction = 0.2) === :right
+    @test PlotTheme.annotation_side([9.5], 0.0, 10.0; fraction = 0.2) === :left
+    @test PlotTheme.annotation_side([0.5, 9.5], 0.0, 10.0; fraction = 0.2) === :right
+    @test PlotTheme.annotation_side(Float64[], 0.0, 0.0) === :right
+    @test PlotTheme.annotation_width_fraction(full, "0 lost (0 %)", 400) <
+          PlotTheme.annotation_width_fraction(full, "1234 lost (12.34 %)", 400)
+    @test PlotTheme.annotation_width_fraction(full, "a"^500, 400) == 0.45
+
     base = valid_test_cfg()
     @test !TelemetryCore.publication_settings(base).enabled
     cfg = deepcopy(base)

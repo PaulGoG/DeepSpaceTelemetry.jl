@@ -28,6 +28,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - `Receiver.low_latency_spans`, `Receiver.marker_times`,
   `Receiver.shade_low_latency!`, and `Receiver.mark_events!`; `PlotContext`
   carries the low-latency and event-marker spans of a run.
+- `PlotTheme.label_extent`, `PlotTheme.legend_row_height`,
+  `PlotTheme.annotation_side`, `PlotTheme.annotation_width_fraction`,
+  `Receiver.figure_legend_entries`, `Receiver.summary_figure_height`,
+  `Receiver.upright_rules`, `Receiver.LOST_STRIP_SHARE`,
+  `Receiver.AXIS_MARGIN_UNITS`, `Metrology.ANNOTATION_BLOCK_TOP`, and
+  `Metrology.ANNOTATION_BLOCK_LEFT` — the narrow-width layout machinery.
 
 ### Changed
 - The README carries one documentation badge, pointing at the manual of the
@@ -57,6 +63,21 @@ Notable changes to DeepSpaceTelemetry. The format follows
   mission time the host completes inside the wall-clock budget.
 
 ### Fixed
+- Publication exports below about 100 mm were unusable. A single-column
+  figure gave its legend two columns and eight rows, which left the panels so
+  short that the rotated y-labels of the Lost strip and the panel above it
+  overlapped, and the low-latency note of a session figure ran past the axis.
+  Legend entries, the Lost strip's label, and the in-axis counts now take
+  short forms below the narrow-figure threshold — the same mechanism the axis
+  labels already used — which holds the legend to four rows at 86 mm; and the
+  figure gains height whenever two adjacent panels' labels would still meet
+  (`Receiver.summary_figure_height`). The design width renders exactly as
+  before.
+- In-axis annotations moved to whichever end of the axis the disruption
+  rules, generation gaps, low-latency periods, and event markers leave free
+  (`PlotTheme.annotation_side`), and the delivery-delay requirement rule stops
+  above its annotation block instead of passing behind it — a requirement
+  beyond every realized delay sits at 87 % of the axis, inside the block.
 - The Lost strip of the mission summary rendered a lossless run as an empty
   panel: the flat zero stair coincided with the axis frame, the automatic
   ticks fell on fractional batch counts, and the count annotation was gated
