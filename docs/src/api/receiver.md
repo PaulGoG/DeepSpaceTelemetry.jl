@@ -11,11 +11,15 @@ DeepSpaceTelemetry.Receiver.plot_session
 DeepSpaceTelemetry.Receiver.hours_since
 DeepSpaceTelemetry.Receiver.component_outage_spans
 DeepSpaceTelemetry.Receiver.generation_gap_spans
+DeepSpaceTelemetry.Receiver.low_latency_spans
+DeepSpaceTelemetry.Receiver.marker_times
 DeepSpaceTelemetry.Receiver.spans_overlap
 DeepSpaceTelemetry.Receiver.shade_disruptions!
 DeepSpaceTelemetry.Receiver.shading_patch
 DeepSpaceTelemetry.Receiver.shade_outages!
 DeepSpaceTelemetry.Receiver.shade_generation_gaps!
+DeepSpaceTelemetry.Receiver.shade_low_latency!
+DeepSpaceTelemetry.Receiver.mark_events!
 DeepSpaceTelemetry.Receiver.add_figure_legend!
 DeepSpaceTelemetry.Receiver.LEGEND_COLGAP
 DeepSpaceTelemetry.Receiver.legend_banks

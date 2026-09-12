@@ -20,7 +20,6 @@ using CairoMakie:
     Figure,
     Legend,
     LineElement,
-    LinearTicks,
     MarkerElement,
     PolyElement,
     band!,
@@ -56,9 +55,9 @@ hours_since(t::DateTime, t0::DateTime) = Float64((t - t0).value) / TelemetryCore
 
 Per-run inputs shared by the mission summary and the session figures: the
 metrics frame with its elapsed-hour axis, the mission epoch, the
-visibility and link models, the disruption and
-component-outage spans in plot coordinates, and the loss-panel policy.
-Built once by [`plot_context`](@ref).
+visibility and link models, the disruption, component-outage,
+low-latency and event-marker spans in plot coordinates, and the loss-panel
+policy. Built once by [`plot_context`](@ref).
 """
 struct PlotContext
     run_dir::String
@@ -72,6 +71,8 @@ struct PlotContext
     scheduled_gap_spans::Vector{NTuple{2,Float64}} # SCHEDULED gap_start → gap_end
     recorder_spans::Vector{NTuple{2,Float64}}   # RECORDER gap_start → gap_end (or mission end)
     recorder_capacity::Float64                  # batches; NaN when never reached
+    low_latency_spans::Vector{NTuple{2,Float64}} # low-latency periods, scheduled and triggered
+    marker_times::Vector{Float64}               # declared event markers [h since t_start]
     has_loss_cols::Bool
     show_lost_panel::Bool
 end
@@ -212,9 +213,76 @@ function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
         generation_gap_spans(run_dir, t_start, maximum(df_x), "SCHEDULED"),
         recorder_spans,
         recorder_capacity,
+        low_latency_spans(vis_model, t_start, maximum(df_x)),
+        marker_times(run_dir, t_start),
         has_loss_cols,
         (loss_enabled && has_loss_cols) || any_lost,
     )
+end
+
+"""
+    low_latency_spans(model::TelemetryCore.VisibilityModel, t_start, x_end) -> Vector{NTuple{2,Float64}}
+
+Low-latency periods of the run — scheduled ones and those triggered by an
+event marker — as `(start, stop)` pairs in hours since `t_start`, clipped to
+`[0, x_end]`. Empty when `contacts.low_latency_enabled` is unset, the
+[`TelemetryCore.VisibilityModel`](@ref) then carrying no such window.
+"""
+function low_latency_spans(
+    model::TelemetryCore.VisibilityModel,
+    t_start::DateTime,
+    x_end::Float64,
+)
+    t_end = t_start + Second(round(Int, 3600 * max(x_end, 0.0)))
+    return [
+        (hours_since(w.start, t_start), hours_since(w.stop, t_start)) for
+        w in TelemetryCore.contact_windows(model, t_start, t_end) if w.low_latency
+    ]
+end
+
+"""
+    marker_times(run_dir::String, t_start::DateTime) -> Vector{Float64}
+
+Declared event markers of the run, in hours since `t_start`, read from the
+run's own `markers.csv`. Empty when the run declared none or predates the
+marker record — the figures then draw no marker rules.
+"""
+function marker_times(run_dir::String, t_start::DateTime)
+    path = joinpath(run_dir, "markers.csv")
+    isfile(path) || return Float64[]
+    markers = CSV.read(path, DataFrame)
+    isempty(markers) && return Float64[]
+    return [hours_since(DateTime(r.SimTime), t_start) for r in eachrow(markers)]
+end
+
+"""
+    mark_events!(ax, x_lo, x_hi, times; style)
+
+Draws one upright rule per declared event marker onto `ax`, clamped to the
+plotted range, in [`PlotTheme.COLOR_MARKER`](@ref) at the data line width of
+`style` and behind the data. The rule is solid, the one vertical style no
+shaded window uses for its edges, so a marker never reads as an event
+boundary. The markers are the instants at which the alert-latency metric is
+evaluated, and the origin of any triggered low-latency period.
+"""
+function mark_events!(
+    ax,
+    x_lo::Float64,
+    x_hi::Float64,
+    times;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+)
+    for x_marker in times
+        x_lo <= x_marker <= x_hi || continue
+        l = vlines!(
+            ax,
+            [x_marker],
+            color = (PlotTheme.COLOR_MARKER, 0.6),
+            linewidth = style.linewidth,
+        )
+        translate!(l, 0, 0, -97)
+    end
+    return ax
 end
 
 """
@@ -306,6 +374,34 @@ function shade_generation_gaps!(
 end
 
 """
+    shade_low_latency!(ax, x_lo, x_hi, ctx::PlotContext; style)
+
+Low-latency periods behind the data of `ax`, in the capacity color at low
+alpha with dotted same-hue edges — the periods run at
+`low_latency_capacity_fraction` of peak capacity, so the wash sits under the
+capacity curve it explains.
+"""
+function shade_low_latency!(
+    ax,
+    x_lo::Float64,
+    x_hi::Float64,
+    ctx::PlotContext;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+)
+    shade_outages!(
+        ax,
+        x_lo,
+        x_hi,
+        ctx.low_latency_spans;
+        color = (PlotTheme.COLOR_BANDWIDTH, 0.12),
+        edgecolor = (PlotTheme.COLOR_BANDWIDTH, 0.7),
+        linestyle = :dot,
+        style = style,
+    )
+    return ax
+end
+
+"""
     shade_disruptions!(ax, x_lo, x_hi, disruption_spans; style)
 
 Shades every disruption event onto `ax`, clamped to the plotted range: a
@@ -366,9 +462,10 @@ end
 One frameless horizontal legend strip above the panels of `fig`, with
 composite fill+edge patches for the band+stair pairs. Entries are strictly
 limited to what that figure draws: `degraded` swaps the single capacity
-entry for the nominal/effective pair, `blackout`/`ramp`/`outage` gate the
-shading patches, and `lost` is `:strip` (summary stairs + marks), `:marks`
-(session ✕ pins), or `:none`.
+entry for the nominal/effective pair,
+`blackout`/`ramp`/`outage`/`scheduled_gap`/`recorder`/`low_latency` gate the
+shading patches, `marker` gates the event-marker rule, and `lost` is
+`:strip` (summary stairs + marks), `:marks` (session ✕ pins), or `:none`.
 """
 function add_figure_legend!(
     fig;
@@ -379,6 +476,8 @@ function add_figure_legend!(
     outage::Bool = false,
     scheduled_gap::Bool = false,
     recorder::Bool = false,
+    low_latency::Bool = false,
+    marker::Bool = false,
     style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
 )
     elems = Any[]
@@ -527,6 +626,28 @@ function add_figure_legend!(
         )
         push!(labels, "Recorder capacity")
     end
+    if low_latency
+        push!(
+            elems,
+            shading_patch(
+                (PlotTheme.COLOR_BANDWIDTH, 0.12),
+                (PlotTheme.COLOR_BANDWIDTH, 0.7),
+                :dot,
+                style,
+            ),
+        )
+        push!(labels, "Low-latency period")
+    end
+    if marker
+        push!(
+            elems,
+            LineElement(
+                color = (PlotTheme.COLOR_MARKER, 0.6),
+                linewidth = 2 * style.linewidth,
+            ),
+        )
+        push!(labels, "Event marker")
+    end
     Legend(
         fig[0, 1],
         elems,
@@ -657,6 +778,8 @@ function plot_mission_summary(
     shade_disruptions!(ax1, 0.0, max_x_h, ctx.disruption_spans; style)
     shade_outages!(ax1, 0.0, max_x_h, ctx.outage_spans; style)
     shade_generation_gaps!(ax1, 0.0, max_x_h, ctx; style)
+    shade_low_latency!(ax1, 0.0, max_x_h, ctx; style)
+    mark_events!(ax1, 0.0, max_x_h, ctx.marker_times; style)
     if !isnan(ctx.recorder_capacity)
         hlines!(
             ax1_twin,
@@ -702,6 +825,8 @@ function plot_mission_summary(
     shade_disruptions!(ax2, 0.0, max_x_h, ctx.disruption_spans; style)
     shade_outages!(ax2, 0.0, max_x_h, ctx.outage_spans; style)
     shade_generation_gaps!(ax2, 0.0, max_x_h, ctx; style)
+    shade_low_latency!(ax2, 0.0, max_x_h, ctx; style)
+    mark_events!(ax2, 0.0, max_x_h, ctx.marker_times; style)
 
     band!(
         ax2,
@@ -724,21 +849,28 @@ function plot_mission_summary(
     # axis instead of an invisible flat line under the received bands.
     axes_to_link = [ax1, ax2]
     if ctx.show_lost_panel
-        # LinearTicks(3): the strip is ~1/3 panel height, so the default
-        # automatic ticks crowd together once losses reach double digits.
+        lost_curve = ctx.has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
+        # Batches are counted, so the strip carries integer ticks at a step
+        # that keeps at most four of them on a panel ~1/3 the height of the
+        # others; a lossless run still gets the full 0…4 frame.
+        y_top = max(4.0, 1.35 * maximum(lost_curve))
+        tick_step = max(1, ceil(Int, y_top / 3))
         ax3 = Axis(
             fig[3, 1],
             xlabel = "Mission time",
             ylabel = "Lost batches",
             xticks = (tick_vals_h, tick_labels),
-            yticks = LinearTicks(3),
+            yticks = 0:tick_step:floor(Int, y_top),
         )
         rowsize!(fig.layout, 3, Auto(0.32))
         xlims!(ax3, 0, max_x_h)
-        lost_curve = ctx.has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
-        ylims!(ax3, 0, max(4.0, 1.35 * maximum(lost_curve)))
+        # A lossless run draws a flat zero stair, which would otherwise
+        # coincide with the axis frame and read as an unplotted panel.
+        ylims!(ax3, -0.06 * y_top, y_top)
         shade_disruptions!(ax3, 0.0, max_x_h, ctx.disruption_spans; style)
         shade_outages!(ax3, 0.0, max_x_h, ctx.outage_spans; style)
+        shade_low_latency!(ax3, 0.0, max_x_h, ctx; style)
+        mark_events!(ax3, 0.0, max_x_h, ctx.marker_times; style)
         stairs!(ax3, df_x, lost_curve, color = PlotTheme.COLOR_LOST)
         inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
         scatter!(
@@ -749,21 +881,21 @@ function plot_mission_summary(
             color = PlotTheme.COLOR_LOST,
             markersize = style.markersize,
         )
-        if lost_curve[end] > 0
-            pct =
-                100 * lost_curve[end] /
-                max(1.0, Float64(df.Ground_Total[end]) + lost_curve[end])
-            text!(
-                ax3,
-                0.985,
-                0.88,
-                text = "$(Int(lost_curve[end])) lost ($(round(pct, digits=2)) %)",
-                space = :relative,
-                align = (:right, :top),
-                fontsize = style.fontsize_annotation,
-                color = PlotTheme.COLOR_LOST,
-            )
-        end
+        # The strip states its takeaway in either direction: a lossless run
+        # reads "0 lost (0 %)" instead of presenting an empty panel.
+        lost_final = Int(lost_curve[end])
+        pct = 100 * lost_final / max(1.0, Float64(df.Ground_Total[end]) + lost_final)
+        text!(
+            ax3,
+            0.985,
+            0.88,
+            text = lost_final == 0 ? "0 lost (0 %)" :
+                   "$lost_final lost ($(round(pct, digits = 2)) %)",
+            space = :relative,
+            align = (:right, :top),
+            fontsize = style.fontsize_annotation,
+            color = PlotTheme.COLOR_LOST,
+        )
         push!(axes_to_link, ax3)
         hidexdecorations!(ax2, grid = false, ticks = false)
     end
@@ -783,6 +915,8 @@ function plot_mission_summary(
         outage = spans_overlap(ctx.outage_spans, 0.0, max_x_h, 1, 2),
         scheduled_gap = spans_overlap(ctx.scheduled_gap_spans, 0.0, max_x_h, 1, 2),
         recorder = spans_overlap(ctx.recorder_spans, 0.0, max_x_h, 1, 2),
+        low_latency = spans_overlap(ctx.low_latency_spans, 0.0, max_x_h, 1, 2),
+        marker = any(x -> 0.0 <= x <= max_x_h, ctx.marker_times),
         lost = ctx.show_lost_panel ? :strip : :none,
     )
     linkxaxes!(axes_to_link...)
@@ -879,6 +1013,7 @@ function plot_session(
     shade_disruptions!(ax_s1, min_sess_h, max_sess_h, ctx.disruption_spans; style)
     shade_outages!(ax_s1, min_sess_h, max_sess_h, ctx.outage_spans; style)
     shade_generation_gaps!(ax_s1, min_sess_h, max_sess_h, ctx; style)
+    mark_events!(ax_s1, min_sess_h, max_sess_h, ctx.marker_times; style)
     if sess_degraded
         lines!(
             ax_s1,
@@ -914,6 +1049,7 @@ function plot_session(
     shade_disruptions!(ax_s2, min_sess_h, max_sess_h, ctx.disruption_spans; style)
     shade_outages!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans; style)
     shade_generation_gaps!(ax_s2, min_sess_h, max_sess_h, ctx; style)
+    mark_events!(ax_s2, min_sess_h, max_sess_h, ctx.marker_times; style)
 
     band!(
         ax_s2,
@@ -995,6 +1131,7 @@ function plot_session(
             2,
         ),
         recorder = spans_overlap(ctx.recorder_spans, min_sess_h, max_sess_h, 1, 2),
+        marker = any(x -> min_sess_h <= x <= max_sess_h, ctx.marker_times),
         lost = n_lost_sess > 0 ? :marks : :none,
     )
     linkxaxes!(ax_s1, ax_s2)
@@ -1365,7 +1502,10 @@ function expand_pointwise_mask(
     physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
     points_per_batch =
         round(Int, physics.sample_rate * physics.segment_duration_sec * physics.batch_size)
-    mask_df = CSV.read(mask_path, DataFrame)
+    # ntasks = 1: the mask timeline is one wide row per event, and CSV.jl's
+    # multithreaded chunking logs a failure on that shape before falling
+    # back to a single task anyway.
+    mask_df = CSV.read(mask_path, DataFrame; ntasks = 1)
     target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
     1 <= target_idx <= nrow(mask_df) || throw(
         ArgumentError(
