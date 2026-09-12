@@ -62,6 +62,22 @@ Between contacts the spacecraft accumulates a backlog (in the shipped LISA scena
 
 1. **Near-real-time (live) data:** highest priority, sent first-in, first-out (FIFO) so the ground sees the newest observations with the smallest latency.
 2. **Archive backfill (LIFO):** the remaining bandwidth drains the backlog last-in, first-out — the newest archived data first. For a transient caught live (in the LISA case a massive black-hole binary merger), the archived data immediately preceding it are the most valuable, and LIFO delivery lets alert pipelines extend the waveform backwards from the live event without a gap.
+
+![Batch-routing animation: one row per stage, sky blue for live batches and green for archive ones](assets/batch_routing.gif)
+
+The doctrine batch by batch, over one run of `scenarios/stress_8h_bursty.toml`.
+Each row is a stage — buffered on the satellite, in flight on the link,
+delivered on the ground — and the color the routing family: sky blue live
+(FIFO), green archive (LIFO), with the marker shape repeating the
+distinction. Live batches cross to the ground as they are generated, so the
+sky-blue runs mark the passes; between them the archive segment grows
+backwards in batch identifier, contiguous with the live tail, which is the
+LIFO backfill. Through the blackout the ground row stands still while the
+onboard block extends to the right. The status line carries the mission
+clock (`Day N` counts elapsed days, as on the summary axis, and the time is
+the mission clock, as on the session figures), the link state, and the
+buffer counters of that frame.
+
 ## Alert-Latency Metrology
 The scientific payoff of the LIFO backfill is measured from the event logs (`Metrology.alert_latency_table`). Every live batch that reached the ground defines an alert: the event instant `t_m` is the content end of that batch (the moment the transient's samples exist on board). For a look-back `δ`, the window `[t_m − δ, t_m)` together with the alert batch itself is complete on the ground once every batch overlapping it has arrived; the latency `L(δ)` is that completion instant minus `t_m`, so `L(δ ≤ D)` is the delivery delay of the live batch itself and `L(δ)` is non-decreasing. Under the realized doctrine the arrival instants are the recorded `ingested` events. The counterfactual first-in, first-out drain re-assigns the very same service completions — the sorted `ingested` instants, i.e. the same link, the same slots, the same losses — to the batches in content order, each completion going to the oldest batch already generated and still undelivered, with no live priority. The table reports the median and the interquartile band of `L(δ)` over all alerts on the grid `δ = 0, D, 2D, …` (`D` = batch content span) up to `post_processing.alert_lookback_hours`; alerts whose window reaches before the first batch, or contains a batch that never arrived, are excluded at that `δ`. Under LIFO the window fills backwards from the live stream, so `L(δ)` grows with `δ` at the backfill rate; under FIFO the newest batches of the window arrive last, so `L(δ)` sits near the time needed to drain the whole backlog generated before the event.
 

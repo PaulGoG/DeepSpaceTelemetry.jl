@@ -243,5 +243,12 @@ julia --project=. scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 ## GIF Animation
 To visualize the LIFO/FIFO routing physics of a completed run:
 ```bash
-julia --project=. scripts/postprocessing/generate_gif.jl [RUN_ID]
+julia --project=. scripts/postprocessing/generate_gif.jl [--web] [RUN_ID]
 ```
+Every frame is one row of `mission_profile.csv` — a change-driven cadence,
+so the animation is not linear in mission time — and states the mission
+clock, the link state, and the buffer counters. Two rendering profiles
+exist: the default archive profile (1400 units wide, two raster units each,
+at most 800 frames) and `--web`, which writes the size the README and the
+manual carry (900 px, at most 240 frames, a few megabytes) as
+`telemetry_animation_web.gif`.

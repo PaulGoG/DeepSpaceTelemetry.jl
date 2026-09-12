@@ -24,17 +24,20 @@ pipeline.
 
 ![Mission summary of the stress scenario: seven daily passes against a
 growing onboard buffer, an 18 h solar-flare blackout with a 12 h recovery
-ramp, a partial ground-station outage, and a scheduled generation
-gap](docs/src/assets/mission_summary.png)
+ramp, a partial ground-station outage, a scheduled generation gap, and an
+event marker with its triggered low-latency
+period](docs/src/assets/mission_summary.png)
 
 One week of the shipped `scenarios/stress_8h_bursty.toml`: 8 h daily passes
 on the physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare
 blackout followed by a 12 h recovery ramp on day 2.5, a 12 h partial
-ground-station outage on day 5, and a scheduled generation gap on day 1.5.
-The onboard buffer doubles from 288 to 583 batches across the week — the
-disruption debt the link never recovers — while 706 batches reach the ground
-and retransmission recovers all 42 rejected transfers, leaving the
-lost-batch strip at zero. Every number here comes from the run recorded in
+ground-station outage on day 5, a scheduled generation gap on day 1.5, and
+an event marker on day 4 whose triggered low-latency period opens six hours
+later at half capacity. The onboard buffer doubles from 288 to 581 batches
+across the week — the disruption debt the link never recovers — while 707
+batches reach the ground and retransmission recovers all 47 rejected
+transfers, leaving the lost-batch strip at zero. Every number here comes
+from the run recorded in
 [`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml).
 
 ## Project Structure
@@ -275,8 +278,8 @@ The post-processing commands read a completed run directory; those taking
 `[RUN_ID]` default to the most recent run.
 
 ```bash
-# Chronological animation of the batch routing
-julia --project=. scripts/postprocessing/generate_gif.jl [RUN_ID]
+# Chronological animation of the batch routing (--web: README/manual size)
+julia --project=. scripts/postprocessing/generate_gif.jl [--web] [RUN_ID]
 
 # HDF5 export of every product of a run, provenance in the root attributes
 julia --project=. scripts/postprocessing/export_hdf5.jl [RUN_ID]
@@ -432,15 +435,19 @@ transmitted FIFO with absolute priority; residual bandwidth backfills the
 archive LIFO (newest first)**, so alert pipelines can extend a live event's
 waveform backwards in time without temporal gaps.
 
-![Batch-routing animation: circles are live batches and diamonds archive
-ones, moving from the satellite row through the link to the
-ground](docs/src/assets/batch_routing.gif)
+![Batch-routing animation: one row per stage, sky blue for live batches and
+green for archive ones, with the mission clock and the buffer counters in
+every frame](docs/src/assets/batch_routing.gif)
 
-The same run, batch by batch. Color marks the stage — orange onboard, blue
-on the link, sky blue and green on the ground — and marker shape the family,
-circles live and diamonds archive. The archive segment grows backwards in
-batch identifier, contiguous with the live tail, and both rows stand still
-through the blackout while the buffer fills.
+The same run, batch by batch. Each row is a stage — buffered on the
+satellite, in flight on the link, delivered on the ground — and the color
+the routing family: sky blue live (FIFO), green archive (LIFO), the marker
+shape repeating the distinction. Live batches cross as they are generated,
+so the sky-blue runs mark the passes, and between them the archive segment
+grows backwards in batch identifier, contiguous with the live tail. Through
+the blackout the ground row stands still while the onboard block extends to
+the right. Each frame states the mission clock, the link state, and the
+onboard and ground counts.
 
 External analysis pipelines couple to a run exclusively through the
 filesystem — batch directories delivered by atomic `mv`, append-only event
