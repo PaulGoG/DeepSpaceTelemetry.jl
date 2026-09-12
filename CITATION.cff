@@ -1,6 +1,16 @@
 cff-version: 1.2.0
 message: "If you use DeepSpaceTelemetry.jl in your work, cite it as below."
 title: "DeepSpaceTelemetry.jl: a telemetry, channel, and queuing simulator for deep-space science missions"
+abstract: >-
+  A Julia framework that simulates the telemetry environment of a deep-space
+  science mission end to end: duty-cycled ground-station contact windows with
+  seasonal and scheduled variation, a physical downlink carrying stochastic
+  packet loss and scheduled disruptions, prioritized near-real-time (FIFO)
+  transmission with LIFO archival backfill, and the resulting alert-latency
+  and delivery-delay metrology. The telemetry, channel, and queuing layers
+  are mission-agnostic; the shipped scenarios and the amplitude-calibrated
+  synthetic payload model LISA. External analysis pipelines couple to a run
+  through a documented read-only filesystem contract.
 type: software
 authors:
   - family-names: "Gogîță"
