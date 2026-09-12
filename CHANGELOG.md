@@ -19,14 +19,58 @@ Notable changes to DeepSpaceTelemetry. The format follows
   beside them records the run, the commit, the realized totals, and the
   transform that produced each file from the run's own export.
 
+- An abstract in `CITATION.cff`, stating what the framework simulates, what
+  is mission-agnostic in it, and how an analysis pipeline couples to a run.
+- A `--web` rendering profile for `scripts/postprocessing/generate_gif.jl`,
+  writing the size the README and the manual carry (900 px, at most 240
+  frames) as `telemetry_animation_web.gif`, so the published animation
+  follows from one command instead of an external decimation pass.
+- `Receiver.low_latency_spans`, `Receiver.marker_times`,
+  `Receiver.shade_low_latency!`, and `Receiver.mark_events!`; `PlotContext`
+  carries the low-latency and event-marker spans of a run.
+
 ### Changed
 - The README carries one documentation badge, pointing at the manual of the
   latest release; the build of `main` stays deployed and is reached through
   the version selector.
 - `Project.toml` opens the development version `1.2.0-DEV` after the 1.1.0
   release, and all five manifests are re-resolved onto it.
+- The mission summary draws the low-latency periods of a run and the instants
+  of its declared event markers, which were simulated and recorded but never
+  plotted: a marker-triggered period had appeared in the capacity curve as an
+  unexplained half-height pass. The periods are washed in the capacity color
+  under the curve they explain, the markers drawn as solid rules — the one
+  vertical style no shaded window uses for its edges — and the session
+  figures carry the markers as well.
+- Every frame of the batch-routing animation states the mission clock, the
+  link state, and the onboard and ground counts. Frames are metrics rows,
+  whose cadence is change-driven, so the animation previously carried no
+  mission time at all. Its color now encodes the routing family in the live
+  and archive hues of the static figures, the marker shape repeating the
+  distinction: the row already carries the stage, and in a row of hundreds of
+  batches the marker shapes merge.
+- The manual shows the batch-routing animation on the physics page, beside
+  the routing doctrine it demonstrates; the file was deployed with the site
+  but referenced by no page.
+- `docs/src/assets/PROVENANCE.toml` records the platform of the run behind
+  the README figures and states that the realized counts depend on how much
+  mission time the host completes inside the wall-clock budget.
 
 ### Fixed
+- The Lost strip of the mission summary rendered a lossless run as an empty
+  panel: the flat zero stair coincided with the axis frame, the automatic
+  ticks fell on fractional batch counts, and the count annotation was gated
+  on a non-zero count, so nothing distinguished "no batch was lost" from a
+  panel that had failed to render. The strip carries integer ticks, a zero
+  line clear of the frame, and states its count in either direction.
+- The animation's frame budget divided the metrics length by the ceiling
+  with `floor`, so any run between one and two times that ceiling rendered in
+  full — the seven-day stress scenario wrote 1291 frames against a declared
+  maximum of 800. The budget rounds up.
+- Expanding a mask row reads the timeline with `ntasks = 1`: one wide row per
+  event defeats CSV.jl's multithreaded chunking, which logged a failure
+  before falling back to a single task anyway. The dependency-light copy of
+  the expander shipped for collaborators does the same.
 - The emitter-pacing testset asserted a production count that presumes the
   host keeps pace with the accelerated clock — one 60 s segment synthesized
   and written every 100 ms at `speed_up = 600` — which a cold or loaded CI
