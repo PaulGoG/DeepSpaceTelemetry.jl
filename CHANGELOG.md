@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-13
+
 ### Added
 - An `activate.jl` for every environment — the package, `test/`, `docs/`,
   `bench/`, `scripts/` — activating and instantiating it without output, so
@@ -57,8 +59,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - The README carries one documentation badge, pointing at the manual of the
   latest release; the build of `main` stays deployed and is reached through
   the version selector.
-- `Project.toml` opens the development version `1.2.0-DEV` after the 1.1.0
-  release, and all five manifests are re-resolved onto it.
 - The mission summary draws the low-latency periods of a run and the instants
   of its declared event markers, which were simulated and recorded but never
   plotted: a marker-triggered period had appeared in the capacity curve as an
@@ -568,7 +568,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
   repository **SpaceTelemetrySim → DeepSpaceTelemetry** — a breaking change
   for any code `using` the old module name.
 
-[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/releases/tag/v0.9.0
