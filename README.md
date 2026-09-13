@@ -75,7 +75,7 @@ DeepSpaceTelemetry/
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
 │   ├── Emitter.jl               # Satellite state machine (payload/queues)
 │   ├── Receiver.jl              # DSN ground station, loss handling, post-processing
-│   ├── Metrology.jl             # Event-log metrics: alert-latency curves (LIFO vs FIFO drain)
+│   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay, payload spectrum
 │   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
 │   ├── Publication.jl           # Publication figure export at a declared printed width
 │   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
@@ -310,7 +310,7 @@ batch never becomes available on the ground.
 | `ChannelEffects` | loss channels, disruption timeline, composite link model | stable; validated against the analytic stationary loss rate |
 | `VirtualInstrument` | calibrated strain synthesis, Robson–Cornish–Liu noise model, external ingestion | stable; noise model checked against reference values |
 | `Emitter` / `Receiver` | spacecraft and ground-station state machines, post-processing products and figures | stable; four end-to-end integration missions in the suite |
-| `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
+| `Metrology` | alert-latency and delivery-delay metrics, payload spectrum against the noise model | stable; synthetic-schedule tests, spectral estimator checked against white noise, a tone, and Parseval |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
 | `Supervisor` | mission plan, supervised tasks, sentinels, banner | stable; restart and policy tests |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
@@ -396,7 +396,9 @@ freely — for example `[-1, "10:20", 45]`. The
   realized doctrine against a counterfactual FIFO drain over the same service
   completions; and the measurement-to-ground delivery delay of every batch
   against a requirement (24 h for LISA). Declared event markers are stamped
-  into the batch metadata and evaluated by both metrics.
+  into the batch metadata and evaluated by both metrics. A third figure
+  validates the payload itself: a Welch estimate of what reached the ground
+  against the analytic `S(f)` the synthesis drew it from.
 - **Data products** — append-only emitter and receiver event logs, from which
   post-processing replays the exact per-batch state history; the 0–4 mask
   timeline and point-wise 0/1 availability masks; the metrics profile; the
