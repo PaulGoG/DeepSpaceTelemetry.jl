@@ -4,6 +4,7 @@
 DeepSpaceTelemetry.VirtualInstrument
 DeepSpaceTelemetry.VirtualInstrument.InstrumentState
 DeepSpaceTelemetry.VirtualInstrument.lisa_noise_psd
+DeepSpaceTelemetry.VirtualInstrument.welch_psd
 DeepSpaceTelemetry.VirtualInstrument.lisa_instrument_psd
 DeepSpaceTelemetry.VirtualInstrument.lisa_confusion_psd
 DeepSpaceTelemetry.VirtualInstrument.CONFUSION_FITS

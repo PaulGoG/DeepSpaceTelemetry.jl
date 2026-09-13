@@ -247,6 +247,30 @@ settings of its snapshot:
 julia --project=. scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 ```
 
+## Batch-State Raster and Payload Spectrum
+Two further figures follow every run, each behind its own flag:
+```toml
+[post_processing]
+state_raster = true         # the batch-state timeline as a raster
+payload_spectrum = true     # the delivered payload against the noise model
+```
+`state_raster.png` draws `masks/telemetry_mask_timeline.csv` with one column
+per batch, one row per recorded event, and one color per state: the boundary
+between the future wash and the onboard color is generation, each pass turns a
+block of columns to the ground color, and within a block the higher batch
+identifiers turn first — the LIFO backfill, advancing backwards in batch
+identifier. What remains in the onboard color at the top of the figure is the
+backlog the run never cleared. It needs `generate_mask_timeline`, and is
+skipped without it.
+
+`payload_spectrum.png` estimates the spectrum of the delivered payload
+(Welch, Hann windows, half overlap) against the analytic `S(f)` the synthesis
+drew it from, with the instrument term separated and the first bin the
+synthesis block resolves marked. Nothing is fitted: the estimate reproduces
+the model at the correct absolute level over the band the block represents,
+and falls away below it because no power was synthesized there. External
+payloads are skipped — there is no model to compare against.
+
 ## GIF Animation
 To visualize the LIFO/FIFO routing physics of a completed run:
 ```bash

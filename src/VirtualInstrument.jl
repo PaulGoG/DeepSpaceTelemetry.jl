@@ -390,6 +390,47 @@ function lisa_noise_psd(f; observation_years::Real = 1.0)
 end
 
 """
+    welch_psd(x::AbstractVector{<:Real}, fs::Real; nperseg = 0) -> (Vector{Float64}, Vector{Float64})
+
+One-sided power spectral density of `x` sampled at `fs` [Hz], by Welch's
+method: Hann windows of `nperseg` samples (default: the largest power of two
+giving at least eight segments, floored at 256) overlapping by half, each
+segment mean-removed, the periodograms averaged and normalized so the
+estimate integrates to the variance of the series. Returns the frequency
+grid and the density in units of `x²`/Hz.
+
+The measurement counterpart of [`lisa_noise_psd`](@ref): a stream synthesized
+from `S(f)` returns it over the band its synthesis block resolves, which is
+what the payload-spectrum figure shows. Below `1/(2·segment_duration_sec)`
+the estimate carries spectral leakage, not content — no power was
+synthesized there.
+
+Returns empty vectors when `x` is shorter than one window.
+"""
+function welch_psd(x::AbstractVector{<:Real}, fs::Real; nperseg::Int = 0)
+    n = length(x)
+    fs > 0 || throw(ArgumentError("welch_psd: fs must be > 0 (got $fs)."))
+    nperseg >= 0 || throw(ArgumentError("welch_psd: nperseg must be ≥ 0."))
+    len = nperseg > 0 ? nperseg : max(256, n < 16 ? 0 : 2^floor(Int, log2(n / 8)))
+    (len < 2 || n < len) && return (Float64[], Float64[])
+    window = [0.5 * (1 - cos(2π * (k - 1) / (len - 1))) for k in 1:len]
+    window_power = sum(abs2, window) / len
+    step = max(1, len ÷ 2)
+    starts = 1:step:(n-len+1)
+    accumulator = zeros(Float64, len ÷ 2 + 1)
+    for s in starts
+        segment = Float64.(@view x[s:(s+len-1)])
+        segment .-= sum(segment) / len
+        accumulator .+= abs2.(FFTW.rfft(segment .* window))
+    end
+    psd = 2 .* accumulator ./ (length(starts) * Float64(fs) * len * window_power)
+    # The zero and Nyquist bins are not mirrored, so they carry no factor two.
+    psd[1] /= 2
+    iseven(len) && (psd[end] /= 2)
+    return (collect(0:(len÷2)) .* (Float64(fs) / len), psd)
+end
+
+"""
     next_segment!(vi::InstrumentState)
 
 Produces the next temporal segment of science data, either sliced from the

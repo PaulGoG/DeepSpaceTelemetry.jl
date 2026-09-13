@@ -422,6 +422,8 @@ const KNOWN_CONFIG_KEYS = Dict(
         "alert_lookback_hours",
         "delivery_delay",
         "delivery_requirement_hours",
+        "state_raster",
+        "payload_spectrum",
         "hdf5_export",
         "publication",
     ],
@@ -1843,6 +1845,8 @@ function validate_config(cfg::AbstractDict)
         "expand_to_pointwise_masks",
         "alert_latency",
         "delivery_delay",
+        "state_raster",
+        "payload_spectrum",
         "hdf5_export",
     )
         haskey(pp, key) && checked_flag(pp[key], "post_processing.$key")

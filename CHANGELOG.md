@@ -18,7 +18,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
   gap; and the batch-routing animation of the same run. `PROVENANCE.toml`
   beside them records the run, the commit, the realized totals, and the
   transform that produced each file from the run's own export.
-
 - An abstract in `CITATION.cff`, stating what the framework simulates, what
   is mission-agnostic in it, and how an analysis pipeline couples to a run.
 - A `--web` rendering profile for `scripts/postprocessing/generate_gif.jl`,
@@ -28,6 +27,25 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - `Receiver.low_latency_spans`, `Receiver.marker_times`,
   `Receiver.shade_low_latency!`, and `Receiver.mark_events!`; `PlotContext`
   carries the low-latency and event-marker spans of a run.
+- Two figures every run now produces, each behind its own
+  `[post_processing]` flag (`state_raster`, `payload_spectrum`, both default
+  `true`) and included in the publication export. `state_raster.png` draws the
+  batch-state timeline as a raster — one column per batch, one row per
+  recorded event, one color per state — in which generation is the diagonal
+  boundary, each pass turns a block of columns to the ground color, and within
+  a block the higher identifiers turn first, which is the LIFO backfill made
+  visible. `payload_spectrum.png` estimates the spectrum of the delivered
+  payload against the analytic `S(f)` the synthesis drew it from, with the
+  instrument term separated and the first bin the synthesis block resolves
+  marked; external payloads are skipped, having no model to compare against.
+  Both began as figures composed for the showcase collection.
+- `VirtualInstrument.welch_psd` (one-sided Welch estimate, Hann windows at
+  half overlap, normalized to integrate to the variance),
+  `Metrology.payload_series` (the longest stretch of consecutively numbered
+  delivered batches, since splicing across a LIFO gap would put a
+  discontinuity into a spectrum), `Metrology.plot_payload_spectrum`,
+  `Receiver.plot_state_raster`, `Receiver.raster_figure`, and
+  `PlotTheme.COLOR_FUTURE`.
 - `PlotTheme.label_extent`, `PlotTheme.legend_row_height`,
   `PlotTheme.annotation_side`, `PlotTheme.annotation_width_fraction`,
   `Receiver.figure_legend_entries`, `Receiver.summary_figure_height`,

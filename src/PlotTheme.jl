@@ -99,6 +99,15 @@ all-batches delivery curve, the delivery-requirement line, and its label.
 """
 const COLOR_GUIDE = colorant"gray40"
 
+"""
+    COLOR_FUTURE
+
+Wash of the not-yet-generated region of the batch-state raster: a near-white
+that reads as absence rather than as one more state, so the generation front
+appears as the boundary of the drawn area.
+"""
+const COLOR_FUTURE = colorant"#F5F5F5"
+
 # --- Journal sizing: design at the final printed width. ---
 # Makie layout units are 1/96 inch; a PDF exported at these sizes enters
 # LaTeX at native scale (178 mm double-column ≈ 673 units), and PNG at

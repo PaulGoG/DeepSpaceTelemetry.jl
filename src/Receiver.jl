@@ -23,6 +23,8 @@ using CairoMakie:
     MarkerElement,
     PolyElement,
     band!,
+    cgrad,
+    heatmap!,
     hidespines!,
     hidexdecorations!,
     lines!,
@@ -1293,6 +1295,100 @@ function plot_session(
     linkxaxes!(ax_s1, ax_s2)
 
     return PlotTheme.save_figure(fig, plots_dir, "session_$(stem)_detail"; formats, suffix)
+end
+
+"""
+    plot_state_raster(run_dir::String; style, plots_dir, formats, suffix) -> Union{Nothing,String}
+
+Renders `masks/telemetry_mask_timeline.csv` as a raster — one column per
+batch, one row per recorded event, one color per state — to
+`<plots_dir>/state_raster.png` with a vector twin, and returns its path
+(`nothing` when the timeline is absent, so a run that skipped
+[`generate_telemetry_masks`](@ref) is not an error). Must run inside the
+telemetry theme.
+
+The figure is the routing doctrine in one panel: the boundary between the
+future wash and the onboard color is generation, each pass turns a block of
+columns to the ground color, and within a block the higher batch
+identifiers turn first — the LIFO backfill, advancing backwards in batch
+identifier. What survives to the top of the figure in the onboard color is
+the backlog the run never cleared.
+"""
+function plot_state_raster(
+    run_dir::String;
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+    plots_dir::String = joinpath(run_dir, "plots"),
+    formats = ("png", "pdf"),
+    suffix::String = "",
+)
+    path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
+    isfile(path) || return nothing
+    # ntasks = 1: one wide row per event defeats CSV.jl's chunking.
+    mask = CSV.read(path, DataFrame; ntasks = 1)
+    (nrow(mask) == 0 || DataFrames.ncol(mask) < 2) && return nothing
+    cfg = TelemetryCore.load_run_config(run_dir)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    t_start = something(
+        tryparse(DateTime, string(get(sim, "start_sim_time", ""))),
+        DateTime(mask.SimTime[1]),
+    )
+    hours = [hours_since(DateTime(t), t_start) for t in mask.SimTime]
+    states = Matrix{Float64}(mask[:, 2:end])
+
+    return with_theme(PlotTheme.telemetry_theme(style)) do
+        raster_figure(states, hours, style, plots_dir, formats, suffix)
+    end
+end
+
+"""
+    raster_figure(states, hours, style, plots_dir, formats, suffix) -> String
+
+The raster itself, once [`plot_state_raster`](@ref) has read the timeline:
+`states` is one row per recorded event and one column per batch, `hours` the
+mission hour of each row. Must run inside the telemetry theme.
+"""
+function raster_figure(
+    states::Matrix{Float64},
+    hours::Vector{Float64},
+    style::PlotTheme.PlotStyle,
+    plots_dir::String,
+    formats,
+    suffix::String,
+)
+    fig = Figure(size = style.size_summary)
+    ax = Axis(
+        fig[1, 1],
+        xlabel = "Batch ID",
+        ylabel = PlotTheme.label(style, "Mission time [h]", "Time [h]"),
+    )
+    colors = [
+        PlotTheme.COLOR_FUTURE,
+        PlotTheme.COLOR_ONBOARD,
+        PlotTheme.COLOR_BANDWIDTH,
+        PlotTheme.COLOR_ARCHIVE,
+        PlotTheme.COLOR_LOST,
+    ]
+    heatmap!(
+        ax,
+        1:size(states, 2),
+        hours,
+        permutedims(states);
+        colormap = cgrad(colors; categorical = true),
+        colorrange = (-0.5, 4.5),
+    )
+    Legend(
+        fig[0, 1],
+        [PolyElement(color = c) for c in colors],
+        ["Future", "Onboard", "Link", "Ground", "Lost"];
+        orientation = :horizontal,
+        nbanks = legend_banks(["Future", "Onboard", "Link", "Ground", "Lost"], style),
+        framevisible = false,
+        backgroundcolor = :transparent,
+        colgap = LEGEND_COLGAP,
+    )
+    # The raster enters a vector format as an embedded image, not as one path
+    # per cell, so the PDF twin stays the size of its PNG.
+    return PlotTheme.save_figure(fig, plots_dir, "state_raster"; formats, suffix)
 end
 
 """

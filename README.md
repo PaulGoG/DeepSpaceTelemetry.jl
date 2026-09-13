@@ -399,10 +399,12 @@ freely — for example `[-1, "10:20", 45]`. The
   into the batch metadata and evaluated by both metrics.
 - **Data products** — append-only emitter and receiver event logs, from which
   post-processing replays the exact per-batch state history; the 0–4 mask
-  timeline and point-wise 0/1 availability masks; the metrics profile; an
-  HDF5 export of every product carrying the run's provenance as attributes;
-  publication figures at a declared printed width with a provenance sidecar;
-  and a chronological animation.
+  timeline and point-wise 0/1 availability masks; the metrics profile; the
+  batch-state raster, which shows the LIFO backfill advancing backwards in
+  batch identifier; a Welch estimate of the delivered payload against the
+  noise model it was drawn from; an HDF5 export of every product carrying the
+  run's provenance as attributes; publication figures at a declared printed
+  width with a provenance sidecar; and a chronological animation.
 - **Provenance and safety** — every run archives its configuration snapshot,
   platform fingerprint, and git commit; results are written with
   `safesave`-style `#k` backup rotation; and each post-processing product

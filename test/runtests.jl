@@ -16,6 +16,7 @@ using DeepSpaceTelemetry:
     VirtualInstrument,
     Emitter,
     Receiver,
+    Metrology,
     PlotTheme,
     Supervisor
 
@@ -1181,6 +1182,50 @@ end
     cfg["physics"]["confusion_observation_years"] = 1.0
     cfg["physics"]["noise_f_min_hz"] = 0.0
     @test_throws ArgumentError TelemetryCore.physics_settings(cfg)
+end
+
+@testset "Welch spectral estimate" begin
+    # White noise of unit variance at fs: a one-sided density normalized to
+    # integrate to the variance is flat at 2σ²/fs.
+    rng = StableRNG(20350913)
+    fs = 4.0
+    x = randn(rng, 1 << 16)
+    f, psd = VirtualInstrument.welch_psd(x, fs)
+    @test length(f) == length(psd)
+    @test f[1] == 0.0 && isapprox(f[end], fs / 2; rtol = 1e-12)
+    interior = psd[2:(end-1)]
+    @test isapprox(sum(interior) / length(interior), 2 / fs; rtol = 0.05)
+    # Parseval: the estimate integrates to the variance of the series.
+    @test isapprox(sum(psd) * (f[2] - f[1]), Statistics.var(x); rtol = 0.1)
+    # A sinusoid concentrates its power in the bin of its frequency.
+    len = 4096
+    tone_f = fs * 100 / len
+    tone = [sqrt(2) * sin(2π * tone_f * (k - 1) / fs) for k in 1:(1<<15)]
+    ft, tone_psd = VirtualInstrument.welch_psd(tone, fs; nperseg = len)
+    @test ft[argmax(tone_psd)] ≈ tone_f atol = (fs / len)
+    # Degenerate inputs: no window fits, so the estimate is empty rather than
+    # an error; the parameters themselves are checked.
+    @test VirtualInstrument.welch_psd(randn(rng, 8), fs) == (Float64[], Float64[])
+    @test_throws ArgumentError VirtualInstrument.welch_psd(x, 0.0)
+    @test_throws ArgumentError VirtualInstrument.welch_psd(x, fs; nperseg = -1)
+end
+
+@testset "Payload series (longest consecutive delivery)" begin
+    tmp = mktempdir()
+    ground = joinpath(tmp, "ground")
+    # Batches 1–3 and 7–8 delivered: the LIFO backfill leaves gaps, and
+    # splicing across one would put a discontinuity into a spectrum.
+    for (id, live) in ((1, true), (2, true), (3, false), (7, false), (8, false))
+        dir = joinpath(ground, TelemetryCore.batch_name(id, live))
+        mkpath(dir)
+        CSV.write(joinpath(dir, "seg_001.csv"), DataFrame(Amplitude = fill(1.0 * id, 5)))
+    end
+    series = Metrology.payload_series(tmp)
+    @test length(series) == 15
+    @test series[1:5] == fill(1.0, 5) && series[11:15] == fill(3.0, 5)
+    @test length(Metrology.payload_series(tmp; max_batches = 2)) == 10
+    @test isempty(Metrology.payload_series(mktempdir()))
+    rm(tmp; recursive = true)
 end
 
 @testset "VirtualInstrument Synthetic" begin
@@ -3497,6 +3542,15 @@ end
     cfg["post_processing"] = Dict{String,Any}("hdf5_export" => "yes")
     @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     cfg["post_processing"]["hdf5_export"] = true
+    # The two figure products follow the same flag contract.
+    for key in ("state_raster", "payload_spectrum")
+        bad = valid_test_cfg()
+        bad["post_processing"] = Dict{String,Any}(key => "yes")
+        @test_throws ArgumentError TelemetryCore.validate_config(bad)
+        good = valid_test_cfg()
+        good["post_processing"] = Dict{String,Any}(key => false)
+        @test TelemetryCore.validate_config(good) isa AbstractDict
+    end
     @test TelemetryCore.estimate_artifacts(cfg).hdf5_bytes > 0
     @test TelemetryCore.estimate_artifacts(valid_test_cfg()).hdf5_bytes == 0
     @test !isempty(TelemetryCore.platform_provenance()["package_version"])
@@ -3585,6 +3639,9 @@ end
     @test PlotTheme.annotation_width_fraction(full, "0 lost (0 %)", 400) <
           PlotTheme.annotation_width_fraction(full, "1234 lost (12.34 %)", 400)
     @test PlotTheme.annotation_width_fraction(full, "a"^500, 400) == 0.45
+
+    # The raster is skipped, not failed, when the run carries no timeline.
+    @test Receiver.plot_state_raster(mktempdir()) === nothing
 
     base = valid_test_cfg()
     @test !TelemetryCore.publication_settings(base).enabled

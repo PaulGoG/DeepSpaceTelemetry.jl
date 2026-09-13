@@ -6,6 +6,8 @@ DeepSpaceTelemetry.Receiver.generate_mission_plots
 DeepSpaceTelemetry.Receiver.PlotContext
 DeepSpaceTelemetry.Receiver.plot_context
 DeepSpaceTelemetry.Receiver.plot_mission_summary
+DeepSpaceTelemetry.Receiver.plot_state_raster
+DeepSpaceTelemetry.Receiver.raster_figure
 DeepSpaceTelemetry.Receiver.session_figure_stems
 DeepSpaceTelemetry.Receiver.plot_session
 DeepSpaceTelemetry.Receiver.hours_since

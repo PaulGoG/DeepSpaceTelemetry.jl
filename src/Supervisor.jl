@@ -509,6 +509,24 @@ function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = std
                 (e, catch_backtrace())
         end
     end
+    if get(pp, "state_raster", true)
+        println(orig_stdout, "\nRendering the batch-state raster")
+        try
+            Receiver.plot_state_raster(run_dir)
+        catch e
+            @error "[POST] Batch-state raster failed — run data is intact." exception =
+                (e, catch_backtrace())
+        end
+    end
+    if get(pp, "payload_spectrum", true)
+        println(orig_stdout, "\nEstimating the payload spectrum")
+        try
+            Metrology.plot_payload_spectrum(run_dir)
+        catch e
+            @error "[POST] Payload spectrum failed — run data is intact." exception =
+                (e, catch_backtrace())
+        end
+    end
     get(pp, "expand_to_pointwise_masks", false) &&
         expand_pointwise_masks!(plan, run_dir, orig_stdout)
     if get(pp, "hdf5_export", false)

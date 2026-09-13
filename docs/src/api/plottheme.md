@@ -22,6 +22,7 @@ DeepSpaceTelemetry.PlotTheme.COLOR_DISRUPTION
 DeepSpaceTelemetry.PlotTheme.COLOR_OUTAGE
 DeepSpaceTelemetry.PlotTheme.COLOR_MARKER
 DeepSpaceTelemetry.PlotTheme.COLOR_GUIDE
+DeepSpaceTelemetry.PlotTheme.COLOR_FUTURE
 DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SUMMARY
 DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SESSION
 DeepSpaceTelemetry.PlotTheme.LINEWIDTH_DATA
