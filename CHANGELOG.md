@@ -106,6 +106,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   with `floor`, so any run between one and two times that ceiling rendered in
   full — the seven-day stress scenario wrote 1291 frames against a declared
   maximum of 800. The budget rounds up.
+- The storage estimate counts the two new figure products, so the gate that
+  refuses a run whose footprint exceeds the `[storage]` budget sizes the
+  plots directory correctly rather than two figures short.
 - Expanding a mask row reads the timeline with `ntasks = 1`: one wide row per
   event defeats CSV.jl's multithreaded chunking, which logged a failure
   before falling back to a single task anyway. The dependency-light copy of

@@ -2194,11 +2194,26 @@ function estimate_artifacts(cfg::AbstractDict)
         checked_flag(get(pp, "hdf5_export", false), "post_processing.hdf5_export") ?
         event_bytes + metrics_bytes + mask_bytes + pointwise_bytes : 0.0
 
-    # Mission summary, one session figure per day and per low-latency
-    # period, the two metric figures.
+    # Mission summary, one session figure per day and per low-latency period,
+    # the two metric figures, the batch-state raster, and the payload
+    # spectrum — the last two only when their flags are set, as they are by
+    # default.
     n_low_latency = length(contacts_settings(cfg).low_latency_periods)
-    plot_bytes =
-        (mission_days + 3 + n_low_latency) * (cal("bytes_plot") + cal("bytes_plot_pdf"))
+    n_figures =
+        mission_days +
+        3 +
+        n_low_latency +
+        (
+            checked_flag(get(pp, "state_raster", true), "post_processing.state_raster") ?
+            1 : 0
+        ) +
+        (
+            checked_flag(
+                get(pp, "payload_spectrum", true),
+                "post_processing.payload_spectrum",
+            ) ? 1 : 0
+        )
+    plot_bytes = n_figures * (cal("bytes_plot") + cal("bytes_plot_pdf"))
     log_bytes = n_batches * cal("bytes_log_per_batch") + LOG_FIXED_OVERHEAD_BYTES
 
     # Post-processing replay RAM: the exact replay materializes one category
