@@ -1298,6 +1298,14 @@ function plot_session(
 end
 
 """
+    RASTER_PX_PER_UNIT
+
+Pixel density at which the batch-state raster is embedded in a vector
+export, equal to the density of the PNG twin.
+"""
+const RASTER_PX_PER_UNIT = 4
+
+"""
     plot_state_raster(run_dir::String; style, plots_dir, formats, suffix) -> Union{Nothing,String}
 
 Renders `masks/telemetry_mask_timeline.csv` as a raster — one column per
@@ -1322,7 +1330,10 @@ function plot_state_raster(
     suffix::String = "",
 )
     path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
-    isfile(path) || return nothing
+    if !isfile(path)
+        @info "[POST] Batch-state raster skipped: the run has no mask timeline (post_processing.generate_mask_timeline)."
+        return nothing
+    end
     # ntasks = 1: one wide row per event defeats CSV.jl's chunking.
     mask = CSV.read(path, DataFrame; ntasks = 1)
     (nrow(mask) == 0 || DataFrames.ncol(mask) < 2) && return nothing
@@ -1333,7 +1344,7 @@ function plot_state_raster(
         DateTime(mask.SimTime[1]),
     )
     hours = [hours_since(DateTime(t), t_start) for t in mask.SimTime]
-    states = Matrix{Float64}(mask[:, 2:end])
+    states = Matrix{UInt8}(mask[:, 2:end])
 
     return with_theme(PlotTheme.telemetry_theme(style)) do
         raster_figure(states, hours, style, plots_dir, formats, suffix)
@@ -1348,7 +1359,7 @@ The raster itself, once [`plot_state_raster`](@ref) has read the timeline:
 mission hour of each row. Must run inside the telemetry theme.
 """
 function raster_figure(
-    states::Matrix{Float64},
+    states::Matrix{UInt8},
     hours::Vector{Float64},
     style::PlotTheme.PlotStyle,
     plots_dir::String,
@@ -1375,6 +1386,7 @@ function raster_figure(
         permutedims(states);
         colormap = cgrad(colors; categorical = true),
         colorrange = (-0.5, 4.5),
+        rasterize = RASTER_PX_PER_UNIT,
     )
     Legend(
         fig[0, 1],
@@ -1386,8 +1398,8 @@ function raster_figure(
         backgroundcolor = :transparent,
         colgap = LEGEND_COLGAP,
     )
-    # The raster enters a vector format as an embedded image, not as one path
-    # per cell, so the PDF twin stays the size of its PNG.
+    # `rasterize` embeds the cells as one image in a vector export. Drawn as
+    # paths, one rectangle per cell, a week-long run gives a PDF of over 10 MB.
     return PlotTheme.save_figure(fig, plots_dir, "state_raster"; formats, suffix)
 end
 
