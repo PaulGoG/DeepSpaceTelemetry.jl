@@ -14,7 +14,6 @@ module Publication
 using ..TelemetryCore
 using ..PlotTheme
 using ..Receiver
-using ..Metrology
 using Dates: now
 using SHA: sha256
 using TOML: TOML
@@ -52,37 +51,24 @@ function export_publication_figures(
     suffix = "__" * run_id
     formats = (format,)
     cfg = TelemetryCore.load_run_config(run_dir)
-    pp = get(cfg, "post_processing", Dict{String,Any}())
+    post_processing = TelemetryCore.post_processing_settings(cfg)
+    ground = TelemetryCore.ground_settings(cfg)
 
     paths =
         Receiver.generate_mission_plots(run_dir; style, plots_dir = dir, formats, suffix)
-    if get(pp, "alert_latency", true)
-        p = Metrology.plot_alert_latency(
-            run_dir;
-            lookback_hours = Float64(get(pp, "alert_lookback_hours", 72.0)),
-            processing_latency_hours = TelemetryCore.ground_settings(cfg).processing_latency_hours,
+    for product in TelemetryCore.FIGURE_PRODUCTS
+        getproperty(post_processing.figures, product.flag) || continue
+        p = TelemetryCore.render_figure_product(
+            Val(product.flag),
+            run_dir,
+            post_processing,
+            ground;
             style,
             plots_dir = dir,
             formats,
             suffix,
             write_tables = false,
         )
-        p === nothing || push!(paths, p)
-    end
-    if get(pp, "delivery_delay", true)
-        p = Metrology.plot_delivery_delay(
-            run_dir;
-            requirement_hours = Float64(get(pp, "delivery_requirement_hours", 24.0)),
-            style,
-            plots_dir = dir,
-            formats,
-            suffix,
-            write_tables = false,
-        )
-        p === nothing || push!(paths, p)
-    end
-    if get(pp, "state_raster", true)
-        p = Receiver.plot_state_raster(run_dir; style, plots_dir = dir, formats, suffix)
         p === nothing || push!(paths, p)
     end
     write_provenance(dir, run_dir, cfg, paths, Float64(column_width_mm), format)

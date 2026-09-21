@@ -1351,6 +1351,18 @@ function plot_state_raster(
     end
 end
 
+# Figure-product method (TelemetryCore.FIGURE_PRODUCTS).
+function TelemetryCore.render_figure_product(
+    ::Val{:state_raster},
+    run_dir::String,
+    post_processing::NamedTuple,
+    ground::NamedTuple;
+    write_tables::Bool = true,
+    kwargs...,
+)
+    return plot_state_raster(run_dir; kwargs...)
+end
+
 """
     raster_figure(states, hours, style, plots_dir, formats, suffix) -> String
 

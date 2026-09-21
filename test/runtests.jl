@@ -3418,18 +3418,70 @@ end
     cfg["post_processing"] = Dict{String,Any}("hdf5_export" => "yes")
     @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     cfg["post_processing"]["hdf5_export"] = true
-    # The figure product follows the same flag contract.
-    for key in ("state_raster",)
-        bad = valid_test_cfg()
-        bad["post_processing"] = Dict{String,Any}(key => "yes")
-        @test_throws ArgumentError TelemetryCore.validate_config(bad)
-        good = valid_test_cfg()
-        good["post_processing"] = Dict{String,Any}(key => false)
-        @test TelemetryCore.validate_config(good) isa AbstractDict
-    end
     @test TelemetryCore.estimate_artifacts(cfg).hdf5_bytes > 0
     @test TelemetryCore.estimate_artifacts(valid_test_cfg()).hdf5_bytes == 0
     @test !isempty(TelemetryCore.platform_provenance()["package_version"])
+end
+
+@testset "Figure-product registry and [post_processing] accessor" begin
+    flags = map(product -> product.flag, TelemetryCore.FIGURE_PRODUCTS)
+    @test allunique(flags)
+    # Every registered product is a known key and has a renderer.
+    for product in TelemetryCore.FIGURE_PRODUCTS
+        @test String(product.flag) in TelemetryCore.KNOWN_CONFIG_KEYS["post_processing"]
+        @test hasmethod(
+            TelemetryCore.render_figure_product,
+            Tuple{Val{product.flag},String,NamedTuple,NamedTuple},
+        )
+    end
+
+    pp = TelemetryCore.post_processing_settings(valid_test_cfg())
+    @test keys(pp.figures) == flags
+    @test all(
+        getproperty(pp.figures, product.flag) == product.default for
+        product in TelemetryCore.FIGURE_PRODUCTS
+    )
+
+    # The flag contract holds for every product; the estimator counts one
+    # figure (two files: PNG and PDF twin) per enabled product.
+    all_on = valid_test_cfg()
+    all_on["post_processing"] = Dict{String,Any}(String(flag) => true for flag in flags)
+    n_on = TelemetryCore.estimate_artifacts(all_on).file_count
+    for flag in flags
+        bad = valid_test_cfg()
+        bad["post_processing"] = Dict{String,Any}(String(flag) => "yes")
+        @test_throws ArgumentError TelemetryCore.post_processing_settings(bad)
+        @test_throws ArgumentError TelemetryCore.validate_config(bad)
+        off = deepcopy(all_on)
+        off["post_processing"][String(flag)] = false
+        @test !getproperty(TelemetryCore.post_processing_settings(off).figures, flag)
+        @test TelemetryCore.estimate_artifacts(off).file_count == n_on - 2
+    end
+
+    # Bounds of the numeric keys.
+    for key in ("alert_lookback_hours", "delivery_requirement_hours")
+        bad = valid_test_cfg()
+        bad["post_processing"] = Dict{String,Any}(key => 0.0)
+        @test_throws ArgumentError TelemetryCore.post_processing_settings(bad)
+    end
+
+    # A raster without its mask timeline is announced at validation.
+    cfg = valid_test_cfg()
+    cfg["post_processing"] = Dict{String,Any}("generate_mask_timeline" => false)
+    @test_logs (:warn, r"state_raster") match_mode = :any TelemetryCore.validate_config(cfg)
+    cfg["post_processing"]["state_raster"] = false
+    logs, _ = Test.collect_test_logs(; min_level = Logging.Warn) do
+        TelemetryCore.validate_config(cfg)
+    end
+    @test !any(occursin("state_raster", string(record.message)) for record in logs)
+
+    # The plan carries every section parsed once.
+    plan = Supervisor.mission_plan(valid_test_cfg(); run_id = "PLAN_SETTINGS")
+    @test plan.post_processing == TelemetryCore.post_processing_settings(plan.cfg)
+    @test plan.publication == TelemetryCore.publication_settings(plan.cfg)
+    @test plan.ground == TelemetryCore.ground_settings(plan.cfg)
+    @test plan.dashboard == TelemetryCore.dashboard_settings(plan.cfg)
+    @test plan.contacts isa TelemetryCore.ContactsSettings
 end
 
 @testset "Publication figure export" begin

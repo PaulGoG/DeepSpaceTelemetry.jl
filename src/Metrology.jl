@@ -613,6 +613,22 @@ function plot_alert_latency(
     return path
 end
 
+# Figure-product method (TelemetryCore.FIGURE_PRODUCTS).
+function TelemetryCore.render_figure_product(
+    ::Val{:alert_latency},
+    run_dir::String,
+    post_processing::NamedTuple,
+    ground::NamedTuple;
+    kwargs...,
+)
+    return plot_alert_latency(
+        run_dir;
+        lookback_hours = post_processing.alert_lookback_hours,
+        processing_latency_hours = ground.processing_latency_hours,
+        kwargs...,
+    )
+end
+
 # --- Delivery delay and the 24-hour requirement ---
 
 """
@@ -836,6 +852,21 @@ function plot_delivery_delay(
     end
     @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) and delivery_delay.csv ($(round(100 * summary.fraction_within, digits = 1)) % within $(requirement_hours) h)."
     return path
+end
+
+# Figure-product method (TelemetryCore.FIGURE_PRODUCTS).
+function TelemetryCore.render_figure_product(
+    ::Val{:delivery_delay},
+    run_dir::String,
+    post_processing::NamedTuple,
+    ground::NamedTuple;
+    kwargs...,
+)
+    return plot_delivery_delay(
+        run_dir;
+        requirement_hours = post_processing.delivery_requirement_hours,
+        kwargs...,
+    )
 end
 
 end # module Metrology

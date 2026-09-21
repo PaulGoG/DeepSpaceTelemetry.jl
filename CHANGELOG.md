@@ -38,6 +38,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `config_snapshot.toml`, and `manifest_snapshot.toml` in every run
   directory.
 - Storage calibration key `bytes_per_flag_sample`.
+- A `[CONFIG]` warning when `post_processing.state_raster` is enabled while
+  `generate_mask_timeline` is disabled: the raster is drawn from the mask
+  timeline and is skipped.
 - Dependabot updates for the `julia` ecosystem, weekly.
 - A "How to cite" section with a BibTeX entry in the README.
 

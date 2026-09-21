@@ -349,6 +349,65 @@ const STORAGE_CALIBRATION_DEFAULTS = (
     bytes_log_per_batch = 600.0,  # emitter+receiver log lines per batch
 )
 
+"""
+    FigureProduct
+
+A figure of the post-processing that a `[post_processing]` flag switches:
+`flag` (the configuration key, also the stem of the figure file), `default`,
+`announcement` (the console line printed before rendering), and `title`
+(the subject of the failure record). [`render_figure_product`](@ref) draws
+it.
+"""
+struct FigureProduct
+    flag::Symbol
+    default::Bool
+    announcement::String
+    title::String
+end
+
+"""
+    FIGURE_PRODUCTS
+
+The flagged figure products, in rendering order. The configuration schema,
+[`post_processing_settings`](@ref), the artifact estimator, the Supervisor's
+post-processing, and the publication export iterate this table, so a new
+product is one entry here and one [`render_figure_product`](@ref) method.
+"""
+const FIGURE_PRODUCTS = (
+    FigureProduct(
+        :alert_latency,
+        true,
+        "Computing the alert-latency metric",
+        "Alert-latency metric",
+    ),
+    FigureProduct(
+        :delivery_delay,
+        true,
+        "Computing the delivery-delay metric",
+        "Delivery-delay metric",
+    ),
+    FigureProduct(
+        :state_raster,
+        true,
+        "Rendering the batch-state raster",
+        "Batch-state raster",
+    ),
+)
+
+"""
+    render_figure_product(product::Val, run_dir::String, post_processing::NamedTuple, ground::NamedTuple; kwargs...) -> Union{Nothing,String}
+
+Renders the figure product `Val(flag)` of [`FIGURE_PRODUCTS`](@ref) for the
+run in `run_dir` and returns the figure path, or `nothing` when the run
+holds nothing to draw. `post_processing` and `ground` are the results of
+[`post_processing_settings`](@ref) and [`ground_settings`](@ref). The
+keywords are those of the plotting functions (`style`, `plots_dir`,
+`formats`, `suffix`) and `write_tables` (`false` leaves the CSV tables of
+the product untouched, as the publication export requires). The methods
+live in the modules that own the figures, `Metrology` and `Receiver`.
+"""
+function render_figure_product end
+
 const KNOWN_CONFIG_KEYS = Dict(
     "simulation" => [
         "speed_up",
@@ -400,18 +459,18 @@ const KNOWN_CONFIG_KEYS = Dict(
         "open_emitter_log",
         "receiver_status_panel",
     ],
-    "post_processing" => [
-        "generate_mask_timeline",
-        "expand_to_pointwise_masks",
-        "target_event_rows",
-        "alert_latency",
-        "alert_lookback_hours",
-        "delivery_delay",
-        "delivery_requirement_hours",
-        "state_raster",
-        "hdf5_export",
-        "publication",
-    ],
+    "post_processing" => vcat(
+        [
+            "generate_mask_timeline",
+            "expand_to_pointwise_masks",
+            "target_event_rows",
+            "alert_lookback_hours",
+            "delivery_requirement_hours",
+            "hdf5_export",
+            "publication",
+        ],
+        [String(product.flag) for product in FIGURE_PRODUCTS],
+    ),
     "events" => ["markers"],
     "ground" => ["processing_latency_hours"],
     "contacts" => [
@@ -1004,6 +1063,52 @@ function publication_settings(cfg::AbstractDict)
 end
 
 """
+    post_processing_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[post_processing]` section: `generate_mask_timeline` (default
+`true`), `expand_to_pointwise_masks` (`false`), `target_event_rows`
+([`normalize_target_rows`](@ref), default `[-1]`), `alert_lookback_hours > 0`
+(72), `delivery_requirement_hours > 0` (24), `hdf5_export` (`false`), and
+`figures`, a `NamedTuple` of booleans keyed by the flags of
+[`FIGURE_PRODUCTS`](@ref) with their defaults. The retired
+`generate_batch_matrix` is rejected with its replacement named;
+`[post_processing.publication]` is read by [`publication_settings`](@ref).
+
+# Examples
+```jldoctest
+julia> pp = TelemetryCore.post_processing_settings(Dict{String,Any}());
+
+julia> pp.generate_mask_timeline, pp.hdf5_export, pp.alert_lookback_hours
+(true, false, 72.0)
+
+julia> pp.figures
+(alert_latency = true, delivery_delay = true, state_raster = true)
+```
+"""
+function post_processing_settings(cfg::AbstractDict)
+    pp = get(cfg, "post_processing", Dict{String,Any}())
+    reject_removed_key(pp, "post_processing", "generate_batch_matrix")
+    flag(key, default) = checked_flag(get(pp, key, default), "post_processing.$key")
+    function positive(key, default)
+        v = checked_number(get(pp, key, default), "post_processing.$key")
+        v > 0.0 || config_error("[CONFIG] post_processing.$key must be > 0 (got $v).")
+        return v
+    end
+    flags = map(product -> product.flag, FIGURE_PRODUCTS)
+    return (
+        generate_mask_timeline = flag("generate_mask_timeline", true),
+        expand_to_pointwise_masks = flag("expand_to_pointwise_masks", false),
+        target_event_rows = normalize_target_rows(get(pp, "target_event_rows", [-1])),
+        alert_lookback_hours = positive("alert_lookback_hours", 72.0),
+        delivery_requirement_hours = positive("delivery_requirement_hours", 24.0),
+        hdf5_export = flag("hdf5_export", false),
+        figures = NamedTuple{flags}(
+            map(product -> flag(String(product.flag), product.default), FIGURE_PRODUCTS),
+        ),
+    )
+end
+
+"""
     dashboard_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[dashboard]` flags, each a boolean: `open_live_viewer`,
@@ -1591,6 +1696,8 @@ Warnings (runnable but likely unintended):
   - the physical rate pair combined with a shaped `bandwidth_profile` (the
     profile mean scales a link rate that the pass sustains; the capacity of
     one nominal pass against the daily production is stated)
+  - `post_processing.state_raster` enabled while `generate_mask_timeline` is
+    disabled (the raster is drawn from the mask timeline and is skipped)
   - non-integer `sample_rate * segment_duration_sec` (rounded)
   - Gilbert–Elliott `p_bad_to_good = 0` (the channel never recovers)
   - disruption events starting at or after mission end (never fire), events
@@ -1851,28 +1958,12 @@ function validate_config(cfg::AbstractDict)
 
     # -- [dashboard] / [post_processing] --
     dashboard_settings(cfg)
-    pp = get(cfg, "post_processing", Dict{String,Any}())
-    for key in (
-        "generate_mask_timeline",
-        "expand_to_pointwise_masks",
-        "alert_latency",
-        "delivery_delay",
-        "state_raster",
-        "hdf5_export",
-    )
-        haskey(pp, key) && checked_flag(pp[key], "post_processing.$key")
+    # Types, bounds, and the row canonicalization through the shared
+    # accessor; only the cross-key warning lives here.
+    post_processing = post_processing_settings(cfg)
+    if post_processing.figures.state_raster && !post_processing.generate_mask_timeline
+        @warn "[CONFIG] post_processing.state_raster = true with post_processing.generate_mask_timeline = false: the raster is drawn from the mask timeline and is skipped."
     end
-    for (key, label) in (
-        ("alert_lookback_hours", "look-back"),
-        ("delivery_requirement_hours", "delivery requirement"),
-    )
-        haskey(pp, key) || continue
-        v = checked_number(pp[key], "post_processing.$key")
-        v > 0.0 || config_error("[CONFIG] post_processing.$key must be > 0 (got $v).")
-    end
-    # Canonicalization warns on unrecognized entries at validation time, not
-    # first at estimation/expansion time.
-    haskey(pp, "target_event_rows") && normalize_target_rows(pp["target_event_rows"])
 
     # -- [retention] --
     ret = get(cfg, "retention", Dict{String,Any}())
@@ -2185,21 +2276,14 @@ function estimate_artifacts(cfg::AbstractDict)
     event_bytes = (2 * n_batches + n_batches * (retries + 2)) * cal("bytes_event_row")
     metrics_bytes = metrics_rows * cal("bytes_metrics_row")
 
-    pp = get(cfg, "post_processing", Dict{String,Any}())
-    reject_removed_key(pp, "post_processing", "generate_batch_matrix")
-    do_matrix = checked_flag(
-        get(pp, "generate_mask_timeline", true),
-        "post_processing.generate_mask_timeline",
-    )
+    post_processing = post_processing_settings(cfg)
+    do_matrix = post_processing.generate_mask_timeline
     mask_bytes =
         do_matrix ?
         metrics_rows * (n_batches * cal("bytes_mask_cell") + MASK_ROW_OVERHEAD_BYTES) : 0.0
 
-    do_expand = checked_flag(
-        get(pp, "expand_to_pointwise_masks", false),
-        "post_processing.expand_to_pointwise_masks",
-    )
-    target_rows = normalize_target_rows(get(pp, "target_event_rows", [-1]))
+    do_expand = post_processing.expand_to_pointwise_masks
+    target_rows = post_processing.target_event_rows
     # Branch on the concrete type: the union contract admits any Symbol, so a
     # type test narrows soundly where `=== :all` would not.
     n_expansions =
@@ -2208,17 +2292,14 @@ function estimate_artifacts(cfg::AbstractDict)
     # HDF5 export: a second copy of the tabular products and masks (the
     # binary layout is denser than CSV; the CSV sizes bound it).
     hdf5_bytes =
-        checked_flag(get(pp, "hdf5_export", false), "post_processing.hdf5_export") ?
+        post_processing.hdf5_export ?
         event_bytes + metrics_bytes + mask_bytes + pointwise_bytes : 0.0
 
     # Mission summary, one session figure per day and per low-latency period,
     # and one figure per enabled metric or raster product. The same count
     # sizes the plots directory and enters the file count below.
     n_low_latency = length(contacts_settings(cfg).low_latency_periods)
-    n_flagged_figures = count(
-        key -> checked_flag(get(pp, key, true), "post_processing.$key"),
-        ("alert_latency", "delivery_delay", "state_raster"),
-    )
+    n_flagged_figures = count(values(post_processing.figures))
     n_figures = 1 + mission_days + n_low_latency + n_flagged_figures
     plot_bytes = n_figures * (cal("bytes_plot") + cal("bytes_plot_pdf"))
     log_bytes = n_batches * cal("bytes_log_per_batch") + LOG_FIXED_OVERHEAD_BYTES
