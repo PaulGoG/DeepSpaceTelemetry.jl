@@ -1,6 +1,4 @@
-using Pkg;
-Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
-Pkg.instantiate(io = devnull)
+include(joinpath(@__DIR__, "..", "activate.jl"))
 using DeepSpaceTelemetry
 using CairoMakie, CSV, DataFrames, Dates
 
@@ -20,20 +18,22 @@ const GIF_PROFILES = Dict(
 )
 
 """
-    link_state(bandwidth_pct, disruption_active) -> Tuple{String,Any}
+    link_state(bandwidth_pct, floor_pct, disruption_active) -> Tuple{String,Any}
 
-Label and color of the link state of one metrics row: a disruption with no
-residual capacity is a blackout, a disruption with some is a degraded link,
-and without a disruption the link is either inside a contact pass or in the
+Label and color of the link state of one metrics row. `floor_pct` is the
+capacity below which the receiver attempts no transfer
+(`telemetry.min_link_factor`, in percent like `bandwidth_pct`): a disruption
+at or below it is a blackout, a disruption above it a degraded link, and
+without a disruption the link is either inside a contact pass or in the
 blind spot between two.
 """
-function link_state(bandwidth_pct::Real, disruption_active::Bool)
-    disruption_active &&
-        bandwidth_pct <= 0.05 &&
-        return ("Blackout", DeepSpaceTelemetry.PlotTheme.COLOR_LOST)
-    disruption_active && return ("Degraded link", DeepSpaceTelemetry.PlotTheme.COLOR_LOST)
-    bandwidth_pct > 0.05 &&
-        return ("Contact pass", DeepSpaceTelemetry.PlotTheme.COLOR_BANDWIDTH)
+function link_state(bandwidth_pct::Real, floor_pct::Real, disruption_active::Bool)
+    transmittable = bandwidth_pct > floor_pct
+    disruption_active && return (
+        transmittable ? "Degraded link" : "Blackout",
+        DeepSpaceTelemetry.PlotTheme.COLOR_LOST,
+    )
+    transmittable && return ("Contact pass", DeepSpaceTelemetry.PlotTheme.COLOR_BANDWIDTH)
     return ("Blind spot", DeepSpaceTelemetry.PlotTheme.COLOR_GUIDE)
 end
 
@@ -61,6 +61,9 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
     # Shared state-machine replay: the exact event-log reconstruction (a run
     # without events_tx.csv / events_rx.csv is rejected).
     row_states = DeepSpaceTelemetry.Receiver.batch_states(run_dir, df)
+    run_cfg = DeepSpaceTelemetry.TelemetryCore.load_run_config(run_dir)
+    floor_pct =
+        100 * DeepSpaceTelemetry.TelemetryCore.telemetry_settings(run_cfg).min_link_factor
     show_lost = !isempty(row_states) && !isempty(last(row_states).lost)
     # Legacy profiles predate the loss and disruption columns.
     has_loss_col = hasproperty(df, :Lost_Count)
@@ -206,6 +209,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
             # no mission time at all.
             state_label, state_color = link_state(
                 row.Bandwidth_Pct,
+                floor_pct,
                 has_disruption_col ? Bool(row.Disruption_Active) : false,
             )
             text!(
