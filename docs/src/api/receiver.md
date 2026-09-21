@@ -7,6 +7,8 @@ DeepSpaceTelemetry.Receiver.PlotContext
 DeepSpaceTelemetry.Receiver.plot_context
 DeepSpaceTelemetry.Receiver.plot_mission_summary
 DeepSpaceTelemetry.Receiver.RASTER_PX_PER_UNIT
+DeepSpaceTelemetry.Receiver.RASTER_STATES
+DeepSpaceTelemetry.Receiver.archive_batch_ids
 DeepSpaceTelemetry.Receiver.plot_state_raster
 DeepSpaceTelemetry.Receiver.raster_figure
 DeepSpaceTelemetry.Receiver.session_figure_stems
@@ -25,13 +27,10 @@ DeepSpaceTelemetry.Receiver.shade_low_latency!
 DeepSpaceTelemetry.Receiver.mark_events!
 DeepSpaceTelemetry.Receiver.figure_legend_entries
 DeepSpaceTelemetry.Receiver.add_figure_legend!
-DeepSpaceTelemetry.Receiver.LEGEND_COLGAP
-DeepSpaceTelemetry.Receiver.legend_banks
-DeepSpaceTelemetry.Receiver.AXIS_MARGIN_UNITS
 DeepSpaceTelemetry.Receiver.upright_rules
-DeepSpaceTelemetry.Receiver.LOST_STRIP_SHARE
-DeepSpaceTelemetry.Receiver.summary_figure_height
+DeepSpaceTelemetry.Receiver.TICK_LABEL_SPACE
 DeepSpaceTelemetry.Receiver.summary_tick_step_hours
+DeepSpaceTelemetry.Receiver.mission_time_ticks
 DeepSpaceTelemetry.Receiver.BatchStates
 DeepSpaceTelemetry.Receiver.reconstruct_batch_states
 DeepSpaceTelemetry.Receiver.batch_states

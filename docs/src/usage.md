@@ -224,18 +224,18 @@ hash, file list), each file named `<stem>__<run_id>.<format>`:
 [post_processing.publication]
 enabled = true
 format = "pdf"              # or "svg"
-column_width_mm = 86.0      # single column; 178 = the double-column design width
+column_width_mm = 120.0     # printed width [mm], 100 to 400; default 178
 export_dir = "figures_export"     # "" = <run_dir>/publication
 ```
-Text keeps at least 7 pt at the printed size. Below about 100 mm the figures
-adapt rather than shrink: axis labels, legend entries, and in-axis counts
-take their short forms, which holds the legend to a few rows and leaves the
-panels tall enough that the rotated y-labels of two adjacent panels cannot
-meet; where the short forms are not enough, the figure gains height until
-they clear (`Receiver.summary_figure_height`). In-axis annotations move to
-whichever end of the axis the disruption rules and event markers leave free,
-and the delivery-delay requirement rule stops above its annotation block
-instead of crossing it. The same export runs afterwards for any run with the
+Every figure is composed at one standard layout (1200 Makie units wide,
+26-unit type) and the export scales it as a whole, so a narrower figure is a
+miniature of the standard one: at 178 mm the axis labels print at about
+11 pt and the tick labels at about 9 pt, at the 100 mm floor at about 6 pt
+and 5 pt. Figure heights and legend rows follow from Makie's own layout
+measurements at the standard layout. In-axis annotations move to whichever
+end of the axis the disruption rules and event markers leave free, and the
+delivery-delay requirement rule stops above its annotation block instead of
+crossing it. The same export runs afterwards for any run with the
 settings of its snapshot:
 ```bash
 julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
@@ -250,9 +250,10 @@ state_raster = true         # the batch-state timeline as a raster
 `state_raster.png` draws `masks/telemetry_mask_timeline.csv` with one column
 per batch, one row per recorded event, and one color per state: the boundary
 between the future wash and the onboard color is generation, each pass turns a
-block of columns to the ground color, and within a block the higher batch
-identifiers turn first — the LIFO backfill, advancing backwards in batch
-identifier. What remains in the onboard color at the top of the figure is the
+block of columns to the ground colors — the live color for batches generated
+in contact, the archive color for blind-spot batches, as in every other
+figure — and within an archive block the higher batch identifiers turn first:
+the LIFO backfill, advancing backwards in batch identifier. What remains in the onboard color at the top of the figure is the
 backlog the run never cleared. It needs `generate_mask_timeline`, and is
 skipped without it.
 

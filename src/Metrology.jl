@@ -22,7 +22,6 @@ using CairoMakie:
     @L_str,
     Axis,
     Figure,
-    Legend,
     LineElement,
     PolyElement,
     band!,
@@ -44,22 +43,50 @@ by the realized and the counterfactual series and by their legend patches.
 const QUARTILE_BAND_ALPHA = 0.25
 
 """
-    ANNOTATION_BLOCK_TOP
+    SINGLE_PANEL_SHARE
 
-Relative height of the delivery-delay figure's corner annotation: four lines
-of text rising this far up the axis from the bottom. The requirement rule
-stops here and its label starts here, so neither crosses the block.
+Axis height of the single-panel metrology figures in units of the main-panel
+height of the style (`PlotTheme.PlotStyle.panel_height`).
 """
-const ANNOTATION_BLOCK_TOP = 0.26
+const SINGLE_PANEL_SHARE = 1.4
+
+"""
+    Y_HEADROOM
+
+Upper y-limit of the delivery-delay figure: the unit fraction plus the
+headroom that keeps the top of the curves clear of the frame.
+"""
+const Y_HEADROOM = 1.05
 
 """
     ANNOTATION_BLOCK_LEFT
 
 Relative abscissa the delivery-delay figure's corner annotation reaches left
 to. A requirement rule beyond it would pass behind the block
-([`ANNOTATION_BLOCK_TOP`](@ref)).
+([`annotation_block_top`](@ref)).
 """
 const ANNOTATION_BLOCK_LEFT = 0.5
+
+"""
+    ANNOTATION_BLOCK_BOTTOM
+
+Relative height at which the delivery-delay figure's corner annotation
+starts.
+"""
+const ANNOTATION_BLOCK_BOTTOM = 0.06
+
+"""
+    annotation_block_top(style::PlotTheme.PlotStyle, n_lines::Int) -> Float64
+
+Relative height the delivery-delay figure's corner annotation reaches: its
+bottom offset plus `n_lines` line advances, against the axis height of the
+figure, plus a margin of 0.02. The requirement rule stops here and its
+label starts here, so neither crosses the block.
+"""
+annotation_block_top(style::PlotTheme.PlotStyle, n_lines::Int) =
+    ANNOTATION_BLOCK_BOTTOM +
+    n_lines * PlotTheme.line_advance(style) / (SINGLE_PANEL_SHARE * style.panel_height) +
+    0.02
 
 """
     quantile_sorted(values::AbstractVector{<:Real}, p::Real) -> Float64
@@ -422,19 +449,11 @@ function plot_alert_latency(
     x = Float64.(table.Lookback_Hours)
     path = ""
     with_theme(PlotTheme.telemetry_theme(style)) do
-        fig = Figure(size = style.size_session)
+        fig = Figure(size = (style.width, style.width))
         ax = Axis(
             fig[1, 1],
-            xlabel = PlotTheme.label(
-                style,
-                L"Look-back $\delta$ before the live event [h]",
-                L"Look-back $\delta$ [h]",
-            ),
-            ylabel = PlotTheme.label(
-                style,
-                "Window complete on the ground after [h]",
-                "Window complete after [h]",
-            ),
+            xlabel = L"Look-back $\delta$ before the live event [h]",
+            ylabel = "Window complete on the ground after [h]",
         )
         # Interquartile bands with a thin full-hue edge on both quartiles,
         # the medians on top: realized solid, counterfactual dotted.
@@ -461,7 +480,7 @@ function plot_alert_latency(
                 q,
                 color = PlotTheme.COLOR_COUNTERFACTUAL,
                 linestyle = :dot,
-                linewidth = 0.5 * style.linewidth,
+                linewidth = style.linewidth_guide,
             )
         end
         for q in (lifo_q25, lifo_q75)
@@ -470,7 +489,7 @@ function plot_alert_latency(
                 x,
                 q,
                 color = PlotTheme.COLOR_ARCHIVE,
-                linewidth = 0.5 * style.linewidth,
+                linewidth = style.linewidth_guide,
             )
         end
         lines!(
@@ -508,7 +527,7 @@ function plot_alert_latency(
                 LineElement(
                     color = PlotTheme.COLOR_MARKER,
                     linestyle = line_style,
-                    linewidth = 2 * style.linewidth,
+                    linewidth = style.linewidth,
                 ),
             )
             push!(marker_names, "Marker: $label")
@@ -528,28 +547,21 @@ function plot_alert_latency(
             marker_peak,
         )
         xlims!(ax, 0, maximum(x) > 0 ? maximum(x) : 1.0)
-        # Narrow figures wrap the annotation into four lines: more headroom.
-        ylims!(ax, 0, (style.scale < 0.7 ? 1.45 : 1.25) * y_max)
+        ylims!(ax, 0, 1.25 * y_max)
         last = table[end, :]
         # Two text primitives: the headline as a LaTeX string (italic δ; a
         # single line, since MathTeXEngine centers continuation lines) and
         # the remaining lines as a plain block one line advance below (a
-        # rich-text block would double the line spacing). Narrow figures
-        # wrap into four lines.
+        # rich-text block would double the line spacing).
         comparison =
             "$(round(last.LIFO_Median_Hours, digits = 1)) h (realized) vs " *
             "$(round(last.FIFO_Median_Hours, digits = 1)) h (counterfactual);"
-        population = "medians over $(last.N_Alerts) live events"
+        population =
+            "medians over $(last.N_Alerts) live event" * (last.N_Alerts == 1 ? "" : "s")
         budget = "Ground processing budget: $(round(processing_latency_hours, digits = 1)) h"
         lookback = round(last.Lookback_Hours, digits = 1)
-        headline_tail = PlotTheme.label(style, " " * comparison * " " * population, "")
-        headline =
-            L"Waveform back to $\delta$ = %$(lookback) h complete after%$(headline_tail)"
-        body = PlotTheme.label(
-            style,
-            budget * " on top of every latency",
-            join((comparison, population, budget * " on top"), "\n"),
-        )
+        headline = L"Waveform back to $\delta$ = %$(lookback) h complete after"
+        body = comparison * " " * population * "\n" * budget * " on top of every latency"
         text!(
             ax,
             0.02,
@@ -569,15 +581,16 @@ function plot_alert_latency(
             offset = (0, -PlotTheme.line_advance(style)),
             fontsize = style.fontsize_annotation,
         )
-        Legend(
-            fig[0, 1],
+        PlotTheme.figure_legend!(
+            fig,
+            style,
             vcat(
                 Any[
                     [
                         PolyElement(color = (PlotTheme.COLOR_ARCHIVE, QUARTILE_BAND_ALPHA)),
                         LineElement(
                             color = PlotTheme.COLOR_ARCHIVE,
-                            linewidth = 2 * style.linewidth,
+                            linewidth = style.linewidth,
                         ),
                     ],
                     [
@@ -586,7 +599,7 @@ function plot_alert_latency(
                         ),
                         LineElement(
                             color = PlotTheme.COLOR_COUNTERFACTUAL,
-                            linewidth = 2 * style.linewidth,
+                            linewidth = style.linewidth,
                             linestyle = :dot,
                         ),
                     ],
@@ -596,17 +609,9 @@ function plot_alert_latency(
             vcat(
                 ["Realized: live FIFO + archive LIFO", "Counterfactual: FIFO drain"],
                 marker_names,
-            );
-            orientation = :horizontal,
-            nbanks = ceil(
-                Int,
-                (2 + length(marker_names)) /
-                max(1, floor(Int, style.size_session[1] / 220)),
             ),
-            framevisible = false,
-            backgroundcolor = :transparent,
-            colgap = 28,
         )
+        PlotTheme.size_to_panels!(fig, 1 => SINGLE_PANEL_SHARE * style.panel_height)
         path = PlotTheme.save_figure(fig, plots_dir, "alert_latency"; formats, suffix)
     end
     @info "[POST] Alert-latency metric saved: $(relpath(path, run_dir)) and alert_latency.csv."
@@ -739,30 +744,28 @@ function plot_delivery_delay(
 
     path = ""
     with_theme(PlotTheme.telemetry_theme(style)) do
-        fig = Figure(size = style.size_session)
+        fig = Figure(size = (style.width, style.width))
         ax = Axis(
             fig[1, 1],
             xlabel = "Measurement-to-ground delay [h]",
-            ylabel = PlotTheme.label(
-                style,
-                "Fraction of generated batches delivered",
-                "Fraction delivered",
-            ),
+            ylabel = "Fraction of generated batches delivered",
         )
         xlims!(ax, 0, x_max)
-        ylims!(ax, 0, 1.05)
+        ylims!(ax, 0, Y_HEADROOM)
         # The requirement rule stops above the annotation block when it would
         # otherwise pass behind it — a requirement beyond every realized delay
         # lands at 0.87 of the axis, inside the block's corner. The curves
         # occupy the upper-left, so the block cannot move instead.
+        n_lines = summary.via_low_latency > 0 ? 4 : 3
+        block_top = annotation_block_top(style, n_lines)
         crosses_annotation = requirement_hours / x_max > ANNOTATION_BLOCK_LEFT
         lines!(
             ax,
             [requirement_hours, requirement_hours],
-            [crosses_annotation ? ANNOTATION_BLOCK_TOP * 1.05 : 0.0, 1.05],
+            [crosses_annotation ? block_top * Y_HEADROOM : 0.0, Y_HEADROOM],
             color = (PlotTheme.COLOR_GUIDE, 0.8),
             linestyle = :dash,
-            linewidth = style.linewidth,
+            linewidth = style.linewidth_guide,
         )
         # One curve per batch family present, the all-batches aggregate only
         # when both families exist (it coincides with the single family
@@ -775,7 +778,7 @@ function plot_delivery_delay(
             stairs!(ax, x_all, y_all, color = PlotTheme.COLOR_GUIDE)
             push!(
                 legend_elems,
-                LineElement(color = PlotTheme.COLOR_GUIDE, linewidth = 2 * style.linewidth),
+                LineElement(color = PlotTheme.COLOR_GUIDE, linewidth = style.linewidth),
             )
             push!(legend_labels, "All batches")
         end
@@ -783,7 +786,7 @@ function plot_delivery_delay(
             stairs!(ax, x_live, y_live, color = PlotTheme.COLOR_LIVE)
             push!(
                 legend_elems,
-                LineElement(color = PlotTheme.COLOR_LIVE, linewidth = 2 * style.linewidth),
+                LineElement(color = PlotTheme.COLOR_LIVE, linewidth = style.linewidth),
             )
             push!(legend_labels, "Live")
         end
@@ -791,19 +794,16 @@ function plot_delivery_delay(
             stairs!(ax, x_arch, y_arch, color = PlotTheme.COLOR_ARCHIVE)
             push!(
                 legend_elems,
-                LineElement(
-                    color = PlotTheme.COLOR_ARCHIVE,
-                    linewidth = 2 * style.linewidth,
-                ),
+                LineElement(color = PlotTheme.COLOR_ARCHIVE, linewidth = style.linewidth),
             )
             push!(legend_labels, "Archive")
         end
         # Bottom-right corner: the curves occupy the upper-left triangle, so
-        # three short lines here clear the data and the requirement label.
+        # the short lines here clear the data and the requirement label.
         text!(
             ax,
             0.98,
-            0.06,
+            ANNOTATION_BLOCK_BOTTOM,
             text = "$(round(100 * summary.fraction_within, digits = 1)) % of $(summary.generated) batches within " *
                    "$(round(requirement_hours, digits = 1)) h\n" *
                    "Median $(round(summary.median_hours, digits = 1)) h, " *
@@ -819,35 +819,23 @@ function plot_delivery_delay(
             fontsize = style.fontsize_annotation,
         )
         # Requirement label vertical along the line on its left, starting
-        # above the annotation block (four lines at most); the axis spans
-        # [0, x_max], so the line's relative abscissa is exact.
+        # above the annotation block; the axis spans [0, x_max], so the
+        # line's relative abscissa is exact.
         text!(
             ax,
             requirement_hours / x_max,
-            ANNOTATION_BLOCK_TOP,
+            block_top,
             text = "Requirement: $(round(requirement_hours, digits = 1)) h",
             space = :relative,
             rotation = π / 2,
             align = (:left, :bottom),
-            offset = (-4, 0),
+            offset = (-PlotTheme.scaled(style, 8), 0),
             fontsize = style.fontsize_annotation,
             color = PlotTheme.COLOR_GUIDE,
         )
-        if length(legend_labels) > 1
-            Legend(
-                fig[0, 1],
-                legend_elems,
-                legend_labels;
-                orientation = :horizontal,
-                nbanks = ceil(
-                    Int,
-                    length(legend_labels) / max(1, floor(Int, style.size_session[1] / 110)),
-                ),
-                framevisible = false,
-                backgroundcolor = :transparent,
-                colgap = 28,
-            )
-        end
+        length(legend_labels) > 1 &&
+            PlotTheme.figure_legend!(fig, style, legend_elems, legend_labels)
+        PlotTheme.size_to_panels!(fig, 1 => SINGLE_PANEL_SHARE * style.panel_height)
         path = PlotTheme.save_figure(fig, plots_dir, "delivery_delay"; formats, suffix)
     end
     @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) and delivery_delay.csv ($(round(100 * summary.fraction_within, digits = 1)) % within $(requirement_hours) h)."

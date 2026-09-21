@@ -1021,9 +1021,9 @@ end
     publication_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[post_processing.publication]`: `enabled` (default `false`),
-`format` (`"pdf"` | `"svg"`, default `"pdf"`), `column_width_mm ∈ [40, 400]`
-(default 178, the double-column width the figures are designed at; 86–90
-for a single column), and `export_dir` (default `""` =
+`format` (`"pdf"` | `"svg"`, default `"pdf"`), `column_width_mm ∈ [100, 400]`
+(default 178; the standard layout is scaled as a whole to this printed
+width, `PlotTheme.style_for_width`), and `export_dir` (default `""` =
 `<run_dir>/publication`; relative paths resolve against the current
 directory). Unrecognized keys warn.
 """
@@ -1049,8 +1049,8 @@ function publication_settings(cfg::AbstractDict)
         get(pub, "column_width_mm", 178.0),
         "post_processing.publication.column_width_mm",
     )
-    40.0 <= width <= 400.0 || config_error(
-        "[CONFIG] post_processing.publication.column_width_mm must lie in [40, 400] (got $width).",
+    100.0 <= width <= 400.0 || config_error(
+        "[CONFIG] post_processing.publication.column_width_mm must lie in [100, 400] (got $width).",
     )
     export_dir =
         checked_string(get(pub, "export_dir", ""), "post_processing.publication.export_dir")

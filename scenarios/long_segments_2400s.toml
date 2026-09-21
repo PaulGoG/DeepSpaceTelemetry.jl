@@ -91,5 +91,5 @@ hdf5_export = false                  # HDF5 product export (products.h5) flag. O
 [post_processing.publication]
 enabled = false                      # Publication figure export flag. One of: true | false.
 format = "pdf"                       # Vector format of the exported figures. One of: "pdf" | "svg".
-column_width_mm = 178.0              # Printed width of the exported figures [mm]. SAFE: [40, 400].
+column_width_mm = 178.0              # Printed width of the exported figures [mm]. SAFE: [100, 400].
 export_dir = ""                      # Export directory; "" = <run_dir>/publication. SAFE: directory path or "".

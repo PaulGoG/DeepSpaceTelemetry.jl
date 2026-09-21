@@ -23,8 +23,8 @@ using TOML: TOML
 
 Renders the mission summary, every session figure, the metrology figures,
 and the batch-state raster of the run at
-`column_width_mm` (178 = the double-column design width; 86–90 for a single
-column) in `format` (`"pdf"` or `"svg"`) into
+`column_width_mm` (the standard layout scaled as a whole to this printed
+width) in `format` (`"pdf"` or `"svg"`) into
 `export_dir` (default `<run_dir>/publication`), each file named
 `<stem>__<run_id>.<format>`, and writes `PROVENANCE.toml` beside them
 ([`write_provenance`](@ref)). The metrology tables of the run are not

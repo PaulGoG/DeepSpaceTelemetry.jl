@@ -18,6 +18,21 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - **Breaking:** an unknown `telemetry.bandwidth_profile` is a `[CONFIG]`
   error; it was a warning and ran as `"sine"`. `VisibilityModel` rejects an
   unknown profile at construction.
+- **Breaking:** `post_processing.publication.column_width_mm` must lie in
+  [100, 400]; the floor was 40.
+- Every figure is composed at one standard layout — 1200 Makie units wide,
+  26-unit type, 3-unit data lines, fixed panel heights — and a publication
+  export scales it as a whole, so a narrower figure is a miniature of the
+  standard one. Figure heights and legend rows follow from Makie's own layout
+  measurements. The figures of 1.x were composed at 673 units with 12-unit
+  type, and shrank type and strokes non-linearly below the design width.
+- The figure legends group their entries under the headers `Link`,
+  `Received`, and `Events`.
+- The batch-state raster draws delivered batches in the live or the archive
+  color of the other figures, according to the batch family, lists only the
+  states present, and labels mission time in days.
+- Mission-time axes shorter than two days carry hours instead of a single
+  `Day 0` label.
 - `physics.segment_duration_sec` must be a whole number of milliseconds, and
   sub-second segments now advance the content clock exactly (it advanced by
   whole seconds). A segment must hold at least one sample (was two).
@@ -57,6 +72,13 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `physics.noise_f_min_hz`, and `post_processing.payload_spectrum`. A
   configuration that carries one is rejected with the remedy named; the
   snapshot of an older run still reads.
+- The narrow-width layout machinery of 1.2.0: the short label forms
+  (`PlotTheme.label`), `PlotTheme.label_extent`,
+  `PlotTheme.annotation_width_fraction`, `PlotTheme.legend_row_height`,
+  `PlotTheme.FIG_SIZE_SUMMARY`, `PlotTheme.FIG_SIZE_SESSION`,
+  `Receiver.legend_banks`, `Receiver.summary_figure_height`,
+  `Receiver.LEGEND_COLGAP`, `Receiver.AXIS_MARGIN_UNITS`,
+  `Receiver.LOST_STRIP_SHARE`, and `Metrology.ANNOTATION_BLOCK_TOP`.
 - Dependencies `FFTW` and `AbstractFFTs`.
 - The CompatHelper and TagBot workflows; the package is not registered.
 
@@ -74,6 +96,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - The caption on the manual's landing page quoted superseded run totals.
 - A batch-state raster requested without a mask timeline was skipped without
   a message.
+- The alert-latency annotation read "1 live events".
 
 ## [1.2.0] - 2026-09-13
 

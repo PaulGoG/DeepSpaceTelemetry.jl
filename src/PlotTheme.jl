@@ -1,13 +1,16 @@
 """
     PlotTheme
 
-Publication plotting standards shared by every figure: the Okabe–Ito
-semantic palette, journal-width figure geometry, print-scale typography, and
-the CairoMakie theme ([`telemetry_theme`](@ref)).
+Plotting standards shared by every figure: the Okabe–Ito semantic palette,
+the standard figure layout with its uniform print scaling
+([`PlotStyle`](@ref)), the measured legend and figure sizing
+([`figure_legend!`](@ref), [`size_to_panels!`](@ref)), and the CairoMakie
+theme ([`telemetry_theme`](@ref)).
 """
 module PlotTheme
 
-using CairoMakie: CairoMakie, @colorant_str, Theme, save
+using CairoMakie:
+    CairoMakie, @colorant_str, Fixed, Legend, Theme, resize_to_layout!, rowsize!, save
 using MathTeXEngine: texfont
 
 # Okabe–Ito colorblind-safe palette: one semantic color per quantity,
@@ -108,103 +111,189 @@ appears as the boundary of the drawn area.
 """
 const COLOR_FUTURE = colorant"#F5F5F5"
 
-# --- Journal sizing: design at the final printed width. ---
-# Makie layout units are 1/96 inch; a PDF exported at these sizes enters
-# LaTeX at native scale (178 mm double-column ≈ 673 units), and PNG at
-# px_per_unit = 4 renders ≥ 380 dpi.
+# --- Standard layout ---
+# Every figure is composed once, at the standard layout below, and scaled as
+# a whole: `PlotStyle(scale)` multiplies every length by the same factor, so
+# a figure printed narrower is a miniature of the standard one and no two of
+# its elements can newly meet. Makie layout units are 1/96 inch; a vector
+# export enters LaTeX at native size.
 
 """
-    FIG_SIZE_SUMMARY
+    FIGURE_WIDTH
 
-Mission-summary figure size in Makie units: 178 mm double-column width at the
-final printed scale (three stacked panels + legend strip).
+Width of every figure at the standard layout, in Makie units. The figures of
+a mission are stacked time-series dashboards with one shared width, so
+sibling figures print with identical type.
 """
-const FIG_SIZE_SUMMARY = (673, 500)
-
-"""
-    FIG_SIZE_SESSION
-
-Session-detail figure size in Makie units: 178 mm double-column width
-(two stacked panels + legend strip).
-"""
-const FIG_SIZE_SESSION = (673, 420)
+const FIGURE_WIDTH = 1200
 
 """
-    LINEWIDTH_DATA
+    PANEL_HEIGHT
 
-Data-series line width in Makie units (≈ 1.1 pt at final print scale;
-[`PlotStyle`](@ref) floors the scaled width at 0.9 of it, ≈ 1 pt, for
-narrower figures).
+Axis height of a main panel at the standard layout, in Makie units.
 """
-const LINEWIDTH_DATA = 1.5
+const PANEL_HEIGHT = 380
 
 """
-    MARKERSIZE_DATA
+    STRIP_HEIGHT
 
-Marker size in Makie units for event pins and legend glyphs — one size
-everywhere, so every figure of the project draws it identically.
+Axis height of an auxiliary strip (the Lost strip of the mission summary) at
+the standard layout, in Makie units.
 """
-const MARKERSIZE_DATA = 8
+const STRIP_HEIGHT = 150
+
+"""
+    FONTSIZE
+
+Font size of axis labels, legends, and legend headers at the standard
+layout, in Makie units.
+"""
+const FONTSIZE = 26
+
+"""
+    FONTSIZE_TICK
+
+Tick-label font size at the standard layout, in Makie units.
+"""
+const FONTSIZE_TICK = 22
 
 """
     FONTSIZE_ANNOTATION
 
-In-axis annotation font size in Makie units (≈ 7.5 pt at print scale).
+In-axis annotation font size at the standard layout, in Makie units.
 """
-const FONTSIZE_ANNOTATION = 10
+const FONTSIZE_ANNOTATION = 21
+
+"""
+    LINEWIDTH_DATA
+
+Data-series line width at the standard layout, in Makie units.
+"""
+const LINEWIDTH_DATA = 3.0
+
+"""
+    LINEWIDTH_GUIDE
+
+Line width of reference and guide lines — thresholds, requirement rules,
+the edges of shaded event windows, event-marker rules — at the standard
+layout, in Makie units.
+"""
+const LINEWIDTH_GUIDE = 1.5
+
+"""
+    LINEWIDTH_EDGE
+
+Line width of the same-hue edge drawn on an area fill at the standard
+layout, in Makie units.
+"""
+const LINEWIDTH_EDGE = 2.5
+
+"""
+    MARKERSIZE_DATA
+
+Marker size of event pins and legend glyphs at the standard layout, in Makie
+units — one size everywhere, so every figure of the project draws it
+identically.
+"""
+const MARKERSIZE_DATA = 14
+
+"""
+    FILL_ALPHA
+
+Alpha of the area fills under cumulative curves; the fill carries a full-hue
+edge of [`LINEWIDTH_EDGE`](@ref).
+"""
+const FILL_ALPHA = 0.35
+
+"""
+    FIGURE_PADDING
+
+Outer padding of every figure at the standard layout, in Makie units.
+"""
+const FIGURE_PADDING = 10
+
+"""
+    FIGURE_PADDING_RIGHT
+
+Right-hand padding of every figure at the standard layout, in Makie units:
+the outer padding plus half the width of a tick label, which an x tick
+landing on the axis frame pushes past it.
+"""
+const FIGURE_PADDING_RIGHT = 45
+
+"""
+    AXIS_WIDTH_SHARE
+
+Share of the figure width a stacked panel's axis occupies once the y-axis
+decorations of both sides and the padding are taken out. An estimate, used
+only to express the width of an annotation relative to its axis
+([`annotation_fraction`](@ref)).
+"""
+const AXIS_WIDTH_SHARE = 0.84
 
 """
     PlotStyle
 
-Print-scale parameters of one figure set: `scale` relative to the
-double-column design width (178 mm ↔ 673 Makie units), the derived figure
-sizes, line width, marker size, and the font sizes (body, axis label, tick
-label, legend, in-axis annotation). Fonts and strokes do not shrink
-linearly with the width — `PlotStyle(scale)` floors them so text stays
-≥ 7 pt at the final print size — and narrow figures gain height for the
-legends that wrap.
+Lengths of one figure set, all in Makie units: `scale` relative to the
+standard layout, the figure `width`, the axis heights `panel_height` and
+`strip_height`, the font sizes (`fontsize` for axis labels and legends,
+`fontsize_tick`, `fontsize_annotation`), the line widths (`linewidth` for
+data, `linewidth_guide` for reference lines and window edges,
+`linewidth_edge` for the edge of an area fill), and `markersize`.
+`PlotStyle(scale)` multiplies the standard layout by `scale` throughout;
+`PlotStyle()` is the standard layout itself.
 """
 struct PlotStyle
     scale::Float64
-    size_summary::Tuple{Int,Int}
-    size_session::Tuple{Int,Int}
-    linewidth::Float64
-    markersize::Float64
+    width::Int
+    panel_height::Float64
+    strip_height::Float64
     fontsize::Float64
-    fontsize_label::Float64
     fontsize_tick::Float64
-    fontsize_legend::Float64
     fontsize_annotation::Float64
+    linewidth::Float64
+    linewidth_guide::Float64
+    linewidth_edge::Float64
+    markersize::Float64
 end
 
 function PlotStyle(scale::Real = 1.0)
     scale > 0 || throw(ArgumentError("PlotStyle scale must be > 0 (got $scale)."))
     s = Float64(scale)
-    text = max(s, 0.85)          # ≈ 7 pt floor at print size
-    height = s < 1 ? s * (1 + 1.0 * (1 - s)) : s
     return PlotStyle(
         s,
-        (round(Int, FIG_SIZE_SUMMARY[1] * s), round(Int, FIG_SIZE_SUMMARY[2] * height)),
-        (round(Int, FIG_SIZE_SESSION[1] * s), round(Int, FIG_SIZE_SESSION[2] * height)),
-        LINEWIDTH_DATA * max(s, 0.9),   # ≈ 1 pt floor at print size
-        MARKERSIZE_DATA * max(s, 0.75),
-        12 * text,
-        13 * text,
-        11 * text,
-        11 * text,
-        max(FONTSIZE_ANNOTATION * text, 9.4),
+        round(Int, FIGURE_WIDTH * s),
+        PANEL_HEIGHT * s,
+        STRIP_HEIGHT * s,
+        FONTSIZE * s,
+        FONTSIZE_TICK * s,
+        FONTSIZE_ANNOTATION * s,
+        LINEWIDTH_DATA * s,
+        LINEWIDTH_GUIDE * s,
+        LINEWIDTH_EDGE * s,
+        MARKERSIZE_DATA * s,
     )
 end
 
 """
-    label(style::PlotStyle, long::AbstractString, short::AbstractString) -> AbstractString
+    scaled(style::PlotStyle, length::Real) -> Float64
 
-`long` at the design width, `short` for narrow figures (`scale < 0.7`),
-where a long axis label would collide with the neighboring panel. Plain
-and LaTeX strings alike.
+`length`, given in Makie units at the standard layout, at the scale of
+`style`. Every absolute length a figure sets by hand — a reserved tick-label
+width, a gap, an offset — goes through here.
 """
-label(style::PlotStyle, long::AbstractString, short::AbstractString) =
-    style.scale < 0.7 ? short : long
+scaled(style::PlotStyle, length::Real) = style.scale * length
+
+"""
+    style_for_width(column_width_mm::Real) -> PlotStyle
+
+The [`PlotStyle`](@ref) of a figure printed `column_width_mm` wide (Makie
+units are 1/96 inch). At 178 mm the axis labels print at ≈ 11 pt and the
+tick labels at ≈ 9 pt; at the 100 mm floor of the publication export, at
+≈ 6 pt and ≈ 5 pt.
+"""
+style_for_width(column_width_mm::Real) =
+    PlotStyle(column_width_mm / 25.4 * 96 / FIGURE_WIDTH)
 
 """
     line_advance(style::PlotStyle) -> Float64
@@ -221,17 +310,33 @@ function line_advance(style::PlotStyle)
 end
 
 """
-    annotation_side(occupied, x_lo, x_hi; fraction = 0.38) -> Symbol
+    annotation_fraction(style::PlotStyle, text) -> Float64
+
+Width of the single-line annotation `text` as a fraction of the axis it sits
+in, at half an em per character (the mean advance of the text face) against
+[`AXIS_WIDTH_SHARE`](@ref) of the figure width, capped at 0.45 — beyond that
+neither end of the axis is free. Independent of the scale of `style`.
+Nothing is positioned with it; [`annotation_side`](@ref) chooses an end of
+the axis by it.
+"""
+annotation_fraction(style::PlotStyle, text) = min(
+    0.45,
+    0.5 * style.fontsize_annotation * length(string(text)) /
+    (AXIS_WIDTH_SHARE * style.width),
+)
+
+"""
+    annotation_side(occupied, x_lo, x_hi, fraction) -> Symbol
 
 Which end of an axis an in-axis annotation block should occupy: `:right`
 unless one of the `occupied` x positions — the upright rules and shaded
 edges a figure draws — falls within `fraction` of the axis width of the
 right edge, in which case `:left`. `fraction` is the block's own width
-relative to the axis ([`annotation_width_fraction`](@ref)), so the test asks
-exactly whether a rule would cross the text. When both ends are occupied it
-stays `:right`, since moving buys nothing.
+relative to the axis ([`annotation_fraction`](@ref)), so the test asks
+whether a rule would cross the text. When both ends are occupied it stays
+`:right`, since moving buys nothing.
 """
-function annotation_side(occupied, x_lo::Real, x_hi::Real; fraction::Real = 0.38)
+function annotation_side(occupied, x_lo::Real, x_hi::Real, fraction::Real)
     span = x_hi - x_lo
     span > 0 || return :right
     in_right = any(x -> (x - x_lo) / span > 1 - fraction, occupied)
@@ -240,52 +345,84 @@ function annotation_side(occupied, x_lo::Real, x_hi::Real; fraction::Real = 0.38
 end
 
 """
-    label_extent(style::PlotStyle, text; fontsize = style.fontsize_label) -> Float64
+    fit_legend!(legend, available_width::Real) -> Int
 
-Estimated rendered length of `text` in Makie units, i.e. the height a
-rotated y-label occupies or the width an annotation line takes. The estimate
-takes half an em per character, the mean advance of the text face, and exists
-to floor panel heights and to place annotation blocks clear of upright
-rules; nothing is positioned precisely with it.
+Sets `legend.nbanks` to the smallest row count at which the legend, as Makie
+itself measures it, is no wider than `available_width`, and returns that
+count. A legend whose longest group cannot fit keeps one entry per row.
 """
-label_extent(style::PlotStyle, text; fontsize::Real = style.fontsize_label) =
-    0.5 * fontsize * length(string(text))
+function fit_legend!(legend, available_width::Real)
+    longest = maximum(group -> length(last(group)), legend.entrygroups[]; init = 1)
+    for banks in 1:longest
+        legend.nbanks[] = banks
+        legend.layoutobservables.autosize[][1] <= available_width && return banks
+    end
+    return longest
+end
 
 """
-    annotation_width_fraction(style::PlotStyle, text, axis_width) -> Float64
+    figure_legend!(fig, style::PlotStyle, elements, labels) -> Legend
+    figure_legend!(fig, style::PlotStyle, groups) -> Legend
 
-Width of the annotation `text` as a fraction of an axis `axis_width` Makie
-units wide, capped at 0.45 — beyond that neither end of the axis is free and
-[`annotation_side`](@ref) has nothing to choose between.
+The frameless horizontal legend strip above the panels of `fig`, in as many
+rows as the figure width requires ([`fit_legend!`](@ref)). `groups` is a
+vector of `(title, elements, labels)` tuples, one per series family, drawn
+side by side under bold headers; groups without entries are dropped. Every
+legend of the project is placed through here.
 """
-annotation_width_fraction(style::PlotStyle, text, axis_width::Real) = min(
-    0.45,
-    label_extent(style, text; fontsize = style.fontsize_annotation) /
-    max(1.0, Float64(axis_width)),
+function figure_legend!(
+    fig,
+    style::PlotStyle,
+    elements::AbstractVector,
+    labels::AbstractVector,
 )
+    legend =
+        Legend(fig[0, 1], elements, labels; orientation = :horizontal, tellwidth = false)
+    fit_legend!(legend, legend_width(style))
+    return legend
+end
+
+function figure_legend!(fig, style::PlotStyle, groups::AbstractVector{<:Tuple})
+    kept = filter(group -> !isempty(group[2]), groups)
+    legend = Legend(
+        fig[0, 1],
+        [group[2] for group in kept],
+        [group[3] for group in kept],
+        [group[1] for group in kept];
+        orientation = :horizontal,
+        titleposition = :top,
+        tellwidth = false,
+    )
+    fit_legend!(legend, legend_width(style))
+    return legend
+end
+
+# Width a legend may take: the figure less its padding on both sides.
+legend_width(style::PlotStyle) =
+    style.width - scaled(style, FIGURE_PADDING + FIGURE_PADDING_RIGHT)
 
 """
-    legend_row_height(style::PlotStyle) -> Float64
+    size_to_panels!(fig, rows::Pair{Int,<:Real}...) -> fig
 
-Height of one row of a horizontal figure legend in Makie units: the entry
-patch and the gap above it, at the legend size of `style`.
+Fixes the axis height of each listed layout row of `fig` (`row => height` in
+Makie units, e.g. `1 => style.panel_height`) and resizes the figure to the
+height its layout then measures — legend, panels, decorations, gaps, and
+padding — at the width it already has. Called last, once the legend and
+every axis are in place.
 """
-legend_row_height(style::PlotStyle) = 1.9 * style.fontsize_legend
-
-"""
-    style_for_width(column_width_mm::Real) -> PlotStyle
-
-The [`PlotStyle`](@ref) of a figure printed `column_width_mm` wide (Makie
-units are 1/96 inch; 178 mm is the design width, scale 1).
-"""
-style_for_width(column_width_mm::Real) =
-    PlotStyle(column_width_mm / 25.4 * 96 / FIG_SIZE_SUMMARY[1])
+function size_to_panels!(fig, rows::Pair{Int,<:Real}...)
+    for (row, height) in rows
+        rowsize!(fig.layout, row, Fixed(height))
+    end
+    resize_to_layout!(fig)
+    return fig
+end
 
 """
     save_figure(fig, dir::String, stem::String; formats = ("png", "pdf"), suffix = "") -> String
 
 Saves `fig` as `<dir>/<stem><suffix>.<ext>` for every extension in
-`formats` — PNG at `px_per_unit = 4` (≥ 380 dpi at print size), vector
+`formats` — PNG at `px_per_unit = 4` (≈ 380 dpi at native size), vector
 formats at native size — and returns the path of the first one.
 """
 function save_figure(
@@ -308,17 +445,16 @@ end
 """
     telemetry_theme(style::PlotStyle = PlotStyle())
 
-Returns a CairoMakie Theme configured for publication-quality telemetry plots
-at the final printed width: (New) Computer Modern faces via
-MathTeXEngine (a plain `font = "Computer Modern"` string is ignored by
-current Makie and silently falls back to DejaVu), ≈ 9 pt body text at
-double-column scale (floored at ≈ 7 pt for narrower `style`s), boxed axes
-with inward ticks, no titles, no minor ticks, faint dashed grid.
-Tick-label rotation is applied per axis where labels actually crowd
-(session HH:MM axes), not globally.
+The CairoMakie theme of every figure at the scale of `style`: (New) Computer
+Modern faces via MathTeXEngine (a plain `font = "Computer Modern"` string is
+ignored by current Makie and silently falls back to DejaVu), boxed axes with
+inward ticks, no titles, no minor ticks, a faint dashed grid, guide-weight
+upright and level rules, stroked markers, and frameless horizontal legends
+with bold group headers aligned at the top. Tick-label rotation is applied
+per axis where labels actually crowd (session HH:MM axes), not globally.
 """
 function telemetry_theme(style::PlotStyle = PlotStyle())
-    patch = max(style.scale, 0.75)
+    u(length) = scaled(style, length)
     return Theme(
         fonts = (;
             regular = texfont(:text),
@@ -327,33 +463,63 @@ function telemetry_theme(style::PlotStyle = PlotStyle())
             bold_italic = texfont(:bolditalic),
         ),
         fontsize = style.fontsize,
-        figure_padding = 10,
+        # (left, right, bottom, top)
+        figure_padding = (
+            u(FIGURE_PADDING),
+            u(FIGURE_PADDING_RIGHT),
+            u(FIGURE_PADDING),
+            u(FIGURE_PADDING),
+        ),
+        rowgap = u(12),
+        colgap = u(12),
         Lines = (linewidth = style.linewidth,),
         Stairs = (linewidth = style.linewidth,),
+        VLines = (linewidth = style.linewidth_guide,),
+        HLines = (linewidth = style.linewidth_guide,),
+        Scatter = (markersize = style.markersize, strokewidth = u(1.5)),
         Legend = (
             framevisible = false,
             backgroundcolor = :transparent,
-            labelsize = style.fontsize_legend,
-            patchsize = (20 * patch, 10 * patch),
+            labelsize = style.fontsize,
+            titlesize = style.fontsize,
+            titlefont = :bold,
+            gridsvalign = :top,
+            patchsize = (u(40), u(22)),
+            patchlabelgap = u(8),
+            rowgap = u(2),
+            colgap = u(28),
+            groupgap = u(44),
+            titlegap = u(6),
+            padding = (0, 0, 0, 0),
+            margin = (0, 0, 0, 0),
         ),
         Axis = (
             titlevisible = false,
+            spinewidth = u(1.5),
             xgridcolor = (:gray, 0.15),
             ygridcolor = (:gray, 0.15),
             xgridstyle = :dash,
             ygridstyle = :dash,
+            xgridwidth = u(1.5),
+            ygridwidth = u(1.5),
             xminorticksvisible = false,
             yminorticksvisible = false,
             xtickalign = 1,
             ytickalign = 1,
-            xlabelsize = style.fontsize_label,
-            ylabelsize = style.fontsize_label,
+            xticksize = u(9),
+            yticksize = u(9),
+            xtickwidth = u(1.5),
+            ytickwidth = u(1.5),
+            xlabelsize = style.fontsize,
+            ylabelsize = style.fontsize,
             xticklabelsize = style.fontsize_tick,
             yticklabelsize = style.fontsize_tick,
-            # Clearance between tick labels and axis labels (spacing
-            # discipline).
-            xlabelpadding = 8,
-            ylabelpadding = 6,
+            # Clearance of tick labels from the frame and of axis labels
+            # from the tick labels (spacing discipline).
+            xticklabelpad = u(5),
+            yticklabelpad = u(6),
+            xlabelpadding = u(8),
+            ylabelpadding = u(10),
         ),
     )
 end

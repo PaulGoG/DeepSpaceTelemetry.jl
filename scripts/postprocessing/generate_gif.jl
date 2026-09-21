@@ -74,12 +74,12 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
     # rendered the profile in full.
     step_size = max(1, ceil(Int, nrow(df) / budget.max_frames))
     canvas = budget.canvas
-    # One print-scale style, scaled from the 673-unit design width to the
-    # animation canvas, drives the axis theme, the legend typography, and
+    # One style, the standard layout scaled to the width of the animation
+    # canvas, drives the axis theme, the legend typography, and
     # the marker sizes, so they agree within every frame. Batches on the
     # link are drawn slightly larger.
     style = DeepSpaceTelemetry.PlotTheme.PlotStyle(
-        canvas[1] / DeepSpaceTelemetry.PlotTheme.FIG_SIZE_SUMMARY[1],
+        canvas[1] / DeepSpaceTelemetry.PlotTheme.FIGURE_WIDTH,
     )
     marker_size = round(Int, style.markersize)
     marker_size_link = round(Int, 1.25 * style.markersize)
@@ -147,7 +147,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                 orientation = :horizontal,
                 framevisible = false,
                 backgroundcolor = :transparent,
-                labelsize = style.fontsize_legend,
+                labelsize = style.fontsize,
                 colgap = round(Int, 18 * style.scale),
             )
         end

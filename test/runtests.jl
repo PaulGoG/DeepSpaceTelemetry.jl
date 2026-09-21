@@ -3486,24 +3486,31 @@ end
 
 @testset "Publication figure export" begin
     full = PlotTheme.PlotStyle()
-    @test full.scale == 1.0 && full.size_summary == PlotTheme.FIG_SIZE_SUMMARY
-    @test full.fontsize == 12.0 && full.linewidth == PlotTheme.LINEWIDTH_DATA
-    single = PlotTheme.style_for_width(86.0)
-    @test 0.47 < single.scale < 0.49
-    @test single.size_summary[1] == round(Int, 673 * single.scale)
-    @test single.size_summary[2] > single.scale * PlotTheme.FIG_SIZE_SUMMARY[2] # extra height
-    @test isapprox(single.fontsize, 12 * 0.85; rtol = 1e-12) &&
-          isapprox(single.fontsize_annotation, 9.4; rtol = 1e-12)
-    @test PlotTheme.style_for_width(178.0).scale ≈ 1.0 atol = 0.01
+    @test full.scale == 1.0 && full.width == PlotTheme.FIGURE_WIDTH
+    @test full.fontsize == PlotTheme.FONTSIZE && full.linewidth == PlotTheme.LINEWIDTH_DATA
+    # A narrower figure is a miniature of the standard layout: every length
+    # of the style carries the same factor.
+    narrow = PlotTheme.style_for_width(100.0)
+    @test narrow.scale ≈ 100.0 / 25.4 * 96 / PlotTheme.FIGURE_WIDTH
+    for field in (
+        :panel_height,
+        :strip_height,
+        :fontsize,
+        :fontsize_tick,
+        :fontsize_annotation,
+        :linewidth,
+        :linewidth_guide,
+        :linewidth_edge,
+        :markersize,
+    )
+        @test getfield(narrow, field) ≈ narrow.scale * getfield(full, field)
+    end
+    @test narrow.width == round(Int, narrow.scale * full.width)
+    @test PlotTheme.scaled(narrow, 70) ≈ 70 * narrow.scale
     @test_throws ArgumentError PlotTheme.PlotStyle(0.0)
 
-    # Narrow-width legibility: a single-column export shortens its labels,
-    # which is what keeps the legend inside a few rows and the panels tall
-    # enough for their own y-labels.
-    @test PlotTheme.label(full, "Effective capacity", "Effective") == "Effective capacity"
-    @test PlotTheme.label(single, "Effective capacity", "Effective") == "Effective"
-    _, long_labels = Receiver.figure_legend_entries(;
-        style = full,
+    # The legend comes in families and lists only what the figure draws.
+    groups = Receiver.figure_legend_entries(;
         degraded = true,
         blackout = true,
         ramp = true,
@@ -3514,59 +3521,60 @@ end
         marker = true,
         lost = :strip,
     )
-    _, short_labels = Receiver.figure_legend_entries(;
-        style = single,
-        degraded = true,
-        blackout = true,
-        ramp = true,
-        outage = false,
-        scheduled_gap = true,
-        recorder = false,
-        low_latency = true,
-        marker = true,
-        lost = :strip,
+    @test [first(group) for group in groups] == ["Link", "Received", "Events"]
+    @test all(length(group[2]) == length(group[3]) for group in groups)
+    @test groups[1][3] == ["Nominal capacity", "Effective capacity", "Onboard buffer"]
+    @test groups[2][3] == ["Total (live + archive)", "Archive (LIFO)", "Lost"]
+    @test groups[3][3] == [
+        "Blackout",
+        "Recovery ramp",
+        "Generation gap",
+        "Low-latency period",
+        "Event marker",
+    ]
+    quiet = Receiver.figure_legend_entries(;
+        degraded = false,
+        blackout = false,
+        ramp = false,
+        lost = :none,
     )
-    @test length(long_labels) == length(short_labels)
-    @test sum(length, short_labels) < sum(length, long_labels)
-    # The same entries take fewer rows once shortened — the rows the panels
-    # get back.
-    @test Receiver.legend_banks(short_labels, single) <
-          Receiver.legend_banks(long_labels, single)
+    @test quiet[1][3] == ["Link capacity", "Onboard buffer"] && isempty(quiet[3][3])
 
-    # The height floor never binds at the design width and never returns less
-    # than the height the width alone would give.
-    design_panels = Tuple{Any,Real}[
-        ("Buffered data batches", 1.0),
-        ("Received data batches", 1.0),
-        ("Lost batches", Receiver.LOST_STRIP_SHARE),
-    ]
-    base_full = full.size_summary[2] + round(Int, 90 * full.scale)
-    @test Receiver.summary_figure_height(full, 4, design_panels, base_full) == base_full
-    # A strip carrying a label far longer than its share can host raises the
-    # figure until the label clears the panel above it.
-    crowded = Tuple{Any,Real}[
-        ("Received data batches", 1.0),
-        ("A lost-batch strip label nobody would ever write", Receiver.LOST_STRIP_SHARE),
-    ]
-    @test Receiver.summary_figure_height(full, 4, crowded, base_full) > base_full
-    # More legend rows also raise it, the rows coming out of the panels.
-    @test Receiver.summary_figure_height(full, 12, design_panels, base_full) > base_full
-    @test Receiver.summary_figure_height(
-        full,
-        4,
-        Tuple{Any,Real}[("Only one", 1.0)],
-        321,
-    ) == 321
+    # The legend takes the row count at which Makie measures it inside the
+    # figure width, the figure the height its fixed panels require, and both
+    # follow the scale of the style.
+    Makie = PlotTheme.CairoMakie
+    measured = map((full, narrow)) do style
+        Makie.with_theme(PlotTheme.telemetry_theme(style)) do
+            fig = Makie.Figure(size = (style.width, style.width))
+            Makie.Axis(fig[1, 1])
+            Makie.Axis(fig[2, 1])
+            legend = PlotTheme.figure_legend!(fig, style, groups)
+            PlotTheme.size_to_panels!(fig, 1 => style.panel_height, 2 => style.strip_height)
+            (
+                rows = legend.nbanks[],
+                legend_width = legend.layoutobservables.autosize[][1],
+                size = size(fig.scene),
+            )
+        end
+    end
+    @test measured[1].rows == measured[2].rows
+    @test measured[1].legend_width <= full.width && measured[2].legend_width <= narrow.width
+    @test measured[1].size[1] == full.width && measured[2].size[1] == narrow.width
+    @test measured[1].size[2] > full.panel_height + full.strip_height
+    @test measured[2].size[2] ≈ narrow.scale * measured[1].size[2] rtol = 0.02
 
     # An annotation moves to the end of the axis the upright rules leave free,
     # and stays put when both ends carry one.
-    @test PlotTheme.annotation_side([0.1], 0.0, 10.0; fraction = 0.2) === :right
-    @test PlotTheme.annotation_side([9.5], 0.0, 10.0; fraction = 0.2) === :left
-    @test PlotTheme.annotation_side([0.5, 9.5], 0.0, 10.0; fraction = 0.2) === :right
-    @test PlotTheme.annotation_side(Float64[], 0.0, 0.0) === :right
-    @test PlotTheme.annotation_width_fraction(full, "0 lost (0 %)", 400) <
-          PlotTheme.annotation_width_fraction(full, "1234 lost (12.34 %)", 400)
-    @test PlotTheme.annotation_width_fraction(full, "a"^500, 400) == 0.45
+    @test PlotTheme.annotation_side([0.1], 0.0, 10.0, 0.2) === :right
+    @test PlotTheme.annotation_side([9.5], 0.0, 10.0, 0.2) === :left
+    @test PlotTheme.annotation_side([0.5, 9.5], 0.0, 10.0, 0.2) === :right
+    @test PlotTheme.annotation_side(Float64[], 0.0, 0.0, 0.2) === :right
+    @test PlotTheme.annotation_fraction(full, "0 lost (0 %)") <
+          PlotTheme.annotation_fraction(full, "1234 lost (12.34 %)")
+    @test PlotTheme.annotation_fraction(full, "a"^500) == 0.45
+    @test PlotTheme.annotation_fraction(narrow, "0 lost (0 %)") ≈
+          PlotTheme.annotation_fraction(full, "0 lost (0 %)") rtol = 0.01
 
     # The raster is skipped, not failed, when the run carries no timeline.
     @test Receiver.plot_state_raster(mktempdir()) === nothing
@@ -3578,13 +3586,13 @@ end
         "publication" => Dict{String,Any}(
             "enabled" => true,
             "format" => "svg",
-            "column_width_mm" => 86.0,
+            "column_width_mm" => 120.0,
         ),
     )
     settings = TelemetryCore.publication_settings(cfg)
-    @test settings.enabled && settings.format == "svg" && settings.column_width_mm == 86.0
+    @test settings.enabled && settings.format == "svg" && settings.column_width_mm == 120.0
     @test TelemetryCore.validate_config(cfg) isa AbstractDict
-    for (key, value) in (("format", "eps"), ("column_width_mm", 10.0), ("enabled", "yes"))
+    for (key, value) in (("format", "eps"), ("column_width_mm", 99.0), ("enabled", "yes"))
         bad = deepcopy(base)
         bad["post_processing"] =
             Dict{String,Any}("publication" => Dict{String,Any}(key => value))
@@ -3592,7 +3600,7 @@ end
     end
 
     # A synthetic run with a metrics profile and delivered batches: the
-    # summary and the two metrology figures export at single-column width
+    # summary and the two metrology figures export at a 120 mm width
     # as SVG with the run-ID suffix and a provenance sidecar; the run's
     # metrology tables are left untouched.
     mktempdir() do dir
@@ -3641,7 +3649,7 @@ end
             DeepSpaceTelemetry.Publication.export_publication_figures(
                 dir;
                 format = "svg",
-                column_width_mm = 86.0,
+                column_width_mm = 120.0,
             )
         end
         run_id = basename(dir)
@@ -3656,7 +3664,7 @@ end
         record = TOML.parsefile(joinpath(dir, "publication", "PROVENANCE.toml"))["export"]
         @test record["run_id"] == run_id &&
               record["git_commit"] == "abc123" &&
-              record["column_width_mm"] == 86.0 &&
+              record["column_width_mm"] == 120.0 &&
               record["format"] == "svg" &&
               length(record["figures"]) == 3 &&
               length(record["config_snapshot_sha256"]) == 64
