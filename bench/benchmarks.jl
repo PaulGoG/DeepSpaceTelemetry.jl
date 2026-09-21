@@ -1,17 +1,15 @@
-using Pkg;
-Pkg.activate(@__DIR__, io = devnull);
-Pkg.instantiate(io = devnull)
+include(joinpath(@__DIR__, "activate.jl"))
 using BenchmarkTools
 using Dates, Random, CSV, DataFrames, Logging
 using DeepSpaceTelemetry
 
 const suite = BenchmarkGroup()
 
-# Benchmark Physics Generation
+# Payload generation at the shipped segment geometry (4 Hz, 60 s)
 suite["physics"] = BenchmarkGroup()
 vi = DeepSpaceTelemetry.VirtualInstrument.InstrumentState(
     DateTime(2035, 1, 1),
-    1024.0,
+    4.0,
     60.0,
     "synthetic",
     "",
@@ -19,52 +17,30 @@ vi = DeepSpaceTelemetry.VirtualInstrument.InstrumentState(
 suite["physics"]["next_segment"] =
     @benchmarkable DeepSpaceTelemetry.VirtualInstrument.next_segment!($vi)
 
-# Benchmark TelemetryCore logic
-suite["core"] = BenchmarkGroup()
-model = DeepSpaceTelemetry.TelemetryCore.VisibilityModel(
-    Dates.Time(08, 0, 0),
-    Dates.Second(8*3600),
-    "sine",
-)
-t = Dates.DateTime(2035, 1, 1, 12, 0, 0)
-suite["core"]["bandwidth"] =
-    @benchmarkable DeepSpaceTelemetry.TelemetryCore.get_bandwidth_factor($model, $t)
-
-# Benchmark Batch I/O
+# Batch I/O at the shipped batch geometry (10 segments of 240 samples): the
+# per-batch cost that bounds the emitter's pace. Directory creation and
+# fixture construction live in the setup phase so the measured region is
+# exactly the save + load I/O.
 suite["io"] = BenchmarkGroup()
-# Directory creation and fixture construction live in the setup phase so the
-# measured region is exactly the save + load I/O.
 suite["io"]["batch_save_load"] = @benchmarkable begin
     DeepSpaceTelemetry.TelemetryCore.save_batch(path, batch)
     DeepSpaceTelemetry.TelemetryCore.load_segment(joinpath(path, "seg_1.csv"))
 end setup = (
     tmp = mktempdir();
     path = joinpath(tmp, "batch_1");
-    seg = DeepSpaceTelemetry.TelemetryCore.DataSegment(
-        1,
-        Dates.DateTime(2035, 1, 1),
-        Float32[1.0, 2.0, 3.0],
-    );
+    segments = [
+        DeepSpaceTelemetry.TelemetryCore.DataSegment(
+            k,
+            Dates.DateTime(2035, 1, 1) + Dates.Second(60 * (k - 1)),
+            zeros(Float32, 240),
+        ) for k in 1:10
+    ];
     batch = DeepSpaceTelemetry.TelemetryCore.DataBatch(
         1,
-        [seg],
+        segments,
         Dates.DateTime(2035, 1, 1),
     )
 ) teardown = (rm(tmp; recursive = true, force = true))
-
-# Benchmark Pre-Run Safety Check
-suite["storage"] = BenchmarkGroup()
-cfg_test = Dict(
-    "simulation" => Dict("speed_up" => 5000.0, "mission_wall_seconds" => 10.0),
-    "storage" => Dict("max_storage_gb" => 10.0),
-    "physics" => Dict(
-        "segment_duration_sec" => 60.0,
-        "sample_rate" => 1024.0,
-        "batch_size" => 15,
-    ),
-)
-suite["storage"]["check_limits"] =
-    @benchmarkable DeepSpaceTelemetry.TelemetryCore.check_storage_limits($cfg_test)
 
 # Benchmark Channel Effects (hot path: one draw / factor per transfer attempt
 # or loop tick — must stay in the ns regime)
@@ -107,7 +83,12 @@ timeline = DeepSpaceTelemetry.ChannelEffects.build_disruption_timeline(
     disruption_cfg,
     DateTime(2035, 1, 1),
 )
-link = DeepSpaceTelemetry.ChannelEffects.LinkModel(model, timeline)
+visibility = DeepSpaceTelemetry.TelemetryCore.VisibilityModel(
+    Dates.Time(8, 0, 0),
+    Dates.Second(8 * 3600),
+    "sine",
+)
+link = DeepSpaceTelemetry.ChannelEffects.LinkModel(visibility, timeline)
 t_blackout = DateTime(2035, 1, 3, 12, 0, 0)
 suite["channel"]["disruption_factor"] =
     @benchmarkable DeepSpaceTelemetry.ChannelEffects.disruption_factor(
@@ -117,47 +98,10 @@ suite["channel"]["disruption_factor"] =
 suite["channel"]["effective_bandwidth"] =
     @benchmarkable DeepSpaceTelemetry.ChannelEffects.effective_bandwidth($link, $t_blackout)
 
-# Benchmark Config Validation (pre-run gate; one-shot but should stay trivial)
-suite["core"]["validate_config"] =
-    @benchmarkable DeepSpaceTelemetry.TelemetryCore.validate_config(cfg) setup = (
-        cfg = Dict{String,Any}(
-            "simulation" => Dict{String,Any}(
-                "speed_up" => 3600.0,
-                "mission_wall_seconds" => 150.0,
-                "initial_downtime_days" => 3.0,
-                "start_sim_time" => "2035-01-01T06:00:00",
-                "rng_seed" => 42,
-            ),
-            "storage" => Dict{String,Any}("max_storage_gb" => 2.0),
-            "telemetry" => Dict{String,Any}(
-                "session_start" => "08:00:00",
-                "session_duration_hours" => 8.0,
-                "max_batches_per_hour" => 55.0,
-                "bandwidth_profile" => "sine",
-            ),
-            "physics" => Dict{String,Any}(
-                "data_source" => "synthetic",
-                "sample_rate" => 4.0,
-                "segment_duration_sec" => 60.0,
-                "batch_size" => 10,
-            ),
-            "packet_loss" => Dict{String,Any}(
-                "enabled" => true,
-                "model" => "gilbert_elliott",
-                "p_good_to_bad" => 0.02,
-                "p_bad_to_good" => 0.3,
-                "p_loss_good" => 0.005,
-                "p_loss_bad" => 0.4,
-                "on_loss" => "retransmit",
-                "max_retries" => 3,
-            ),
-        )
-    )
-
 # Benchmark Post-Processing (exact event-log reconstruction at showcase scale:
 # ~1500 batches through gen/tx/ingest against 2000 profile rows)
 bench_dir = mktempdir()
-let n_batches = 1500, n_rows = 2000
+const bench_profile = let n_batches = 1500, n_rows = 2000
     t0 = DateTime(2035, 1, 1)
     names_ = ["$(isodd(i) ? "LIVE" : "ARCH")_batch_$i" for i in 1:n_batches]
     tx = DataFrame(
@@ -177,7 +121,7 @@ let n_batches = 1500, n_rows = 2000
     )
     CSV.write(joinpath(bench_dir, "events_tx.csv"), sort(tx, :SimTime))
     CSV.write(joinpath(bench_dir, "events_rx.csv"), rx)
-    global bench_profile = DataFrame(SimTime = [t0 + Minute(3i) for i in 1:n_rows])
+    DataFrame(SimTime = [t0 + Minute(3i) for i in 1:n_rows])
 end
 suite["postproc"] = BenchmarkGroup()
 suite["postproc"]["exact_reconstruction"] =

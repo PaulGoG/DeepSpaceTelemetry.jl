@@ -5,7 +5,6 @@ DeepSpaceTelemetry.Supervisor
 DeepSpaceTelemetry.Supervisor.CleanFileLogger
 DeepSpaceTelemetry.Supervisor.strip_ansi
 DeepSpaceTelemetry.Supervisor.render_log_value
-DeepSpaceTelemetry.Supervisor.RESTART_SEED_OFFSET
 DeepSpaceTelemetry.Supervisor.MissionPlan
 DeepSpaceTelemetry.Supervisor.mission_plan
 DeepSpaceTelemetry.Supervisor.stamp_external_provenance!

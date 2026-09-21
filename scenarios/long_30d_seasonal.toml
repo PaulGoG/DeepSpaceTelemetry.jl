@@ -1,12 +1,12 @@
 # DeepSpaceTelemetry scenario "long_30d_seasonal": long horizon: 30 days from 1 March at 7200x on the physical rate pair with the seasonal window, missed and shortened passes, a 12-day contact gap, five disruptions, two markers.
-# Run with:  julia --project=. --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/long_30d_seasonal.toml
+# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/long_30d_seasonal.toml
 
 [simulation]
 speed_up = 7200.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.
 start_sim_time = "2035-03-01T06:00:00" # Mission epoch. SAFE: ISO-8601 datetime.
 mission_wall_seconds = 360.0         # Wall-clock simulation span [s]. SAFE: > 0.
 initial_downtime_days = 3.0          # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
-rng_seed = 30                        # Seeds physics and packet-loss RNGs. SAFE: integer.
+rng_seed = 30                        # Seed of the packet-loss channel. SAFE: integer.
 
 [storage]
 max_storage_gb = 5.0                 # Run-directory disk budget [GB]. SAFE: > 0.
@@ -14,9 +14,10 @@ max_file_count = 500000              # Run-directory inode budget. SAFE: > 0.
 max_ram_gb = 8.0                     # Post-processing replay RAM budget [GB]. SAFE: > 0.
 onboard_capacity_days = 14.0         # On-board recorder capacity [days of production]. SAFE: > 0.
 # Estimator calibration overrides, one key per artifact class (bytes_per_sample,
-# bytes_batch_metadata, bytes_event_row, bytes_metrics_row, bytes_mask_cell,
-# bytes_pointwise_cell, bytes_plot, bytes_plot_pdf, bytes_replay_cell,
-# bytes_log_per_batch). SAFE: > 0 each; defaults are measured values.
+# bytes_per_flag_sample, bytes_batch_metadata, bytes_event_row,
+# bytes_metrics_row, bytes_mask_cell, bytes_pointwise_cell, bytes_plot,
+# bytes_plot_pdf, bytes_replay_cell, bytes_log_per_batch). SAFE: > 0 each;
+# defaults are measured values.
 
 [supervision]
 on_component_failure = "abort"       # Policy on a component failure. One of: "abort" | "continue" | "restart".
@@ -133,8 +134,6 @@ external_data_path = "data/example_external_strain.csv" # File path when data_so
 sample_rate = 4.0                    # Strain sampling frequency [Hz]. SAFE: > 0.
 segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
 batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
-confusion_observation_years = 1.0    # Galactic-confusion fit of the noise model by observation time [yr]. One of: 0.5 | 1.0 | 2.0 | 4.0.
-noise_f_min_hz = 1.0e-5              # Lower edge of the synthesized noise band [Hz]; bins below carry no power. SAFE: > 0.
 
 [packet_loss]
 enabled = true                       # Packet loss toggle. One of: true | false.
@@ -201,7 +200,6 @@ alert_lookback_hours = 72.0          # Largest look-back tabulated by the alert-
 delivery_delay = true                # Delivery-delay metric (measurement-to-ground, requirement compliance) flag. One of: true | false.
 delivery_requirement_hours = 24.0    # Delivery requirement marked by the delivery-delay metric [h]. SAFE: > 0.
 state_raster = true                  # Batch-state raster figure flag. One of: true | false.
-payload_spectrum = true              # Payload spectrum figure flag (synthetic payloads only). One of: true | false.
 hdf5_export = false                  # HDF5 product export (products.h5) flag. One of: true | false.
 
 [post_processing.publication]

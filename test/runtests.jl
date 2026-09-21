@@ -1,12 +1,9 @@
-# The suite runs in its own environment (test/Project.toml, with the parent
-# package dev'ed at a relative path) and loads DeepSpaceTelemetry as a real
-# package — never via include — so Aqua/JET/ExplicitImports resolve the
-# package identity and `Pkg.test`'s sandbox agrees with a direct
-# `julia --project=. test/runtests.jl` invocation.
-using Pkg;
-Pkg.activate(@__DIR__; io = devnull);
-Pkg.instantiate(; io = devnull)
-using Test, Dates, Statistics, CSV, DataFrames, Logging, FFTW, TOML
+# The suite runs in its own environment (test/Project.toml, the package taken
+# from the parent directory through [sources]) and loads DeepSpaceTelemetry as
+# a real package, never via include, so Aqua, JET, and ExplicitImports resolve
+# the package identity.
+include(joinpath(@__DIR__, "activate.jl"))
+using Test, Dates, Statistics, CSV, DataFrames, Logging, TOML
 using StableRNGs
 using Aqua, JET, ExplicitImports
 using DeepSpaceTelemetry
@@ -17,6 +14,8 @@ using DeepSpaceTelemetry:
     Emitter,
     Receiver,
     Metrology,
+    Export,
+    Publication,
     PlotTheme,
     Supervisor
 
@@ -58,6 +57,9 @@ end
             PlotTheme,
             Emitter,
             Receiver,
+            Metrology,
+            Export,
+            Publication,
             Supervisor,
         ),
     )
@@ -120,9 +122,7 @@ end
             "batch_size" => 15,
         ),
     )
-    # Should not throw
-    TelemetryCore.check_storage_limits(cfg_safe)
-    @test true
+    @test TelemetryCore.check_storage_limits(cfg_safe) === nothing
     # Without the key the default budget applies; the retired simulation key
     # is rejected rather than read.
     @test TelemetryCore.storage_budget(Dict{String,Any}()).max_gb == 5.0
@@ -194,7 +194,7 @@ end
         @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
 
-    # FFT synthesis needs ≥ 2 samples per segment
+    # A sample period longer than the segment: less than one sample per segment
     cfg = valid_test_cfg()
     cfg["physics"]["sample_rate"] = 0.01
     @test_throws ArgumentError TelemetryCore.validate_config(cfg)
@@ -624,7 +624,7 @@ end
             TelemetryCore.save_clock_anchor(ra_dir, clock1, now() + Second(120))
 
             run_phase =
-                (clk, instrument, segs, rng) -> begin
+                (clk, instrument, segs) -> begin
                     em = Threads.@spawn with_logger(NullLogger()) do
                         Emitter.run_emitter(
                             clk,
@@ -638,7 +638,6 @@ end
                             ext_path = ext_path,
                             instrument = instrument,
                             pending_segments = segs,
-                            rng = rng,
                         )
                     end
                     rx = Threads.@spawn with_logger(NullLogger()) do
@@ -655,7 +654,7 @@ end
                     wait(rx)
                 end
 
-            run_phase(clock1, vi, pending, StableRNG(1))
+            run_phase(clock1, vi, pending)
             tx1 = CSV.read(joinpath(ra_dir, "events_tx.csv"), DataFrame)
             gens1 = [
                 parse(Int, String(last(split(String(b), "_")))) for
@@ -681,7 +680,7 @@ end
             mkpath(orphan)
             write(joinpath(orphan, "seg_1.csv"), "Amplitude\n0.0\n")
 
-            run_phase(restored.clock, nothing, TelemetryCore.DataSegment[], StableRNG(99))
+            run_phase(restored.clock, nothing, TelemetryCore.DataSegment[])
 
             rx2 = CSV.read(joinpath(ra_dir, "events_rx.csv"), DataFrame)
             @test any((rx2.Event .== "ingested") .& (rx2.Batch .== "ARCH_batch_500"))
@@ -752,9 +751,16 @@ end
     @test TelemetryCore.estimate_artifacts(base).payload_bytes ≈ 200 * 30.0 rtol = 1e-12
     delete!(base["storage"], "bytes_per_sample")
 
+    # The synthetic flag series is sized by its own calibration key
+    base["physics"]["data_source"] = "synthetic"
+    @test TelemetryCore.estimate_artifacts(base).payload_bytes ≈ 200 * 4.0 rtol = 1e-12
+    base["storage"]["bytes_per_flag_sample"] = 8.0
+    @test TelemetryCore.estimate_artifacts(base).payload_bytes ≈ 200 * 8.0 rtol = 1e-12
+    delete!(base["storage"], "bytes_per_flag_sample")
+    delete!(base["physics"], "data_source")
+
     # Gate matrix — under budget, retention off: pass
-    TelemetryCore.check_storage_limits(deepcopy(base))
-    @test true
+    @test TelemetryCore.check_storage_limits(deepcopy(base)) === nothing
 
     # Over budget, retention off: hard stop
     over = deepcopy(base)
@@ -1094,219 +1100,97 @@ end
     end
 end
 
-@testset "Noise model (Robson, Cornish & Liu 2019)" begin
-    # Independent evaluation of Eq. 1 and Eq. 14 with the paper's constants.
-    L = 2.5e9
-    f_star = 2.99792458e8 / (2π * L)
-    p_oms(f) = (1.5e-11)^2 * (1 + (2e-3 / f)^4)
-    p_acc(f) = (3e-15)^2 * (1 + (0.4e-3 / f)^2) * (1 + (f / 8e-3)^4)
-    s_inst(f) =
-        (10 / (3 * L^2)) *
-        (p_oms(f) + 2 * (1 + cos(f / f_star)^2) * p_acc(f) / (2π * f)^4) *
-        (1 + 0.6 * (f / f_star)^2)
-    fits = Dict(
-        0.5 => (0.133, 243.0, 482.0, 917.0, 0.00258),
-        1.0 => (0.171, 292.0, 1020.0, 1680.0, 0.00215),
-        2.0 => (0.165, 299.0, 611.0, 1340.0, 0.00173),
-        4.0 => (0.138, -221.0, 521.0, 1680.0, 0.00113),
+@testset "VirtualInstrument flag series" begin
+    start_t = DateTime(2030, 1, 1)
+    # One marker inside the third segment, one on the boundary opening the
+    # fifth, one before the stream starts.
+    markers = [
+        TelemetryCore.EventMarker(start_t + Second(150), "inside"),
+        TelemetryCore.EventMarker(start_t + Second(240), "boundary"),
+        TelemetryCore.EventMarker(start_t - Second(1), "before"),
+    ]
+    vi = VirtualInstrument.InstrumentState(start_t, 4.0, 60.0, "synthetic", ""; markers)
+    segments = [VirtualInstrument.next_segment!(vi) for _ in 1:6]
+    @test [s.id for s in segments] == 1:6
+    @test [s.timestamp for s in segments] == [start_t + Second(60 * k) for k in 0:5]
+    @test all(s -> length(s.data) == 240, segments)
+    @test all(s -> eltype(s.data) == Float32, segments)
+    # A segment is 1 throughout when its span [epoch, epoch + 60 s) holds a
+    # marker and 0 throughout otherwise; a marker on a boundary belongs to the
+    # segment it opens.
+    @test [unique(s.data) for s in segments] == [[0.0f0], [0.0f0], [1.0f0], [0.0f0], [1.0f0], [0.0f0]]
+    @test vi.last_t == start_t + Second(360)
+
+    quiet = VirtualInstrument.InstrumentState(start_t, 4.0, 60.0, "synthetic", "")
+    @test all(iszero, VirtualInstrument.next_segment!(quiet).data)
+
+    # The series depends on the content clock alone: an instrument started
+    # later, or one whose clock jumped a generation gap, flags the same instants.
+    late = VirtualInstrument.InstrumentState(
+        start_t + Second(120),
+        4.0,
+        60.0,
+        "synthetic",
+        "";
+        markers,
     )
-    # The cutoff 1 + tanh(x) is written as 2 / (1 + exp(-2x)): the direct sum
-    # cancels catastrophically above the knee (x ≈ -13 at 10 mHz).
-    function s_conf(f, T)
-        α, β, κ, γ, f_k = fits[T]
-        return 9e-45 *
-               f^(-7 / 3) *
-               exp(-f^α + β * f * sin(κ * f)) *
-               (2 / (1 + exp(-2 * γ * (f_k - f))))
+    @test VirtualInstrument.next_segment!(late).data == segments[3].data
+    jumped = VirtualInstrument.InstrumentState(start_t, 4.0, 60.0, "synthetic", ""; markers)
+    jumped.last_t = start_t + Second(240)
+    @test all(isone, VirtualInstrument.next_segment!(jumped).data)
+
+    # Sub-second segments advance the content clock exactly.
+    fast = VirtualInstrument.InstrumentState(start_t, 10.0, 0.5, "synthetic", "")
+    foreach(_ -> VirtualInstrument.next_segment!(fast), 1:3)
+    @test fast.last_t == start_t + Millisecond(1500)
+    @test TelemetryCore.segment_period(0.07) == Millisecond(70)
+
+    # Not a whole number of milliseconds; less than one sample per segment;
+    # unknown source; non-positive rate.
+    for (rate, duration, source) in (
+        (4.0, 0.0005, "synthetic"),
+        (0.01, 60.0, "synthetic"),
+        (4.0, 60.0, "analytic"),
+        (0.0, 60.0, "synthetic"),
+    )
+        @test_throws ArgumentError VirtualInstrument.InstrumentState(
+            start_t,
+            rate,
+            duration,
+            source,
+            "",
+        )
     end
-    for f in (1e-3, 3e-3, 1e-2)
-        @test VirtualInstrument.lisa_instrument_psd(f) ≈ s_inst(f) rtol = 1e-12
-        for T in (0.5, 1.0, 2.0, 4.0)
-            @test VirtualInstrument.lisa_confusion_psd(f, T) ≈ s_conf(f, T) rtol = 1e-12
+end
+
+@testset "Retired configuration keys (2.0.0)" begin
+    for (section, key, value) in (
+        ("physics", "confusion_observation_years", 1.0),
+        ("physics", "noise_f_min_hz", 1.0e-5),
+        ("post_processing", "payload_spectrum", true),
+    )
+        cfg = valid_test_cfg()
+        get!(cfg, section, Dict{String,Any}())[key] = value
+        err = try
+            TelemetryCore.validate_config(cfg)
+            nothing
+        catch e
+            e
         end
-        @test VirtualInstrument.lisa_noise_psd(f; observation_years = 2.0) ≈
-              s_inst(f) + s_conf(f, 2.0) rtol = 1e-12
+        @test err isa ArgumentError
+        @test occursin("removed at 2.0.0", sprint(showerror, err))
+        # The snapshot of a run made before the removal still reads.
+        section == "physics" && @test TelemetryCore.physics_settings(cfg).sample_rate > 0
     end
-    # Reference values of the paper's formulas [Hz⁻¹].
-    @test VirtualInstrument.lisa_instrument_psd(1e-3) ≈ 1.634101e-38 rtol = 1e-6
-    @test VirtualInstrument.lisa_instrument_psd(1e-2) ≈ 1.443169e-40 rtol = 1e-6
-    @test VirtualInstrument.lisa_confusion_psd(1e-3, 1.0) ≈ 1.663516e-37 rtol = 1e-6
-    # The confusion foreground dominates the instrument term at 1 mHz.
-    @test VirtualInstrument.lisa_confusion_psd(1e-3, 1.0) > 0.0
-    @test VirtualInstrument.lisa_confusion_psd(1e-3, 1.0) >
-          VirtualInstrument.lisa_instrument_psd(1e-3)
-    # Outside the model's domain: no floor value.
-    @test VirtualInstrument.lisa_noise_psd(0.0) == Inf
-    @test VirtualInstrument.lisa_noise_psd(-1.0) == Inf
-    @test_throws ArgumentError VirtualInstrument.lisa_confusion_psd(1e-3, 3.0)
-    @test_throws ArgumentError VirtualInstrument.InstrumentState(
-        DateTime(2030),
-        10.0,
-        1.0,
-        "synthetic",
-        "";
-        confusion_observation_years = 3.0,
-    )
-    @test_throws ArgumentError VirtualInstrument.InstrumentState(
-        DateTime(2030),
-        10.0,
-        1.0,
-        "synthetic",
-        "";
-        noise_f_min_hz = 0.0,
-    )
-    # Band floor: 40 samples at 4e-4 Hz give a bin spacing of 5e-6 Hz, so the
-    # DC bin and the first bin lie below the 1e-5 Hz floor and carry no power.
-    vi = VirtualInstrument.InstrumentState(
-        DateTime(2030),
-        4e-4,
-        1e5,
-        "synthetic",
-        "";
-        rng = StableRNG(1),
-    )
-    @test vi.noise_amp[1] == 0.0 && vi.noise_amp[2] == 0.0
-    @test vi.noise_amp[4] > 0.0
-    @test all(isfinite, vi.noise_amp)
-    @test all(isfinite, VirtualInstrument.next_segment!(vi).data)
-    # Configuration keys: defaults, accepted values, and rejections.
+
     cfg = valid_test_cfg()
-    phys = TelemetryCore.physics_settings(cfg)
-    @test phys.confusion_observation_years == 1.0 && phys.noise_f_min_hz == 1e-5
-    cfg["physics"]["confusion_observation_years"] = 4
-    cfg["physics"]["noise_f_min_hz"] = 2e-4
-    phys = TelemetryCore.physics_settings(cfg)
-    @test phys.confusion_observation_years == 4.0 && phys.noise_f_min_hz == 2e-4
-    cfg["physics"]["confusion_observation_years"] = 3.0
+    cfg["physics"]["segment_duration_sec"] = 0.0005
     @test_throws ArgumentError TelemetryCore.physics_settings(cfg)
-    cfg["physics"]["confusion_observation_years"] = 1.0
-    cfg["physics"]["noise_f_min_hz"] = 0.0
-    @test_throws ArgumentError TelemetryCore.physics_settings(cfg)
-end
 
-@testset "Welch spectral estimate" begin
-    # White noise of unit variance at fs: a one-sided density normalized to
-    # integrate to the variance is flat at 2σ²/fs.
-    rng = StableRNG(20350913)
-    fs = 4.0
-    x = randn(rng, 1 << 16)
-    f, psd = VirtualInstrument.welch_psd(x, fs)
-    @test length(f) == length(psd)
-    @test f[1] == 0.0 && isapprox(f[end], fs / 2; rtol = 1e-12)
-    interior = psd[2:(end-1)]
-    @test isapprox(sum(interior) / length(interior), 2 / fs; rtol = 0.05)
-    # Parseval: the estimate integrates to the variance of the series.
-    @test isapprox(sum(psd) * (f[2] - f[1]), Statistics.var(x); rtol = 0.1)
-    # A sinusoid concentrates its power in the bin of its frequency.
-    len = 4096
-    tone_f = fs * 100 / len
-    tone = [sqrt(2) * sin(2π * tone_f * (k - 1) / fs) for k in 1:(1<<15)]
-    ft, tone_psd = VirtualInstrument.welch_psd(tone, fs; nperseg = len)
-    @test ft[argmax(tone_psd)] ≈ tone_f atol = (fs / len)
-    # Degenerate inputs: no window fits, so the estimate is empty rather than
-    # an error; the parameters themselves are checked.
-    @test VirtualInstrument.welch_psd(randn(rng, 8), fs) == (Float64[], Float64[])
-    @test_throws ArgumentError VirtualInstrument.welch_psd(x, 0.0)
-    @test_throws ArgumentError VirtualInstrument.welch_psd(x, fs; nperseg = -1)
-end
-
-@testset "Payload series (longest consecutive delivery)" begin
-    tmp = mktempdir()
-    ground = joinpath(tmp, "ground")
-    # Batches 1–3 and 7–8 delivered: the LIFO backfill leaves gaps, and
-    # splicing across one would put a discontinuity into a spectrum.
-    for (id, live) in ((1, true), (2, true), (3, false), (7, false), (8, false))
-        dir = joinpath(ground, TelemetryCore.batch_name(id, live))
-        mkpath(dir)
-        CSV.write(joinpath(dir, "seg_001.csv"), DataFrame(Amplitude = fill(1.0 * id, 5)))
-    end
-    series = Metrology.payload_series(tmp)
-    @test length(series) == 15
-    @test series[1:5] == fill(1.0, 5) && series[11:15] == fill(3.0, 5)
-    @test length(Metrology.payload_series(tmp; max_batches = 2)) == 10
-    @test isempty(Metrology.payload_series(mktempdir()))
-    rm(tmp; recursive = true)
-end
-
-@testset "VirtualInstrument Synthetic" begin
-    fs = 10.0
-    seg_dur = 1.0
-    n = 10
-    start_t = DateTime(2030, 1, 1)
-    vi = VirtualInstrument.InstrumentState(
-        start_t,
-        fs,
-        seg_dur,
-        "synthetic",
-        "";
-        rng = StableRNG(42),
-    )
-
-    seg1 = VirtualInstrument.next_segment!(vi)
-    @test length(seg1.data) == n
-    @test seg1.id == 1
-
-    seg2 = VirtualInstrument.next_segment!(vi)
-    @test seg2.id == 2
-
-    # Amplitude calibration: the pooled variance of the stream must equal
-    # ∫S(f)df over the representable band of the 2N-sample synthesis blocks
-    # (Parseval, one-sided PSD with half-weighted Nyquist bin).
-    block_len = 2n
-    freqs = collect(rfftfreq(block_len, fs))
-    S = VirtualInstrument.lisa_noise_psd.(freqs)
-    expected_var = (fs / block_len) * (sum(S[2:(end-1)]) + S[end] / 2)
-    vals = Float64[]
-    for _ in 1:2000
-        append!(vals, Float64.(VirtualInstrument.next_segment!(vi).data))
-    end
-    @test isapprox(var(vals), expected_var, rtol = 0.1)
-
-    # Continuity: jumps across segment boundaries must be statistically
-    # indistinguishable from jumps inside segments (no per-segment seams).
-    segs = [VirtualInstrument.next_segment!(vi).data for _ in 1:200]
-    boundary_jumps = [abs(Float64(segs[i+1][1]) - Float64(segs[i][end])) for i in 1:199]
-    inner_jumps = Float64[]
-    for s in segs
-        append!(inner_jumps, abs.(diff(Float64.(s))))
-    end
-    @test mean(boundary_jumps) < 2 * mean(inner_jumps)
-end
-
-@testset "VirtualInstrument determinism (seeded RNG)" begin
-    start_t = DateTime(2030, 1, 1)
-    v1 = VirtualInstrument.InstrumentState(
-        start_t,
-        10.0,
-        1.0,
-        "synthetic",
-        "";
-        rng = StableRNG(99),
-    )
-    v2 = VirtualInstrument.InstrumentState(
-        start_t,
-        10.0,
-        1.0,
-        "synthetic",
-        "";
-        rng = StableRNG(99),
-    )
-    for _ in 1:5
-        s1 = VirtualInstrument.next_segment!(v1)
-        s2 = VirtualInstrument.next_segment!(v2)
-        @test s1.data == s2.data
-    end
-    # Different seeds → different streams
-    v3 = VirtualInstrument.InstrumentState(
-        start_t,
-        10.0,
-        1.0,
-        "synthetic",
-        "";
-        rng = StableRNG(100),
-    )
-    @test VirtualInstrument.next_segment!(v3).data !=
-          VirtualInstrument.next_segment!(v1).data
+    # A fractional rotation limit gives a whole byte count.
+    cfg = valid_test_cfg()
+    cfg["retention"] = Dict{String,Any}("log_rotate_mb" => 0.3)
+    @test TelemetryCore.retention_settings(cfg).log_rotate_bytes == round(Int, 0.3 * 1024^2)
 end
 
 @testset "VirtualInstrument External" begin
@@ -1323,7 +1207,7 @@ end
             "external",
             rel_name,
         )
-        @test vi_rel.ext_data == Float32[1.0, 2.0, 3.0, 4.0]
+        @test vi_rel.source.samples == Float32[1.0, 2.0, 3.0, 4.0]
     finally
         rm(abs_name, force = true)
     end
@@ -1383,19 +1267,6 @@ end
         @test length(seg2.data) == 4
         @test seg2.data == Float32[0.5, 0.0, 0.0, 0.0]
     end
-end
-
-@testset "LIFO Ordering" begin
-    # Archive-queue LIFO discipline: pushfirst! / popfirst!
-    arch_queue = String[]
-    pushfirst!(arch_queue, "ARCH_batch_1")
-    pushfirst!(arch_queue, "ARCH_batch_2")
-    pushfirst!(arch_queue, "ARCH_batch_3")
-
-    # Popping should give newest first (LIFO)
-    @test popfirst!(arch_queue) == "ARCH_batch_3"
-    @test popfirst!(arch_queue) == "ARCH_batch_2"
-    @test popfirst!(arch_queue) == "ARCH_batch_1"
 end
 
 @testset "normalize_target_rows" begin
@@ -1619,7 +1490,7 @@ end
             @test length(arch_batches) == 9
             @test vi.last_t >= start_sim
             # Stream continuity: instrument consumed exactly 29 segments...
-            @test vi.ext_index == 29 * n_per_seg + 1
+            @test vi.source.index == 29 * n_per_seg + 1
             # ...and the partial batch carries segments 28-29 for the main loop
             @test length(pending) == 2
             @test pending[1].data[1] == Float32(27 * n_per_seg + 1)
@@ -3542,8 +3413,8 @@ end
     cfg["post_processing"] = Dict{String,Any}("hdf5_export" => "yes")
     @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     cfg["post_processing"]["hdf5_export"] = true
-    # The two figure products follow the same flag contract.
-    for key in ("state_raster", "payload_spectrum")
+    # The figure product follows the same flag contract.
+    for key in ("state_raster",)
         bad = valid_test_cfg()
         bad["post_processing"] = Dict{String,Any}(key => "yes")
         @test_throws ArgumentError TelemetryCore.validate_config(bad)

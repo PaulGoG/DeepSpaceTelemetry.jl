@@ -23,7 +23,7 @@ using TOML: TOML
     export_publication_figures(run_dir::String; format = "pdf", column_width_mm = 178.0, export_dir = "") -> Vector{String}
 
 Renders the mission summary, every session figure, the metrology figures,
-the batch-state raster, and the payload spectrum of the run at
+and the batch-state raster of the run at
 `column_width_mm` (178 = the double-column design width; 86–90 for a single
 column) in `format` (`"pdf"` or `"svg"`) into
 `export_dir` (default `<run_dir>/publication`), each file named
@@ -83,16 +83,6 @@ function export_publication_figures(
     end
     if get(pp, "state_raster", true)
         p = Receiver.plot_state_raster(run_dir; style, plots_dir = dir, formats, suffix)
-        p === nothing || push!(paths, p)
-    end
-    if get(pp, "payload_spectrum", true)
-        p = Metrology.plot_payload_spectrum(
-            run_dir;
-            style,
-            plots_dir = dir,
-            formats,
-            suffix,
-        )
         p === nothing || push!(paths, p)
     end
     write_provenance(dir, run_dir, cfg, paths, Float64(column_width_mm), format)

@@ -4,7 +4,7 @@ Every file in this directory is a complete configuration, runnable by path
 from the package root:
 
 ```bash
-julia --threads=3 --project=. scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
+julia --threads=3 scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
 ```
 
 `config.toml` at the package root is the default entry point and is a copy
@@ -19,7 +19,7 @@ rationale is stated below and in the manual's usage page.
 Unless stated otherwise a scenario uses the physical link (230 kbit/s
 downlink against 75 kbit/s production, a flat profile within the pass, 8 h
 daily passes starting 08:00, a 50 × 10⁶ km range), 600 s batches of
-synthetic strain (4 Hz, 60 s segments, 10 per batch: 144 batches per day),
+the synthetic flag series (4 Hz, 60 s segments, 10 per batch: 144 batches per day),
 and a 14-day on-board recorder. GE denotes the Gilbert–Elliott bursty
 channel with the shipped parameters (stationary loss 6.25 %). Wall times
 are at the configured acceleration, before post-processing (about half a
@@ -36,7 +36,7 @@ minute per mission day).
 | `drop_policy.toml` | 3 d | 72 s | physical, flat | 8 h, January | Bernoulli 20 %, drop on loss | partial DSN outage day 1.5; 0.5-day backlog | about one fifth of the transfers lost for good (mask state 4), no retransmission traffic |
 | `explicit_schedule.toml` | 7 d | 168 s | physical, flat | explicit pass list: day 2 shortened to 6 h, day 3 missed, day 5 extended to 12 h | GE | repointing day 1.5; 1-day backlog | planned schedules with exceptions; the missed pass produces a two-day gap |
 | `long_30d_seasonal.toml` | 30 d | 360 s at 7200× | physical, flat | 8 h + 4 h seasonal from 1 March; passes missed on 9 and 10 March, shortened on 12 March, a 12-day gap 16–27 March | GE | repointing days 2.5 and 20.5, solar flare day 4, 36 h safe mode day 8 (generation), DSN outage day 27; markers 6 and 20 March with triggered periods; 3-day backlog | long horizon: the recorder ceiling is reached inside the contact gap (validation warns; RECORDER rows), the marker inside the gap opens a low-latency period, three passes drain part of the backlog at the end |
-| `long_segments_confusion_band.toml` | 7 d | 168 s | physical, flat | 8 h, January | Bernoulli 1 % | none; 1-day backlog | 2400 s segments at 0.5 Hz, three per 2 h batch: the first resolved bin is 0.21 mHz, so the galactic-confusion foreground of the noise model is synthesized; 12.3 delivered against 12 produced per day |
+| `long_segments_2400s.toml` | 7 d | 168 s | physical, flat | 8 h, January | Bernoulli 1 % | none; 1-day backlog | 2400 s segments at 0.5 Hz, three per 2 h batch: the coarse-batch regime, 12 batches produced per day and 12.3 deliverable |
 | `external_ingest.toml` | 2 d | 48 s | physical, flat | 8 h, January | Bernoulli 1 % | none; 0.5-day backlog | ingestion of the generated example series (`scripts/maintenance/generate_example_strain.jl`, 16 Hz, 75 h) through the same pipeline |
 
 The delivered-per-day figures follow from the serial receiver: one batch per

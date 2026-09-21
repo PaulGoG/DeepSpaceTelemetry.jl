@@ -2,9 +2,7 @@
 
 ```@docs
 DeepSpaceTelemetry.TelemetryCore
-DeepSpaceTelemetry.TelemetryCore.L_ARM
 DeepSpaceTelemetry.TelemetryCore.C_LIGHT
-DeepSpaceTelemetry.TelemetryCore.F_STAR
 DeepSpaceTelemetry.TelemetryCore.DATA_ROOT
 DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT
 DeepSpaceTelemetry.TelemetryCore.run_directory
@@ -31,6 +29,8 @@ DeepSpaceTelemetry.TelemetryCore.mission_wall_seconds
 DeepSpaceTelemetry.TelemetryCore.normalize_profile!
 DeepSpaceTelemetry.TelemetryCore.telemetry_settings
 DeepSpaceTelemetry.TelemetryCore.physics_settings
+DeepSpaceTelemetry.TelemetryCore.is_whole_milliseconds
+DeepSpaceTelemetry.TelemetryCore.segment_period
 DeepSpaceTelemetry.TelemetryCore.supervision_settings
 DeepSpaceTelemetry.TelemetryCore.visibility_model
 DeepSpaceTelemetry.TelemetryCore.capacity_balance
@@ -78,6 +78,9 @@ DeepSpaceTelemetry.TelemetryCore.RUN_FILE_COUNT_SLACK
 DeepSpaceTelemetry.TelemetryCore.generate_run_id
 DeepSpaceTelemetry.TelemetryCore.platform_provenance
 DeepSpaceTelemetry.TelemetryCore.git_commit
+DeepSpaceTelemetry.TelemetryCore.git_dirty
+DeepSpaceTelemetry.TelemetryCore.git_output
+DeepSpaceTelemetry.TelemetryCore.save_manifest_snapshot
 DeepSpaceTelemetry.TelemetryCore.setup_run_dir
 DeepSpaceTelemetry.TelemetryCore.backup_existing
 DeepSpaceTelemetry.TelemetryCore.backup_existing_dir

@@ -14,7 +14,6 @@ using ..ChannelEffects
 using ..VirtualInstrument
 using Dates: Dates, DateTime, Millisecond, Second, now
 using ProgressMeter: ProgressMeter, @showprogress
-using Random: Random, Xoshiro
 
 """
     pre_populate(start_sim_time, run_id; kwargs...) -> (instrument, pending_segments)
@@ -37,14 +36,12 @@ consumed via `ext_index`) continues without restarting at the first sample.
     anchored at `start_sim_time`.
   - `data_source`: `"synthetic"` or `"external"`.
   - `ext_path`: path of the external CSV series (`data_source = "external"`).
-  - `rng`: the instrument's RNG, seeded from `simulation.rng_seed`.
-  - `markers`: event markers, stamped into the batch holding their instant.
+  - `markers`: event markers, stamped into the batch holding their instant
+    and flagged in the synthetic payload
+    ([`VirtualInstrument.FlaggedSignal`](@ref)).
   - `generation_gaps`: scheduled `(start, stop)` intervals without data
     production ([`skip_generation_gaps!`](@ref)).
   - `onboard_capacity_batches`: recorder ceiling; data beyond it is discarded.
-  - `confusion_observation_years`, `noise_f_min_hz`: galactic-confusion fit
-    and lower band edge of the synthetic noise model
-    ([`VirtualInstrument.lisa_noise_psd`](@ref)).
 """
 function pre_populate(
     start_sim_time::DateTime,
@@ -55,12 +52,9 @@ function pre_populate(
     initial_downtime_days::Float64 = 3.0,
     data_source::String = "synthetic",
     ext_path::String = "",
-    rng::Random.AbstractRNG = Xoshiro(0),
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
-    confusion_observation_years::Float64 = 1.0,
-    noise_f_min_hz::Float64 = 1e-5,
 )
     downtime_ms = max(0, round(Int, initial_downtime_days * TelemetryCore.MS_PER_DAY))
     downtime_start = start_sim_time - Millisecond(downtime_ms)
@@ -71,9 +65,7 @@ function pre_populate(
         segment_duration_sec,
         data_source,
         ext_path;
-        rng = rng,
-        confusion_observation_years = confusion_observation_years,
-        noise_f_min_hz = noise_f_min_hz,
+        markers = markers,
     )
     pending = TelemetryCore.DataSegment[]
 
@@ -208,7 +200,7 @@ generating `ARCH_` batches that accumulate onboard.
 Pass the `instrument` and `pending_segments` returned by [`pre_populate`](@ref)
 to continue the pre-populated data stream without gaps or duplication; when
 `instrument === nothing` a fresh `InstrumentState` starting at the current
-mission time is created instead (seeded by `rng`).
+mission time is created instead.
 
 Generation is paced by the mission clock, not by the loop's own start: a
 segment is produced once the mission clock has passed the end of its content
@@ -234,21 +226,18 @@ persists above one period for longer than
   - `instrument`: the `InstrumentState` returned by [`pre_populate`](@ref),
     or `nothing` for a fresh instrument anchored at the current mission time.
   - `pending_segments`: the partial batch returned by [`pre_populate`](@ref).
-  - `rng`: RNG of a freshly created instrument (ignored when `instrument`
-    is given).
   - `deadline`: absolute wall-clock stop shared by both components.
   - `stop`: cooperative stop flag raised by the supervisor.
   - `heartbeat_path`: liveness file touched every
     [`TelemetryCore.HEARTBEAT_INTERVAL_MS`](@ref) when set; removed on exit.
   - `max_inflight_batches`: cap on batches simultaneously on the link.
-  - `markers`: event markers, stamped into the batch holding their instant.
+  - `markers`: event markers, stamped into the batch holding their instant
+    and flagged in the synthetic payload
+    ([`VirtualInstrument.FlaggedSignal`](@ref)).
   - `generation_gaps`: scheduled `(start, stop)` intervals without data
     production ([`skip_generation_gaps!`](@ref)).
   - `onboard_capacity_batches`: recorder ceiling; new data is discarded
     while the buffer holds that many batches.
-  - `confusion_observation_years`, `noise_f_min_hz`: galactic-confusion fit
-    and lower band edge of the synthetic noise model of a freshly created
-    instrument ([`VirtualInstrument.lisa_noise_psd`](@ref)).
 """
 function run_emitter(
     clock::TelemetryCore.SimulationClock,
@@ -261,7 +250,6 @@ function run_emitter(
     ext_path::String = "",
     instrument::Union{VirtualInstrument.InstrumentState,Nothing} = nothing,
     pending_segments::Vector{TelemetryCore.DataSegment} = TelemetryCore.DataSegment[],
-    rng::Random.AbstractRNG = Xoshiro(0),
     deadline::Union{DateTime,Nothing} = nothing,
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
     heartbeat_path::Union{String,Nothing} = nothing,
@@ -269,8 +257,6 @@ function run_emitter(
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
-    confusion_observation_years::Float64 = 1.0,
-    noise_f_min_hz::Float64 = 1e-5,
 )
     # A fresh instrument anchors at the *current* mission time, not the
     # mission epoch: on a mid-mission restart the outage becomes a genuine
@@ -283,9 +269,7 @@ function run_emitter(
             segment_duration_sec,
             data_source,
             ext_path;
-            rng = rng,
-            confusion_observation_years = confusion_observation_years,
-            noise_f_min_hz = noise_f_min_hz,
+            markers = markers,
         ) : instrument
     run_dir = TelemetryCore.run_directory(run_id)
     buffer_path = joinpath(run_dir, "onboard")
@@ -324,7 +308,7 @@ function run_emitter(
 
     @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $run_id"
 
-    seg_period = Second(round(Int, vi.segment_duration_sec))
+    seg_period = TelemetryCore.segment_period(vi.segment_duration_sec)
     # Content-lag telemetry: lag = mission time at finalization − content end
     # of the finalized batch. A persistent lag means the host cannot keep
     # pace; a transient one (startup compilation, GC, a partner stall on a

@@ -8,17 +8,14 @@ the ground — under the realized live-FIFO / archive-LIFO doctrine and under
 a counterfactual first-in, first-out drain that re-assigns the same service
 completions in content order. The second is the measurement-to-ground
 delay of every batch against a delivery requirement (the Definition Study
-Report's 24 hours). The third is derived from the delivered payload rather
-than the logs: a Welch estimate of its spectrum against the analytic model
-the synthesis drew it from. See [`alert_latency_table`](@ref),
-[`plot_alert_latency`](@ref), [`delivery_delay_table`](@ref),
-[`plot_delivery_delay`](@ref), and [`plot_payload_spectrum`](@ref).
+Report's 24 hours). See [`alert_latency_table`](@ref),
+[`plot_alert_latency`](@ref), [`delivery_delay_table`](@ref), and
+[`plot_delivery_delay`](@ref).
 """
 module Metrology
 
 using ..TelemetryCore
 using ..PlotTheme
-using ..VirtualInstrument
 using CSV: CSV
 using CairoMakie:
     CairoMakie,
@@ -838,178 +835,6 @@ function plot_delivery_delay(
         path = PlotTheme.save_figure(fig, plots_dir, "delivery_delay"; formats, suffix)
     end
     @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) and delivery_delay.csv ($(round(100 * summary.fraction_within, digits = 1)) % within $(requirement_hours) h)."
-    return path
-end
-
-"""
-    payload_series(run_dir::String; max_batches = 40) -> Vector{Float64}
-
-The delivered payload of a run as one continuous strain series: the longest
-stretch of consecutively numbered batches under `ground/`, in generation
-order, capped at `max_batches`. Consecutive identifiers matter — the LIFO
-backfill delivers the archive out of order, and splicing across a gap would
-put a discontinuity into a spectral estimate. Empty when nothing was
-delivered or the payloads were pruned by the retention custodian.
-"""
-function payload_series(run_dir::String; max_batches::Int = 40)
-    ground = joinpath(run_dir, "ground")
-    isdir(ground) || return Float64[]
-    by_id = Dict{Int,String}()
-    for name in readdir(ground)
-        id = tryparse(Int, last(split(name, "_")))
-        id === nothing || (by_id[id] = name)
-    end
-    isempty(by_id) && return Float64[]
-    ids = sort!(collect(keys(by_id)))
-    best_start, best_len, start, len = ids[1], 1, ids[1], 1
-    for k in 2:length(ids)
-        if ids[k] == ids[k-1] + 1
-            len += 1
-        else
-            start, len = ids[k], 1
-        end
-        len > best_len && ((best_start, best_len) = (start, len))
-    end
-    series = Float64[]
-    for id in best_start:(best_start+min(best_len, max_batches)-1)
-        dir = joinpath(ground, by_id[id])
-        segments =
-            sort!(filter(f -> startswith(f, "seg_") && endswith(f, ".csv"), readdir(dir)))
-        for segment in segments
-            append!(
-                series,
-                CSV.read(joinpath(dir, segment), DataFrame; ntasks = 1).Amplitude,
-            )
-        end
-    end
-    return series
-end
-
-"""
-    plot_payload_spectrum(run_dir::String; style, plots_dir, formats, suffix, max_batches = 40) -> Union{Nothing,String}
-
-Renders `<run_dir>/plots/payload_spectrum.png` (vector twin): a Welch
-estimate ([`VirtualInstrument.welch_psd`](@ref)) of the delivered payload
-against the analytic model it was drawn from — the instrument term and the
-full `S(f)` of Robson, Cornish & Liu (2019). Returns the PNG path, or
-`nothing` for an external payload (there is no model to compare against) or
-when too little payload reached the ground.
-
-The figure is a validation, not a measurement: nothing is fitted, and the
-estimate reproduces the model at the correct absolute level over the band
-the synthesis block resolves. Below the first resolved bin — `1/(2·
-segment_duration_sec)` — the stream carries no power, so the estimate falls
-away from the model there; a segment length above about 2000 s is what makes
-the galactic-confusion foreground observable at all.
-"""
-function plot_payload_spectrum(
-    run_dir::String;
-    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
-    plots_dir::String = joinpath(run_dir, "plots"),
-    formats = ("png", "pdf"),
-    suffix::String = "",
-    max_batches::Int = 40,
-)
-    cfg = TelemetryCore.load_run_config(run_dir)
-    physics = TelemetryCore.physics_settings(cfg)
-    if physics.data_source != "synthetic"
-        @info "[POST] Payload spectrum skipped: the payload is external, so no model applies."
-        return nothing
-    end
-    series = payload_series(run_dir; max_batches)
-    frequencies, psd = VirtualInstrument.welch_psd(series, physics.sample_rate)
-    if isempty(frequencies)
-        @info "[POST] Payload spectrum skipped: too little delivered payload to estimate one."
-        return nothing
-    end
-    keep = frequencies .> 0
-    any(keep) || return nothing
-    f_measured = frequencies[keep]
-    s_measured = psd[keep]
-    years = physics.confusion_observation_years
-    f_model = 10 .^ range(log10(first(f_measured)), log10(last(f_measured)); length = 400)
-
-    path = with_theme(PlotTheme.telemetry_theme(style)) do
-        fig = Figure(size = style.size_summary)
-        ax = Axis(
-            fig[1, 1],
-            xlabel = L"Frequency $f$ [Hz]",
-            ylabel = L"$S(f)$ [Hz$^{-1}$]",
-            xscale = log10,
-            yscale = log10,
-        )
-        lines!(ax, f_measured, s_measured, color = PlotTheme.COLOR_LIVE)
-        lines!(
-            ax,
-            f_model,
-            [
-                VirtualInstrument.lisa_noise_psd(f; observation_years = years) for
-                f in f_model
-            ],
-            color = PlotTheme.COLOR_MARKER,
-            linestyle = :dash,
-        )
-        lines!(
-            ax,
-            f_model,
-            [VirtualInstrument.lisa_instrument_psd(f) for f in f_model],
-            color = (PlotTheme.COLOR_GUIDE, 0.9),
-            linestyle = :dot,
-        )
-        Legend(
-            fig[0, 1],
-            [
-                LineElement(color = PlotTheme.COLOR_LIVE, linewidth = 2 * style.linewidth),
-                LineElement(
-                    color = PlotTheme.COLOR_MARKER,
-                    linestyle = :dash,
-                    linewidth = 2 * style.linewidth,
-                ),
-                LineElement(
-                    color = PlotTheme.COLOR_GUIDE,
-                    linestyle = :dot,
-                    linewidth = 2 * style.linewidth,
-                ),
-            ],
-            [
-                PlotTheme.label(style, "Delivered payload", "Payload"),
-                L"Model $S(f)$",
-                L"Instrument $S_\mathrm{n}(f)$",
-            ];
-            orientation = :horizontal,
-            framevisible = false,
-            backgroundcolor = :transparent,
-        )
-        # The first bin the synthesis block resolves: the estimate is leakage
-        # below it, and saying so is the point of the figure.
-        resolved = 1 / (2 * physics.segment_duration_sec)
-        if first(f_measured) < resolved < last(f_measured)
-            lines!(
-                ax,
-                [resolved, resolved],
-                [minimum(s_measured), maximum(s_measured)],
-                color = (PlotTheme.COLOR_ONBOARD, 0.8),
-                linestyle = :dashdot,
-                linewidth = style.linewidth,
-            )
-            text!(
-                ax,
-                resolved,
-                maximum(s_measured),
-                text = PlotTheme.label(
-                    style,
-                    "First resolved bin, $(round(resolved * 1000, digits = 2)) mHz",
-                    "$(round(resolved * 1000, digits = 2)) mHz",
-                ),
-                align = (:left, :top),
-                offset = (4, 0),
-                fontsize = style.fontsize_annotation,
-                color = PlotTheme.COLOR_ONBOARD,
-            )
-        end
-        PlotTheme.save_figure(fig, plots_dir, "payload_spectrum"; formats, suffix)
-    end
-    @info "[POST] Payload spectrum saved: $(relpath(path, run_dir)) ($(length(series)) samples at $(physics.sample_rate) Hz)."
     return path
 end
 

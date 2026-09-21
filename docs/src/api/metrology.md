@@ -15,7 +15,5 @@ DeepSpaceTelemetry.Metrology.ANNOTATION_BLOCK_LEFT
 DeepSpaceTelemetry.Metrology.delivery_delay_table
 DeepSpaceTelemetry.Metrology.delivery_compliance
 DeepSpaceTelemetry.Metrology.plot_delivery_delay
-DeepSpaceTelemetry.Metrology.payload_series
-DeepSpaceTelemetry.Metrology.plot_payload_spectrum
 DeepSpaceTelemetry.Metrology.quantile_sorted
 ```

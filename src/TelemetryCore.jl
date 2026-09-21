@@ -14,30 +14,17 @@ using CSV: CSV
 using DataFrames: DataFrames, DataFrame
 using Dates: Dates, Date, DateTime, Day, Millisecond, Second, Time, now
 using JSON3: JSON3
+using InteractiveUtils: InteractiveUtils
 using LinearAlgebra: LinearAlgebra
 using TOML: TOML
 
 # --- Constants ---
-"""
-    L_ARM
-
-Length of the LISA constellation arms [m]: 2.5e9 m (2.5 million km).
-"""
-const L_ARM = 2.5e9
-
 """
     C_LIGHT
 
 Speed of light in vacuum (m/s).
 """
 const C_LIGHT = 2.99792458e8
-
-"""
-    F_STAR
-
-Characteristic transfer frequency of the LISA arm (Hz).
-"""
-const F_STAR = C_LIGHT / (2π * L_ARM)
 
 """
     PROJECT_ROOT
@@ -349,7 +336,8 @@ validator both iterate this table, so a new calibration key is declared
 exactly once.
 """
 const STORAGE_CALIBRATION_DEFAULTS = (
-    bytes_per_sample = 15.0,      # one Float32 CSV value + newline
+    bytes_per_sample = 15.0,      # one Float32 CSV value + newline (external series)
+    bytes_per_flag_sample = 4.0,  # one 0.0/1.0 CSV value + newline (synthetic flag series)
     bytes_batch_metadata = 96.0,  # metadata.json
     bytes_event_row = 64.0,       # events_tx/rx.csv row
     bytes_metrics_row = 160.0,    # mission_profile.csv row
@@ -393,8 +381,6 @@ const KNOWN_CONFIG_KEYS = Dict(
         "sample_rate",
         "segment_duration_sec",
         "batch_size",
-        "confusion_observation_years",
-        "noise_f_min_hz",
     ],
     "packet_loss" => [
         "enabled",
@@ -423,7 +409,6 @@ const KNOWN_CONFIG_KEYS = Dict(
         "delivery_delay",
         "delivery_requirement_hours",
         "state_raster",
-        "payload_spectrum",
         "hdf5_export",
         "publication",
     ],
@@ -468,32 +453,41 @@ const KNOWN_CONTACT_ENTRY_KEYS = Dict(
 )
 
 # --- Configuration accessors ---
-# Configuration keys retired at 1.0.0, (section, key) => replacement. A
-# configuration that still carries one is rejected with the replacement named
-# instead of being read through a silent fallback.
+# Retired configuration keys, (section, key) => (version of removal, what to
+# do instead). A live configuration that still carries one is rejected with
+# the remedy named instead of being read through a silent fallback.
 const REMOVED_CONFIG_KEYS = Dict(
-    ("simulation", "test_duration_sec") => "simulation.mission_wall_seconds",
-    ("simulation", "max_storage_gb") => "storage.max_storage_gb",
-    ("physics", "signal_injection_probability") => "[[events.markers]]",
-    (
-        "post_processing",
-        "generate_batch_matrix",
-    ) => "post_processing.generate_mask_timeline",
+    ("simulation", "test_duration_sec") =>
+        ("1.0.0", "use simulation.mission_wall_seconds"),
+    ("simulation", "max_storage_gb") => ("1.0.0", "use storage.max_storage_gb"),
+    ("physics", "signal_injection_probability") => ("1.0.0", "use [[events.markers]]"),
+    ("post_processing", "generate_batch_matrix") =>
+        ("1.0.0", "use post_processing.generate_mask_timeline"),
+    ("physics", "confusion_observation_years") => (
+        "2.0.0",
+        "delete the key: the synthetic payload is the binary flag series of [[events.markers]]",
+    ),
+    ("physics", "noise_f_min_hz") => (
+        "2.0.0",
+        "delete the key: the synthetic payload is the binary flag series of [[events.markers]]",
+    ),
+    ("post_processing", "payload_spectrum") =>
+        ("2.0.0", "delete the key: the payload-spectrum figure was removed"),
 )
 
 """
     reject_removed_key(section::AbstractDict, sec_name::String, key::String)
 
 Raises a `[CONFIG]` `ArgumentError` naming the replacement when `section`
-still carries `key`, a configuration key retired at 1.0.0
+still carries `key`, a retired configuration key
 (`REMOVED_CONFIG_KEYS`); returns `nothing` otherwise. Called by the
 accessors that once read the key through a fallback and by
 [`validate_config`](@ref).
 """
 function reject_removed_key(section::AbstractDict, sec_name::String, key::String)
     haskey(section, key) || return nothing
-    replacement = REMOVED_CONFIG_KEYS[(sec_name, key)]
-    config_error("[CONFIG] $sec_name.$key was removed at 1.0.0 — use $replacement.")
+    version, remedy = REMOVED_CONFIG_KEYS[(sec_name, key)]
+    config_error("[CONFIG] $sec_name.$key was removed at $version — $remedy.")
 end
 
 """
@@ -792,21 +786,46 @@ function loss_channel_settings(cfg::AbstractDict)
 end
 
 """
+    is_whole_milliseconds(seconds::Real) -> Bool
+
+Whether `seconds` is a whole number of milliseconds, at least one, to within
+the rounding of a decimal literal (`0.07 * 1000` is not exactly `70`). The
+content clock is a `DateTime`, which resolves milliseconds.
+"""
+function is_whole_milliseconds(seconds::Real)
+    ms = 1000 * seconds
+    return ms >= 1 && isapprox(ms, round(ms); atol = 1e-6)
+end
+
+"""
+    segment_period(segment_duration_sec::Real) -> Millisecond
+
+Content span of one segment on the mission clock. `ArgumentError` unless the
+duration is a whole number of milliseconds ([`is_whole_milliseconds`](@ref)).
+"""
+function segment_period(segment_duration_sec::Real)
+    is_whole_milliseconds(segment_duration_sec) || throw(
+        ArgumentError(
+            "segment_duration_sec must be a whole number of milliseconds (got $segment_duration_sec).",
+        ),
+    )
+    return Millisecond(round(Int, 1000 * segment_duration_sec))
+end
+
+"""
     physics_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[physics]` parameters: `data_source` (`"synthetic"` or
 `"external"`), `external_data_path` (as configured; consumers resolve it
-against the package root), `sample_rate > 0`, `segment_duration_sec > 0`,
-and `batch_size ≥ 1`, with at least two samples per segment (the FFT
-synthesis block). The four core keys are required. The optional
-`confusion_observation_years` (one of 0.5, 1.0, 2.0, 4.0; default 1.0)
-selects the galactic-confusion fit of the noise model and
-`noise_f_min_hz > 0` (default 1e-5) the lower edge of the synthesized band.
-The retired `signal_injection_probability` is rejected (event instants are
-`[[events.markers]]`). The
-existence of the external file is checked by [`validate_config`](@ref)
-only, so post-processing of a finished run does not depend on the input
-file still being present.
+against the package root), `sample_rate > 0`, `segment_duration_sec > 0`
+and a whole number of milliseconds (the resolution of the content clock),
+and `batch_size ≥ 1`, with at least one sample per segment. The four core
+keys are required. The retired `signal_injection_probability` is rejected
+(event instants are `[[events.markers]]`); the keys retired at 2.0.0 are
+rejected by [`validate_config`](@ref) only, so the snapshot of an older run
+still reads. The existence of the external file is likewise checked by
+`validate_config` only, so post-processing of a finished run does not
+depend on the input file still being present.
 """
 function physics_settings(cfg::AbstractDict)
     phy = get(cfg, "physics", Dict{String,Any}())
@@ -821,13 +840,16 @@ function physics_settings(cfg::AbstractDict)
     segment_duration > 0.0 || config_error(
         "[CONFIG] physics.segment_duration_sec must be > 0 (got $segment_duration).",
     )
+    is_whole_milliseconds(segment_duration) || config_error(
+        "[CONFIG] physics.segment_duration_sec must be a whole number of milliseconds (got $segment_duration).",
+    )
     batch_size =
         checked_integer(required_value(phy, "physics", "batch_size"), "physics.batch_size")
     batch_size >= 1 ||
         config_error("[CONFIG] physics.batch_size must be ≥ 1 (got $batch_size).")
     n_samples = sample_rate * segment_duration
-    n_samples >= 2.0 || config_error(
-        "[CONFIG] sample_rate × segment_duration_sec = $n_samples < 2: FFT synthesis needs ≥ 2 samples per segment.",
+    n_samples >= 1.0 || config_error(
+        "[CONFIG] sample_rate × segment_duration_sec = $n_samples < 1: a segment must hold at least one sample.",
     )
     data_source =
         checked_string(required_value(phy, "physics", "data_source"), "physics.data_source")
@@ -836,16 +858,6 @@ function physics_settings(cfg::AbstractDict)
     )
     external_data_path =
         checked_string(get(phy, "external_data_path", ""), "physics.external_data_path")
-    confusion_years = checked_number(
-        get(phy, "confusion_observation_years", 1.0),
-        "physics.confusion_observation_years",
-    )
-    confusion_years in (0.5, 1.0, 2.0, 4.0) || config_error(
-        "[CONFIG] physics.confusion_observation_years must be one of 0.5, 1.0, 2.0, 4.0 (got $confusion_years).",
-    )
-    noise_f_min = checked_number(get(phy, "noise_f_min_hz", 1e-5), "physics.noise_f_min_hz")
-    noise_f_min > 0.0 ||
-        config_error("[CONFIG] physics.noise_f_min_hz must be > 0 (got $noise_f_min).")
     reject_removed_key(phy, "physics", "signal_injection_probability")
     return (
         data_source = data_source,
@@ -853,8 +865,6 @@ function physics_settings(cfg::AbstractDict)
         sample_rate = sample_rate,
         segment_duration_sec = segment_duration,
         batch_size = batch_size,
-        confusion_observation_years = confusion_years,
-        noise_f_min_hz = noise_f_min,
     )
 end
 
@@ -1550,8 +1560,8 @@ Hard errors (would break the pipeline):
   - `batch_size < 1`, `initial_downtime_days < 0`
   - `session_duration_hours` outside `(0, 24]` (the daily session scheduler
     wraps `Time` arithmetic at 24 h)
-  - fewer than 2 samples per segment (`sample_rate * segment_duration_sec < 2`
-    breaks the FFT synthesis block)
+  - less than one sample per segment, or a `segment_duration_sec` that is
+    not a whole number of milliseconds (the content clock's resolution)
   - unknown `data_source`; `data_source = "external"` with a missing file
   - packet-loss probabilities outside `[0, 1]`, unknown loss `model` or
     `on_loss` policy, negative `max_retries`
@@ -1560,7 +1570,7 @@ Hard errors (would break the pipeline):
   - type-mismatched values anywhere (a quoted `"3600"` where a number is
     expected, a float where an integer is expected) — reported as a precise
     `[CONFIG]` message instead of a raw conversion stacktrace
-  - configuration keys retired at 1.0.0 (`simulation.test_duration_sec`,
+  - retired configuration keys (`simulation.test_duration_sec`,
     `simulation.max_storage_gb`, `physics.signal_injection_probability`,
     `post_processing.generate_batch_matrix`) and the `[disaster]` section
     name — rejected with the replacement named
@@ -1846,7 +1856,6 @@ function validate_config(cfg::AbstractDict)
         "alert_latency",
         "delivery_delay",
         "state_raster",
-        "payload_spectrum",
         "hdf5_export",
     )
         haskey(pp, key) && checked_flag(pp[key], "post_processing.$key")
@@ -2072,7 +2081,7 @@ struct RetentionPolicy
     enabled::Bool
     grace::Millisecond
     watermark_bytes::Float64
-    log_rotate_bytes::Float64
+    log_rotate_bytes::Int
 end
 
 """
@@ -2096,7 +2105,7 @@ function retention_settings(cfg::AbstractDict)
         enabled,
         Millisecond(round(Int, grace_hours * MS_PER_HOUR)),
         watermark_gb * 1024^3,
-        rotate_mb * 1024^2,
+        round(Int, rotate_mb * 1024^2),
     )
 end
 
@@ -2161,7 +2170,13 @@ function estimate_artifacts(cfg::AbstractDict)
         4 * n_batches +
         2 * round(Int, 100.0 / METRICS_BANDWIDTH_HYSTERESIS_PCT) * max(mission_days, 1)
 
-    payload_bytes = n_points * cal("bytes_per_sample")
+    # The flag series writes 0.0/1.0; anything else, an undeclared source
+    # included, is sized as a full Float32 value, the upper bound.
+    payload_bytes =
+        n_points * cal(
+            get(phy, "data_source", "external") == "synthetic" ? "bytes_per_flag_sample" :
+            "bytes_per_sample",
+        )
     batch_meta_bytes = n_batches * cal("bytes_batch_metadata")
     # tx: gen + tx per batch; rx worst case: `retries` retry rows + one
     # terminal (ingested | lost) + one potential pruned row.
@@ -2195,24 +2210,14 @@ function estimate_artifacts(cfg::AbstractDict)
         event_bytes + metrics_bytes + mask_bytes + pointwise_bytes : 0.0
 
     # Mission summary, one session figure per day and per low-latency period,
-    # the two metric figures, the batch-state raster, and the payload
-    # spectrum — the last two only when their flags are set, as they are by
-    # default.
+    # and one figure per enabled metric or raster product. The same count
+    # sizes the plots directory and enters the file count below.
     n_low_latency = length(contacts_settings(cfg).low_latency_periods)
-    n_figures =
-        mission_days +
-        3 +
-        n_low_latency +
-        (
-            checked_flag(get(pp, "state_raster", true), "post_processing.state_raster") ?
-            1 : 0
-        ) +
-        (
-            checked_flag(
-                get(pp, "payload_spectrum", true),
-                "post_processing.payload_spectrum",
-            ) ? 1 : 0
-        )
+    n_flagged_figures = count(
+        key -> checked_flag(get(pp, key, true), "post_processing.$key"),
+        ("alert_latency", "delivery_delay", "state_raster"),
+    )
+    n_figures = 1 + mission_days + n_low_latency + n_flagged_figures
     plot_bytes = n_figures * (cal("bytes_plot") + cal("bytes_plot_pdf"))
     log_bytes = n_batches * cal("bytes_log_per_batch") + LOG_FIXED_OVERHEAD_BYTES
 
@@ -2234,8 +2239,8 @@ function estimate_artifacts(cfg::AbstractDict)
         log_bytes
 
     # Files: per batch one directory, one metadata.json, batch_size segment
-    # CSVs; plus event logs, profile, mask products, plots, logs, snapshot,
-    # sentinels and the six run subdirectories (small fixed slack for
+    # CSVs; plus event logs, profile, mask products, plots, logs, the
+    # configuration and manifest snapshots, sentinels and the six run subdirectories (small fixed slack for
     # rotations).
     file_count =
         n_batches * (batch_size + 2) +
@@ -2243,10 +2248,10 @@ function estimate_artifacts(cfg::AbstractDict)
         1 +
         (do_matrix ? 1 : 0) +
         n_expansions +
-        2 * (mission_days + 3 + n_low_latency) +
+        2 * n_figures +
         (hdf5_bytes > 0 ? 1 : 0) +
         2 +
-        1 +
+        2 +
         2 +
         6 +
         RUN_FILE_COUNT_SLACK
@@ -2725,10 +2730,13 @@ end
 Hardware and runtime fingerprint stamped into every run's
 `config_snapshot.toml` under `[provenance.platform]`: hostname, OS kernel
 and architecture, CPU model and logical core count, total memory, Julia
-version, thread/BLAS-thread counts, the package version, and the git
-commit of the checkout ([`git_commit`](@ref), empty outside a repository).
-Together with the configuration snapshot and the recorded input identity,
-every result is attributable to config + commit + platform. (No GPU
+version and `versioninfo()` report, thread/BLAS-thread counts, the package
+version, and the git commit of the checkout with a flag for uncommitted
+changes ([`git_commit`](@ref), [`git_dirty`](@ref); empty and `false`
+outside a repository). Together with the configuration snapshot, the
+manifest snapshot ([`save_manifest_snapshot`](@ref)), and the recorded input
+identity, every result is attributable to config + commit + environment +
+platform. (No GPU
 fields: the pipeline is I/O- and event-loop-bound and uses no GPU
 backend.)
 """
@@ -2737,12 +2745,14 @@ function platform_provenance()
     return Dict{String,Any}(
         "package_version" => string(pkgversion(TelemetryCore)),
         "git_commit" => git_commit(),
+        "git_dirty" => git_dirty(),
         "hostname" => Base.Libc.gethostname(),
         "os" => string(Sys.KERNEL, " ", Sys.MACHINE),
         "cpu_model" => isempty(cpu) ? "unknown" : cpu[1].model,
         "logical_cores" => Sys.CPU_THREADS,
         "total_memory_gb" => round(Sys.total_memory() / 1024^3; digits = 2),
         "julia_version" => string(VERSION),
+        "versioninfo" => sprint(InteractiveUtils.versioninfo),
         "julia_threads" => Threads.nthreads(),
         "blas_threads" => LinearAlgebra.BLAS.get_num_threads(),
     )
@@ -2755,18 +2765,60 @@ The HEAD commit of the package checkout (`git rev-parse HEAD` in the
 project root), or `""` when git or the repository is unavailable.
 """
 function git_commit()
+    return something(git_output(`rev-parse HEAD`), "")
+end
+
+"""
+    git_dirty() -> Bool
+
+Whether the package checkout carries uncommitted changes to tracked files
+(`git status --porcelain --untracked-files=no`); `false` when git or the
+repository is unavailable. A run made from a dirty tree is not reproducible
+from its recorded commit alone.
+"""
+function git_dirty()
+    return !isempty(something(git_output(`status --porcelain --untracked-files=no`), ""))
+end
+
+"""
+    git_output(arguments::Cmd) -> Union{String,Nothing}
+
+Standard output of `git -C <project root> <arguments>`, stripped, or
+`nothing` when git is not installed or the command fails (no repository).
+"""
+function git_output(arguments::Cmd)
     try
-        return String(
-            strip(
-                read(
-                    pipeline(`git -C $PROJECT_ROOT rev-parse HEAD`; stderr = devnull),
-                    String,
-                ),
-            ),
-        )
-    catch
-        return ""
+        command = `git -C $PROJECT_ROOT $arguments`
+        return String(strip(read(pipeline(command; stderr = devnull), String)))
+    catch e
+        e isa Union{Base.IOError,ProcessFailedException} || rethrow()
+        return nothing
     end
+end
+
+"""
+    save_manifest_snapshot(run_dir::String) -> Union{String,Nothing}
+
+Copies the manifest of the active environment to
+`<run_dir>/manifest_snapshot.toml`, so the run records the dependency
+versions it was resolved on; manifests are not tracked in the repository.
+Returns the snapshot path, or `nothing` with a warning when the active
+environment has no manifest.
+"""
+function save_manifest_snapshot(run_dir::String)
+    project = Base.active_project()
+    # Julia prefers a version-specific manifest over the plain one.
+    names = ("Manifest-v$(VERSION.major).$(VERSION.minor).toml", "Manifest.toml")
+    candidates = project === nothing ? String[] : joinpath.(dirname(project), names)
+    found = findfirst(isfile, candidates)
+    if found === nothing
+        @warn "[RUN] The active environment has no manifest — dependency versions of this run are not recorded."
+        return nothing
+    end
+    snapshot_path = joinpath(run_dir, "manifest_snapshot.toml")
+    backup_existing(snapshot_path)
+    cp(candidates[found], snapshot_path)
+    return snapshot_path
 end
 
 """
@@ -2778,7 +2830,9 @@ rejected with an `ArgumentError`. When the parsed configuration `cfg` is provide
 `config_snapshot.toml` is written into the run directory (with `safesave`-style
 backup rotation) so every run's exact parameters remain reproducible after
 `config.toml` changes; the snapshot additionally carries the
-[`platform_provenance`](@ref) fingerprint under `[provenance.platform]`.
+[`platform_provenance`](@ref) fingerprint under `[provenance.platform]`, and
+the manifest of the active environment is copied beside it
+([`save_manifest_snapshot`](@ref)).
 """
 function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothing)
     base_dir = run_directory(run_id)
@@ -2813,6 +2867,7 @@ function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothin
         open(snapshot_path, "w") do io
             TOML.print(io, snapshot)
         end
+        save_manifest_snapshot(base_dir)
     end
     return base_dir
 end

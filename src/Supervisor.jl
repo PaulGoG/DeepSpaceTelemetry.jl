@@ -23,7 +23,6 @@ using CSV: CSV
 using DataFrames: DataFrame, nrow
 using Dates: Dates, DateTime, Millisecond, Second, now
 using Logging: Logging, with_logger
-using Random: Xoshiro
 using SHA: sha256
 
 # --- Component logging ---
@@ -116,7 +115,7 @@ end
 Everything derived from a validated configuration before the mission clock
 starts: the run ID, the `[simulation]` scalars, the typed `[telemetry]`,
 `[physics]`, and `[supervision]` settings, the composite link model, the
-loss channel (seeded with `rng_seed + 1`), the retry limit, and the
+loss channel (seeded with `simulation.rng_seed`), the retry limit, and the
 retention policy. Built by [`mission_plan`](@ref); nothing on disk depends
 on it until [`run_mission`](@ref) creates the run directory.
 """
@@ -127,7 +126,6 @@ struct MissionPlan{T<:NamedTuple,P<:NamedTuple,S<:NamedTuple,L<:ChannelEffects.L
     start_sim::DateTime
     mission_wall_seconds::Float64
     initial_downtime_days::Float64
-    rng_seed::Int
     telemetry::T
     physics::P
     supervision::S
@@ -139,17 +137,6 @@ struct MissionPlan{T<:NamedTuple,P<:NamedTuple,S<:NamedTuple,L<:ChannelEffects.L
     generation_gaps::Vector{Tuple{DateTime,DateTime}}
     onboard_capacity_batches::Int
 end
-
-"""
-    RESTART_SEED_OFFSET
-
-Offset of the RNG seed of a restarted emitter: attempt `k ≥ 1` seeds its
-fresh instrument with `rng_seed + RESTART_SEED_OFFSET + k`, so the noise
-realization after a restart is reproducible from `simulation.rng_seed` yet
-distinct from the primary stream (`rng_seed`) and from the loss channel
-(`rng_seed + 1`).
-"""
-const RESTART_SEED_OFFSET = 100
 
 """
     stamp_external_provenance!(cfg, physics, needed_days)
@@ -188,9 +175,8 @@ end
     mission_plan(cfg::Dict{String,Any}; run_id = "") -> MissionPlan
 
 Validates `cfg` (safe intervals, then the storage budget), builds the
-channel models — the physics stream is seeded with `simulation.rng_seed`,
-the loss channel with `rng_seed + 1`, so both are independently
-reproducible — stamps external-input provenance when
+channel models — the loss channel, the run's only random stream, is seeded
+with `simulation.rng_seed` — stamps external-input provenance when
 `physics.data_source = "external"`, and fixes the run ID (generated when
 empty). Writes nothing to disk and leaves `cfg` unmodified: the plan
 carries a shallow copy of it, which is what receives the provenance stamp
@@ -226,12 +212,11 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
         start_sim,
         wall_seconds,
         downtime_days,
-        seed,
         TelemetryCore.telemetry_settings(cfg),
         physics,
         TelemetryCore.supervision_settings(cfg),
         ChannelEffects.build_link_model(cfg),
-        ChannelEffects.build_loss_model(cfg, seed + 1),
+        ChannelEffects.build_loss_model(cfg, seed),
         ChannelEffects.loss_retry_limit(cfg),
         TelemetryCore.retention_settings(cfg),
         TelemetryCore.event_marker_settings(cfg),
@@ -383,9 +368,8 @@ end
 The emitter and receiver launchers consumed by [`supervise!`](@ref).
 Attempt 0 continues the pre-populated instrument and partial batch; a
 restarted emitter (attempt ≥ 1) takes a fresh instrument anchored at the
-current mission time — a genuine generation gap with a new noise
-realization on the seed `rng_seed + RESTART_SEED_OFFSET + attempt` — and
-no carried-over partial batch.
+current mission time — a genuine generation gap — and no carried-over
+partial batch.
 """
 function component_spawners(
     plan::MissionPlan,
@@ -416,9 +400,6 @@ function component_spawners(
             instrument = attempt == 0 ? instrument : nothing,
             pending_segments = attempt == 0 ? pending_segments :
                                TelemetryCore.DataSegment[],
-            rng = Xoshiro(plan.rng_seed + RESTART_SEED_OFFSET + attempt),
-            confusion_observation_years = physics.confusion_observation_years,
-            noise_f_min_hz = physics.noise_f_min_hz,
             markers = plan.markers,
             generation_gaps = plan.generation_gaps,
             onboard_capacity_batches = plan.onboard_capacity_batches,
@@ -461,7 +442,8 @@ The derived products after both components have finished: the 2D
 batch-state timeline (`post_processing.generate_mask_timeline`), the
 alert-latency metric (`alert_latency`, look-back `alert_lookback_hours`),
 the delivery-delay metric (`delivery_delay`, requirement
-`delivery_requirement_hours`), the point-wise 0/1 expansions
+`delivery_requirement_hours`), the batch-state raster (`state_raster`,
+drawn from the batch-state timeline), the point-wise 0/1 expansions
 (`expand_to_pointwise_masks`, rows from `target_event_rows`), the HDF5
 product export (`hdf5_export`), and the publication figure export
 (`[post_processing.publication]`). Each stage is failure-isolated: the simulation data
@@ -515,15 +497,6 @@ function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = std
             Receiver.plot_state_raster(run_dir)
         catch e
             @error "[POST] Batch-state raster failed — run data is intact." exception =
-                (e, catch_backtrace())
-        end
-    end
-    if get(pp, "payload_spectrum", true)
-        println(orig_stdout, "\nEstimating the payload spectrum")
-        try
-            Metrology.plot_payload_spectrum(run_dir)
-        catch e
-            @error "[POST] Payload spectrum failed — run data is intact." exception =
                 (e, catch_backtrace())
         end
     end
@@ -733,9 +706,6 @@ function warm_up_components!(plan::MissionPlan, orig_stdout::IO)
                 batch_size = physics.batch_size,
                 data_source = physics.data_source,
                 ext_path = physics.external_data_path,
-                rng = Xoshiro(plan.rng_seed),
-                confusion_observation_years = physics.confusion_observation_years,
-                noise_f_min_hz = physics.noise_f_min_hz,
                 max_inflight_batches = plan.telemetry.max_inflight_batches,
                 deadline = past,
                 stop = stop_flag,
@@ -800,9 +770,6 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
             initial_downtime_days = plan.initial_downtime_days,
             data_source = physics.data_source,
             ext_path = physics.external_data_path,
-            rng = Xoshiro(plan.rng_seed),
-            confusion_observation_years = physics.confusion_observation_years,
-            noise_f_min_hz = physics.noise_f_min_hz,
             markers = plan.markers,
             generation_gaps = plan.generation_gaps,
             onboard_capacity_batches = plan.onboard_capacity_batches,
