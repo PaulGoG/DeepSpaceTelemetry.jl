@@ -9,6 +9,3 @@
 *.gif binary
 *.jld2 binary
 *.h5 binary
-
-# Generated environments: keep them out of diff noise but under review.
-Manifest.toml linguist-generated=true

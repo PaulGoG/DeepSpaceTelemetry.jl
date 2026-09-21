@@ -2,8 +2,10 @@
 *.ji
 *.cov
 *.jld2
-# NOTE: Manifest.toml is deliberately committed — together with Project.toml it
-# is the portability/reproducibility guarantee across computing instances.
+# Resolved environments are not tracked: Project.toml and [compat] define the
+# environment, and every run stores the manifest it was resolved on.
+Manifest.toml
+Manifest-v*.toml
 
 # Data & Runs (Do not commit massive multi-gigabyte simulation runs!)
 # Note: `data/runs/*` (not `data/runs/`) so the .gitkeep negation can take

@@ -1,6 +1,15 @@
 version: 2
 updates:
+  - package-ecosystem: "julia"
+    directories:
+      - "/"
+      - "/test"
+      - "/docs"
+      - "/bench"
+      - "/scripts"
+    schedule:
+      interval: "weekly"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
