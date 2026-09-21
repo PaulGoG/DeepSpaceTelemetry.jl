@@ -243,6 +243,16 @@ end
     cfg["packet_loss"] =
         Dict{String,Any}("enabled" => false, "model" => "unsupported_model")
     @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+
+    # an unknown capacity profile is rejected by the accessor and by the model
+    cfg = valid_test_cfg()
+    cfg["telemetry"]["bandwidth_profile"] = "trapezoid"
+    @test_throws r"telemetry\.bandwidth_profile" TelemetryCore.validate_config(cfg)
+    @test_throws ArgumentError TelemetryCore.VisibilityModel(
+        Time(8),
+        Second(8 * 3600),
+        "trapezoid",
+    )
 end
 
 @testset "Config validation: warnings" begin
@@ -252,11 +262,6 @@ end
     @test_logs (:warn, r"cannot keep pace") match_mode=:any TelemetryCore.validate_config(
         cfg,
     )
-
-    # Unknown bandwidth profile falls back with a warning
-    cfg = valid_test_cfg()
-    cfg["telemetry"]["bandwidth_profile"] = "trapezoid"
-    @test_logs (:warn,) match_mode=:any TelemetryCore.validate_config(cfg)
 
     # Disruption scheduled after mission end never fires
     cfg = valid_test_cfg()

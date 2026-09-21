@@ -553,7 +553,8 @@ end
     telemetry_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[telemetry]` parameters: `session_start::Time`,
-`session_duration::Second`, `bandwidth_profile::String`,
+`session_duration::Second`, `bandwidth_profile::String` (one of
+[`BANDWIDTH_PROFILES`](@ref)),
 `sigmoid_steepness`, `gaussian_sigma`, `max_batches_per_hour`,
 `max_inflight_batches::Int`, `min_link_factor`, `range_million_km ≥ 0`
 (spacecraft–Earth range; `0` disables the light-time delay), and the
@@ -644,6 +645,9 @@ function telemetry_settings(cfg::AbstractDict)
     end
     bandwidth_profile =
         checked_string(get(tel, "bandwidth_profile", "sine"), "telemetry.bandwidth_profile")
+    bandwidth_profile in BANDWIDTH_PROFILES || config_error(
+        "[CONFIG] Unknown telemetry.bandwidth_profile = \"$bandwidth_profile\" (expected one of $(join(repr.(BANDWIDTH_PROFILES), ", "))).",
+    )
     max_inflight = checked_integer(
         get(tel, "max_inflight_batches", 5),
         "telemetry.max_inflight_batches",
@@ -1563,6 +1567,7 @@ Hard errors (would break the pipeline):
   - less than one sample per segment, or a `segment_duration_sec` that is
     not a whole number of milliseconds (the content clock's resolution)
   - unknown `data_source`; `data_source = "external"` with a missing file
+  - unknown `bandwidth_profile`
   - packet-loss probabilities outside `[0, 1]`, unknown loss `model` or
     `on_loss` policy, negative `max_retries`
   - disruption events with negative `start_day`, non-positive `duration_hours`,
@@ -1583,7 +1588,6 @@ Warnings (runnable but likely unintended):
     below [`RECEIVER_SLOT_WARN_MS`](@ref) (the
     [`RECEIVER_SLEEP_FLOOR_SEC`](@ref) sleep floor distorts the download
     rate)
-  - unknown `bandwidth_profile` (falls back to `"sine"`)
   - the physical rate pair combined with a shaped `bandwidth_profile` (the
     profile mean scales a link rate that the pass sustains; the capacity of
     one nominal pass against the daily production is stated)
@@ -1716,12 +1720,10 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [telemetry] --
-    # Types and bounds are enforced by the shared accessor (also consumed by
-    # the link builder, the receiver, and the entry point); only the
-    # non-fatal profile check lives here.
+    # Types, bounds, and the profile enumeration are enforced by the shared
+    # accessor (also consumed by the link builder, the receiver, and the
+    # entry point); only the capacity-balance warning lives here.
     tel_settings = telemetry_settings(cfg)
-    tel_settings.bandwidth_profile in ("sine", "sigmoid", "gaussian", "flat") ||
-        @warn "[CONFIG] Unknown telemetry.bandwidth_profile = \"$(tel_settings.bandwidth_profile)\"; falling back to \"sine\"."
     # A physical link rate is sustained across the pass; a shaped profile
     # scales it by the profile mean and the daily balance changes regime.
     balance = capacity_balance(cfg)
@@ -2977,11 +2979,20 @@ end
 
 # --- Contact windows, visibility & bandwidth ---
 """
+    BANDWIDTH_PROFILES
+
+Capacity profiles of a nominal pass accepted in `telemetry.bandwidth_profile`
+and by [`VisibilityModel`](@ref); [`profile_factor`](@ref) defines each.
+"""
+const BANDWIDTH_PROFILES = ("sine", "sigmoid", "gaussian", "flat")
+
+"""
     VisibilityModel
 
 Ground-contact model of the downlink. The nominal daily window opens at
 `session_start` for `session_duration` with the capacity `profile`
-(`sigmoid_steepness`, `gaussian_sigma`); `seasonal_extension` widens it
+(one of [`BANDWIDTH_PROFILES`](@ref); `sigmoid_steepness`, `gaussian_sigma`);
+`seasonal_extension` widens it
 symmetrically about its centre, cosine-modulated with period
 `season_period_days` and peaking at `season_peak_day_of_year`;
 `exceptions` (`date => (start, duration)`, zero duration = missed pass)
@@ -3013,6 +3024,38 @@ struct VisibilityModel
     exceptions::Dict{Date,Tuple{Time,Second}}
     schedule::Vector{ContactWindow}
     low_latency::Vector{ContactWindow}
+    function VisibilityModel(
+        session_start::Time,
+        session_duration::Second,
+        profile::String,
+        sigmoid_steepness::Float64,
+        gaussian_sigma::Float64,
+        seasonal_extension::Second,
+        season_period_days::Float64,
+        season_peak_day_of_year::Float64,
+        exceptions::Dict{Date,Tuple{Time,Second}},
+        schedule::Vector{ContactWindow},
+        low_latency::Vector{ContactWindow},
+    )
+        profile in BANDWIDTH_PROFILES || throw(
+            ArgumentError(
+                "Unknown capacity profile \"$profile\" (expected one of $(join(repr.(BANDWIDTH_PROFILES), ", "))).",
+            ),
+        )
+        return new(
+            session_start,
+            session_duration,
+            profile,
+            sigmoid_steepness,
+            gaussian_sigma,
+            seasonal_extension,
+            season_period_days,
+            season_peak_day_of_year,
+            exceptions,
+            schedule,
+            low_latency,
+        )
+    end
 end
 
 function VisibilityModel(
@@ -3137,8 +3180,9 @@ is_visible(model::VisibilityModel, t::DateTime) = active_window(model, t) !== no
     profile_factor(model::VisibilityModel, progress::Float64) -> Float64
 
 The capacity profile of a nominal pass at the normalized position
-`progress ∈ [0, 1]` within the window: `sine`, `sigmoid`, `gaussian`, or
-`flat` (unknown names fall back to `sine`).
+`progress ∈ [0, 1]` within the window: `sin²(π p)` for `sine`,
+`[tanh(k p) + tanh(k (1 − p))] / 2` for `sigmoid`,
+`exp(−(p − ½)² / 2σ²)` for `gaussian`, and `1` for `flat`.
 """
 function profile_factor(model::VisibilityModel, progress::Float64)
     if model.profile == "sine"
@@ -3151,7 +3195,7 @@ function profile_factor(model::VisibilityModel, progress::Float64)
     elseif model.profile == "flat"
         return 1.0
     else
-        return sin(pi * progress)^2
+        throw(ArgumentError("Unknown capacity profile \"$(model.profile)\"."))
     end
 end
 

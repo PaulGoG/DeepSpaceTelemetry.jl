@@ -15,6 +15,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `physics.data_source = "external"`.
 - **Breaking:** `simulation.rng_seed` seeds the packet-loss channel only, and
   directly, so the loss realization of a given seed differs from 1.x.
+- **Breaking:** an unknown `telemetry.bandwidth_profile` is a `[CONFIG]`
+  error; it was a warning and ran as `"sine"`. `VisibilityModel` rejects an
+  unknown profile at construction.
 - `physics.segment_duration_sec` must be a whole number of milliseconds, and
   sub-second segments now advance the content clock exactly (it advanced by
   whole seconds). A segment must hold at least one sample (was two).
