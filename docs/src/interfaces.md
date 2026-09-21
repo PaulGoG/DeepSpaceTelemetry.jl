@@ -35,7 +35,8 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `events_tx.csv` | emitter; the supervisor appends the `STREAM` gap pair while the emitter is down (one live writer at a time) | Tail/read. Generation and transmission milestones. |
 | `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics at a change-driven cadence, columns `SimTime, WallTime, Mission_Day, Hours_Elapsed, Bandwidth_Pct, Onboard_Buffer, Link_Buffer, Ground_Total, Ground_Live, Ground_Arch, Nominal_Bandwidth_Pct, Lost_Count, Retry_Count, Disruption_Active` (a pre-rename `Ground_Archive` column is normalized to `Ground_Total` on read). |
 | `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
-| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `julia_threads`, `blas_threads` — and, for external data, the input identity at `[provenance]` (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`). |
+| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `git_dirty` (uncommitted changes in the checkout), `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `versioninfo`, `julia_threads`, `blas_threads` — and, for external data, the input identity at `[provenance]` (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`). |
+| `manifest_snapshot.toml` | pipeline (at startup) | Read. The manifest of the environment the run was resolved on: the exact version of every dependency. Manifests are not tracked in the repository, so this file and the commit in `config_snapshot.toml` together fix the code state. |
 | `RUN_ACTIVE` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor and absolute deadline (`wall_epoch`, `start_sim_time`, `speed_up`, `deadline_wall`); re-attaching components reconstruct the identical clock from it. |
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` one of `down`, `restart`, `stalled`, `recovered`. |
@@ -45,7 +46,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine against the counterfactual FIFO drain — columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
 | `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
 | `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, the point-wise masks, and the provenance attributes in one HDF5 file (section below) — not the batch payloads, the clock anchor, the sentinels, or the logs; regenerable from the CSV products. |
-| `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact, `alert_latency`, `delivery_delay`, `state_raster` (the batch-state timeline as a raster), and `payload_spectrum` (a Welch estimate of the delivered payload against the analytic model; synthetic payloads only), each as `.png` and `.pdf`. |
+| `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact, `alert_latency`, `delivery_delay`, and `state_raster` (the batch-state timeline as a raster), each as `.png` and `.pdf`. |
 | `publication/` | post-processing (`[post_processing.publication]`) | Read/copy. Journal-width figure export, `<stem>__<run_id>.<format>`, with a `PROVENANCE.toml` sidecar (`[export]`: `run_id`, `run_directory`, `exported_at`, `column_width_mm`, `format`, `package_version`, `git_commit`, `config_snapshot_sha256`, `figures`). |
 | `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch`: the finalization instant from the event log and the first-sample timestamp from the batch metadata (missing when the metadata lacks it); written when the run has `gen` rows, it re-anchors point-wise mask rows when gap events are present. |
 | `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`. |
@@ -54,7 +55,8 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; the emitter counts in-flight batches from the `link/` listing, so a slot frees when the receiver moves a batch out. |
 
 A batch directory contains `metadata.json` and one `seg_<id>.csv` per segment
-(single `Amplitude` column). The metadata keys are `batch_id`,
+(single `Amplitude` column; a synthetic run writes the flag values `0.0` and
+`1.0` there, an external run the ingested samples). The metadata keys are `batch_id`,
 `segment_count`, `content_epoch` — the mission timestamp of the payload's
 first sample, i.e. the physical epoch the data belong to — and `created_at`
 — the mission instant at which the batch was finalized and became
@@ -104,7 +106,7 @@ outages through `component_events.csv` and the heartbeat mtimes. A receiver
 outage needs no special handling — it reproduces ground-station-blackout
 phenomenology (backlog accumulation, then drain). An **emitter outage is a
 genuine generation gap**: the restarted instrument resumes at the *current*
-mission time with a fresh noise realization, and the dead window is bounded
+mission time, and the dead window is bounded
 by `gap_start`/`gap_end` rows (Batch = `STREAM`) in `events_tx.csv`. The
 same row pair bounds a **scheduled generation gap** (a disruption event with
 `affects = "generation"`; Batch = `SCHEDULED`) and a **recorder overflow**

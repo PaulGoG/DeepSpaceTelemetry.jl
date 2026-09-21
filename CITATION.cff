@@ -8,9 +8,10 @@ abstract: >-
   packet loss and scheduled disruptions, prioritized near-real-time (FIFO)
   transmission with LIFO archival backfill, and the resulting alert-latency
   and delivery-delay metrology. The telemetry, channel, and queuing layers
-  are mission-agnostic; the shipped scenarios and the amplitude-calibrated
-  synthetic payload model LISA. External analysis pipelines couple to a run
-  through a documented read-only filesystem contract.
+  are mission-agnostic; the shipped scenarios model LISA, with a binary flag
+  payload marking the segments that hold declared events. External analysis
+  pipelines couple to a run through a documented read-only filesystem
+  contract.
 type: software
 authors:
   - family-names: "Gogîță"

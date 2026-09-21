@@ -11,8 +11,8 @@ One week of `scenarios/stress_8h_bursty.toml`: 8 h daily passes on the
 physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare blackout
 with a 12 h recovery ramp on day 2.5, a partial ground-station outage on day
 5, and a scheduled generation gap on day 1.5. The onboard buffer doubles from
-288 to 583 batches across the week while 706 batches reach the ground and
-retransmission recovers all 42 rejected transfers.
+288 to 581 batches across the week while 707 batches reach the ground and
+retransmission recovers all 47 rejected transfers.
 
 ## Installation
 
@@ -27,7 +27,7 @@ Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.2.0"
 ```
 
 ## Capabilities
-* **Continuous physics engine**: amplitude-calibrated, phase-continuous synthetic LISA strain from the sky-averaged sensitivity of Robson, Cornish & Liu (2019) with a selectable galactic-confusion fit, or ingestion of external continuous CSV time series.
+* **Payload**: a binary flag series marking the segments that hold a declared event (`0` noise only, `1` flagged signal), or ingestion of an external continuous CSV time series.
 * **Link capacity**: either the batches-per-hour abstraction or the physical rate pair `downlink_kbps` / `onboard_data_rate_kbps`, with the catch-up ratio and the capacity of one nominal pass against the daily production reported at start-up.
 * **Pass profiles**: `sine`, `sigmoid`, `gaussian`, or `flat` capacity over the pass; the validator states the profile mean when a shaped profile meets a physical rate.
 * **Contact schedule**: seasonal pass-duration modulation, per-date exceptions, explicit pass lists (TOML or CSV), and low-latency periods at a station-availability capacity fraction.

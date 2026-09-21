@@ -11,9 +11,8 @@ missions: duty-cycled deep-space-network (DSN) contact windows, prioritized
 near-real-time (FIFO) transmission with LIFO archival backfill, stochastic
 packet loss with retransmission, and scheduled link disruptions. The
 telemetry, channel, and queuing layers are mission-agnostic; the shipped
-scenarios and the synthetic payload model the LISA (Laser Interferometer
-Space Antenna) mission, and external instrument data ingests through the same
-pipeline.
+scenarios model the LISA (Laser Interferometer Space Antenna) mission, and
+external instrument data ingests through the same pipeline.
 
 **[Manual](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/)** · [Physics](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/physics/) ·
 [Configuration](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/usage/) · [Analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) ·
@@ -21,6 +20,28 @@ pipeline.
 
 > "DSN" denotes throughout a deep-space ground-station network in the generic
 > sense; the LISA passes are ESA ESTRACK 35 m antenna passes.
+
+## Project Structure
+
+```text
+DeepSpaceTelemetry/
+├── src/            # The library: configuration and I/O, channel models, the
+│                   #   instrument, emitter, receiver, metrology, HDF5 export,
+│                   #   publication figures, and the mission supervisor
+├── scripts/        # Entry points (headless run, dashboard) and post-processing
+├── scenarios/      # Eleven complete configurations and their coverage matrix
+├── test/           # Static QA, unit, physics, and four integration missions
+├── bench/          # BenchmarkTools suites
+├── docs/           # Documenter manual sources and the README figures
+├── data/runs/      # Ephemeral run directories (gitignored)
+├── activate.jl     # Activates and instantiates this environment (one per environment)
+├── config.toml     # Default entry point (= scenarios/recovery_12h_seasonal.toml)
+└── Project.toml    # Package metadata, deps, compat bounds
+```
+
+Each auxiliary directory carries its own environment; the run directory's
+layout and file contract are specified on the
+[analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) page.
 
 ![Mission summary of the stress scenario: seven daily passes against a
 growing onboard buffer, an 18 h solar-flare blackout with a 12 h recovery
@@ -40,28 +61,6 @@ transfers, leaving the lost-batch strip at zero. Every number here comes
 from the run recorded in
 [`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml).
 
-## Project Structure
-
-```text
-DeepSpaceTelemetry/
-├── src/            # The library: configuration and I/O, channel models, the
-│                   #   instrument, emitter, receiver, metrology, HDF5 export,
-│                   #   publication figures, and the mission supervisor
-├── scripts/        # Entry points (headless run, dashboard) and post-processing
-├── scenarios/      # Eleven complete configurations and their coverage matrix
-├── test/           # Static QA, unit, physics, and four integration missions
-├── bench/          # BenchmarkTools suites
-├── docs/           # Documenter manual sources and the README figures
-├── data/runs/      # Ephemeral run directories (gitignored)
-├── activate.jl     # Activates and instantiates this environment (one per environment)
-├── config.toml     # Default entry point (= scenarios/recovery_12h_seasonal.toml)
-└── Project.toml    # Package metadata, deps, compat bounds (+ Manifest.toml)
-```
-
-Each auxiliary directory carries its own environment; the run directory's
-layout and file contract are specified on the
-[analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) page.
-
 <details>
 <summary>Full file tree, annotated</summary>
 
@@ -71,18 +70,17 @@ DeepSpaceTelemetry/
 │   ├── DeepSpaceTelemetry.jl    # Main module
 │   ├── TelemetryCore.jl         # Configuration (+validation), I/O, timers, event logs
 │   ├── ChannelEffects.jl        # Packet-loss channels, disruption timeline, LinkModel
-│   ├── VirtualInstrument.jl     # Calibrated strain synthesis and noise PSD (seeded RNG)
+│   ├── VirtualInstrument.jl     # Payload: binary flag series or external CSV ingestion
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
 │   ├── Emitter.jl               # Satellite state machine (payload/queues)
 │   ├── Receiver.jl              # DSN ground station, loss handling, post-processing
-│   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay, payload spectrum
+│   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay
 │   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
 │   ├── Publication.jl           # Publication figure export at a declared printed width
 │   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
 ├── scripts/
 │   ├── Project.toml             # Script environment (terminal UI and logging dependencies; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the script environment
-│   ├── Manifest.toml            # Resolved script environment (committed for portability)
 │   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
 │   ├── run_full_sim.jl          # Headless entry point ([run_id] [config.toml]) → Supervisor.run_mission
 │   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
@@ -99,21 +97,18 @@ DeepSpaceTelemetry/
 ├── test/
 │   ├── Project.toml             # Test environment (QA deps; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the test environment
-│   ├── Manifest.toml            # Resolved test environment (committed for portability)
 │   └── runtests.jl              # Static QA + unit + physics + 4 integration suites
 ├── bench/
 │   ├── Project.toml             # Benchmark environment (BenchmarkTools; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the benchmark environment
-│   ├── Manifest.toml            # Resolved benchmark environment
 │   └── benchmarks.jl            # Performance benchmarks (incl. channel hot paths)
 ├── docs/
 │   ├── Project.toml             # Docs environment (Documenter; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the docs environment
-│   ├── Manifest.toml            # Resolved docs environment (committed for portability)
 │   ├── make.jl                  # Documenter.jl build script
 │   └── src/                     # Manual pages
 │       ├── index.md             # Overview, installation, capabilities
-│       ├── physics.md           # Noise model, link capacity, channels, queuing, metrology
+│       ├── physics.md           # Payload, link capacity, channels, queuing, metrology
 │       ├── usage.md             # Configuration reference and execution
 │       ├── interfaces.md        # Filesystem contract for analysis pipelines
 │       ├── api.md               # API reference index
@@ -129,7 +124,7 @@ DeepSpaceTelemetry/
 │   ├── drop_policy.toml         # 20 % loss without retransmission
 │   ├── explicit_schedule.toml   # Explicit pass list with missed, shortened, extended passes
 │   ├── long_30d_seasonal.toml   # 30 days, contact gap reaching the recorder ceiling
-│   ├── long_segments_confusion_band.toml # 2400 s segments resolving the confusion band
+│   ├── long_segments_2400s.toml # 2400 s segments: the coarse-batch regime
 │   └── external_ingest.toml     # External CSV ingestion
 ├── data/
 │   ├── example_external_strain.csv # Generated demo input (gitignored)
@@ -142,9 +137,7 @@ DeepSpaceTelemetry/
 │                                #   heartbeats and RUN_ACTIVE/RUN_COMPLETE/RUN_ABORTED
 │                                #   sentinels (interfaces.md documents the full contract)
 ├── .github/workflows/CI.yml     # Test matrix (Linux 1.12 / 1 / pre, macOS and Windows on 1), formatter, docs build and deployment
-├── .github/workflows/CompatHelper.yml # Weekly compat-bound update pull requests
-├── .github/workflows/TagBot.yml # Release tags after registry merges (active once registered)
-├── .github/dependabot.yml       # Monthly GitHub Actions version updates
+├── .github/dependabot.yml       # Weekly Julia and GitHub Actions version updates
 ├── .github/ISSUE_TEMPLATE/      # Bug-report and feature-request forms
 ├── .github/PULL_REQUEST_TEMPLATE.md # Change, verification, open points
 ├── activate.jl                  # Activates and instantiates the package environment
@@ -157,7 +150,6 @@ DeepSpaceTelemetry/
 ├── CONTRIBUTING.md              # Working conventions: environments, tests, formatting, commits
 ├── config.toml                  # Default entry point (= scenarios/recovery_12h_seasonal.toml)
 ├── Project.toml                 # Package metadata, deps, compat bounds
-├── Manifest.toml                # Resolved dependency graph (committed for portability)
 ├── LICENSE
 └── README.md                    # Project documentation
 ```
@@ -190,19 +182,13 @@ repository directory).
 Relative config paths also resolve against the package root, so the scripts
 work unmodified from any working directory.
 
-`Project.toml` + `Manifest.toml` pin the full dependency graph; instantiating
-them reproduces the exact tested environment on any machine:
+Every entry-point script activates and instantiates its own environment as
+its first statement, silently, so nothing needs preparing and `--project` is
+never passed. Manifests are not tracked: `Project.toml` with its `[compat]`
+bounds defines each environment, and every run stores the manifest it was
+resolved on as `manifest_snapshot.toml` in its run directory.
 
-```bash
-julia --project=. -e 'using Pkg; Pkg.instantiate()'
-```
-
-Every entry-point script also activates and instantiates the environment
-automatically and silently, so this step is optional; it only avoids a
-first-run delay.
-
-Each environment additionally ships an activation script for interactive
-work, which activates it and instantiates its manifest without output:
+The same activation scripts open an interactive session:
 
 ```bash
 julia -i activate.jl           # the package environment
@@ -231,7 +217,7 @@ that case.
 Headless, on the default configuration:
 
 ```bash
-julia --project=. --threads=3 scripts/run_full_sim.jl
+julia --threads=3 scripts/run_full_sim.jl
 ```
 
 Any argument ending in `.toml` selects another configuration (relative paths
@@ -240,14 +226,14 @@ files may live outside the repository); any other argument sets the run ID.
 Both are optional and order-independent:
 
 ```bash
-julia --project=. --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
+julia --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
 ```
 
 Interactively, with the live viewer and the two log followers in their own
 terminal windows:
 
 ```bash
-julia --project=. --threads=3 scripts/launch_dashboard.jl
+julia --threads=3 scripts/launch_dashboard.jl
 ```
 
 The mission itself runs in the primary terminal, which shows the supervisor's
@@ -257,9 +243,9 @@ default and enabled with `dashboard.receiver_status_panel = true`.
 ### Tests, benchmarks, and the manual
 
 ```bash
-julia --project=. test/runtests.jl      # static QA, unit, physics, integration
-julia --project=. bench/benchmarks.jl   # BenchmarkTools, incl. the channel hot paths
-julia --project=docs docs/make.jl       # the manual into docs/build/
+julia --threads=3 test/runtests.jl   # static QA, unit, physics, integration
+julia bench/benchmarks.jl   # BenchmarkTools, incl. the channel hot paths
+julia docs/make.jl       # the manual into docs/build/
 ```
 
 The suite (equivalently `Pkg.test()`) runs the Aqua, ExplicitImports, and JET
@@ -279,22 +265,22 @@ The post-processing commands read a completed run directory; those taking
 
 ```bash
 # Chronological animation of the batch routing (--web: README/manual size)
-julia --project=. scripts/postprocessing/generate_gif.jl [--web] [RUN_ID]
+julia scripts/postprocessing/generate_gif.jl [--web] [RUN_ID]
 
 # HDF5 export of every product of a run, provenance in the root attributes
-julia --project=. scripts/postprocessing/export_hdf5.jl [RUN_ID]
+julia scripts/postprocessing/export_hdf5.jl [RUN_ID]
 
 # Figures at the width and format of [post_processing.publication], with a sidecar
-julia --project=. scripts/postprocessing/export_publication_figures.jl [RUN_ID]
+julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 
 # Expand one mask-timeline row into a point-wise 0/1 column
-julia --project=. scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> 102400 100 output.csv
+julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> 102400 100 output.csv
 
 # Regenerate the example series for physics.data_source = "external"
-julia --project=. scripts/maintenance/generate_example_strain.jl
+julia scripts/maintenance/generate_example_strain.jl
 
 # Purge previous run directories (lists candidates and asks; --yes skips the prompt)
-julia --project=. scripts/maintenance/cleanup.jl
+julia scripts/maintenance/cleanup.jl
 ```
 
 In the mask expansion, batches in state `4 = Lost` remain masked: a lost
@@ -308,9 +294,9 @@ batch never becomes available on the ground.
 |---|---|---|
 | `TelemetryCore` | configuration accessors and validation, run layout, batch I/O, event logs, provenance | stable; unit, guardrail, and static-QA coverage |
 | `ChannelEffects` | loss channels, disruption timeline, composite link model | stable; validated against the analytic stationary loss rate |
-| `VirtualInstrument` | calibrated strain synthesis, Robson–Cornish–Liu noise model, external ingestion | stable; noise model checked against reference values |
+| `VirtualInstrument` | binary flag payload declared by the event markers, external ingestion | stable; flag rule, boundary cases, and clock advance unit-tested |
 | `Emitter` / `Receiver` | spacecraft and ground-station state machines, post-processing products and figures | stable; four end-to-end integration missions in the suite |
-| `Metrology` | alert-latency and delivery-delay metrics, payload spectrum against the noise model | stable; synthetic-schedule tests, spectral estimator checked against white noise, a tone, and Parseval |
+| `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
 | `Supervisor` | mission plan, supervised tasks, sentinels, banner | stable; restart and policy tests |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
@@ -335,8 +321,8 @@ loss, three disruption events, one marker, about 3 minutes of wall time. Ten
 further scenarios ship beside it, from a 12-second smoke run to a 30-day
 seasonal mission, covering the physical link rates and the peak-capacity
 abstraction, bursty and memoryless channels, the drop policy, explicit pass
-schedules, the recorder ceiling, long segments that resolve the
-galactic-confusion band, and external ingestion. The
+schedules, the recorder ceiling, the coarse-batch regime of long segments,
+and external ingestion. The
 [coverage matrix](scenarios/README.md) states the regime each one produces.
 
 <details>
@@ -385,30 +371,27 @@ freely — for example `[-1, "10:20", 45]`. The
   recovery ramp, and elevated loss; generation gaps stop production instead
   of the link; and the on-board recorder ceiling discards new data at
   capacity, recording the loss as a gap.
-- **Payload** — amplitude-calibrated synthetic LISA strain, phase-continuous
-  across segments through windowed overlap-add FFT synthesis, reproducing the
-  sky-averaged sensitivity of Robson, Cornish & Liu (2019) at the correct
-  absolute level with a selectable galactic-confusion fit; or ingestion of an
-  external continuous CSV series. Every stochastic draw is seeded from
-  `simulation.rng_seed`.
+- **Payload** — a binary flag series, `1` on the segments that hold a
+  declared event marker and `0` elsewhere, so a delivery mask applied to it
+  states which samples of an event have reached the ground; or ingestion of
+  an external continuous CSV series. The packet-loss channel, the run's only
+  random stream, is seeded from `simulation.rng_seed`.
 - **Metrology** — the alert-latency curve, giving the time after a live event
   at which the look-back window δ is complete on the ground under the
   realized doctrine against a counterfactual FIFO drain over the same service
   completions; and the measurement-to-ground delivery delay of every batch
   against a requirement (24 h for LISA). Declared event markers are stamped
-  into the batch metadata and evaluated by both metrics. A third figure
-  validates the payload itself: a Welch estimate of what reached the ground
-  against the analytic `S(f)` the synthesis drew it from.
+  into the batch metadata and evaluated by both metrics.
 - **Data products** — append-only emitter and receiver event logs, from which
   post-processing replays the exact per-batch state history; the 0–4 mask
   timeline and point-wise 0/1 availability masks; the metrics profile; the
   batch-state raster, which shows the LIFO backfill advancing backwards in
-  batch identifier; a Welch estimate of the delivered payload against the
-  noise model it was drawn from; an HDF5 export of every product carrying the
+  batch identifier; an HDF5 export of every product carrying the
   run's provenance as attributes; publication figures at a declared printed
   width with a provenance sidecar; and a chronological animation.
 - **Provenance and safety** — every run archives its configuration snapshot,
-  platform fingerprint, and git commit; results are written with
+  the manifest it was resolved on, the platform fingerprint, and the git
+  commit with a flag for uncommitted changes; results are written with
   `safesave`-style `#k` backup rotation; and each post-processing product
   runs inside its own guard, so one failure costs neither the others nor the
   completed run data.
@@ -423,7 +406,7 @@ The [manual](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/) documents 
 Two asynchronous tasks exchange physical batch directories through a
 file-system broker, coordinated only by the shared accelerated clock:
 
-1. **Emitter** (`src/Emitter.jl`) — generates strain segments, assembles them
+1. **Emitter** (`src/Emitter.jl`) — generates payload segments, assembles them
    into batches under `onboard/`, stamps them `LIVE_` (generated during a
    pass) or `ARCH_` (generated in a blind spot or blackout), and moves them
    to `link/` while the composite link, visibility times disruption, is
@@ -459,11 +442,24 @@ feeds, and the mask products — under a read/copy-only contract that admits
 any number of concurrent consumers. The
 [analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) page specifies every file and column.
 
-## Citing, contributing, license
+## How to cite
 
-Citation metadata is in `CITATION.cff` (Citation File Format 1.2.0), which
-GitHub renders as a citation widget and `cffconvert` turns into BibTeX; cite
-the version used, by tag. `CONTRIBUTING.md` states the working conventions:
+Citation metadata is in `CITATION.cff`, which GitHub renders as a citation
+widget. Cite the version used, by tag:
+
+```bibtex
+@software{DeepSpaceTelemetry,
+  author  = {Gogîță, Paul-Adrian},
+  title   = {DeepSpaceTelemetry.jl: a telemetry, channel, and queuing simulator for deep-space science missions},
+  year    = {2026},
+  version = {1.2.0},
+  url     = {https://github.com/PaulGoG/DeepSpaceTelemetry.jl}
+}
+```
+
+## Contributing, license
+
+`CONTRIBUTING.md` states the working conventions:
 environment activation, the test suite with its static-analysis checks,
 formatting, documentation, configuration changes, and the commit and
 pull-request format. The package is MIT-licensed — see `LICENSE`.

@@ -1,28 +1,11 @@
 # Physics & Queuing Theory
 
-`DeepSpaceTelemetry` models the telemetry environment of a deep-space science mission: a duty-cycled ground-station contact, a physical downlink with stochastic loss and scheduled disruptions, and the routing doctrine that decides which data reach the ground first. The telemetry, channel, and queuing layers are mission-agnostic; the shipped scenarios and the synthetic payload model the LISA mission.
+`DeepSpaceTelemetry` models the telemetry environment of a deep-space science mission: a duty-cycled ground-station contact, a physical downlink with stochastic loss and scheduled disruptions, and the routing doctrine that decides which data reach the ground first. The telemetry, channel, and queuing layers are mission-agnostic; the shipped scenarios model the LISA mission.
 
-## Virtual Instrument (Noise Generation)
-In synthetic mode, the simulator generates amplitude-calibrated LISA strain from the sky- and polarization-averaged sensitivity of Robson, Cornish & Liu (2019), `S(f) = S_n(f) + S_c(f)`. The instrument term (their Eq. 1) is
+## Virtual instrument (payload)
+The telemetry layers never read the payload: routing, loss, and delay depend on batch counts and sizes only. In synthetic mode the payload is therefore a binary flag series — `0` on a segment holding noise only, `1` on a segment holding a flagged signal. A segment is flagged when its content span `[epoch, epoch + segment_duration_sec)` holds the instant of an event marker (`[[events.markers]]`), so the series is declared by the configuration and involves no random draw. Multiplied by a delivery mask, it states directly which samples of an event had reached the ground at a given time.
 
-`S_n(f) = 10 / (3 L²) · [P_OMS(f) + 2 (1 + cos²(f/f*)) P_acc(f) / (2π f)⁴] · [1 + 0.6 (f/f*)²]`,
-
-with the optical-metrology noise `P_OMS = (1.5 × 10⁻¹¹ m)² (1 + (2 mHz / f)⁴) Hz⁻¹`, the test-mass acceleration noise `P_acc = (3 × 10⁻¹⁵ m s⁻²)² (1 + (0.4 mHz / f)²) (1 + (f / 8 mHz)⁴) Hz⁻¹`, the arm length `L = 2.5 × 10⁶ km`, and the transfer frequency `f* = c / (2π L) ≈ 19.1 mHz`. The unresolved galactic-binary confusion foreground (their Eq. 14) is
-
-`S_c(f) = A f^(−7/3) exp(−f^α + β f sin(κ f)) [1 + tanh(γ (f_k − f))]`, `A = 9 × 10⁻⁴⁵ Hz⁻¹`,
-
-with the fit parameters of their Table 1, selected by `physics.confusion_observation_years`:
-
-| Observation time | α | β | κ | γ | f_k [mHz] |
-|---|---|---|---|---|---|
-| 0.5 yr | 0.133 | 243 | 482 | 917 | 2.58 |
-| 1 yr (default) | 0.171 | 292 | 1020 | 1680 | 2.15 |
-| 2 yr | 0.165 | 299 | 611 | 1340 | 1.73 |
-| 4 yr | 0.138 | −221 | 521 | 1680 | 1.13 |
-
-`S(f)` is the noise PSD divided by the sky-averaged response, the quantity a strain stream is whitened against. Reference values: `S_n(1 mHz) = 1.634 × 10⁻³⁸ Hz⁻¹`, `S_c(1 mHz, 1 yr) = 1.664 × 10⁻³⁷ Hz⁻¹`, `S_n(10 mHz) = 1.443 × 10⁻⁴⁰ Hz⁻¹`. The function returns `Inf` at `f ≤ 0`; no floor value exists that could leak into a whitening. The one-sided PSD convention and the Gaussian discretization of the synthesis follow the LISA Rosetta Stone (Babak et al. 2025).
-
-Time series are synthesized in the frequency domain (`X_k = z_k √(S(f_k) f_s M/2)` with complex standard-normal `z_k`) on blocks of twice the segment length, shaped with a periodic sqrt-Hann window, and overlap-added at 50%. Because the squared window tiles to unity, the emitted stream is stationary, phase-continuous across segment boundaries, and reproduces `S(f)` at the correct absolute level. Spectral content below `1/(2·segment_duration_sec)` Hz is not representable at this block length, and bins below `physics.noise_f_min_hz` (default 10⁻⁵ Hz, the lower edge of the model's band; the DC bin included) carry no power, so a stream never contains the model's low-frequency extrapolation. The default scenario synthesizes 60 s segments (block length 120 s, first resolved bin 8.3 mHz): the confusion band of 0.5–3 mHz is unresolved in it, and the foreground is observable only for `segment_duration_sec ≳ 2000 s`.
+A physical noise or waveform model enters through `physics.data_source = "external"`: the series of a CSV file is cut into the same segments and passes through the same pipeline.
 
 ## Bandwidth Profiling
 Satellite-to-ground communication is constrained by the ground station's line of sight. The daily contact window opens at `telemetry.session_start` for `telemetry.session_duration_hours` (sessions crossing midnight are handled); outside it the capacity is zero, and within it the fractional capacity follows a selectable profile of the window progress `x ∈ [0, 1]`:
@@ -85,9 +68,7 @@ Event markers (`[[events.markers]]`) are the instants of interest a scenario dec
 
 ## References
 
-- Babak, S., Baghi, Q., Barack, L., et al., *LISA Rosetta Stone*, conventions document of the LISA Distributed Data Processing Center, version of 16 June 2025.
 - Colpi, M., et al., *LISA Definition Study Report*, ESA-SCI-DIR-RP-002 (2024), [arXiv:2402.07571](https://arxiv.org/abs/2402.07571).
-- Elliott, E. O., *Estimates of error rates for codes on burst-noise channels*, Bell System Technical Journal **42**, 1977–1997 (1963).
-- Gilbert, E. N., *Capacity of a burst-noise channel*, Bell System Technical Journal **39**, 1253–1265 (1960).
+- Elliott, E. O., *Estimates of error rates for codes on burst-noise channels*, Bell System Technical Journal **42**, 1977–1997 (1963), [doi:10.1002/j.1538-7305.1963.tb00955.x](https://doi.org/10.1002/j.1538-7305.1963.tb00955.x).
+- Gilbert, E. N., *Capacity of a burst-noise channel*, Bell System Technical Journal **39**, 1253–1265 (1960), [doi:10.1002/j.1538-7305.1960.tb03959.x](https://doi.org/10.1002/j.1538-7305.1960.tb03959.x).
 - Kleinrock, L., *Queueing Systems, Volume I: Theory*, Wiley, New York (1975).
-- Robson, T., Cornish, N. J., Liu, C., *The construction and use of LISA sensitivity curves*, Classical and Quantum Gravity **36**, 105011 (2019), [arXiv:1803.01944](https://arxiv.org/abs/1803.01944).

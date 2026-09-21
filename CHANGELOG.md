@@ -6,6 +6,69 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** the synthetic payload is a binary flag series — `0` on a
+  segment holding noise only, `1` on a segment whose content span holds an
+  event marker — instead of amplitude-calibrated LISA noise. It is declared
+  by `[[events.markers]]` and involves no random draw. `seg_*.csv` keeps its
+  `Amplitude` column; a physical noise or waveform model enters through
+  `physics.data_source = "external"`.
+- **Breaking:** `simulation.rng_seed` seeds the packet-loss channel only, and
+  directly, so the loss realization of a given seed differs from 1.x.
+- `physics.segment_duration_sec` must be a whole number of milliseconds, and
+  sub-second segments now advance the content clock exactly (it advanced by
+  whole seconds). A segment must hold at least one sample (was two).
+- Manifests are no longer tracked. `Project.toml` with `[compat]` defines
+  each environment, and every run stores the manifest it was resolved on as
+  `manifest_snapshot.toml`.
+- Every script includes its environment's `activate.jl` as its first
+  statement; `--project` is never needed.
+- `scenarios/long_segments_confusion_band.toml` is renamed
+  `scenarios/long_segments_2400s.toml`.
+- The storage estimate sizes a synthetic payload by
+  `bytes_per_flag_sample` and an external one by `bytes_per_sample`.
+- CI runs the suite on three threads, serializes documentation deployments
+  across `main` and tags, and cancels superseded runs on pull requests only.
+
+### Added
+- `git_dirty` and `versioninfo` under `[provenance.platform]` of
+  `config_snapshot.toml`, and `manifest_snapshot.toml` in every run
+  directory.
+- Storage calibration key `bytes_per_flag_sample`.
+- Dependabot updates for the `julia` ecosystem, weekly.
+- A "How to cite" section with a BibTeX entry in the README.
+
+### Removed
+- **Breaking:** the noise model and its API: `lisa_noise_psd`,
+  `lisa_instrument_psd`, `lisa_confusion_psd`, `welch_psd`,
+  `synth_windowed_block`, `synth_windowed_block!`, `CONFUSION_FITS` and the
+  other model constants of `VirtualInstrument`, `TelemetryCore.L_ARM`,
+  `TelemetryCore.F_STAR`, `Metrology.payload_series`,
+  `Metrology.plot_payload_spectrum`, `Supervisor.RESTART_SEED_OFFSET`, the
+  `rng` keywords of the instrument and the emitter, and the
+  `payload_spectrum` figure.
+- **Breaking:** the keys `physics.confusion_observation_years`,
+  `physics.noise_f_min_hz`, and `post_processing.payload_spectrum`. A
+  configuration that carries one is rejected with the remedy named; the
+  snapshot of an older run still reads.
+- Dependencies `FFTW` and `AbstractFFTs`.
+- The CompatHelper and TagBot workflows; the package is not registered.
+
+### Fixed
+- The PDF twin of the batch-state raster drew one vector rectangle per cell,
+  over 10 MB for a week-long run against the 100 kB the storage estimate
+  allows a vector figure. The raster is now embedded as an image.
+- The link-state label of the batch-routing animation compared a percentage
+  against a fraction and ignored `telemetry.min_link_factor`, so a link below
+  the transfer floor read as a contact pass.
+- The storage estimate's file count omitted the figure products added in
+  1.2.0.
+- A `retention.log_rotate_mb` giving a non-integer byte count raised an
+  `InexactError` after the run directory had been created.
+- The caption on the manual's landing page quoted superseded run totals.
+- A batch-state raster requested without a mask timeline was skipped without
+  a message.
+
 ## [1.2.0] - 2026-09-13
 
 ### Added
@@ -40,7 +103,6 @@ Notable changes to DeepSpaceTelemetry. The format follows
   payload against the analytic `S(f)` the synthesis drew it from, with the
   instrument term separated and the first bin the synthesis block resolves
   marked; external payloads are skipped, having no model to compare against.
-  Both began as figures composed for the showcase collection.
 - `VirtualInstrument.welch_psd` (one-sided Welch estimate, Hann windows at
   half overlap, normalized to integrate to the variance),
   `Metrology.payload_series` (the longest stretch of consecutively numbered

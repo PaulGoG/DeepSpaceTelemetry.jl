@@ -4,27 +4,22 @@
 
 - Development requires Julia 1.12 or later, installed with juliaup; Julia 1.13
   is the development version.
-- Every entry-point script activates and instantiates its own environment
-  silently; the one-time explicit instantiation is
-  `julia --project=. -e 'using Pkg; Pkg.instantiate()'` from the package root.
 - Each environment ships an `activate.jl` that activates and instantiates it
-  without output, for interactive work: `julia -i test/activate.jl` leaves a
-  REPL in the test environment, and the same file `include`d from a REPL has
-  the same effect. A new environment gets one.
+  without output. Every entry-point script includes it as its first
+  statement, so `--project` is never passed; `julia -i test/activate.jl`
+  leaves a REPL in the test environment. A new environment gets one, and a
+  new script includes it.
 - The test, docs, scripts, and bench environments consume the package by path
   through a `[sources]` entry, so they always run against the local source.
-- After any change to a `Project.toml`, re-resolve all five Manifests (root,
-  test, docs, scripts, bench) with `Pkg.resolve()` in each environment and
-  commit them; the committed Manifests are the portability guarantee.
-- The Manifests are resolved on the development version and pin its
-  standard-library membership, which moves between Julia versions, so they
-  reproduce the tested environment on that version rather than on every
-  supported one. The CI legs below the current release resolve their own
-  environment; the compat bound, not the Manifest, is what those legs verify.
+- Manifests are not tracked. `Project.toml` with `[compat]` bounds on every
+  dependency defines an environment, every CI leg resolves its own, and each
+  run stores the manifest it was resolved on as `manifest_snapshot.toml` in
+  its run directory. A dependency change therefore touches `[deps]` and
+  `[compat]` together.
 
 ## Tests and static analysis
 
-- Run `julia --threads=3 --project=. -e 'using Pkg; Pkg.test()'`; the suite
+- Run `julia --threads=3 test/runtests.jl`; the suite
   includes Aqua, JET, and ExplicitImports checks and four integration missions
   and takes about four minutes.
 - CI runs the suite on Linux for Julia 1.12 (the compat floor), the current

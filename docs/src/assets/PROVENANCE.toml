@@ -12,10 +12,9 @@ commit = "3e07dafb6b8ebe20f2d69384daeee41ee43e2791"
 package_version = "1.2.0-DEV"
 julia_version = "1.13.0"
 date = "2026-09-13"
-command = "julia --project=. --threads=3 scripts/run_full_sim.jl RUN_README_SHOWCASE scenarios/stress_8h_bursty.toml"
+command = "julia --threads=3 scripts/run_full_sim.jl RUN_README_SHOWCASE scenarios/stress_8h_bursty.toml"
 
 [run.platform]
-hostname = "Lenovo-Yoga-Pro-7"
 os = "Linux x86_64-linux-gnu"
 cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
 logical_cores = 22
@@ -42,7 +41,7 @@ sha256_prefix = "56f24ab7a1e6adb7"
 
 ["batch_routing.gif"]
 source = "data/runs/RUN_README_SHOWCASE/plots/telemetry_animation_web.gif"
-generator = "julia --project=. scripts/postprocessing/generate_gif.jl --web RUN_README_SHOWCASE"
+generator = "julia scripts/postprocessing/generate_gif.jl --web RUN_README_SHOWCASE"
 transform = "none; the --web rendering profile writes the published size directly"
 width_px = 900
 frames = 217

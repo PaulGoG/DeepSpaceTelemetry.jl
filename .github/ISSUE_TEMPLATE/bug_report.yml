@@ -17,7 +17,7 @@ body:
         The command and the configuration that produce it. Attach the
         configuration file or name the scenario under `scenarios/`, and give
         the run ID if a run directory exists.
-      placeholder: julia --project=. --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/nominal_8h.toml
+      placeholder: julia --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/nominal_8h.toml
       render: shell
     validations:
       required: true
