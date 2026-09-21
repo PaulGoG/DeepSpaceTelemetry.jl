@@ -5,9 +5,11 @@ on:
     tags: ["*"]
   pull_request:
     branches: [main]
+# Superseded pull-request runs are cancelled. Runs on main and on tags finish:
+# a run cancelled while it instantiates leaves a partial depot in the cache.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -18,16 +20,9 @@ jobs:
     # prerelease and may fail without failing the workflow: Linux on the
     # current stable release and on "1.12" (the compat floor), macOS and
     # Windows on the current stable release. Coverage runs once: it disables
-    # package images and roughly doubles the precompile time.
-    #
-    # The committed manifests are resolved on the development version (the
-    # current stable release) and pin its standard-library membership, which
-    # moves between Julia versions: Zstd_jll, for one, is a standard library
-    # on 1.13 and a registered package on 1.12, so a 1.13 manifest cannot be
-    # built on the floor. Legs on any other version therefore resolve their
-    # own environment, which is what the `julia` compat bound claims anyway;
-    # the blocking Linux "1" leg is the one that validates the manifests as
-    # committed.
+    # package images and roughly doubles the precompile time. No manifest is
+    # tracked, so every leg resolves its environment from Project.toml and
+    # [compat] on its own Julia version.
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
@@ -37,41 +32,36 @@ jobs:
             os: ubuntu-latest
             coverage: true
             experimental: false
-            resolve: false
           - version: "1.12"
             os: ubuntu-latest
             coverage: false
             experimental: false
-            resolve: true
           - version: "pre"
             os: ubuntu-latest
             coverage: false
             experimental: true
-            resolve: true
           - version: "1"
             os: macos-latest
             coverage: false
             experimental: false
-            resolve: false
           - version: "1"
             os: windows-latest
             coverage: false
             experimental: false
-            resolve: false
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
-      - name: Resolve a fresh environment for this Julia version
-        if: matrix.resolve
-        shell: bash
-        run: rm -f Manifest.toml test/Manifest.toml
       - uses: julia-actions/julia-buildpkg@v1
+      # The emitter and the receiver run as concurrent tasks paced against
+      # the wall clock; on a single thread one component stalls the other.
       - uses: julia-actions/julia-runtest@v1
         with:
           coverage: ${{ matrix.coverage }}
+        env:
+          JULIA_NUM_THREADS: 3
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.coverage
       - uses: codecov/codecov-action@v7
@@ -89,11 +79,16 @@ jobs:
         with:
           version: "1"
       - run: |
-          julia -e 'using Pkg; Pkg.add("JuliaFormatter"); using JuliaFormatter;
+          julia -e 'using Pkg; Pkg.add(name = "JuliaFormatter", version = "2"); using JuliaFormatter;
                     format(".", verbose = false) || error("Formatting check failed: run JuliaFormatter over the repository.")'
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    # The push to main and the push of a release tag both deploy to gh-pages;
+    # one group across refs serializes them instead of letting them race.
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
     # deploydocs pushes docs/build to gh-pages with the workflow token.
     permissions:
       contents: write
