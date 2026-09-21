@@ -1,6 +1,4 @@
-using Pkg;
-Pkg.activate(@__DIR__, io = devnull);
-Pkg.instantiate(io = devnull)
+include(joinpath(@__DIR__, "activate.jl"))
 using DeepSpaceTelemetry
 
 # Headless entry point: argument parsing plus one call. Any argument ending

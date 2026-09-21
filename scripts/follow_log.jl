@@ -2,10 +2,6 @@
 # follows appends; waits for a file that does not exist yet and restarts from
 # the beginning when the file is truncated or rotated (retention.log_rotate_mb).
 # Pure Julia, so the dashboard carries no shell-utility dependency.
-using Pkg
-Pkg.activate(@__DIR__; io = devnull)
-Pkg.instantiate(; io = devnull)
-
 """
     follow_log(path::AbstractString; poll_sec::Float64 = 0.2)
 

@@ -11,9 +11,7 @@ Usage:
     julia apply_telemetry_mask.jl <run_id> <total_points> <event_row_index> <output_csv>
 """
 
-using Pkg;
-Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
-Pkg.instantiate(io = devnull)
+include(joinpath(@__DIR__, "..", "activate.jl"))
 using DeepSpaceTelemetry
 
 if length(ARGS) != 4

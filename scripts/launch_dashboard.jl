@@ -1,7 +1,4 @@
-using Pkg
-Pkg.activate(@__DIR__, io = devnull)
-Pkg.instantiate(io = devnull)
-
+include(joinpath(@__DIR__, "activate.jl"))
 using DeepSpaceTelemetry
 
 function launch_terminal(title::String, cmd::String)
@@ -65,7 +62,7 @@ println("Launching dashboard terminals for run: $run_id...")
 # Commands to run in the new windows: absolute paths, no working-directory
 # assumption, and a pure-Julia log follower (scripts/follow_log.jl) in place
 # of `tail -F`.
-julia_scripts = "julia --project=\"$(@__DIR__)\""
+julia_scripts = "julia"
 live_viewer_cmd = "$julia_scripts \"$(joinpath(@__DIR__, "live_viewer.jl"))\" $run_id"
 follow_log = joinpath(@__DIR__, "follow_log.jl")
 tail_rx_cmd = "$julia_scripts \"$follow_log\" \"$(joinpath(run_dir, "receiver.log"))\""

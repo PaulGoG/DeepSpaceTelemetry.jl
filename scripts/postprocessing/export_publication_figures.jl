@@ -14,9 +14,7 @@ Usage:
 Without an argument the most recently modified run directory is exported.
 """
 
-using Pkg;
-Pkg.activate(joinpath(@__DIR__, ".."), io = devnull);
-Pkg.instantiate(io = devnull)
+include(joinpath(@__DIR__, "..", "activate.jl"))
 using DeepSpaceTelemetry
 
 run_id = isempty(ARGS) ? DeepSpaceTelemetry.TelemetryCore.latest_run_id() : ARGS[1]

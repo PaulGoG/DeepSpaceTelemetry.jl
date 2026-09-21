@@ -8,9 +8,8 @@ instantiated; from an existing REPL, `include` it for the same effect. The
 first instantiation of an environment resolves and precompiles and is
 therefore slow; afterwards it is a no-op.
 
-Every entry point of the package performs these same two calls on start-up,
-so running a script directly needs no preparation. This file exists for
-interactive work.
+Every entry point of this environment includes this file as its first
+statement, so running a script directly needs no preparation.
 """
 
 using Pkg
