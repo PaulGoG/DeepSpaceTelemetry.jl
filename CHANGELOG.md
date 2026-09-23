@@ -102,6 +102,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - A batch-state raster requested without a mask timeline was skipped without
   a message.
 - The alert-latency annotation read "1 live events".
+- The vertical label of the delivery-delay requirement rule started above
+  the corner annotation regardless of the curves and crossed the all-batches
+  curve; it now takes the free end of the rule.
+- On the stacked figures, a tick label at the top of the lower panel met the
+  zero of the panel above across the row gap (a session y-limit of 30 or 150
+  batches); the lower panel prunes the tick within 5 % of its upper limit.
 
 ## [1.2.0] - 2026-09-13
 

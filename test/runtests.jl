@@ -2688,6 +2688,22 @@ end
         @test isfile(joinpath(dir, "delivery_delay.csv"))
         @test isfile(joinpath(dir, "plots", "delivery_delay.pdf"))
     end
+
+    @testset "Requirement label at the free end of its rule" begin
+        anchor = Metrology.requirement_label_anchor
+        y, h = anchor([0.36, 0.53], 0.0, 0.35)          # room above the highest curve
+        @test y ≈ 0.98 && h === :right
+        y, h = anchor([0.85, 0.95], 0.0, 0.35)          # room only below the lowest
+        @test y ≈ 0.02 && h === :left
+        y, h = anchor([0.1, 0.9], 0.0, 0.35)            # widest interval between curves
+        @test y ≈ 0.5 && h === :center
+        y, h = anchor([0.3, 0.6, 0.9], 0.0, 0.35)       # nothing holds it: the top
+        @test y ≈ 0.98 && h === :right
+        y, h = anchor(Float64[], 0.3, 0.35)             # no curve reaches the rule
+        @test y ≈ 0.98 && h === :right
+        y, h = anchor([0.9], 0.3, 0.35)                 # rule hidden below the block
+        @test y ≈ 0.32 && h === :left
+    end
 end
 
 @testset "Capacity balance and profile-mean guardrail" begin
@@ -3575,6 +3591,11 @@ end
     @test PlotTheme.annotation_fraction(full, "a"^500) == 0.45
     @test PlotTheme.annotation_fraction(narrow, "0 lost (0 %)") ≈
           PlotTheme.annotation_fraction(full, "0 lost (0 %)") rtol = 0.01
+    # The lower panel of a stacked pair prunes the tick at its upper limit.
+    pruned = PlotTheme.UpperPrunedTicks()
+    @test PlotTheme.Makie.get_tickvalues(pruned, 0.0, 150.0) == [0.0, 50.0, 100.0]
+    @test PlotTheme.Makie.get_tickvalues(pruned, 0.0, 30.0) == [0.0, 10.0, 20.0]
+    @test PlotTheme.Makie.get_tickvalues(pruned, 0.0, 108.0) == [0.0, 50.0, 100.0]
 
     # The raster is skipped, not failed, when the run carries no timeline.
     @test Receiver.plot_state_raster(mktempdir()) === nothing

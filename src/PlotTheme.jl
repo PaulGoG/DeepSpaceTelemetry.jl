@@ -10,7 +10,15 @@ theme ([`telemetry_theme`](@ref)).
 module PlotTheme
 
 using CairoMakie:
-    CairoMakie, @colorant_str, Fixed, Legend, Theme, resize_to_layout!, rowsize!, save
+    CairoMakie,
+    Makie,
+    @colorant_str,
+    Fixed,
+    Legend,
+    Theme,
+    resize_to_layout!,
+    rowsize!,
+    save
 using MathTeXEngine: texfont
 
 # Okabe–Ito colorblind-safe palette: one semantic color per quantity,
@@ -342,6 +350,30 @@ function annotation_side(occupied, x_lo::Real, x_hi::Real, fraction::Real)
     in_right = any(x -> (x - x_lo) / span > 1 - fraction, occupied)
     in_left = any(x -> (x - x_lo) / span < fraction, occupied)
     return in_right && !in_left ? :left : :right
+end
+
+"""
+    TICK_PRUNE_FRACTION
+
+Fraction of the axis range below the upper limit within which
+[`UpperPrunedTicks`](@ref) discards a tick.
+"""
+const TICK_PRUNE_FRACTION = 0.05
+
+"""
+    UpperPrunedTicks()
+
+Tick locator of the lower panel of a stacked pair: the ticks of the default
+locator on the axis range, without those within [`TICK_PRUNE_FRACTION`](@ref)
+of the upper limit. A tick label at the upper limit of the lower panel meets
+the `0` of the panel above across the row gap; pruning it is the stacked-axes
+rule (matplotlib's `prune = "upper"`). Passed as `yticks = UpperPrunedTicks()`.
+"""
+struct UpperPrunedTicks end
+
+function Makie.get_tickvalues(::UpperPrunedTicks, vmin::Real, vmax::Real)
+    ticks = Makie.get_tickvalues(Makie.automatic, identity, vmin, vmax)
+    return filter(t -> t < vmax - TICK_PRUNE_FRACTION * (vmax - vmin), ticks)
 end
 
 """

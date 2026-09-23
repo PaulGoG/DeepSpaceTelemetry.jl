@@ -861,6 +861,7 @@ function plot_mission_summary(
         xlabel = ctx.show_lost_panel ? "" : time_label,
         ylabel = "Received data batches",
         xticks = (tick_vals_h, tick_labels),
+        yticks = PlotTheme.UpperPrunedTicks(),
     )
     xlims!(ax2, 0, max_x_h)
     ylims!(ax2, 0, max(10.0, 1.2 * maximum(df.Ground_Total)))
@@ -1098,6 +1099,7 @@ function plot_session(
         xlabel = "Mission time",
         ylabel = "Received data batches",
         xticks = (session_tick_vals_h, session_tick_labels),
+        yticks = PlotTheme.UpperPrunedTicks(),
         # HH:MM labels crowd at session resolution; rotation is applied
         # here rather than in the global theme (rule: rotate crowded labels
         # only).

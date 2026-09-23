@@ -80,13 +80,57 @@ const ANNOTATION_BLOCK_BOTTOM = 0.06
 
 Relative height the delivery-delay figure's corner annotation reaches: its
 bottom offset plus `n_lines` line advances, against the axis height of the
-figure, plus a margin of 0.02. The requirement rule stops here and its
-label starts here, so neither crosses the block.
+figure, plus a margin of 0.02. The requirement rule stops here, and its
+label is placed above it by [`requirement_label_anchor`](@ref).
 """
 annotation_block_top(style::PlotTheme.PlotStyle, n_lines::Int) =
     ANNOTATION_BLOCK_BOTTOM +
     n_lines * PlotTheme.line_advance(style) / (SINGLE_PANEL_SHARE * style.panel_height) +
     0.02
+
+"""
+    REQUIREMENT_LABEL_MARGIN
+
+Relative clearance the requirement label of the delivery-delay figure keeps
+from the frame, from the curves crossing its rule, and from the corner
+annotation.
+"""
+const REQUIREMENT_LABEL_MARGIN = 0.02
+
+"""
+    requirement_label_anchor(occupied::AbstractVector{<:Real}, floor::Real, extent::Real) -> Tuple{Float64,Symbol}
+
+Relative ordinate of the anchor of the delivery-delay figure's vertical
+requirement label and the horizontal alignment of the rotated text (`:left`,
+the label rises from the anchor; `:right`, it hangs from it; `:center`).
+`occupied` holds the relative heights of the curves crossing the rule at the
+requirement, `floor` the relative height below which the rule is hidden
+(the corner annotation's top, or 0), `extent` the label length as a fraction
+of the axis height. The label takes the free end of the rule: above the
+highest curve when the room up to the frame holds it with
+[`REQUIREMENT_LABEL_MARGIN`](@ref) at both ends, else below the lowest curve
+when the room down to `floor` does, else the middle of the widest interval
+between two curves, else the top regardless.
+"""
+function requirement_label_anchor(
+    occupied::AbstractVector{<:Real},
+    floor::Real,
+    extent::Real,
+)
+    m = REQUIREMENT_LABEL_MARGIN
+    hi = maximum(occupied; init = float(floor))
+    1 - m - hi >= extent + m && return (1 - m, :right)
+    lo = minimum(occupied; init = 1.0)
+    lo - m - floor >= extent + m && return (floor + m, :left)
+    levels = sort(Float64.(occupied))
+    best_gap, best_mid = 0.0, 0.0
+    for i in 1:(length(levels)-1)
+        gap = levels[i+1] - levels[i]
+        gap > best_gap && ((best_gap, best_mid) = (gap, (levels[i] + levels[i+1]) / 2))
+    end
+    best_gap >= extent + 2m && return (best_mid, :center)
+    return (1 - m, :right)
+end
 
 """
     quantile_sorted(values::AbstractVector{<:Real}, p::Real) -> Float64
@@ -818,17 +862,35 @@ function plot_delivery_delay(
             justification = :right,
             fontsize = style.fontsize_annotation,
         )
-        # Requirement label vertical along the line on its left, starting
-        # above the annotation block; the axis spans [0, x_max], so the
-        # line's relative abscissa is exact.
+        # Requirement label vertical along the rule on its left, at the free
+        # end of the rule: the drawn curves are evaluated at the requirement
+        # (a curve ending before it occupies nothing there) in relative
+        # units of the axis, against the label length at half an em per
+        # character; the axis spans [0, x_max], so the rule's relative
+        # abscissa is exact.
+        label = "Requirement: $(round(requirement_hours, digits = 1)) h"
+        occupied = Float64[]
+        for (x, y, drawn) in (
+            (x_all, y_all, has_live && has_archive),
+            (x_live, y_live, has_live),
+            (x_arch, y_arch, has_archive),
+        )
+            drawn && maximum(x) >= requirement_hours || continue
+            push!(occupied, y[searchsortedlast(x, requirement_hours)] / Y_HEADROOM)
+        end
+        extent =
+            0.5 * style.fontsize_annotation * length(label) /
+            (SINGLE_PANEL_SHARE * style.panel_height)
+        y_label, halign =
+            requirement_label_anchor(occupied, crosses_annotation ? block_top : 0.0, extent)
         text!(
             ax,
             requirement_hours / x_max,
-            block_top,
-            text = "Requirement: $(round(requirement_hours, digits = 1)) h",
+            y_label,
+            text = label,
             space = :relative,
             rotation = π / 2,
-            align = (:left, :bottom),
+            align = (halign, :bottom),
             offset = (-PlotTheme.scaled(style, 8), 0),
             fontsize = style.fontsize_annotation,
             color = PlotTheme.COLOR_GUIDE,
