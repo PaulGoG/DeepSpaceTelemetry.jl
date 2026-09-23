@@ -240,7 +240,7 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
     end
     return MissionPlan(
         cfg,
-        isempty(run_id) ? TelemetryCore.generate_run_id() : String(run_id),
+        isempty(run_id) ? TelemetryCore.generate_run_id(cfg) : String(run_id),
         speed_up,
         start_sim,
         wall_seconds,

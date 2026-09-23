@@ -20,6 +20,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
   unknown profile at construction.
 - **Breaking:** `post_processing.publication.column_width_mm` must lie in
   [100, 400]; the floor was 40.
+- **Breaking:** the run identifier is
+  `RUN_cfg=<8 hex>_pid=<pid>_t=<yyyymmdd_HHMMSS>`: it opens with the first
+  eight hex digits of `TelemetryCore.config_sha256`, the SHA-256 of the
+  configuration as sorted TOML without its provenance section, which the
+  snapshot also records at `provenance.config_sha256`.
+  `TelemetryCore.generate_run_id` takes the configuration.
 - **Breaking:** `Emitter.pre_populate` and `Emitter.run_emitter` take the
   payload instrument as an argument — `pre_populate(instrument,
   start_sim_time, run_id; batch_size, …)` and `run_emitter(clock, link,

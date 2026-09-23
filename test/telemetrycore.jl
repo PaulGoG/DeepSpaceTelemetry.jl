@@ -274,6 +274,7 @@ end
         @test haskey(snap, "provenance") && haskey(snap["provenance"], "platform")
         @test haskey(snap["provenance"]["platform"], "hostname")
         @test snap["provenance"]["platform"]["julia_version"] == string(VERSION)
+        @test snap["provenance"]["config_sha256"] == TelemetryCore.config_sha256(snap)
     finally
         rm(run_dir; recursive = true, force = true)
     end
@@ -798,4 +799,21 @@ end
     records, _ = Test.collect_test_logs(() -> TelemetryCore.validate_config(rates))
     @test !any(occursin("pass profile", string(r.message)) for r in records)
     @test TelemetryCore.capacity_balance(rates).profile_mean ≈ 1.0 rtol = 1e-12
+end
+
+@testset "Run identifier and configuration hash" begin
+    cfg = valid_test_cfg()
+    h = TelemetryCore.config_sha256(cfg)
+    @test length(h) == 64
+    # The provenance section is not part of the parameter identity.
+    stamped = deepcopy(cfg)
+    stamped["provenance"] =
+        Dict{String,Any}("platform" => Dict{String,Any}("hostname" => "x"))
+    @test TelemetryCore.config_sha256(stamped) == h
+    changed = deepcopy(cfg)
+    changed["simulation"]["speed_up"] = 2 * cfg["simulation"]["speed_up"]
+    @test TelemetryCore.config_sha256(changed) != h
+    id = TelemetryCore.generate_run_id(cfg)
+    @test occursin(r"^RUN_cfg=[0-9a-f]{8}_pid=\d+_t=\d{8}_\d{6}$", id)
+    @test startswith(id, "RUN_cfg=" * first(h, 8))
 end

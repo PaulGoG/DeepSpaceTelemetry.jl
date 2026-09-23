@@ -16,6 +16,7 @@ using Dates: Dates, Date, DateTime, Day, Millisecond, Second, Time, now
 using JSON3: JSON3
 using InteractiveUtils: InteractiveUtils
 using LinearAlgebra: LinearAlgebra
+using SHA: sha256
 using TOML: TOML
 
 # --- Constants ---
@@ -2837,14 +2838,37 @@ end
 
 # --- Run Management ---
 """
-    generate_run_id()
+    config_sha256(cfg::AbstractDict) -> String
 
-Generates a unique ID for the current simulation run,
-`RUN_pid=<pid>_t=<yyyymmdd_HHMMSS>` (key=value fields in alphabetical order,
-the layout of DrWatson's `savename`).
+SHA-256, as 64 hex digits, of the configuration printed as sorted TOML
+without its `provenance` section: the identity of the parameters alone,
+the same on every host and for every run of one configuration.
 """
-function generate_run_id()
-    return string("RUN_pid=", getpid(), "_t=", Dates.format(now(), "yyyymmdd_HHMMSS"))
+function config_sha256(cfg::AbstractDict)
+    parameters =
+        Dict{String,Any}(String(k) => v for (k, v) in cfg if String(k) != "provenance")
+    return bytes2hex(sha256(sprint(io -> TOML.print(io, parameters; sorted = true))))
+end
+
+"""
+    generate_run_id(cfg::AbstractDict) -> String
+
+Run identifier `RUN_cfg=<8 hex>_pid=<pid>_t=<yyyymmdd_HHMMSS>`: the first
+eight hex digits of [`config_sha256`](@ref), the process id, and the
+wall-clock instant — key=value fields in alphabetical order, the layout of
+DrWatson's `savename`. The hash makes the runs of one configuration
+recognizable by name; the process id and the instant keep the identifier
+unique.
+"""
+function generate_run_id(cfg::AbstractDict)
+    return string(
+        "RUN_cfg=",
+        first(config_sha256(cfg), 8),
+        "_pid=",
+        getpid(),
+        "_t=",
+        Dates.format(now(), "yyyymmdd_HHMMSS"),
+    )
 end
 
 """
@@ -2953,8 +2977,9 @@ rejected with an `ArgumentError`. When the parsed configuration `cfg` is provide
 `config_snapshot.toml` is written into the run directory (with `safesave`-style
 backup rotation) so every run's exact parameters remain reproducible after
 `config.toml` changes; the snapshot additionally carries the
-[`platform_provenance`](@ref) fingerprint under `[provenance.platform]`, and
-the manifest of the active environment is copied beside it
+[`platform_provenance`](@ref) fingerprint under `[provenance.platform]` and
+the parameter hash [`config_sha256`](@ref) at `provenance.config_sha256`,
+and the manifest of the active environment is copied beside it
 ([`save_manifest_snapshot`](@ref)).
 """
 function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothing)
@@ -2984,6 +3009,7 @@ function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothin
         prov_in = get(snapshot, "provenance", Dict{String,Any}())
         prov = prov_in isa AbstractDict ? Dict{String,Any}(prov_in) : Dict{String,Any}()
         prov["platform"] = platform_provenance()
+        prov["config_sha256"] = config_sha256(cfg)
         snapshot["provenance"] = prov
         snapshot_path = joinpath(base_dir, "config_snapshot.toml")
         backup_existing(snapshot_path)

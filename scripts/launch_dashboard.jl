@@ -54,7 +54,7 @@ DeepSpaceTelemetry.TelemetryCore.validate_config(cfg)
 # run_full_sim.jl below — pre-creating it here would trip the run-ID reuse
 # guard in setup_run_dir. The viewer tolerates the not-yet-existing
 # directory and the log follower waits for absent log files to appear.
-run_id = DeepSpaceTelemetry.TelemetryCore.generate_run_id()
+run_id = DeepSpaceTelemetry.TelemetryCore.generate_run_id(cfg)
 run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
 
 println("Launching dashboard terminals for run: $run_id...")
