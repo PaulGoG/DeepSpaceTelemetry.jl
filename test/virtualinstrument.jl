@@ -65,9 +65,12 @@ end
 
 @testset "VirtualInstrument External" begin
     # Relative external paths resolve against PROJECT_ROOT, not the CWD
-    # (the test process runs from test/, exactly the regression condition)
-    rel_name = joinpath("data", "tmp_test_ext_$(getpid()).csv")
-    abs_name = joinpath(TelemetryCore.PROJECT_ROOT, rel_name)
+    # (the test process runs from test/, exactly the regression condition).
+    # The fixture lives in a temporary directory and is passed as a path
+    # relative to PROJECT_ROOT, so the real data/ tree stays untouched.
+    fixture_dir = mktempdir()
+    abs_name = joinpath(fixture_dir, "ext.csv")
+    rel_name = relpath(abs_name, TelemetryCore.PROJECT_ROOT)
     try
         CSV.write(abs_name, DataFrame(Amplitude = Float32[1.0, 2.0, 3.0, 4.0]))
         vi_rel = VirtualInstrument.InstrumentState(
@@ -79,7 +82,7 @@ end
         )
         @test vi_rel.source.samples == Float32[1.0, 2.0, 3.0, 4.0]
     finally
-        rm(abs_name, force = true)
+        rm(fixture_dir; recursive = true, force = true)
     end
 
     # Corner cases: non-numeric / empty external data abort with clean
