@@ -7,6 +7,8 @@ DeepSpaceTelemetry.PlotTheme.style_for_width
 DeepSpaceTelemetry.PlotTheme.scaled
 DeepSpaceTelemetry.PlotTheme.annotation_fraction
 DeepSpaceTelemetry.PlotTheme.annotation_side
+DeepSpaceTelemetry.PlotTheme.TICK_PRUNE_FRACTION
+DeepSpaceTelemetry.PlotTheme.UpperPrunedTicks
 DeepSpaceTelemetry.PlotTheme.line_advance
 DeepSpaceTelemetry.PlotTheme.fit_legend!
 DeepSpaceTelemetry.PlotTheme.figure_legend!

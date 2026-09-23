@@ -15,6 +15,8 @@ DeepSpaceTelemetry.Receiver.session_figure_stems
 DeepSpaceTelemetry.Receiver.plot_session
 DeepSpaceTelemetry.Receiver.hours_since
 DeepSpaceTelemetry.Receiver.component_outage_spans
+DeepSpaceTelemetry.Receiver.SPAN_COALESCE_FRACTION
+DeepSpaceTelemetry.Receiver.coalesce_spans
 DeepSpaceTelemetry.Receiver.generation_gap_spans
 DeepSpaceTelemetry.Receiver.low_latency_spans
 DeepSpaceTelemetry.Receiver.marker_times
@@ -31,6 +33,8 @@ DeepSpaceTelemetry.Receiver.upright_rules
 DeepSpaceTelemetry.Receiver.TICK_LABEL_SPACE
 DeepSpaceTelemetry.Receiver.summary_tick_step_hours
 DeepSpaceTelemetry.Receiver.mission_time_ticks
+DeepSpaceTelemetry.Receiver.count_tick_step
+DeepSpaceTelemetry.Receiver.SESSION_PIN_HEIGHT
 DeepSpaceTelemetry.Receiver.BatchStates
 DeepSpaceTelemetry.Receiver.reconstruct_batch_states
 DeepSpaceTelemetry.Receiver.batch_states
