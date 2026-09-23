@@ -57,7 +57,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `generate_mask_timeline` is disabled: the raster is drawn from the mask
   timeline and is skipped.
 - Dependabot updates for the `julia` ecosystem, weekly, grouped into one pull
-  request per environment.
+  request per environment; CSV major updates are ignored until the 2.1
+  migration to explicit column types.
 - A "How to cite" section with a BibTeX entry in the README.
 
 ### Removed

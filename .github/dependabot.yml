@@ -14,6 +14,11 @@ updates:
       julia:
         patterns:
           - "*"
+    # CSV 1.x changes date-time and string inference; the migration is
+    # scheduled for 2.1 with explicit column types.
+    ignore:
+      - dependency-name: "CSV"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
