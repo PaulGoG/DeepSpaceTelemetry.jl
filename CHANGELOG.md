@@ -33,6 +33,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
   (one task) by the raster, the point-wise expansion, and the HDF5 export;
   the supervisor counts its rows with `TelemetryCore.mask_timeline_rows`, a
   line count, instead of parsing the wide table.
+- `Receiver.shade_outages!` is `Receiver.shade_spans!`, the generic span
+  wash; the low-latency period's edges are dash-dot-dot, distinct from the
+  dotted nominal-capacity curve; `Receiver.marker_times` reads the markers
+  through `TelemetryCore.load_markers`.
 - Every figure is composed at one standard layout — 1200 Makie units wide,
   26-unit type, 3-unit data lines, fixed panel heights — and a publication
   export scales it as a whole, so a narrower figure is a miniature of the

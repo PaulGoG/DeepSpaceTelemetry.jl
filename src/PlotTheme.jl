@@ -105,7 +105,7 @@ const COLOR_MARKER = :black
 """
     COLOR_GUIDE
 
-Neutral grey for population aggregates and reference guides: the
+Neutral gray for population aggregates and reference guides: the
 all-batches delivery curve, the delivery-requirement line, and its label.
 """
 const COLOR_GUIDE = colorant"gray40"

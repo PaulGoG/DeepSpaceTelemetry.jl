@@ -23,7 +23,7 @@ DeepSpaceTelemetry.Receiver.marker_times
 DeepSpaceTelemetry.Receiver.spans_overlap
 DeepSpaceTelemetry.Receiver.shade_disruptions!
 DeepSpaceTelemetry.Receiver.shading_patch
-DeepSpaceTelemetry.Receiver.shade_outages!
+DeepSpaceTelemetry.Receiver.shade_spans!
 DeepSpaceTelemetry.Receiver.shade_generation_gaps!
 DeepSpaceTelemetry.Receiver.shade_low_latency!
 DeepSpaceTelemetry.Receiver.mark_events!

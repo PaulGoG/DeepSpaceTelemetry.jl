@@ -3114,7 +3114,7 @@ Ground-contact model of the downlink. The nominal daily window opens at
 `session_start` for `session_duration` with the capacity `profile`
 (one of [`BANDWIDTH_PROFILES`](@ref); `sigmoid_steepness`, `gaussian_sigma`);
 `seasonal_extension` widens it
-symmetrically about its centre, cosine-modulated with period
+symmetrically about its center, cosine-modulated with period
 `season_period_days` and peaking at `season_peak_day_of_year`;
 `exceptions` (`date => (start, duration)`, zero duration = missed pass)
 replace the window of a date verbatim; a non-empty `schedule` of explicit

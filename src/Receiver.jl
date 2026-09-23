@@ -272,15 +272,12 @@ end
     marker_times(run_dir::String, t_start::DateTime) -> Vector{Float64}
 
 Declared event markers of the run, in hours since `t_start`, read from the
-run's own `markers.csv`. Empty when the run declared none or predates the
-marker record — the figures then draw no marker rules.
+run's own `markers.csv` ([`TelemetryCore.load_markers`](@ref)). Empty when
+the run declared none or predates the marker record — the figures then draw
+no marker rules.
 """
 function marker_times(run_dir::String, t_start::DateTime)
-    path = joinpath(run_dir, "markers.csv")
-    isfile(path) || return Float64[]
-    markers = CSV.read(path, DataFrame)
-    isempty(markers) && return Float64[]
-    return [hours_since(DateTime(r.SimTime), t_start) for r in eachrow(markers)]
+    return [hours_since(m.time, t_start) for m in TelemetryCore.load_markers(run_dir)]
 end
 
 """
@@ -325,25 +322,25 @@ spans_overlap(spans, x_lo::Float64, x_hi::Float64, lo::Int, hi::Int) =
     any(s -> s[lo] < x_hi && s[hi] > x_lo, spans)
 
 """
-    shade_outages!(ax, x_lo, x_hi, outage_spans; color, edgecolor, linestyle, style)
+    shade_spans!(ax, x_lo, x_hi, spans; color, edgecolor, linestyle, style)
 
-Shades component-outage windows onto `ax`, clamped to the plotted range: a
-neutral wash ([`PlotTheme.COLOR_OUTAGE`](@ref)) with dotted same-hue edge
-lines at the guide line width of `style`, pushed behind the data. Distinct
-from the configured disruption shading — these are unscheduled
-infrastructure outages.
+Shades `(start, stop)` spans onto `ax`, clamped to the plotted range: a wash
+of `color` with same-hue edge lines (`edgecolor`, `linestyle`) at the guide
+line width of `style`, pushed behind the data. The defaults are the
+component-outage styling ([`PlotTheme.COLOR_OUTAGE`](@ref), dotted edges);
+the generation-gap, recorder-full, and low-latency washes pass their own.
 """
-function shade_outages!(
+function shade_spans!(
     ax,
     x_lo::Float64,
     x_hi::Float64,
-    outage_spans;
+    spans;
     color = (PlotTheme.COLOR_OUTAGE, 0.10),
     edgecolor = (PlotTheme.COLOR_OUTAGE, 0.5),
     linestyle = :dot,
     style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
 )
-    for (o0, o1) in outage_spans
+    for (o0, o1) in spans
         o0c, o1c = max(o0, x_lo), min(o1, x_hi)
         o0c < o1c || continue
         v = vspan!(ax, o0c, o1c, color = color)
@@ -380,7 +377,7 @@ function shade_generation_gaps!(
     ctx::PlotContext;
     style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
 )
-    shade_outages!(
+    shade_spans!(
         ax,
         x_lo,
         x_hi,
@@ -390,7 +387,7 @@ function shade_generation_gaps!(
         linestyle = :dashdot,
         style = style,
     )
-    shade_outages!(
+    shade_spans!(
         ax,
         x_lo,
         x_hi,
@@ -407,9 +404,9 @@ end
     shade_low_latency!(ax, x_lo, x_hi, ctx::PlotContext; style)
 
 Low-latency periods behind the data of `ax`, in the capacity color at low
-alpha with dotted same-hue edges — the periods run at
-`low_latency_capacity_fraction` of peak capacity, so the wash sits under the
-capacity curve it explains.
+alpha with dash-dot-dot same-hue edges, distinct from the dotted
+nominal-capacity curve — the periods run at `low_latency_capacity_fraction`
+of peak capacity, so the wash sits under the capacity curve it explains.
 """
 function shade_low_latency!(
     ax,
@@ -418,14 +415,14 @@ function shade_low_latency!(
     ctx::PlotContext;
     style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
 )
-    shade_outages!(
+    shade_spans!(
         ax,
         x_lo,
         x_hi,
         ctx.low_latency_spans;
         color = (PlotTheme.COLOR_BANDWIDTH, 0.12),
         edgecolor = (PlotTheme.COLOR_BANDWIDTH, 0.7),
-        linestyle = :dot,
+        linestyle = :dashdotdot,
         style = style,
     )
     return ax
@@ -670,7 +667,7 @@ function figure_legend_entries(;
             shading_patch(
                 (PlotTheme.COLOR_BANDWIDTH, 0.12),
                 (PlotTheme.COLOR_BANDWIDTH, 0.7),
-                :dot,
+                :dashdotdot,
                 style,
             ),
         )
@@ -879,7 +876,7 @@ function plot_mission_summary(
     ylims!(ax1_twin, 0, max(10.0, 1.3 * maximum(df.Onboard_Buffer)))
 
     shade_disruptions!(ax1, 0.0, max_x_h, ctx.disruption_spans; style)
-    shade_outages!(ax1, 0.0, max_x_h, ctx.outage_spans; style)
+    shade_spans!(ax1, 0.0, max_x_h, ctx.outage_spans; style)
     shade_generation_gaps!(ax1, 0.0, max_x_h, ctx; style)
     shade_low_latency!(ax1, 0.0, max_x_h, ctx; style)
     mark_events!(ax1, 0.0, max_x_h, ctx.marker_times; style)
@@ -922,7 +919,7 @@ function plot_mission_summary(
     ylims!(ax2, 0, max(10.0, 1.2 * maximum(df.Ground_Total)))
 
     shade_disruptions!(ax2, 0.0, max_x_h, ctx.disruption_spans; style)
-    shade_outages!(ax2, 0.0, max_x_h, ctx.outage_spans; style)
+    shade_spans!(ax2, 0.0, max_x_h, ctx.outage_spans; style)
     shade_generation_gaps!(ax2, 0.0, max_x_h, ctx; style)
     shade_low_latency!(ax2, 0.0, max_x_h, ctx; style)
     mark_events!(ax2, 0.0, max_x_h, ctx.marker_times; style)
@@ -980,7 +977,7 @@ function plot_mission_summary(
         # `0` of the panel above.
         ylims!(ax3, -0.06 * y_top, 1.15 * y_top)
         shade_disruptions!(ax3, 0.0, max_x_h, ctx.disruption_spans; style)
-        shade_outages!(ax3, 0.0, max_x_h, ctx.outage_spans; style)
+        shade_spans!(ax3, 0.0, max_x_h, ctx.outage_spans; style)
         shade_low_latency!(ax3, 0.0, max_x_h, ctx; style)
         mark_events!(ax3, 0.0, max_x_h, ctx.marker_times; style)
         stairs!(ax3, df_x, lost_curve, color = PlotTheme.COLOR_LOST)
@@ -1128,7 +1125,7 @@ function plot_session(
     ylims!(ax_s1_twin, 0, max(10.0, 1.3 * maximum(session_df.Onboard_Buffer)))
 
     shade_disruptions!(ax_s1, min_sess_h, max_sess_h, ctx.disruption_spans; style)
-    shade_outages!(ax_s1, min_sess_h, max_sess_h, ctx.outage_spans; style)
+    shade_spans!(ax_s1, min_sess_h, max_sess_h, ctx.outage_spans; style)
     shade_generation_gaps!(ax_s1, min_sess_h, max_sess_h, ctx; style)
     mark_events!(ax_s1, min_sess_h, max_sess_h, ctx.marker_times; style)
     if sess_degraded
@@ -1165,7 +1162,7 @@ function plot_session(
     ylims!(ax_s2, 0, y_max_s2)
 
     shade_disruptions!(ax_s2, min_sess_h, max_sess_h, ctx.disruption_spans; style)
-    shade_outages!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans; style)
+    shade_spans!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans; style)
     shade_generation_gaps!(ax_s2, min_sess_h, max_sess_h, ctx; style)
     mark_events!(ax_s2, min_sess_h, max_sess_h, ctx.marker_times; style)
 
@@ -2173,7 +2170,7 @@ function run_receiver(
             )
 
             # Batches whose retransmission cannot have arrived yet are skipped
-            # in favour of the next in-flight batch; the link idles only when
+            # in favor of the next in-flight batch; the link idles only when
             # every pending batch is waiting for its round trip.
             eligible = filter(f -> get(retry_after, f, sim_t) <= sim_t, pending_batches)
 
