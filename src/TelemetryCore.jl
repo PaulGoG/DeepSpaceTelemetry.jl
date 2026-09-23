@@ -383,7 +383,7 @@ const STORAGE_CALIBRATION_DEFAULTS = (
     bytes_metrics_row = 160.0,    # mission_profile.csv row
     bytes_mask_cell = 4.0,        # mask-timeline cell (digit + separator)
     bytes_pointwise_cell = 10.0,  # point-wise expansion row
-    bytes_plot = 2.0e6,           # one PNG at px_per_unit = 4
+    bytes_plot = 1.2e6,           # one PNG at px_per_unit = 4 (measured maximum 1.07 MB)
     bytes_plot_pdf = 100_000.0,   # vector PDF twin of one figure
     bytes_replay_cell = 12.0,     # replay RAM per (row x batch) membership
     bytes_log_per_batch = 600.0,  # emitter+receiver log lines per batch

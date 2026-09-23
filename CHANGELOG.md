@@ -48,6 +48,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
   renders the mission figures at exit: `Supervisor.post_process!` renders
   them as its first stage, and a standalone `run_receiver` leaves `plots/`
   to `MissionFigures.generate_mission_plots`.
+- The storage estimate sizes a PNG figure at 1.2 MB, the measured maximum of
+  the standard-layout export (4800 px wide) plus a margin, instead of 2 MB.
 - The test suite is split by subject into `test/<subject>.jl` files included
   from `runtests.jl`, with the shared helpers in `test/helpers.jl`; the
   publication-export testset is two testsets, the standard-layout helpers
