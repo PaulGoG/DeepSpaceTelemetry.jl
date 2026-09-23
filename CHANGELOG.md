@@ -33,7 +33,16 @@ Notable changes to DeepSpaceTelemetry. The format follows
   (one task) by the raster, the point-wise expansion, and the HDF5 export;
   the supervisor counts its rows with `TelemetryCore.mask_timeline_rows`, a
   line count, instead of parsing the wide table.
-- `Receiver.shade_outages!` is `Receiver.shade_spans!`, the generic span
+- **Breaking:** `Receiver` is the ground-station loop only. The figure
+  products moved to `MissionFigures` (mission summary, session figures,
+  batch-state raster, the shading and legend helpers) and the batch-state
+  products to `Masks` (`batch_states`, `generate_telemetry_masks`,
+  `expand_pointwise_mask`); every `Receiver.<name>` of those families is
+  now `MissionFigures.<name>` or `Masks.<name>`. The receiver loop no longer
+  renders the mission figures at exit: `Supervisor.post_process!` renders
+  them as its first stage, and a standalone `run_receiver` leaves `plots/`
+  to `MissionFigures.generate_mission_plots`.
+- `Receiver.shade_outages!` is `MissionFigures.shade_spans!`, the generic span
   wash; the low-latency period's edges are dash-dot-dot, distinct from the
   dotted nominal-capacity curve; `Receiver.marker_times` reads the markers
   through `TelemetryCore.load_markers`.

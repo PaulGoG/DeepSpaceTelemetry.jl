@@ -60,7 +60,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
 
     # Shared state-machine replay: the exact event-log reconstruction (a run
     # without events_tx.csv / events_rx.csv is rejected).
-    row_states = DeepSpaceTelemetry.Receiver.batch_states(run_dir, df)
+    row_states = DeepSpaceTelemetry.Masks.batch_states(run_dir, df)
     run_cfg = DeepSpaceTelemetry.TelemetryCore.load_run_config(run_dir)
     floor_pct =
         100 * DeepSpaceTelemetry.TelemetryCore.telemetry_settings(run_cfg).min_link_factor

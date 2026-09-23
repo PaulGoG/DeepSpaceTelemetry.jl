@@ -73,7 +73,9 @@ DeepSpaceTelemetry/
 │   ├── VirtualInstrument.jl     # Payload: binary flag series or external CSV ingestion
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
 │   ├── Emitter.jl               # Satellite state machine (payload/queues)
-│   ├── Receiver.jl              # DSN ground station, loss handling, post-processing
+│   ├── MissionFigures.jl              # DSN ground station loop, loss handling, retention
+│   ├── Masks.jl                 # Batch-state replay, mask timeline, point-wise expansion
+│   ├── MissionFigures.jl        # Mission summary, session figures, batch-state raster
 │   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay
 │   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
 │   ├── Publication.jl           # Publication figure export at a declared printed width
@@ -286,14 +288,15 @@ batch never becomes available on the ground.
 | `TelemetryCore` | configuration accessors and validation, run layout, batch I/O, event logs, provenance | stable; unit, guardrail, and static-QA coverage |
 | `ChannelEffects` | loss channels, disruption timeline, composite link model | stable; validated against the analytic stationary loss rate |
 | `VirtualInstrument` | binary flag payload declared by the event markers, external ingestion | stable; flag rule, boundary cases, and clock advance unit-tested |
-| `Emitter` / `Receiver` | spacecraft and ground-station state machines, post-processing products and figures | stable; four end-to-end integration missions in the suite |
+| `Emitter` / `Receiver` | spacecraft and ground-station state machines | stable; four end-to-end integration missions in the suite |
+| `Masks` / `MissionFigures` | batch-state replay and mask products; mission, session, and raster figures | stable; replay, legend, and layout tests |
 | `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
 | `Supervisor` | mission plan, supervised tasks, sentinels, banner | stable; restart and policy tests |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
 | Scenario library | eleven configurations under `scenarios/` | every file validated and the smoke scenario run by the suite |
 | Entry points | `run_full_sim.jl` (argument parsing plus `Supervisor.run_mission`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release (its library call runs the smoke scenario in the suite); the dashboard, live viewer, and log follower are interactive and verified manually |
-| Post-processing wrappers | `apply_telemetry_mask.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over the tested library functions (`Receiver.expand_pointwise_mask`, `Export.export_hdf5`, `Publication.export_publication_figures`); the animation engine of `generate_gif.jl` renders over the tested replay (`Receiver.batch_states`) and the standalone expander is a dependency-light copy, both verified on the shipped scenarios at each release |
+| Post-processing wrappers | `apply_telemetry_mask.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over the tested library functions (`Masks.expand_pointwise_mask`, `Export.export_hdf5`, `Publication.export_publication_figures`); the animation engine of `generate_gif.jl` renders over the tested replay (`Masks.batch_states`) and the standalone expander is a dependency-light copy, both verified on the shipped scenarios at each release |
 | Maintenance utilities | `generate_example_strain.jl`, `cleanup.jl` | `generate_example_strain.jl` verified through `scenarios/external_ingest.toml` at each release; `cleanup.jl` interactive (confirmation prompt), verified manually |
 
 ## Configuration

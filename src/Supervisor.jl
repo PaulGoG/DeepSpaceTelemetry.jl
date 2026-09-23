@@ -16,6 +16,8 @@ using ..ChannelEffects
 using ..VirtualInstrument
 using ..Emitter
 using ..Receiver
+using ..Masks
+using ..MissionFigures
 using ..Export
 using ..Publication
 using CSV: CSV
@@ -497,8 +499,9 @@ end
 """
     post_process!(plan, run_dir; orig_stdout = stdout)
 
-The derived products after both components have finished: the 2D
-batch-state timeline (`post_processing.generate_mask_timeline`), the
+The derived products after both components have finished: the mission
+summary and session figures ([`MissionFigures.generate_mission_plots`](@ref)),
+the 2D batch-state timeline (`post_processing.generate_mask_timeline`), the
 flagged figure products of [`TelemetryCore.FIGURE_PRODUCTS`](@ref) (alert
 latency, delivery delay, batch-state raster, in that order), the point-wise
 0/1 expansions (`expand_to_pointwise_masks`, rows from `target_event_rows`),
@@ -510,10 +513,17 @@ standalone post-processing scripts).
 """
 function post_process!(plan::MissionPlan, run_dir::String; orig_stdout::IO = stdout)
     post_processing = plan.post_processing
+    println(orig_stdout, "\nRendering the mission and session figures")
+    try
+        MissionFigures.generate_mission_plots(run_dir)
+    catch e
+        @error "[POST] Mission figure rendering failed — run data is intact; re-call MissionFigures.generate_mission_plots(run_dir)." exception =
+            (e, catch_backtrace())
+    end
     if post_processing.generate_mask_timeline
         println(orig_stdout, "\nGenerating the post-processing telemetry masks")
         try
-            Receiver.generate_telemetry_masks(run_dir)
+            Masks.generate_telemetry_masks(run_dir)
         catch e
             @error "[POST] Mask-matrix generation failed — run data is intact." exception =
                 (e, catch_backtrace())
@@ -568,7 +578,7 @@ end
 
 The point-wise expansion stage of [`post_process!`](@ref): every row of
 `post_processing.target_event_rows` (`"all"`, integers, `-1` = last, range
-strings) expanded by [`Receiver.expand_pointwise_mask`](@ref), each row
+strings) expanded by [`Masks.expand_pointwise_mask`](@ref), each row
 failure-isolated.
 """
 function expand_pointwise_masks!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
@@ -590,7 +600,7 @@ function expand_pointwise_masks!(plan::MissionPlan, run_dir::String, orig_stdout
                 row_idx == -1 ? "pointwise_mask_final.csv" :
                 "pointwise_mask_t$(row_idx).csv"
             try
-                Receiver.expand_pointwise_mask(
+                Masks.expand_pointwise_mask(
                     run_dir,
                     total_points,
                     row_idx,

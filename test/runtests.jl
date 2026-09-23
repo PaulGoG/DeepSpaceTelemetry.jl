@@ -13,6 +13,8 @@ using DeepSpaceTelemetry:
     VirtualInstrument,
     Emitter,
     Receiver,
+    Masks,
+    MissionFigures,
     Metrology,
     Export,
     Publication,
@@ -703,7 +705,7 @@ end
 
             # Post-processing remains coherent with the gap events present.
             with_logger(NullLogger()) do
-                Receiver.generate_telemetry_masks(ra_dir)
+                Masks.generate_telemetry_masks(ra_dir)
             end
             @test isfile(joinpath(ra_dir, "masks", "telemetry_mask_timeline.csv"))
             # Epoch sidecar: finalization instant from the event log plus the
@@ -1385,7 +1387,7 @@ end
         CSV.write(joinpath(tmp, "events_rx.csv"), rx)
 
         df = DataFrame(SimTime = [t0, t0 + Minute(2) + Second(30), t0 + Minute(10)])
-        states = Receiver.reconstruct_batch_states(tmp, df)
+        states = Masks.reconstruct_batch_states(tmp, df)
         @test length(states) == 3
 
         # Row 1 (t0): batch 1 pre-populated onboard, batch 2 not yet generated
@@ -1401,7 +1403,7 @@ end
 
         # The dispatcher picks the exact reconstruction when logs exist
         vis = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "flat")
-        @test Receiver.batch_states(tmp, df) == states
+        @test Masks.batch_states(tmp, df) == states
     end
 end
 
@@ -1426,7 +1428,7 @@ end
         CSV.write(joinpath(tmp, "events_rx.csv"), rx)
         df = DataFrame(SimTime = [t0 + Minute(30)])
         states = with_logger(NullLogger()) do
-            Receiver.reconstruct_batch_states(tmp, df)
+            Masks.reconstruct_batch_states(tmp, df)
         end
         @test length(states) == 1
         @test states[1].ground_live == [1]  # delivery state unperturbed
@@ -1456,7 +1458,7 @@ end
             SimTime = [t0 + Minute(1), t0 + Minute(4), t0 + Minute(6), t0 + Minute(8)],
         )
         states = with_logger(NullLogger()) do
-            Receiver.reconstruct_batch_states(tmp, df)
+            Masks.reconstruct_batch_states(tmp, df)
         end
         @test states[2].ground_live == [1] # delivered at the ingested record
         @test states[3].ground_live == [1] # the late-stamped tx cannot regress it
@@ -1582,7 +1584,7 @@ end
             )
             @test n_gen == n_onboard + n_link + length(ground)
 
-            Receiver.generate_telemetry_masks(run_dir)
+            Masks.generate_telemetry_masks(run_dir)
             mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
             @test isfile(mask_path)
             mask_df = CSV.read(mask_path, DataFrame)
@@ -1731,7 +1733,7 @@ end
 
             # Science products unaffected: pruning never regresses mask state 3
             with_logger(NullLogger()) do
-                Receiver.generate_telemetry_masks(run_dir)
+                Masks.generate_telemetry_masks(run_dir)
             end
             mask_df = CSV.read(
                 joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"),
@@ -1865,7 +1867,7 @@ end
             @test n_gen == n_onboard + n_link + length(ground) + length(lost)
 
             # Mask matrix carries terminal state 4 and stays monotone
-            Receiver.generate_telemetry_masks(run_dir)
+            Masks.generate_telemetry_masks(run_dir)
             mask_df = CSV.read(
                 joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"),
                 DataFrame,
@@ -2869,8 +2871,11 @@ end
     )
     windows = TelemetryCore.contact_windows(llp, DateTime(2035, 1, 5), DateTime(2035, 1, 6))
     @test count(w -> w.low_latency, windows) == 1 && windows[end].label == "follow-up"
-    stems =
-        Receiver.session_figure_stems(llp, DateTime(2035, 1, 5, 6), DateTime(2035, 1, 7, 6))
+    stems = MissionFigures.session_figure_stems(
+        llp,
+        DateTime(2035, 1, 5, 6),
+        DateTime(2035, 1, 7, 6),
+    )
     @test first.(stems) == ["day00", "day00_low_latency", "day01"]
 
     # Configuration accessor: defaults, validation, CSV schedule, the
@@ -3138,7 +3143,7 @@ end
         @test isempty(TelemetryCore.load_markers(mktempdir()))
         # No rx events: every batch stays onboard through the replay.
         states = with_logger(NullLogger()) do
-            Receiver.reconstruct_batch_states(
+            Masks.reconstruct_batch_states(
                 stamp_dir,
                 DataFrame(SimTime = [start_sim + Minute(1)]),
             )
@@ -3348,9 +3353,13 @@ end
         @test String.(rec_rows.Event) == ["gap_start"]
         @test DateTime(rec_rows.SimTime[1]) == start - Minute(8) - Second(24)
         @test TelemetryCore.open_recorder_gap(rec_dir)
-        @test Receiver.generation_gap_spans(rec_dir, start - Hour(1), 5.0, "RECORDER") ==
-              [(1 - 8.4 / 60, 5.0)]
-        @test isempty(Receiver.generation_gap_spans(rec_dir, start, 5.0, "SCHEDULED"))
+        @test MissionFigures.generation_gap_spans(
+            rec_dir,
+            start - Hour(1),
+            5.0,
+            "RECORDER",
+        ) == [(1 - 8.4 / 60, 5.0)]
+        @test isempty(MissionFigures.generation_gap_spans(rec_dir, start, 5.0, "SCHEDULED"))
     finally
         rm(rec_dir; recursive = true, force = true)
     end
@@ -3576,7 +3585,7 @@ end
     @test_throws ArgumentError PlotTheme.PlotStyle(0.0)
 
     # The legend comes in families and lists only what the figure draws.
-    groups = Receiver.figure_legend_entries(;
+    groups = MissionFigures.figure_legend_entries(;
         degraded = true,
         blackout = true,
         ramp = true,
@@ -3598,7 +3607,7 @@ end
         "Low-latency period",
         "Event marker",
     ]
-    quiet = Receiver.figure_legend_entries(;
+    quiet = MissionFigures.figure_legend_entries(;
         degraded = false,
         blackout = false,
         ramp = false,
@@ -3647,20 +3656,20 @@ end
     @test PlotTheme.Makie.get_tickvalues(pruned, 0.0, 30.0) == [0.0, 10.0, 20.0]
     @test PlotTheme.Makie.get_tickvalues(pruned, 0.0, 108.0) == [0.0, 50.0, 100.0]
     # Count-axis tick steps and recorder-span coalescing of the summary figure.
-    @test Receiver.count_tick_step(4.0) == 2
-    @test Receiver.count_tick_step(5.4) == 2
-    @test Receiver.count_tick_step(31.05) == 20
-    @test Receiver.count_tick_step(108.0) == 50
-    @test Receiver.count_tick_step(1350.0) == 500
+    @test MissionFigures.count_tick_step(4.0) == 2
+    @test MissionFigures.count_tick_step(5.4) == 2
+    @test MissionFigures.count_tick_step(31.05) == 20
+    @test MissionFigures.count_tick_step(108.0) == 50
+    @test MissionFigures.count_tick_step(1350.0) == 500
     spans = [(5.0, 6.0), (0.0, 1.0), (1.2, 2.0)]
-    @test Receiver.coalesce_spans(spans, 0.5) == [(0.0, 2.0), (5.0, 6.0)]
-    @test Receiver.coalesce_spans(spans, 0.1) == [(0.0, 1.0), (1.2, 2.0), (5.0, 6.0)]
-    @test isempty(Receiver.coalesce_spans(NTuple{2,Float64}[], 1.0))
-    @test Receiver.SESSION_PIN_HEIGHT < 1 / 1.2 + 0.1 &&
-          Receiver.SESSION_PIN_HEIGHT > 1 / 1.2
+    @test MissionFigures.coalesce_spans(spans, 0.5) == [(0.0, 2.0), (5.0, 6.0)]
+    @test MissionFigures.coalesce_spans(spans, 0.1) == [(0.0, 1.0), (1.2, 2.0), (5.0, 6.0)]
+    @test isempty(MissionFigures.coalesce_spans(NTuple{2,Float64}[], 1.0))
+    @test MissionFigures.SESSION_PIN_HEIGHT < 1 / 1.2 + 0.1 &&
+          MissionFigures.SESSION_PIN_HEIGHT > 1 / 1.2
 
     # The raster is skipped, not failed, when the run carries no timeline.
-    @test Receiver.plot_state_raster(mktempdir()) === nothing
+    @test MissionFigures.plot_state_raster(mktempdir()) === nothing
 
     base = valid_test_cfg()
     @test !TelemetryCore.publication_settings(base).enabled
@@ -3761,7 +3770,7 @@ end
 @testset "Mission summary tick spacing" begin
     # At most eleven day labels: daily up to 10 days, then 2, 5, 10, 20, 30,
     # 60-day steps, 120 days beyond 600.
-    step_days(d) = Receiver.summary_tick_step_hours(Float64(d)) / 24
+    step_days(d) = MissionFigures.summary_tick_step_hours(Float64(d)) / 24
     @test step_days(7) == 1 && step_days(10) == 1
     @test step_days(12) == 2 && step_days(30) == 5 && step_days(45) == 5
     @test step_days(60) == 10 && step_days(200) == 20 && step_days(365) == 60

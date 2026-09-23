@@ -11,6 +11,8 @@ One page per module:
 - [VirtualInstrument](api/virtualinstrument.md)
 - [Emitter](api/emitter.md)
 - [Receiver](api/receiver.md)
+- [Masks](api/masks.md)
+- [MissionFigures](api/missionfigures.md)
 - [Metrology](api/metrology.md)
 - [Export](api/export.md)
 - [Publication](api/publication.md)

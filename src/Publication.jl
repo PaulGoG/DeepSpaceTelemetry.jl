@@ -13,7 +13,7 @@ module Publication
 
 using ..TelemetryCore
 using ..PlotTheme
-using ..Receiver
+using ..MissionFigures
 using Dates: now
 using SHA: sha256
 using TOML: TOML
@@ -54,8 +54,13 @@ function export_publication_figures(
     post_processing = TelemetryCore.post_processing_settings(cfg)
     ground = TelemetryCore.ground_settings(cfg)
 
-    paths =
-        Receiver.generate_mission_plots(run_dir; style, plots_dir = dir, formats, suffix)
+    paths = MissionFigures.generate_mission_plots(
+        run_dir;
+        style,
+        plots_dir = dir,
+        formats,
+        suffix,
+    )
     for product in TelemetryCore.FIGURE_PRODUCTS
         getproperty(post_processing.figures, product.flag) || continue
         p = TelemetryCore.render_figure_product(
