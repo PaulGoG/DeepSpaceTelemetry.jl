@@ -51,7 +51,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch`: the finalization instant from the event log and the first-sample timestamp from the batch metadata (missing when the metadata lacks it); written when the run has `gen` rows, it re-anchors point-wise mask rows when gap events are present. |
 | `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`. |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline removes the file once the components have joined, before post-processing. |
-| `emitter.log`, `receiver.log` | logger | Read. Human diagnostics, rotated to `<name>#k.log` at `retention.log_rotate_mb`; not machine-parsed interfaces. |
+| `emitter.log`, `receiver.log`, `supervisor.log` | logger | Read. Human diagnostics — the two component logs, and the supervisor's `[SUPERVISOR]`, `[POST]`, and `[CONFIG]` records of the mission and its post-processing — rotated to `<name>#k.log` at `retention.log_rotate_mb`; not machine-parsed interfaces. |
 | `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; the emitter counts in-flight batches from the `link/` listing, so a slot frees when the receiver moves a batch out. |
 
 A batch directory contains `metadata.json` and one `seg_<id>.csv` per segment
@@ -216,7 +216,7 @@ derived view of them and can be regenerated at any time.
 
 | Group | Content |
 |---|---|
-| root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `julia_version`, …), and `config_snapshot` — the run's configuration as TOML text |
+| root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `julia_version`, …), `config_snapshot` — the run's configuration as TOML text — and `config_source` (`snapshot` or `fallback`, the latter when the project `config.toml` stood in for a missing or corrupt snapshot) |
 | `events/tx`, `events/rx` | the event logs, one dataset per column |
 | `metrics/mission_profile` | the metrics profile, one dataset per column |
 | `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants (`SimTime`, `SimTime_iso`), and the attributes `state_codes` and `layout` |

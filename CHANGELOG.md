@@ -69,6 +69,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   request per environment; CSV major updates are ignored until the 2.1
   migration to explicit column types.
 - A "How to cite" section with a BibTeX entry in the README.
+- `<run_dir>/supervisor.log`: the `[SUPERVISOR]`, `[POST]`, and `[CONFIG]`
+  records of the mission and its post-processing, teed with the console. A
+  detached run's records reached no file.
 
 ### Removed
 - **Breaking:** the noise model and its API: `lisa_noise_psd`,
@@ -130,6 +133,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - The pre-population progress bar wrote carriage-return frames into the log
   of a detached run; it is drawn only when the standard error stream is a
   terminal.
+- The HDF5 export stamped the project `config.toml` as a run's configuration
+  snapshot when the run had none, silently. The root attribute
+  `config_source` says `snapshot` or `fallback`, and a missing snapshot is
+  reported like a corrupt one.
 
 ## [1.2.0] - 2026-09-13
 

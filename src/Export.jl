@@ -173,19 +173,22 @@ function write_pointwise_masks!(file::HDF5.File, run_dir::String)
 end
 
 """
-    write_provenance!(file::HDF5.File, run_dir::String, cfg::AbstractDict, epoch::DateTime)
+    write_provenance!(file::HDF5.File, run_dir::String, cfg::AbstractDict, epoch::DateTime; config_source)
 
 Root attributes: `format_version`, `run_id`, `start_sim_time`, `speed_up`,
 `exported_at`, the platform fingerprint of the run snapshot
 (`[provenance.platform]`: hostname, package version, git commit, Julia
-version, …), and `config_snapshot` — the run's configuration as TOML
-text.
+version, …), `config_snapshot` — the run's configuration as TOML text — and
+`config_source`, `"snapshot"` when that text is the run's own
+`config_snapshot.toml` and `"fallback"` when the project `config.toml` stood
+in for a missing or corrupt snapshot.
 """
 function write_provenance!(
     file::HDF5.File,
     run_dir::String,
     cfg::AbstractDict,
-    epoch::DateTime,
+    epoch::DateTime;
+    config_source::String,
 )
     HDF5.write_attribute(file, "format_version", FORMAT_VERSION)
     HDF5.write_attribute(file, "run_id", basename(rstrip(run_dir, '/')))
@@ -204,6 +207,7 @@ function write_provenance!(
         )
     end
     HDF5.write_attribute(file, "config_snapshot", sprint(TOML.print, cfg))
+    HDF5.write_attribute(file, "config_source", config_source)
     return file
 end
 
@@ -220,7 +224,7 @@ masks ([`write_pointwise_masks!`](@ref)), and the provenance attributes
 """
 function export_hdf5(run_dir::String; path::String = joinpath(run_dir, "products.h5"))
     isdir(run_dir) || throw(ArgumentError("[EXPORT] Run directory not found: $run_dir"))
-    cfg = TelemetryCore.load_run_config(run_dir)
+    cfg, config_source = TelemetryCore.load_run_config_with_source(run_dir)
     sim = get(cfg, "simulation", Dict{String,Any}())
     haskey(sim, "start_sim_time") || throw(
         ArgumentError(
@@ -232,7 +236,7 @@ function export_hdf5(run_dir::String; path::String = joinpath(run_dir, "products
     mkpath(dirname(path))
     TelemetryCore.backup_existing(path)
     h5open(path, "w") do file
-        write_provenance!(file, run_dir, cfg, epoch)
+        write_provenance!(file, run_dir, cfg, epoch; config_source = config_source)
         for (group, rel) in TABLE_PRODUCTS
             csv = joinpath(run_dir, rel)
             isfile(csv) || continue

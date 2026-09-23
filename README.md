@@ -133,7 +133,7 @@ DeepSpaceTelemetry/
 │       └── <RUN_ID>/            # onboard/ link/ ground/ lost/ plots/ masks/
 │                                # + mission_profile.csv, events_tx.csv, events_rx.csv,
 │                                #   component_events.csv, config_snapshot.toml,
-│                                #   clock_anchor.toml, emitter.log, receiver.log,
+│                                #   clock_anchor.toml, emitter.log, receiver.log, supervisor.log,
 │                                #   heartbeats and RUN_ACTIVE/RUN_COMPLETE/RUN_ABORTED
 │                                #   sentinels (interfaces.md documents the full contract)
 ├── .github/workflows/CI.yml     # Test matrix (Linux 1.12 / 1 / pre, macOS and Windows on 1), formatter, docs build and deployment

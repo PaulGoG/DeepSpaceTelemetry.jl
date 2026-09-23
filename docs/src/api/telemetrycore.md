@@ -14,6 +14,7 @@ DeepSpaceTelemetry.TelemetryCore.is_live_batch
 DeepSpaceTelemetry.TelemetryCore.is_archive_batch
 DeepSpaceTelemetry.TelemetryCore.is_batch_name
 DeepSpaceTelemetry.TelemetryCore.load_config
+DeepSpaceTelemetry.TelemetryCore.load_run_config_with_source
 DeepSpaceTelemetry.TelemetryCore.load_run_config
 DeepSpaceTelemetry.TelemetryCore.checked_number
 DeepSpaceTelemetry.TelemetryCore.checked_integer

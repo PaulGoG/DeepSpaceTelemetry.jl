@@ -21,7 +21,8 @@ using ..Publication
 using CSV: CSV
 using DataFrames: DataFrame, nrow
 using Dates: Dates, DateTime, Millisecond, Second, now
-using Logging: Logging, with_logger
+using Logging: Logging, current_logger, with_logger
+using LoggingExtras: TeeLogger
 using SHA: sha256
 
 # --- Component logging ---
@@ -107,6 +108,21 @@ function Logging.handle_message(
 end
 
 # --- Mission plan ---
+
+"""
+    with_supervisor_log(f, run_dir::String, rotate_bytes::Int)
+
+Runs `f()` with the current logger teed into `<run_dir>/supervisor.log`
+([`CleanFileLogger`](@ref), rotated at `rotate_bytes`), so the
+`[SUPERVISOR]`, `[POST]`, and `[CONFIG]` records of the mission and its
+post-processing are on disk beside the component logs, where the console
+output of a detached run is not. The file is truncated at entry.
+"""
+function with_supervisor_log(f, run_dir::String, rotate_bytes::Int)
+    path = joinpath(run_dir, "supervisor.log")
+    write(path, "")
+    return with_logger(f, TeeLogger(current_logger(), CleanFileLogger(path, rotate_bytes)))
+end
 
 """
     MissionPlan
@@ -855,7 +871,8 @@ configuration snapshot, the lifecycle sentinels — `RUN_ACTIVE` while the
 pipeline may still write, then `RUN_COMPLETE` at lifecycle end (not
 success: a failed component still reaches it after the failure-isolated
 post-processing) or `RUN_ABORTED` on any escaping exception — and
-[`execute_mission!`](@ref). Returns the run directory.
+[`execute_mission!`](@ref) under [`with_supervisor_log`](@ref). Returns the
+run directory.
 """
 function run_mission(
     cfg::Dict{String,Any};
@@ -870,7 +887,9 @@ function run_mission(
     touch(joinpath(run_dir, "RUN_ACTIVE"))
     completed = false
     try
-        execute_mission!(plan, run_dir, orig_stdout)
+        with_supervisor_log(run_dir, plan.retention.log_rotate_bytes) do
+            execute_mission!(plan, run_dir, orig_stdout)
+        end
         completed = true
     finally
         # Sentinels consistent on every exit path: an abort before lifecycle

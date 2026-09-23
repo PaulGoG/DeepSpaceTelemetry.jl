@@ -869,6 +869,20 @@ end
         write(joinpath(run_dir, "config_snapshot.toml"), "[simulation\nspeed_up = ")
         cfg_fb = @test_logs (:warn,) match_mode=:any TelemetryCore.load_run_config(run_dir)
         @test cfg_fb isa AbstractDict && haskey(cfg_fb, "simulation")
+        cfg_src, source =
+            @test_logs (:warn,) match_mode=:any TelemetryCore.load_run_config_with_source(
+                run_dir,
+            )
+        @test source == "fallback" && haskey(cfg_src, "simulation")
+        rm(joinpath(run_dir, "config_snapshot.toml"))
+        _, source =
+            @test_logs (:warn, r"No config_snapshot") match_mode=:any TelemetryCore.load_run_config_with_source(
+                run_dir,
+            )
+        @test source == "fallback"
+        write(joinpath(run_dir, "config_snapshot.toml"), "[simulation]\nspeed_up = 5.0\n")
+        cfg_snap, source = TelemetryCore.load_run_config_with_source(run_dir)
+        @test source == "snapshot" && cfg_snap["simulation"]["speed_up"] == 5.0
     end
 end
 
@@ -2199,6 +2213,20 @@ end
     end
 end
 
+@testset "Supervisor log tee" begin
+    mktempdir() do dir
+        with_logger(NullLogger()) do
+            Supervisor.with_supervisor_log(dir, 10_000) do
+                @error "[POST] forced post-processing failure"
+                @info "[SUPERVISOR] record"
+            end
+        end
+        text = read(joinpath(dir, "supervisor.log"), String)
+        @test occursin("forced post-processing failure", text)
+        @test occursin("[SUPERVISOR] record", text)
+    end
+end
+
 @testset "Supervisor policies (synthetic components)" begin
     policy(p; restarts = 2, watchdog = 0.3) =
         (on_component_failure = p, max_restarts = restarts, watchdog_sec = watchdog)
@@ -2358,6 +2386,7 @@ end
             @test isfile(joinpath(run_dir, "masks", "pointwise_mask_final.csv"))
             @test filesize(joinpath(run_dir, "emitter.log")) > 0
             @test filesize(joinpath(run_dir, "receiver.log")) > 0
+            @test occursin("[POST]", read(joinpath(run_dir, "supervisor.log"), String))
             snapshot = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
             @test haskey(snapshot["provenance"], "external_data_sha256")
             @test !isfile(joinpath(run_dir, "component_events.csv"))
@@ -3417,6 +3446,7 @@ end
             @test HDF5.read_attribute(f, "git_commit") == "abc123"
             @test HDF5.read_attribute(f, "speed_up") == 60.0
             @test occursin("speed_up = 60.0", HDF5.read_attribute(f, "config_snapshot"))
+            @test HDF5.read_attribute(f, "config_source") == "snapshot"
             @test read(f["events/tx/Event"]) == ["gen", "gen"]
             @test read(f["events/tx/SimTime"]) ≈ [0.0, 180.0] rtol = 1e-12
             @test read(f["events/tx/SimTime_iso"]) ==

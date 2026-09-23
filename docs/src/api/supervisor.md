@@ -3,6 +3,7 @@
 ```@docs
 DeepSpaceTelemetry.Supervisor
 DeepSpaceTelemetry.Supervisor.CleanFileLogger
+DeepSpaceTelemetry.Supervisor.with_supervisor_log
 DeepSpaceTelemetry.Supervisor.strip_ansi
 DeepSpaceTelemetry.Supervisor.render_log_value
 DeepSpaceTelemetry.Supervisor.MissionPlan

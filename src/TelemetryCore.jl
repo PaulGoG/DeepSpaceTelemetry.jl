@@ -180,26 +180,39 @@ function load_config(path::String = "")
 end
 
 """
-    load_run_config(run_dir::String)
+    load_run_config_with_source(run_dir::String) -> Tuple{Dict{String,Any},String}
 
-Loads the configuration that produced a given run: the run's own
-`config_snapshot.toml` when present, falling back to the project-level
-`config.toml` for legacy runs. Post-processing must always use this instead of
-[`load_config`](@ref), otherwise editing `config.toml` silently re-parametrizes
-the analysis of old runs (disruption windows, session times, physics rates).
+The configuration that produced a run and where it came from: the run's own
+`config_snapshot.toml` (`"snapshot"`), or the project-level `config.toml`
+(`"fallback"`) when the snapshot is missing or does not parse — each case
+reported with a `[CONFIG]` warning, since the fallback re-parametrizes the
+analysis of the run with whatever `config.toml` holds today.
 """
-function load_run_config(run_dir::String)
+function load_run_config_with_source(run_dir::String)
     snapshot = joinpath(run_dir, "config_snapshot.toml")
     if isfile(snapshot)
         try
-            return TOML.parsefile(snapshot)
+            return TOML.parsefile(snapshot), "snapshot"
         catch e
-            @warn "[CONFIG] Corrupt config_snapshot.toml in $run_dir — falling back to the project config.toml." exception =
+            @warn "[CONFIG] Corrupt config_snapshot.toml in $run_dir — falling back to the project config.toml (config_source = \"fallback\")." exception =
                 e
         end
+    else
+        @warn "[CONFIG] No config_snapshot.toml in $run_dir — falling back to the project config.toml (config_source = \"fallback\")."
     end
-    return load_config()
+    return load_config(), "fallback"
 end
+
+"""
+    load_run_config(run_dir::String)
+
+The configuration that produced a given run
+([`load_run_config_with_source`](@ref) without the source). Post-processing
+must always use this instead of [`load_config`](@ref), otherwise editing
+`config.toml` silently re-parametrizes the analysis of old runs (disruption
+windows, session times, physics rates).
+"""
+load_run_config(run_dir::String) = first(load_run_config_with_source(run_dir))
 
 # --- Checked config coercions ---
 """
@@ -2322,7 +2335,7 @@ function estimate_artifacts(cfg::AbstractDict)
         log_bytes
 
     # Files: per batch one directory, one metadata.json, batch_size segment
-    # CSVs; plus event logs, profile, mask products, plots, logs, the
+    # CSVs; plus event logs, profile, mask products, plots, the three logs, the
     # configuration and manifest snapshots, sentinels and the six run subdirectories (small fixed slack for
     # rotations).
     file_count =
@@ -2333,7 +2346,7 @@ function estimate_artifacts(cfg::AbstractDict)
         n_expansions +
         2 * n_figures +
         (hdf5_bytes > 0 ? 1 : 0) +
-        2 +
+        3 +
         2 +
         2 +
         6 +
