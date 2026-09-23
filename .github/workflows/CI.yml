@@ -84,11 +84,13 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
-    # The push to main and the push of a release tag both deploy to gh-pages;
-    # one group across refs serializes them instead of letting them race.
+    # Pushes to main and release tags both deploy to gh-pages; one group
+    # across those refs serializes them. A pull-request build deploys nothing
+    # (push_preview is off) and gets a group of its own per ref: inside the
+    # deploy group each newly pending build cancels the previous one.
     concurrency:
-      group: docs-deploy
-      cancel-in-progress: false
+      group: ${{ github.event_name == 'pull_request' && format('docs-{0}', github.ref) || 'docs-deploy' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # deploydocs pushes docs/build to gh-pages with the workflow token.
     permissions:
       contents: write
