@@ -68,6 +68,10 @@
 - Commit messages and pull-request descriptions contain no attribution
   trailers, generated footers, or tool identifiers.
 - User-visible changes get an entry under `[Unreleased]` in `CHANGELOG.md`.
+- A change to the public surface — the run-directory contract, the
+  configuration schema, the scripts' arguments and products — is marked
+  **Breaking** in the changelog and waits for a major release; a change to
+  the modules and functions is not breaking by itself.
 - A pull-request description states the change, how it was verified (suite, docs
   build, runs), and any open points.
 

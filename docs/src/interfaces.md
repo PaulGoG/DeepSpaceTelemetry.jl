@@ -22,6 +22,13 @@ of analysis instances may operate concurrently on a single telemetry run.
 4. **`config_snapshot.toml` is the only source of derived quantities.**
    Sample rates, segment/batch geometry, and session parameters are read from
    the run's own snapshot, never from the live `config.toml`.
+5. **The public surface is this contract, the configuration schema, and the
+   entry-point scripts.** Semantic versioning applies to those three: a
+   change that alters what a consumer reads from a run directory, rejects a
+   configuration that was accepted, or changes a script's arguments or
+   products is a major release. The Julia modules and functions are the
+   implementation and may change between minor releases; the API pages
+   document them for contributors.
 
 ## The Run-Directory Contract
 

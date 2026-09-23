@@ -436,6 +436,18 @@ feeds, and the mask products — under a read/copy-only contract that admits
 any number of concurrent consumers. The
 [analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) page specifies every file and column.
 
+## Public surface and versioning
+
+The public surface is the run-directory file contract (the manual's
+interfaces page), the configuration schema (`config.toml` and the keys the
+manual documents), and the entry-point scripts under `scripts/`. Semantic
+versioning applies to that surface: a change that alters what a consumer
+reads from a run directory, rejects a configuration that was accepted, or
+changes a script's arguments or products is a major release. The Julia
+modules and their functions are the implementation; they may move or change
+between minor releases, and the API reference documents them for
+contributors.
+
 ## How to cite
 
 Citation metadata is in `CITATION.cff`, which GitHub renders as a citation
