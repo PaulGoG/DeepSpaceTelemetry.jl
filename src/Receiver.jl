@@ -1354,13 +1354,11 @@ function plot_state_raster(
     formats = ("png", "pdf"),
     suffix::String = "",
 )
-    path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
-    if !isfile(path)
+    if !isfile(TelemetryCore.mask_timeline_path(run_dir))
         @info "[POST] Batch-state raster skipped: the run has no mask timeline (post_processing.generate_mask_timeline)."
         return nothing
     end
-    # ntasks = 1: one wide row per event defeats CSV.jl's chunking.
-    mask = CSV.read(path, DataFrame; ntasks = 1)
+    mask = TelemetryCore.read_mask_timeline(run_dir)
     (nrow(mask) == 0 || DataFrames.ncol(mask) < 2) && return nothing
     cfg = TelemetryCore.load_run_config(run_dir)
     sim = get(cfg, "simulation", Dict{String,Any}())
@@ -1760,7 +1758,7 @@ function generate_telemetry_masks(run_dir::String)
         mask_df[!, Symbol("Batch_$id")] = mask_matrix[:, id]
     end
 
-    mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
+    mask_path = TelemetryCore.mask_timeline_path(run_dir)
     TelemetryCore.safe_csv_write(mask_path, mask_df)
     @info "[POST] Saved 2D telemetry data masks to: $(relpath(mask_path, run_dir))"
 
@@ -1808,16 +1806,13 @@ function expand_pointwise_mask(
     event_idx::Int,
     output_path::String,
 )
-    mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
+    mask_path = TelemetryCore.mask_timeline_path(run_dir)
     isfile(mask_path) ||
         throw(ArgumentError("[POST] Telemetry mask not found at: $mask_path"))
     physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
     points_per_batch =
         round(Int, physics.sample_rate * physics.segment_duration_sec * physics.batch_size)
-    # ntasks = 1: the mask timeline is one wide row per event, and CSV.jl's
-    # multithreaded chunking logs a failure on that shape before falling
-    # back to a single task anyway.
-    mask_df = CSV.read(mask_path, DataFrame; ntasks = 1)
+    mask_df = TelemetryCore.read_mask_timeline(run_dir)
     target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
     1 <= target_idx <= nrow(mask_df) || throw(
         ArgumentError(

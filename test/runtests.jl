@@ -883,6 +883,14 @@ end
         write(joinpath(run_dir, "config_snapshot.toml"), "[simulation]\nspeed_up = 5.0\n")
         cfg_snap, source = TelemetryCore.load_run_config_with_source(run_dir)
         @test source == "snapshot" && cfg_snap["simulation"]["speed_up"] == 5.0
+        # Mask-timeline readers: single-task table and header-less line count.
+        mkpath(joinpath(run_dir, "masks"))
+        write(
+            TelemetryCore.mask_timeline_path(run_dir),
+            "SimTime,Batch_1,Batch_2\n2030-01-01T00:00:00,1,0\n2030-01-01T01:00:00,3,1\n",
+        )
+        @test TelemetryCore.mask_timeline_rows(run_dir) == 2
+        @test nrow(TelemetryCore.read_mask_timeline(run_dir)) == 2
     end
 end
 

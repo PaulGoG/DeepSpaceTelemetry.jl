@@ -125,9 +125,9 @@ snapshot)` — with `batch_id`, the snapshot instants (`SimTime`,
 timeline is absent.
 """
 function write_mask_timeline!(file::HDF5.File, run_dir::String, epoch::DateTime)
-    csv = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
+    csv = TelemetryCore.mask_timeline_path(run_dir)
     isfile(csv) || return nothing
-    df = CSV.read(csv, DataFrame)
+    df = TelemetryCore.read_mask_timeline(run_dir)
     g = ensure_group(file, "masks/timeline")::HDF5.Group
     HDF5.write_attribute(g, "source", joinpath("masks", "telemetry_mask_timeline.csv"))
     HDF5.write_attribute(

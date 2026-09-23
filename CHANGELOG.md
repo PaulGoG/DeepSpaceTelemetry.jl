@@ -29,6 +29,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
   The supervisor builds the instrument from `[physics]` once
   (`Supervisor.build_instrument`, anchored by `Emitter.instrument_epoch`),
   and a restarted emitter's fresh instrument in the same place.
+- The batch-state timeline is read through `TelemetryCore.read_mask_timeline`
+  (one task) by the raster, the point-wise expansion, and the HDF5 export;
+  the supervisor counts its rows with `TelemetryCore.mask_timeline_rows`, a
+  line count, instead of parsing the wide table.
 - Every figure is composed at one standard layout — 1200 Makie units wide,
   26-unit type, 3-unit data lines, fixed panel heights — and a publication
   export scales it as a whole, so a narrower figure is a miniature of the

@@ -19,7 +19,7 @@ using ..Receiver
 using ..Export
 using ..Publication
 using CSV: CSV
-using DataFrames: DataFrame, nrow
+using DataFrames: DataFrame
 using Dates: Dates, DateTime, Millisecond, Second, now
 using Logging: Logging, current_logger, with_logger
 using LoggingExtras: TeeLogger
@@ -583,15 +583,8 @@ function expand_pointwise_masks!(plan::MissionPlan, run_dir::String, orig_stdout
             round(Int, total_segments * physics.segment_duration_sec * physics.sample_rate)
         rows_spec = plan.post_processing.target_event_rows
         target_rows =
-            rows_spec isa Symbol ?
-            collect(
-                1:nrow(
-                    CSV.read(
-                        joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"),
-                        DataFrame,
-                    ),
-                ),
-            ) : rows_spec
+            rows_spec isa Symbol ? collect(1:TelemetryCore.mask_timeline_rows(run_dir)) :
+            rows_spec
         for row_idx in target_rows
             out_name =
                 row_idx == -1 ? "pointwise_mask_final.csv" :

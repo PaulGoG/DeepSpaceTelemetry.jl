@@ -69,6 +69,22 @@ Batches are delivered by an atomic same-filesystem `mv`: a directory visible
 under `ground/` is complete, and it is never modified afterwards except by
 the retention custodian (below).
 
+### Provenance conventions
+
+The run directory follows the conventions of DrWatson's provenance tooling
+without the dependency: the layout is written batch by batch by two
+concurrent components and its provenance is recorded at setup, which the
+whole-file semantics of `tagsave` and `safesave` do not cover. The
+correspondence is one-to-one.
+
+| DrWatson | This package |
+|---|---|
+| `savename` — parameter-derived identifier | `TelemetryCore.generate_run_id` — `RUN_pid=<pid>_t=<yyyymmdd_HHMMSS>`, key=value fields in `savename` order |
+| `tagsave` — the git commit stored with the result | `TelemetryCore.setup_run_dir` — `config_snapshot.toml` with `[provenance.platform]` (commit and dirty flag, hostname, hardware, Julia and package versions) beside `manifest_snapshot.toml` |
+| `safesave` — `#k` backup rotation, never an overwrite | `TelemetryCore.backup_existing` and `backup_existing_dir` — the same `<name>#k` rotation for every result file and run directory |
+| `produce_or_load` — cached expensive stages | not provided: the mission runs in real time and cannot be replayed from a cache, and every post-processing product is regenerable from the run directory by the standalone scripts |
+| `datadir`, `projectdir` | `TelemetryCore.run_directory` — `<checkout>/data/runs/<RUN_ID>` |
+
 ## Availability Window & Lifecycle Sentinels
 
 With `[retention]` disabled (the default), nothing is deleted from a run

@@ -214,6 +214,32 @@ windows, session times, physics rates).
 """
 load_run_config(run_dir::String) = first(load_run_config_with_source(run_dir))
 
+"""
+    mask_timeline_path(run_dir::String) -> String
+
+Path of the batch-state timeline `masks/telemetry_mask_timeline.csv` of a run.
+"""
+mask_timeline_path(run_dir::String) =
+    joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
+
+"""
+    read_mask_timeline(run_dir::String) -> DataFrame
+
+The batch-state timeline of a run as a table, one wide row per event
+snapshot. Read on a single task: CSV.jl's multithreaded chunking logs a
+failure on that shape before falling back to one task anyway.
+"""
+read_mask_timeline(run_dir::String) =
+    CSV.read(mask_timeline_path(run_dir), DataFrame; ntasks = 1)
+
+"""
+    mask_timeline_rows(run_dir::String) -> Int
+
+Number of event snapshots in the batch-state timeline: the line count of
+the CSV less its header, without parsing the wide rows.
+"""
+mask_timeline_rows(run_dir::String) = countlines(mask_timeline_path(run_dir)) - 1
+
 # --- Checked config coercions ---
 """
     checked_number(v, name::String) -> Float64
@@ -2780,8 +2806,9 @@ end
 
 If `path` exists, renames it to `<name>#<k><ext>` using the smallest unused
 `k`, mirroring DrWatson's `safesave` backup rotation so no result file is ever
-silently overwritten. Returns the backup path, or `nothing` if `path` did not
-exist.
+silently overwritten. The manual's "Provenance conventions" table lists every
+such equivalence; the package does not depend on DrWatson. Returns the backup
+path, or `nothing` if `path` did not exist.
 """
 function backup_existing(path::String)
     isfile(path) || return nothing
