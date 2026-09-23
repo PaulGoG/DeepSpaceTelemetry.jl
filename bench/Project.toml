@@ -7,5 +7,14 @@ DeepSpaceTelemetry = "d178d3ae-5836-4a75-9bfd-2e34bfeccb6b"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
+[compat]
+BenchmarkTools = "1.8"
+CSV = "0.10"
+DataFrames = "1.8"
+Dates = "1.11"
+Logging = "1.11"
+Random = "1.11"
+julia = "1.12"
+
 [sources]
 DeepSpaceTelemetry = {path = ".."}

@@ -9,6 +9,11 @@ updates:
       - "/scripts"
     schedule:
       interval: "weekly"
+    # One pull request per directory and week, not one per package.
+    groups:
+      julia:
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

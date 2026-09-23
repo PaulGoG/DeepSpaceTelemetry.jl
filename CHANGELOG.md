@@ -56,7 +56,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - A `[CONFIG]` warning when `post_processing.state_raster` is enabled while
   `generate_mask_timeline` is disabled: the raster is drawn from the mask
   timeline and is skipped.
-- Dependabot updates for the `julia` ecosystem, weekly.
+- Dependabot updates for the `julia` ecosystem, weekly, grouped into one pull
+  request per environment.
 - A "How to cite" section with a BibTeX entry in the README.
 
 ### Removed
