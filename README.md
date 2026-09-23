@@ -166,15 +166,6 @@ git clone https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git
 cd DeepSpaceTelemetry.jl
 ```
 
-To consume the package as a library from another environment instead (it is
-not registered in the General registry, so it is added by URL, at a release
-tag):
-
-```julia
-using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.2.0")
-```
-
 ## Environment Setup
 
 All commands below are executed **from the package root** (the cloned

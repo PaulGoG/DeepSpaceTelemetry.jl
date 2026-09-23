@@ -17,13 +17,13 @@ retransmission recovers all 47 rejected transfers.
 ## Installation
 
 Requires Julia ≥ 1.12. The package is not registered in the General
-registry; add it by URL at a release tag, or
-clone the repository for the full pipeline workflow (scripts, scenario
-library, benchmarks):
+registry and is used from a clone of the repository, which carries the
+scripts, the scenario library, and the benchmarks; every run is written
+under the clone's `data/runs/` directory:
 
-```julia
-using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.2.0")
+```bash
+git clone https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git
+cd DeepSpaceTelemetry.jl
 ```
 
 ## Capabilities

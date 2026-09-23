@@ -83,6 +83,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `Receiver.LOST_STRIP_SHARE`, and `Metrology.ANNOTATION_BLOCK_TOP`.
 - Dependencies `FFTW` and `AbstractFFTs`.
 - The CompatHelper and TagBot workflows; the package is not registered.
+- The `Pkg.add` by URL install from the README and the manual; the package
+  is used from a clone of the repository, and every run is written under the
+  clone's `data/runs/`.
 
 ### Fixed
 - The PDF twin of the batch-state raster drew one vector rectangle per cell,
