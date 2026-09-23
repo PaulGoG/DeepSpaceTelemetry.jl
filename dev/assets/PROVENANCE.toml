@@ -8,10 +8,10 @@
 [run]
 scenario = "scenarios/stress_8h_bursty.toml"
 run_id = "RUN_README_SHOWCASE"
-commit = "3e07dafb6b8ebe20f2d69384daeee41ee43e2791"
-package_version = "1.2.0-DEV"
+commit = "58a1c6f7c3aa5e8b9ec17b45a6ff35df57ba77b0"
+package_version = "2.0.0"
 julia_version = "1.13.0"
-date = "2026-09-13"
+date = "2026-09-24"
 command = "julia --threads=3 scripts/run_full_sim.jl RUN_README_SHOWCASE scenarios/stress_8h_bursty.toml"
 
 [run.platform]
@@ -20,29 +20,29 @@ cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
 logical_cores = 22
 total_memory_gb = 30.76
 julia_threads = 3
-blas_threads = 11
+blas_threads = 6
 
 [run.realized]
 # Final row of mission_profile.csv.
-ground_total = 707
-ground_live = 329
-ground_archive = 378
-failed_transfers = 47
+ground_total = 653
+ground_live = 341
+ground_archive = 312
+failed_transfers = 42
 lost = 0
 onboard_buffer_start = 288
-onboard_buffer_end = 581
-profile_rows = 1298
+onboard_buffer_end = 636
+profile_rows = 1229
 
 ["mission_summary.png"]
 source = "data/runs/RUN_README_SHOWCASE/plots/mission_summary_global.png"
 transform = "magick <source> -resize 1400x -strip <target>"
 width_px = 1400
-sha256_prefix = "56f24ab7a1e6adb7"
+sha256_prefix = "f7f4f2749e9fe91c"
 
 ["batch_routing.gif"]
 source = "data/runs/RUN_README_SHOWCASE/plots/telemetry_animation_web.gif"
 generator = "julia scripts/postprocessing/generate_gif.jl --web RUN_README_SHOWCASE"
 transform = "none; the --web rendering profile writes the published size directly"
 width_px = 900
-frames = 217
-sha256_prefix = "36a581ece4f1b6ea"
+frames = 205
+sha256_prefix = "ac94cc4cf746d6de"
