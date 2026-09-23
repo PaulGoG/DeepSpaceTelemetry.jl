@@ -20,6 +20,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
   unknown profile at construction.
 - **Breaking:** `post_processing.publication.column_width_mm` must lie in
   [100, 400]; the floor was 40.
+- **Breaking:** `Emitter.pre_populate` and `Emitter.run_emitter` take the
+  payload instrument as an argument — `pre_populate(instrument,
+  start_sim_time, run_id; batch_size, …)` and `run_emitter(clock, link,
+  run_id, instrument; batch_size, …)`. The keywords `sample_rate`,
+  `segment_duration_sec`, `data_source`, `ext_path`, `initial_downtime_days`,
+  and `instrument`, with their defaults, are gone; `batch_size` is required.
+  The supervisor builds the instrument from `[physics]` once
+  (`Supervisor.build_instrument`, anchored by `Emitter.instrument_epoch`),
+  and a restarted emitter's fresh instrument in the same place.
 - Every figure is composed at one standard layout — 1200 Makie units wide,
   26-unit type, 3-unit data lines, fixed panel heights — and a publication
   export scales it as a whole, so a narrower figure is a miniature of the
@@ -118,6 +127,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   panels; gaps closer than 0.5 % of the plotted range are drawn as one band.
 - A zero realized alert latency drew on the axis frame; the alert-latency
   axis keeps a margin below zero.
+- The pre-population progress bar wrote carriage-return frames into the log
+  of a detached run; it is drawn only when the standard error stream is a
+  terminal.
 
 ## [1.2.0] - 2026-09-13
 

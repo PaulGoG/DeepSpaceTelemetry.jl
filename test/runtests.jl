@@ -404,14 +404,16 @@ end
             link = ChannelEffects.LinkModel(vis)
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(
+                        Emitter.instrument_epoch(start_sim, 0.01),
+                        4.0,
+                        60.0,
+                        "external",
+                        ext_path,
+                    ),
                     start_sim,
                     halt_id;
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    initial_downtime_days = 0.01,
-                    data_source = "external",
-                    ext_path = ext_path,
                 )
             end
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
@@ -419,14 +421,10 @@ end
                 Emitter.run_emitter(
                     clock,
                     link,
-                    halt_id;
+                    halt_id,
+                    vi;
                     deadline = now() + Second(30),
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    data_source = "external",
-                    ext_path = ext_path,
-                    instrument = vi,
                     pending_segments = pending,
                 )
             end
@@ -478,14 +476,16 @@ end
             )
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(
+                        Emitter.instrument_epoch(start_sim, 0.01),
+                        4.0,
+                        60.0,
+                        "external",
+                        ext_path,
+                    ),
                     start_sim,
                     cap_id;
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    initial_downtime_days = 0.01,
-                    data_source = "external",
-                    ext_path = ext_path,
                 )
             end
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
@@ -493,14 +493,10 @@ end
                 Emitter.run_emitter(
                     clock,
                     link,
-                    cap_id;
+                    cap_id,
+                    vi;
                     deadline = now() + Second(3),
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    data_source = "external",
-                    ext_path = ext_path,
-                    instrument = vi,
                     pending_segments = pending,
                     max_inflight_batches = 2,
                 )
@@ -539,14 +535,16 @@ end
             )
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(
+                        Emitter.instrument_epoch(start_sim, 0.01),
+                        4.0,
+                        60.0,
+                        "external",
+                        ext_path,
+                    ),
                     start_sim,
                     floor_id;
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    initial_downtime_days = 0.01,
-                    data_source = "external",
-                    ext_path = ext_path,
                 )
             end
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
@@ -554,14 +552,10 @@ end
                 Emitter.run_emitter(
                     clock,
                     link,
-                    floor_id;
+                    floor_id,
+                    vi;
                     deadline = now() + Second(4),
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    data_source = "external",
-                    ext_path = ext_path,
-                    instrument = vi,
                     pending_segments = pending,
                 )
             end
@@ -615,14 +609,16 @@ end
             )
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(
+                        Emitter.instrument_epoch(start_sim, 0.01),
+                        4.0,
+                        60.0,
+                        "external",
+                        ext_path,
+                    ),
                     start_sim,
                     ra_id;
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    initial_downtime_days = 0.01,
-                    data_source = "external",
-                    ext_path = ext_path,
                 )
             end
             clock1 = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
@@ -634,14 +630,10 @@ end
                         Emitter.run_emitter(
                             clk,
                             link,
-                            ra_id;
+                            ra_id,
+                            instrument;
                             deadline = now() + Second(3),
-                            sample_rate = 4.0,
-                            segment_duration_sec = 60.0,
                             batch_size = 3,
-                            data_source = "external",
-                            ext_path = ext_path,
-                            instrument = instrument,
                             pending_segments = segs,
                         )
                     end
@@ -685,7 +677,17 @@ end
             mkpath(orphan)
             write(joinpath(orphan, "seg_1.csv"), "Amplitude\n0.0\n")
 
-            run_phase(restored.clock, nothing, TelemetryCore.DataSegment[])
+            run_phase(
+                restored.clock,
+                VirtualInstrument.InstrumentState(
+                    TelemetryCore.get_current_sim_time(restored.clock),
+                    4.0,
+                    60.0,
+                    "external",
+                    ext_path,
+                ),
+                TelemetryCore.DataSegment[],
+            )
 
             rx2 = CSV.read(joinpath(ra_dir, "events_rx.csv"), DataFrame)
             @test any((rx2.Event .== "ingested") .& (rx2.Batch .== "ARCH_batch_500"))
@@ -1477,14 +1479,16 @@ end
             # 0.02 days = 1728 s of downtime -> 29 segments -> 9 full batches + 2 pending
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(
+                        Emitter.instrument_epoch(start_sim, 0.02),
+                        sample_rate,
+                        seg_dur,
+                        "external",
+                        ext_path,
+                    ),
                     start_sim,
                     run_id;
-                    sample_rate = sample_rate,
-                    segment_duration_sec = seg_dur,
                     batch_size = 3,
-                    initial_downtime_days = 0.02,
-                    data_source = "external",
-                    ext_path = ext_path,
                 )
             end
 
@@ -1505,14 +1509,10 @@ end
                 Emitter.run_emitter(
                     clock,
                     link,
-                    run_id;
+                    run_id,
+                    vi;
                     deadline = now() + Second(6),
-                    sample_rate = sample_rate,
-                    segment_duration_sec = seg_dur,
                     batch_size = 3,
-                    data_source = "external",
-                    ext_path = ext_path,
-                    instrument = vi,
                     pending_segments = pending,
                 )
             end
@@ -1639,14 +1639,16 @@ end
             link = ChannelEffects.LinkModel(vis)
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(
+                        Emitter.instrument_epoch(start_sim, 0.02),
+                        4.0,
+                        60.0,
+                        "external",
+                        ext_path,
+                    ),
                     start_sim,
                     run_id;
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    initial_downtime_days = 0.02,
-                    data_source = "external",
-                    ext_path = ext_path,
                 )
             end
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
@@ -1660,14 +1662,10 @@ end
                 Emitter.run_emitter(
                     clock,
                     link,
-                    run_id;
+                    run_id,
+                    vi;
                     deadline = now() + Second(6),
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    data_source = "external",
-                    ext_path = ext_path,
-                    instrument = vi,
                     pending_segments = pending,
                 )
             end
@@ -1763,14 +1761,16 @@ end
 
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(
+                        Emitter.instrument_epoch(start_sim, 0.02),
+                        4.0,
+                        60.0,
+                        "external",
+                        ext_path,
+                    ),
                     start_sim,
                     run_id;
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    initial_downtime_days = 0.02,
-                    data_source = "external",
-                    ext_path = ext_path,
                 )
             end
 
@@ -1779,14 +1779,10 @@ end
                 Emitter.run_emitter(
                     clock,
                     link,
-                    run_id;
+                    run_id,
+                    vi;
                     deadline = now() + Second(6),
-                    sample_rate = 4.0,
-                    segment_duration_sec = 60.0,
                     batch_size = 3,
-                    data_source = "external",
-                    ext_path = ext_path,
-                    instrument = vi,
                     pending_segments = pending,
                 )
             end
@@ -1904,14 +1900,16 @@ end
             # No pre-population: the instrument anchors at the mission epoch.
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(
+                        Emitter.instrument_epoch(start_sim, 0.0),
+                        4.0,
+                        seg_dur,
+                        "external",
+                        ext_path,
+                    ),
                     start_sim,
                     pace_id;
-                    sample_rate = 4.0,
-                    segment_duration_sec = seg_dur,
                     batch_size = batch_size,
-                    initial_downtime_days = 0.0,
-                    data_source = "external",
-                    ext_path = ext_path,
                 )
             end
             clock = TelemetryCore.SimulationClock(now(), start_sim, speed_up)
@@ -1921,13 +1919,9 @@ end
                 Emitter.run_emitter(
                     clock,
                     link,
-                    pace_id;
-                    sample_rate = 4.0,
-                    segment_duration_sec = seg_dur,
+                    pace_id,
+                    vi;
                     batch_size = batch_size,
-                    data_source = "external",
-                    ext_path = ext_path,
-                    instrument = vi,
                     pending_segments = pending,
                     deadline = deadline,
                     max_inflight_batches = 1,
@@ -3068,12 +3062,17 @@ end
         marker = TelemetryCore.EventMarker(start_sim - Minute(10), "glitch")
         with_logger(NullLogger()) do
             Emitter.pre_populate(
+                VirtualInstrument.InstrumentState(
+                    Emitter.instrument_epoch(start_sim, 0.01),
+                    4.0,
+                    60.0,
+                    "synthetic",
+                    "";
+                    markers = [marker],
+                ),
                 start_sim,
                 stamp_id;
-                sample_rate = 4.0,
-                segment_duration_sec = 60.0,
                 batch_size = 3,
-                initial_downtime_days = 0.01,
                 markers = [marker],
             )
         end
@@ -3259,12 +3258,16 @@ end
         gap = (start - Minute(10), start - Minute(6))
         with_logger(NullLogger()) do
             Emitter.pre_populate(
+                VirtualInstrument.InstrumentState(
+                    Emitter.instrument_epoch(start, 0.01),
+                    4.0,
+                    60.0,
+                    "synthetic",
+                    "",
+                ),
                 start,
                 gap_id;
-                sample_rate = 4.0,
-                segment_duration_sec = 60.0,
                 batch_size = 3,
-                initial_downtime_days = 0.01,
                 generation_gaps = [gap],
             )
         end
@@ -3289,12 +3292,16 @@ end
     try
         with_logger(NullLogger()) do
             Emitter.pre_populate(
+                VirtualInstrument.InstrumentState(
+                    Emitter.instrument_epoch(start, 0.01),
+                    4.0,
+                    60.0,
+                    "synthetic",
+                    "",
+                ),
                 start,
                 rec_id;
-                sample_rate = 4.0,
-                segment_duration_sec = 60.0,
                 batch_size = 3,
-                initial_downtime_days = 0.01,
                 onboard_capacity_batches = 2,
             )
         end
@@ -3324,10 +3331,15 @@ end
             Emitter.run_emitter(
                 clock,
                 link,
-                live_id;
+                live_id,
+                VirtualInstrument.InstrumentState(
+                    TelemetryCore.get_current_sim_time(clock),
+                    4.0,
+                    60.0,
+                    "synthetic",
+                    "",
+                );
                 deadline = now() + Second(3),
-                sample_rate = 4.0,
-                segment_duration_sec = 60.0,
                 batch_size = 3,
                 onboard_capacity_batches = 2,
             )

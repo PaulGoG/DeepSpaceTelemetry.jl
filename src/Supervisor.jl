@@ -381,6 +381,28 @@ function supervise!(
 end
 
 """
+    build_instrument(physics::NamedTuple, start_t::DateTime, markers) -> VirtualInstrument.InstrumentState
+
+The payload instrument of `[physics]` anchored at `start_t`: the start of
+the initial blind spot for the pre-population ([`Emitter.instrument_epoch`](@ref)),
+the current mission time for a restarted emitter.
+"""
+function build_instrument(
+    physics::NamedTuple,
+    start_t::DateTime,
+    markers::Vector{TelemetryCore.EventMarker},
+)
+    return VirtualInstrument.InstrumentState(
+        start_t,
+        physics.sample_rate,
+        physics.segment_duration_sec,
+        physics.data_source,
+        physics.external_data_path;
+        markers = markers,
+    )
+end
+
+"""
     component_spawners(plan, run_dir, clock, deadline, stop_flag, heartbeats,
                        instrument, pending_segments, emitter_logger,
                        receiver_logger, orig_stdout) -> Dict{Symbol,Function}
@@ -411,13 +433,14 @@ function component_spawners(
         Emitter.run_emitter(
             clock,
             plan.link,
-            plan.run_id;
-            sample_rate = physics.sample_rate,
-            segment_duration_sec = physics.segment_duration_sec,
+            plan.run_id,
+            attempt == 0 ? instrument :
+            build_instrument(
+                physics,
+                TelemetryCore.get_current_sim_time(clock),
+                plan.markers,
+            );
             batch_size = physics.batch_size,
-            data_source = physics.data_source,
-            ext_path = physics.external_data_path,
-            instrument = attempt == 0 ? instrument : nothing,
             pending_segments = attempt == 0 ? pending_segments :
                                TelemetryCore.DataSegment[],
             markers = plan.markers,
@@ -694,12 +717,9 @@ function warm_up_components!(plan::MissionPlan, orig_stdout::IO)
             Emitter.run_emitter(
                 clock,
                 plan.link,
-                warm_id;
-                sample_rate = physics.sample_rate,
-                segment_duration_sec = physics.segment_duration_sec,
+                warm_id,
+                build_instrument(physics, plan.start_sim, plan.markers);
                 batch_size = physics.batch_size,
-                data_source = physics.data_source,
-                ext_path = physics.external_data_path,
                 max_inflight_batches = plan.telemetry.max_inflight_batches,
                 deadline = past,
                 stop = stop_flag,
@@ -756,14 +776,14 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
     )
     instrument, pending_segments = with_logger(emitter_logger) do
         Emitter.pre_populate(
+            build_instrument(
+                physics,
+                Emitter.instrument_epoch(plan.start_sim, plan.initial_downtime_days),
+                plan.markers,
+            ),
             plan.start_sim,
             plan.run_id;
-            sample_rate = physics.sample_rate,
-            segment_duration_sec = physics.segment_duration_sec,
             batch_size = physics.batch_size,
-            initial_downtime_days = plan.initial_downtime_days,
-            data_source = physics.data_source,
-            ext_path = physics.external_data_path,
             markers = plan.markers,
             generation_gaps = plan.generation_gaps,
             onboard_capacity_batches = plan.onboard_capacity_batches,

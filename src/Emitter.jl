@@ -16,75 +16,71 @@ using Dates: Dates, DateTime, Millisecond, Second, now
 using ProgressMeter: ProgressMeter, @showprogress
 
 """
-    pre_populate(start_sim_time, run_id; kwargs...) -> (instrument, pending_segments)
+    instrument_epoch(start_sim_time::DateTime, initial_downtime_days::Real) -> DateTime
+
+Anchor of the instrument that pre-populates the onboard buffer: the mission
+epoch `start_sim_time` less the initial downtime, clamped at the epoch for a
+non-positive downtime.
+"""
+function instrument_epoch(start_sim_time::DateTime, initial_downtime_days::Real)
+    downtime_ms = max(0, round(Int, initial_downtime_days * TelemetryCore.MS_PER_DAY))
+    return start_sim_time - Millisecond(downtime_ms)
+end
+
+"""
+    pre_populate(instrument, start_sim_time, run_id; batch_size, kwargs...) -> (instrument, pending_segments)
 
 Simulates satellite downtime prior to the start of the active mission window.
 Fills the onboard SSD buffer with archived data batches to create a starting backlog.
 
-Returns the `InstrumentState` used for generation together with any trailing
-segments that did not fill a complete batch. Both must be handed to
-[`run_emitter`](@ref) so that the data stream (in particular an external CSV
-consumed via `ext_index`) continues without restarting at the first sample.
+`instrument` is the [`VirtualInstrument.InstrumentState`](@ref) anchored at
+the start of the blind spot ([`instrument_epoch`](@ref)); the pre-population
+runs from that anchor to `start_sim_time`, and an instrument anchored at or
+after `start_sim_time` returns at once with no batch written.
+
+Returns the instrument together with any trailing segments that did not fill
+a complete batch. Both must be handed to [`run_emitter`](@ref) so that the
+data stream (in particular an external CSV consumed via `ext_index`)
+continues without restarting at the first sample.
 
 # Keyword arguments
 
-  - `sample_rate`: instrument sample rate [Hz].
-  - `segment_duration_sec`: content span of one segment [mission s].
-  - `batch_size`: segments per batch.
-  - `initial_downtime_days`: span of the blind spot before `start_sim_time`
-    [days]; `≤ 0` skips the pre-population and returns an instrument
-    anchored at `start_sim_time`.
-  - `data_source`: `"synthetic"` or `"external"`.
-  - `ext_path`: path of the external CSV series (`data_source = "external"`).
-  - `markers`: event markers, stamped into the batch holding their instant
-    and flagged in the synthetic payload
-    ([`VirtualInstrument.FlaggedSignal`](@ref)).
+  - `batch_size`: segments per batch (required).
+  - `markers`: event markers, stamped into the batch holding their instant.
   - `generation_gaps`: scheduled `(start, stop)` intervals without data
     production ([`skip_generation_gaps!`](@ref)).
   - `onboard_capacity_batches`: recorder ceiling; data beyond it is discarded.
 """
 function pre_populate(
+    instrument::VirtualInstrument.InstrumentState,
     start_sim_time::DateTime,
     run_id::String;
-    sample_rate::Float64 = 1024.0,
-    segment_duration_sec::Float64 = 60.0,
-    batch_size::Int = 15,
-    initial_downtime_days::Float64 = 3.0,
-    data_source::String = "synthetic",
-    ext_path::String = "",
+    batch_size::Int,
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
 )
-    downtime_ms = max(0, round(Int, initial_downtime_days * TelemetryCore.MS_PER_DAY))
-    downtime_start = start_sim_time - Millisecond(downtime_ms)
-
-    vi = VirtualInstrument.InstrumentState(
-        downtime_start,
-        sample_rate,
-        segment_duration_sec,
-        data_source,
-        ext_path;
-        markers = markers,
-    )
+    vi = instrument
+    downtime_start = vi.last_t
     pending = TelemetryCore.DataSegment[]
-
-    if initial_downtime_days <= 0.0
-        return vi, pending
-    end
+    downtime_start < start_sim_time || return vi, pending
+    downtime_days = (start_sim_time - downtime_start).value / TelemetryCore.MS_PER_DAY
 
     run_dir = TelemetryCore.run_directory(run_id)
     buffer_path = joinpath(run_dir, "onboard")
 
     batch_counter = 1
 
-    @info "[EMITTER] Pre-populating onboard buffer for $(initial_downtime_days) days of downtime..."
+    @info "[EMITTER] Pre-populating onboard buffer for $(round(downtime_days, digits = 3)) days of downtime..."
 
     total_segs =
-        ceil(Int, (start_sim_time - downtime_start).value / 1000 / segment_duration_sec)
+        ceil(Int, (start_sim_time - downtime_start).value / 1000 / vi.segment_duration_sec)
 
     recorder_full = false
-    @showprogress "Pre-populating onboard buffer..." for _ in 1:total_segs
+    # Carriage-return frames would fill the log of a detached run.
+    @showprogress desc = "Pre-populating onboard buffer..." enabled = (stderr isa Base.TTY) for _ in
+                                                                                                1:total_segs
+
         if vi.last_t >= start_sim_time
             break
         end
@@ -186,7 +182,7 @@ end
 
 # --- Emitter Main Loop ---
 """
-    run_emitter(clock, link, run_id; kwargs...)
+    run_emitter(clock, link, run_id, instrument; batch_size, kwargs...)
 
 The main satellite payload loop. Continuously generates scientific data (or reads from external CSV),
 packages it into batches, and manages the DSN transmission queue using strict priority logic
@@ -197,10 +193,11 @@ disruption timeline): batches are stamped `LIVE_` and transmitted only while
 the link is transmittable — during a disruption blackout the satellite keeps
 generating `ARCH_` batches that accumulate onboard.
 
-Pass the `instrument` and `pending_segments` returned by [`pre_populate`](@ref)
-to continue the pre-populated data stream without gaps or duplication; when
-`instrument === nothing` a fresh `InstrumentState` starting at the current
-mission time is created instead.
+`instrument` is the [`VirtualInstrument.InstrumentState`](@ref) the stream
+continues from: the one returned by [`pre_populate`](@ref), with its
+`pending_segments`, on the first start; a fresh instrument anchored at the
+current mission time — a genuine generation gap — on a restart
+([`DeepSpaceTelemetry.Supervisor.build_instrument`](@ref)).
 
 Generation is paced by the mission clock, not by the loop's own start: a
 segment is produced once the mission clock has passed the end of its content
@@ -218,13 +215,7 @@ persists above one period for longer than
 
 # Keyword arguments
 
-  - `sample_rate`: instrument sample rate [Hz].
-  - `segment_duration_sec`: content span of one segment [mission s].
-  - `batch_size`: segments per batch.
-  - `data_source`: `"synthetic"` or `"external"`.
-  - `ext_path`: path of the external CSV series (`data_source = "external"`).
-  - `instrument`: the `InstrumentState` returned by [`pre_populate`](@ref),
-    or `nothing` for a fresh instrument anchored at the current mission time.
+  - `batch_size`: segments per batch (required).
   - `pending_segments`: the partial batch returned by [`pre_populate`](@ref).
   - `deadline`: absolute wall-clock stop shared by both components.
   - `stop`: cooperative stop flag raised by the supervisor.
@@ -242,13 +233,9 @@ persists above one period for longer than
 function run_emitter(
     clock::TelemetryCore.SimulationClock,
     link::ChannelEffects.LinkModel,
-    run_id::String;
-    sample_rate::Float64 = 1024.0,
-    segment_duration_sec::Float64 = 60.0,
-    batch_size::Int = 15,
-    data_source::String = "synthetic",
-    ext_path::String = "",
-    instrument::Union{VirtualInstrument.InstrumentState,Nothing} = nothing,
+    run_id::String,
+    instrument::VirtualInstrument.InstrumentState;
+    batch_size::Int,
     pending_segments::Vector{TelemetryCore.DataSegment} = TelemetryCore.DataSegment[],
     deadline::Union{DateTime,Nothing} = nothing,
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
@@ -258,19 +245,7 @@ function run_emitter(
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
 )
-    # A fresh instrument anchors at the *current* mission time, not the
-    # mission epoch: on a mid-mission restart the outage becomes a genuine
-    # generation gap instead of a replayed stream.
-    vi =
-        instrument === nothing ?
-        VirtualInstrument.InstrumentState(
-            TelemetryCore.get_current_sim_time(clock),
-            sample_rate,
-            segment_duration_sec,
-            data_source,
-            ext_path;
-            markers = markers,
-        ) : instrument
+    vi = instrument
     run_dir = TelemetryCore.run_directory(run_id)
     buffer_path = joinpath(run_dir, "onboard")
     link_path = joinpath(run_dir, "link")

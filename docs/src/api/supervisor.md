@@ -11,6 +11,7 @@ DeepSpaceTelemetry.Supervisor.stamp_external_provenance!
 DeepSpaceTelemetry.Supervisor.record_generation_gap!
 DeepSpaceTelemetry.Supervisor.log_component_event!
 DeepSpaceTelemetry.Supervisor.supervise!
+DeepSpaceTelemetry.Supervisor.build_instrument
 DeepSpaceTelemetry.Supervisor.component_spawners
 DeepSpaceTelemetry.Supervisor.post_process!
 DeepSpaceTelemetry.Supervisor.expand_pointwise_masks!
