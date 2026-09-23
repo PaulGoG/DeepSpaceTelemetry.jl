@@ -99,7 +99,7 @@ DeepSpaceTelemetry/
 ├── test/
 │   ├── Project.toml             # Test environment (QA deps; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the test environment
-│   └── runtests.jl              # Static QA + unit + physics + 4 integration suites
+│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, channel, instrument, masks, integration, supervisor, metrology, export, figures)
 ├── bench/
 │   ├── Project.toml             # Benchmark environment (BenchmarkTools; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the benchmark environment
