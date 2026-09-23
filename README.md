@@ -54,9 +54,9 @@ on the physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare
 blackout followed by a 12 h recovery ramp on day 2.5, a 12 h partial
 ground-station outage on day 5, a scheduled generation gap on day 1.5, and
 an event marker on day 4 whose triggered low-latency period opens six hours
-later at half capacity. The onboard buffer doubles from 288 to 581 batches
-across the week — the disruption debt the link never recovers — while 707
-batches reach the ground and retransmission recovers all 47 rejected
+later at half capacity. The onboard buffer grows from 288 to 636 batches
+across the week — the disruption debt the link never recovers — while 653
+batches reach the ground and retransmission recovers all 42 rejected
 transfers, leaving the lost-batch strip at zero. Every number here comes
 from the run recorded in
 [`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml).
