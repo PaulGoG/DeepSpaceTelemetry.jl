@@ -108,6 +108,16 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - On the stacked figures, a tick label at the top of the lower panel met the
   zero of the panel above across the row gap (a session y-limit of 30 or 150
   batches); the lower panel prunes the tick within 5 % of its upper limit.
+- The session figure's loss count shared its row with the lost-batch pins;
+  the pins sit lower.
+- The lost strip's tick step was a third of the range rounded up (0, 36, 72,
+  108); it is a 1–2–5 step, and the lost percentage carries three
+  significant digits.
+- A recorder toggling at capacity on a weak link opens a gap per transmitted
+  batch, and at mission scale the boundary lines of those gaps tiled the
+  panels; gaps closer than 0.5 % of the plotted range are drawn as one band.
+- A zero realized alert latency drew on the axis frame; the alert-latency
+  axis keeps a margin below zero.
 
 ## [1.2.0] - 2026-09-13
 

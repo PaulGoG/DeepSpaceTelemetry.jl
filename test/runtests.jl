@@ -3596,6 +3596,18 @@ end
     @test PlotTheme.Makie.get_tickvalues(pruned, 0.0, 150.0) == [0.0, 50.0, 100.0]
     @test PlotTheme.Makie.get_tickvalues(pruned, 0.0, 30.0) == [0.0, 10.0, 20.0]
     @test PlotTheme.Makie.get_tickvalues(pruned, 0.0, 108.0) == [0.0, 50.0, 100.0]
+    # Count-axis tick steps and recorder-span coalescing of the summary figure.
+    @test Receiver.count_tick_step(4.0) == 2
+    @test Receiver.count_tick_step(5.4) == 2
+    @test Receiver.count_tick_step(31.05) == 20
+    @test Receiver.count_tick_step(108.0) == 50
+    @test Receiver.count_tick_step(1350.0) == 500
+    spans = [(5.0, 6.0), (0.0, 1.0), (1.2, 2.0)]
+    @test Receiver.coalesce_spans(spans, 0.5) == [(0.0, 2.0), (5.0, 6.0)]
+    @test Receiver.coalesce_spans(spans, 0.1) == [(0.0, 1.0), (1.2, 2.0), (5.0, 6.0)]
+    @test isempty(Receiver.coalesce_spans(NTuple{2,Float64}[], 1.0))
+    @test Receiver.SESSION_PIN_HEIGHT < 1 / 1.2 + 0.1 &&
+          Receiver.SESSION_PIN_HEIGHT > 1 / 1.2
 
     # The raster is skipped, not failed, when the run carries no timeline.
     @test Receiver.plot_state_raster(mktempdir()) === nothing

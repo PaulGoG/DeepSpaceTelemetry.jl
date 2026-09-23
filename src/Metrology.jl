@@ -591,7 +591,9 @@ function plot_alert_latency(
             marker_peak,
         )
         xlims!(ax, 0, maximum(x) > 0 ? maximum(x) : 1.0)
-        ylims!(ax, 0, 1.25 * y_max)
+        # A margin below zero, as on the lost strip: a zero realized latency
+        # would otherwise draw on the axis frame and read as unplotted.
+        ylims!(ax, -0.05 * 1.25 * y_max, 1.25 * y_max)
         last = table[end, :]
         # Two text primitives: the headline as a LaTeX string (italic δ; a
         # single line, since MathTeXEngine centers continuation lines) and

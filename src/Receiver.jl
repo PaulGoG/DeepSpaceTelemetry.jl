@@ -77,6 +77,35 @@ struct PlotContext
 end
 
 """
+    SPAN_COALESCE_FRACTION
+
+Fraction of the plotted time range below which two recorder-full spans are
+drawn as one band ([`coalesce_spans`](@ref)).
+"""
+const SPAN_COALESCE_FRACTION = 0.005
+
+"""
+    coalesce_spans(spans, min_gap::Real) -> Vector{NTuple{2,Float64}}
+
+`spans` (`(start, stop)` pairs in hours, any order) sorted by start and
+merged wherever the interval from one span's stop to the next span's start
+is below `min_gap`. A recorder toggling at capacity on a weak link opens a
+gap per transmitted batch; at mission scale the boundary lines of those
+gaps would tile the panel.
+"""
+function coalesce_spans(spans, min_gap::Real)
+    merged = NTuple{2,Float64}[]
+    for (a, b) in sort(collect(NTuple{2,Float64}, spans); by = first)
+        if !isempty(merged) && a - merged[end][2] < min_gap
+            merged[end] = (merged[end][1], max(merged[end][2], b))
+        else
+            push!(merged, (a, b))
+        end
+    end
+    return merged
+end
+
+"""
     generation_gap_spans(run_dir, t_start, x_end, tag) -> Vector{NTuple{2,Float64}}
 
 Generation-gap windows from the emitter's `events_tx.csv`: `gap_start` /
@@ -340,7 +369,9 @@ end
 
 Scheduled generation gaps (onboard-family color, dash-dot edges) and
 recorder overflows (loss color, dash-dot edges) behind the data of `ax`,
-edge lines at the guide line width of `style`.
+edge lines at the guide line width of `style`. Recorder overflows closer
+than [`SPAN_COALESCE_FRACTION`](@ref) of the plotted range are drawn as one
+band ([`coalesce_spans`](@ref)).
 """
 function shade_generation_gaps!(
     ax,
@@ -363,7 +394,7 @@ function shade_generation_gaps!(
         ax,
         x_lo,
         x_hi,
-        ctx.recorder_spans;
+        coalesce_spans(ctx.recorder_spans, SPAN_COALESCE_FRACTION * (x_hi - x_lo));
         color = (PlotTheme.COLOR_LOST, 0.12),
         edgecolor = (PlotTheme.COLOR_LOST, 0.9),
         linestyle = :dashdot,
@@ -761,6 +792,30 @@ function mission_time_ticks(span_hours::Float64)
 end
 
 """
+    count_tick_step(y_top::Real) -> Int
+
+Tick step of a batch-count axis reaching `y_top`: the smallest of 1, 2 and 5
+times a power of ten that fits at most three steps below `y_top`, so the
+labels read as counts (0, 50, 100 rather than 0, 36, 72).
+"""
+function count_tick_step(y_top::Real)
+    for k in 0:12, m in (1, 2, 5)
+        step = m * 10^k
+        y_top / step <= 3 && return step
+    end
+    return 5 * 10^12
+end
+
+"""
+    SESSION_PIN_HEIGHT
+
+Relative height of the lost-batch pins on the received panel of the session
+figure: below the top row, which the loss count and the low-latency note
+occupy, and above the data, whose maximum sits at 1/1.2 of the axis.
+"""
+const SESSION_PIN_HEIGHT = 0.88
+
+"""
     plot_mission_summary(ctx::PlotContext) -> String
 
 Renders the mission summary — capacity with the onboard buffer on a twin
@@ -906,11 +961,11 @@ function plot_mission_summary(
     axes_to_link = [ax1, ax2]
     if ctx.show_lost_panel
         lost_curve = ctx.has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
-        # Batches are counted, so the strip carries integer ticks at a step
-        # that keeps at most four of them on the short strip; a lossless run
-        # still gets the full 0…4 frame.
+        # Batches are counted, so the strip carries integer ticks at a 1–2–5
+        # step that keeps at most three steps on the short strip; a lossless
+        # run still gets the full 0…4 frame.
         y_top = max(4.0, 1.35 * maximum(lost_curve))
-        tick_step = max(1, ceil(Int, y_top / 3))
+        tick_step = count_tick_step(y_top)
         ax3 = Axis(
             fig[3, 1],
             xlabel = time_label,
@@ -945,7 +1000,7 @@ function plot_mission_summary(
         pct = 100 * lost_final / max(1.0, Float64(df.Ground_Total[end]) + lost_final)
         lost_text =
             lost_final == 0 ? "0 lost (0 %)" :
-            "$lost_final lost ($(round(pct, digits = 2)) %)"
+            "$lost_final lost ($(round(pct, sigdigits = 3)) %)"
         side = PlotTheme.annotation_side(
             upright_rules(ctx),
             0.0,
@@ -1157,7 +1212,7 @@ function plot_session(
         scatter!(
             ax_s2,
             session_hours[inc],
-            fill(0.93 * y_max_s2, length(inc)),
+            fill(SESSION_PIN_HEIGHT * y_max_s2, length(inc)),
             marker = :xcross,
             color = PlotTheme.COLOR_LOST,
             markersize = style.markersize,
