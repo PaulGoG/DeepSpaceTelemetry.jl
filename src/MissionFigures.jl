@@ -82,6 +82,16 @@ drawn as one band ([`coalesce_spans`](@ref)).
 const SPAN_COALESCE_FRACTION = 0.005
 
 """
+    SPAN_MIN_VISIBLE_FRACTION
+
+Fraction of the plotted time range below which a shaded span is widened,
+about its centre, to that width ([`shade_spans!`](@ref)): a 15-minute
+generation gap on a seven-day axis would otherwise collapse to a line and
+lose the band encoding its legend entry shows.
+"""
+const SPAN_MIN_VISIBLE_FRACTION = 0.006
+
+"""
     coalesce_spans(spans, min_gap::Real) -> Vector{NTuple{2,Float64}}
 
 `spans` (`(start, stop)` pairs in hours, any order) sorted by start and
@@ -323,7 +333,9 @@ spans_overlap(spans, x_lo::Float64, x_hi::Float64, lo::Int, hi::Int) =
 
 Shades `(start, stop)` spans onto `ax`, clamped to the plotted range: a wash
 of `color` with same-hue edge lines (`edgecolor`, `linestyle`) at the guide
-line width of `style`, pushed behind the data. The defaults are the
+line width of `style`, pushed behind the data. A span narrower than
+[`SPAN_MIN_VISIBLE_FRACTION`](@ref) of the plotted range is widened about its
+centre to that width so it remains a visible band. The defaults are the
 component-outage styling ([`PlotTheme.COLOR_OUTAGE`](@ref), dotted edges);
 the generation-gap, recorder-full, and low-latency washes pass their own.
 """
@@ -337,7 +349,13 @@ function shade_spans!(
     linestyle = :dot,
     style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
 )
-    for (o0, o1) in spans
+    min_width = SPAN_MIN_VISIBLE_FRACTION * (x_hi - x_lo)
+    for span in spans
+        o0, o1 = span
+        if o1 - o0 < min_width
+            centre = (o0 + o1) / 2
+            o0, o1 = centre - min_width / 2, centre + min_width / 2
+        end
         o0c, o1c = max(o0, x_lo), min(o1, x_hi)
         o0c < o1c || continue
         v = vspan!(ax, o0c, o1c, color = color)

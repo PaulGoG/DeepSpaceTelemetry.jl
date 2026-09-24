@@ -22,6 +22,13 @@ Notable changes to DeepSpaceTelemetry. The format follows
   root `plots/` directory, and coverage outputs.
 
 ### Fixed
+- Shaded event spans narrower than 0.6 % of the plotted range are widened
+  about their centre to that width: a 15-minute repointing gap on a
+  seven-day mission summary had collapsed to a line, losing the band its
+  legend entry shows.
+- The batch-tracker animation and the showcase routing frames draw their
+  markers without a stroke: with hundreds of batches in a row the default
+  black strokes merged into a black bar and hid the family colours.
 - The receiver paces its download slots against a running wall-clock
   deadline: a slot starts when the previous one completed, so the loop's own
   work — directory scans, the metrics row, the file moves — is absorbed into

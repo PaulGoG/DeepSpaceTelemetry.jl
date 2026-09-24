@@ -121,11 +121,13 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                     marker = :circle,
                     color = color_live,
                     markersize = style.markersize,
+                    strokewidth = 0,
                 ),
                 MarkerElement(
                     marker = :diamond,
                     color = color_archive,
                     markersize = style.markersize,
+                    strokewidth = 0,
                 ),
             ]
             labels = ["Live (FIFO)", "Archive (LIFO)"]
@@ -136,6 +138,8 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                         marker = :xcross,
                         color = color_lost,
                         markersize = style.markersize,
+                        strokewidth = 0,
+                        strokewidth = 0,
                     ),
                 )
                 push!(labels, "Retry-exhausted")
@@ -252,6 +256,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                     color = color_live,
                     marker = :circle,
                     markersize = marker_size,
+                    strokewidth = 0,
                 )
             end
             if !isempty(x_lnk_l)
@@ -262,6 +267,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                     color = color_live,
                     marker = :circle,
                     markersize = marker_size_link,
+                    strokewidth = 0,
                 )
             end
             if !isempty(x_gnd_l)
@@ -272,6 +278,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                     color = color_live,
                     marker = :circle,
                     markersize = marker_size,
+                    strokewidth = 0,
                 )
             end
 
@@ -284,6 +291,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                     color = color_archive,
                     marker = :diamond,
                     markersize = marker_size,
+                    strokewidth = 0,
                 )
             end
             if !isempty(x_lnk_a)
@@ -294,6 +302,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                     color = color_archive,
                     marker = :diamond,
                     markersize = marker_size_link,
+                    strokewidth = 0,
                 )
             end
             if !isempty(x_gnd_a)
@@ -304,6 +313,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                     color = color_archive,
                     marker = :diamond,
                     markersize = marker_size,
+                    strokewidth = 0,
                 )
             end
 
@@ -316,6 +326,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                     color = color_lost,
                     marker = :xcross,
                     markersize = marker_size_link,
+                    strokewidth = 0,
                 )
             end
         end
