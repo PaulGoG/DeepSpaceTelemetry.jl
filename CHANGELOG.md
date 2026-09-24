@@ -21,6 +21,18 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - `.gitignore` covers the whole `data/` tree except `data/runs/.gitkeep`, a
   root `plots/` directory, and coverage outputs.
 
+### Fixed
+- The receiver paces its download slots against a running wall-clock
+  deadline: a slot starts when the previous one completed, so the loop's own
+  work — directory scans, the metrics row, the file moves — is absorbed into
+  the slot instead of being added to every one of them. Before, the realized
+  slot ran about 6 % long (a median 208.8 s between ingestions against the
+  195.7 s the physical link implies), so the nominal scenario left a residual
+  buffer growing by about six batches per pass on an idle host; with the fix
+  the median is 194 s and the buffer clears at the end of each pass. A
+  deadline still in the past after chaining means the host cannot keep the
+  modelled rate, and the loop yields instead of sleeping.
+
 ## [2.0.0] - 2026-09-24
 
 ### Changed

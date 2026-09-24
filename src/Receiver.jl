@@ -214,6 +214,12 @@ function run_receiver(
 
     @info "[RECEIVER] Ground-station loop started."
 
+    # Wall-clock instant [s] at which the current download slot completes.
+    # Service completions are paced against this running deadline, so the
+    # loop's own overhead — directory scans, the metrics row, the file moves —
+    # is absorbed into the slot instead of being added to every one of them.
+    service_due = time()
+
     try
         while true
             if stop !== nothing && stop[]
@@ -369,8 +375,22 @@ function run_receiver(
                 )
                 batch_name = first(eligible)
 
-                effective_slot_sec = batch_transfer_sec / (bw_factor * clock.speed_up)
-                sleep(max(TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC, effective_slot_sec))
+                effective_slot_sec = max(
+                    TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC,
+                    batch_transfer_sec / (bw_factor * clock.speed_up),
+                )
+                # The slot starts when the previous one completed; only after
+                # an idle stretch of at least one slot does it start now. A
+                # deadline that is still in the past after chaining means the
+                # host cannot keep the modelled rate, and the loop yields.
+                now_wall = time()
+                service_due =
+                    (
+                        now_wall - service_due >= effective_slot_sec ? now_wall :
+                        service_due
+                    ) + effective_slot_sec
+                wait_sec = service_due - time()
+                wait_sec > 0.0 ? sleep(wait_sec) : yield()
 
                 loss_mult =
                     ChannelEffects.disruption_loss_multiplier(link.disruptions, sim_t)
