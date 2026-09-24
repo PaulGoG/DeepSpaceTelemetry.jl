@@ -139,7 +139,6 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                         color = color_lost,
                         markersize = style.markersize,
                         strokewidth = 0,
-                        strokewidth = 0,
                     ),
                 )
                 push!(labels, "Retry-exhausted")
