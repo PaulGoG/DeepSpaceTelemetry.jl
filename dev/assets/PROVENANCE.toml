@@ -5,6 +5,13 @@
 # machine reproduces the regime and the figures, not the counts to the batch;
 # the platform the recorded run used is stated below.
 
+[render]
+# The figures were re-rendered from the recorded run with the plotting code
+# of this commit: tracker markers without a stroke, short event spans widened
+# to a visible band. The run itself is unchanged.
+commit = "30190cf24ad5a60fb84cdfca676c311f78611c85"
+date = "2026-09-25"
+
 [run]
 scenario = "scenarios/stress_8h_bursty.toml"
 run_id = "RUN_README_SHOWCASE"
@@ -37,7 +44,7 @@ profile_rows = 1229
 source = "data/runs/RUN_README_SHOWCASE/plots/mission_summary_global.png"
 transform = "magick <source> -resize 1400x -strip <target>"
 width_px = 1400
-sha256_prefix = "f7f4f2749e9fe91c"
+sha256_prefix = "84fe68866bbd3feb"
 
 ["batch_routing.gif"]
 source = "data/runs/RUN_README_SHOWCASE/plots/telemetry_animation_web.gif"
@@ -45,4 +52,4 @@ generator = "julia scripts/postprocessing/generate_gif.jl --web RUN_README_SHOWC
 transform = "none; the --web rendering profile writes the published size directly"
 width_px = 900
 frames = 205
-sha256_prefix = "ac94cc4cf746d6de"
+sha256_prefix = "5a2a01720cfc200f"
