@@ -61,103 +61,6 @@ transfers, leaving the lost-batch strip at zero. Every number here comes
 from the run recorded in
 [`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml).
 
-<details>
-<summary>Full file tree, annotated</summary>
-
-```text
-DeepSpaceTelemetry/
-├── src/
-│   ├── DeepSpaceTelemetry.jl    # Main module
-│   ├── TelemetryCore.jl         # Configuration (+validation), I/O, timers, event logs
-│   ├── ChannelEffects.jl        # Packet-loss channels, disruption timeline, LinkModel
-│   ├── VirtualInstrument.jl     # Payload: binary flag series or external CSV ingestion
-│   ├── PlotTheme.jl             # CairoMakie theme and styling
-│   ├── Emitter.jl               # Satellite state machine (payload/queues)
-│   ├── MissionFigures.jl              # DSN ground station loop, loss handling, retention
-│   ├── Masks.jl                 # Batch-state replay, mask timeline, point-wise expansion
-│   ├── MissionFigures.jl        # Mission summary, session figures, batch-state raster
-│   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay
-│   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
-│   ├── Publication.jl           # Publication figure export at a declared printed width
-│   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
-├── scripts/
-│   ├── Project.toml             # Script environment (terminal UI and logging dependencies; package consumed by path ([sources]))
-│   ├── activate.jl              # Activates and instantiates the script environment
-│   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
-│   ├── run_full_sim.jl          # Headless entry point ([run_id] [config.toml]) → Supervisor.run_mission
-│   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
-│   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
-│   ├── postprocessing/
-│   │   ├── apply_telemetry_mask.jl      # Point-wise mask expansion (snapshot-aware)
-│   │   ├── export_hdf5.jl               # HDF5 product export of a run
-│   │   ├── export_publication_figures.jl # Vector figures at journal width + provenance sidecar
-│   │   ├── generate_gif.jl              # Batch-routing animation engine
-│   │   └── standalone_mask_expander.jl  # Dependency-light copy for collaborators
-│   └── maintenance/
-│       ├── generate_example_strain.jl   # Example external-input generator
-│       └── cleanup.jl                   # Run-directory purger (asks for confirmation)
-├── test/
-│   ├── Project.toml             # Test environment (QA deps; package consumed by path ([sources]))
-│   ├── activate.jl              # Activates and instantiates the test environment
-│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, channel, instrument, masks, integration, supervisor, metrology, export, figures)
-├── bench/
-│   ├── Project.toml             # Benchmark environment (BenchmarkTools; package consumed by path ([sources]))
-│   ├── activate.jl              # Activates and instantiates the benchmark environment
-│   └── benchmarks.jl            # Performance benchmarks (incl. channel hot paths)
-├── docs/
-│   ├── Project.toml             # Docs environment (Documenter; package consumed by path ([sources]))
-│   ├── activate.jl              # Activates and instantiates the docs environment
-│   ├── make.jl                  # Documenter.jl build script
-│   └── src/                     # Manual pages
-│       ├── index.md             # Overview, installation, capabilities
-│       ├── physics.md           # Payload, link capacity, channels, queuing, metrology
-│       ├── usage.md             # Configuration reference and execution
-│       ├── interfaces.md        # Filesystem contract for analysis pipelines
-│       ├── api.md               # API reference index
-│       └── api/                 # Ten per-module API pages
-├── scenarios/
-│   ├── README.md                # Coverage matrix and expected regime of every scenario
-│   ├── smoke_1d.toml            # 12 s smoke run (suite end-to-end)
-│   ├── nominal_8h.toml          # Balanced nominal operations
-│   ├── stress_8h_bursty.toml    # 8 h January passes, bursty loss, disruptions: backlog growth
-│   ├── recovery_12h_seasonal.toml # Reference scenario (= config.toml): seasonal-peak recovery
-│   ├── abstraction_gaussian_peak.toml # Pre-library default: 60 batches/h peak, Gaussian profile
-│   ├── backlog_recovery_sine.toml # Presentation scenario: 3-day backlog, 10 % loss
-│   ├── drop_policy.toml         # 20 % loss without retransmission
-│   ├── explicit_schedule.toml   # Explicit pass list with missed, shortened, extended passes
-│   ├── long_30d_seasonal.toml   # 30 days, contact gap reaching the recorder ceiling
-│   ├── long_segments_2400s.toml # 2400 s segments: the coarse-batch regime
-│   └── external_ingest.toml     # External CSV ingestion
-├── data/
-│   ├── example_external_strain.csv # Generated demo input (gitignored)
-│   └── runs/                    # Ephemeral run directories (gitignored)
-│       ├── .gitkeep             # Keeps the directory in git
-│       └── <RUN_ID>/            # onboard/ link/ ground/ lost/ plots/ masks/
-│                                # + mission_profile.csv, events_tx.csv, events_rx.csv,
-│                                #   component_events.csv, config_snapshot.toml,
-│                                #   clock_anchor.toml, emitter.log, receiver.log, supervisor.log,
-│                                #   heartbeats and RUN_ACTIVE/RUN_COMPLETE/RUN_ABORTED
-│                                #   sentinels (interfaces.md documents the full contract)
-├── .github/workflows/CI.yml     # Test matrix (Linux 1.12 / 1 / pre, macOS and Windows on 1), formatter, docs build and deployment
-├── .github/dependabot.yml       # Weekly Julia and GitHub Actions version updates
-├── .github/ISSUE_TEMPLATE/      # Bug-report and feature-request forms
-├── .github/PULL_REQUEST_TEMPLATE.md # Change, verification, open points
-├── activate.jl                  # Activates and instantiates the package environment
-├── .gitattributes               # LF in the object database (Windows CI checkouts)
-├── .gitignore                   # Excludes run data and generated artifacts
-├── .JuliaFormatter.toml         # Committed formatter configuration
-├── CHANGELOG.md                 # Notable changes (Keep a Changelog format)
-├── CITATION.cff                 # Citation metadata (Citation File Format 1.2.0)
-├── codecov.yml                  # Coverage thresholds and excluded paths
-├── CONTRIBUTING.md              # Working conventions: environments, tests, formatting, commits
-├── config.toml                  # Default entry point (= scenarios/recovery_12h_seasonal.toml)
-├── Project.toml                 # Package metadata, deps, compat bounds
-├── LICENSE
-└── README.md                    # Project documentation
-```
-
-</details>
-
 ## Obtaining the Package
 
 Requires Julia ≥ 1.12 ([juliaup](https://github.com/JuliaLang/juliaup) is the
@@ -299,9 +202,108 @@ batch never becomes available on the ground.
 | Post-processing wrappers | `apply_telemetry_mask.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over the tested library functions (`Masks.expand_pointwise_mask`, `Export.export_hdf5`, `Publication.export_publication_figures`); the animation engine of `generate_gif.jl` renders over the tested replay (`Masks.batch_states`) and the standalone expander is a dependency-light copy, both verified on the shipped scenarios at each release |
 | Maintenance utilities | `generate_example_strain.jl`, `cleanup.jl` | `generate_example_strain.jl` verified through `scenarios/external_ingest.toml` at each release; `cleanup.jl` interactive (confirmation prompt), verified manually |
 
+<details>
+<summary>Full file tree, annotated</summary>
+
+```text
+DeepSpaceTelemetry/
+├── src/
+│   ├── DeepSpaceTelemetry.jl    # Main module
+│   ├── TelemetryCore.jl         # Configuration (+validation), I/O, timers, event logs
+│   ├── ChannelEffects.jl        # Packet-loss channels, disruption timeline, LinkModel
+│   ├── VirtualInstrument.jl     # Payload: binary flag series or external CSV ingestion
+│   ├── PlotTheme.jl             # CairoMakie theme and styling
+│   ├── Emitter.jl               # Satellite state machine (payload/queues)
+│   ├── Receiver.jl              # DSN ground station loop, loss handling, retention
+│   ├── Masks.jl                 # Batch-state replay, mask timeline, point-wise expansion
+│   ├── MissionFigures.jl        # Mission summary, session figures, batch-state raster
+│   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay
+│   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
+│   ├── Publication.jl           # Publication figure export at a declared printed width
+│   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
+├── scripts/
+│   ├── Project.toml             # Script environment (terminal UI and logging dependencies; package consumed by path ([sources]))
+│   ├── activate.jl              # Activates and instantiates the script environment
+│   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
+│   ├── run_full_sim.jl          # Headless entry point ([run_id] [config.toml]) → Supervisor.run_mission
+│   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
+│   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
+│   ├── postprocessing/
+│   │   ├── apply_telemetry_mask.jl      # Point-wise mask expansion (snapshot-aware)
+│   │   ├── export_hdf5.jl               # HDF5 product export of a run
+│   │   ├── export_publication_figures.jl # Vector figures at journal width + provenance sidecar
+│   │   ├── generate_gif.jl              # Batch-routing animation engine
+│   │   └── standalone_mask_expander.jl  # Dependency-light copy for collaborators
+│   └── maintenance/
+│       ├── generate_example_strain.jl   # Example external-input generator
+│       └── cleanup.jl                   # Run-directory purger (asks for confirmation)
+├── test/
+│   ├── Project.toml             # Test environment (QA deps; package consumed by path ([sources]))
+│   ├── activate.jl              # Activates and instantiates the test environment
+│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, channel, instrument, masks, integration, supervisor, metrology, export, figures)
+├── bench/
+│   ├── Project.toml             # Benchmark environment (BenchmarkTools; package consumed by path ([sources]))
+│   ├── activate.jl              # Activates and instantiates the benchmark environment
+│   └── benchmarks.jl            # Performance benchmarks (incl. channel hot paths)
+├── docs/
+│   ├── Project.toml             # Docs environment (Documenter; package consumed by path ([sources]))
+│   ├── activate.jl              # Activates and instantiates the docs environment
+│   ├── make.jl                  # Documenter.jl build script
+│   └── src/                     # Manual pages
+│       ├── index.md             # Overview, installation, capabilities
+│       ├── physics.md           # Payload, link capacity, channels, queuing, metrology
+│       ├── usage.md             # Configuration reference and execution
+│       ├── interfaces.md        # Filesystem contract for analysis pipelines
+│       ├── api.md               # API reference index
+│       └── api/                 # Twelve per-module API pages
+├── scenarios/
+│   ├── README.md                # Coverage matrix and expected regime of every scenario
+│   ├── smoke_1d.toml            # 12 s smoke run (suite end-to-end)
+│   ├── nominal_8h.toml          # Balanced nominal operations
+│   ├── stress_8h_bursty.toml    # 8 h January passes, bursty loss, disruptions: backlog growth
+│   ├── recovery_12h_seasonal.toml # Reference scenario (= config.toml): seasonal-peak recovery
+│   ├── abstraction_gaussian_peak.toml # Pre-library default: 60 batches/h peak, Gaussian profile
+│   ├── backlog_recovery_sine.toml # Presentation scenario: 3-day backlog, 10 % loss
+│   ├── drop_policy.toml         # 20 % loss without retransmission
+│   ├── explicit_schedule.toml   # Explicit pass list with missed, shortened, extended passes
+│   ├── long_30d_seasonal.toml   # 30 days, contact gap reaching the recorder ceiling
+│   ├── long_segments_2400s.toml # 2400 s segments: the coarse-batch regime
+│   └── external_ingest.toml     # External CSV ingestion
+├── data/
+│   ├── example_external_strain.csv # Generated demo input (gitignored)
+│   └── runs/                    # Ephemeral run directories (gitignored)
+│       ├── .gitkeep             # Keeps the directory in git
+│       └── <RUN_ID>/            # onboard/ link/ ground/ lost/ plots/ masks/
+│                                # + mission_profile.csv, events_tx.csv, events_rx.csv, markers.csv,
+│                                #   component_events.csv, config_snapshot.toml, manifest_snapshot.toml,
+│                                #   clock_anchor.toml, alert_latency.csv, alert_latency_markers.csv,
+│                                #   delivery_delay.csv, emitter.log, receiver.log, supervisor.log,
+│                                #   heartbeats, RUN_ACTIVE/RUN_COMPLETE/RUN_ABORTED sentinels, and,
+│                                #   when their flags are set, products.h5 and publication/
+│                                #   (interfaces.md documents the full contract)
+├── .github/workflows/CI.yml     # Test matrix (Linux 1.12 / 1 / pre, macOS and Windows on 1), formatter, docs build and deployment
+├── .github/dependabot.yml       # Weekly Julia and GitHub Actions version updates
+├── .github/ISSUE_TEMPLATE/      # Bug-report and feature-request forms
+├── .github/PULL_REQUEST_TEMPLATE.md # Change, verification, open points
+├── activate.jl                  # Activates and instantiates the package environment
+├── .gitattributes               # LF in the object database (Windows CI checkouts)
+├── .gitignore                   # Excludes run data and generated artifacts
+├── .JuliaFormatter.toml         # Committed formatter configuration
+├── CHANGELOG.md                 # Notable changes (Keep a Changelog format)
+├── CITATION.cff                 # Citation metadata (Citation File Format 1.2.0)
+├── codecov.yml                  # Coverage thresholds and excluded paths
+├── CONTRIBUTING.md              # Working conventions: environments, tests, formatting, commits
+├── config.toml                  # Default entry point (= scenarios/recovery_12h_seasonal.toml)
+├── Project.toml                 # Package metadata, deps, compat bounds
+├── LICENSE
+└── README.md                    # Project documentation
+```
+
+</details>
+
 ## Configuration
 
-The framework is driven entirely by TOML files, free of hardcoded parameters.
+Every mission parameter is set in TOML files.
 Every key carries its safe interval inline, and `validate_config` enforces it
 at startup: a hard error on code-breaking values, a warning on suspicious
 ones, before any data is generated. Every run archives the configuration it
@@ -324,6 +326,7 @@ and external ingestion. The
 
 ```toml
 [simulation]        # speed_up, mission span, backlog, rng_seed
+[supervision]       # component-failure policy, restart budget, watchdog
 [storage]           # disk + inode budgets for the run directory, estimator calibration
 [retention]         # the retention custodian: grace window, watermark, log rotation
 [telemetry]         # daily DSN session window, capacity, bandwidth profile
@@ -392,8 +395,6 @@ freely — for example `[-1, "10:20", 45]`. The
 - **Monitoring** — a change-driven `UnicodePlots` terminal viewer with live
   disruption and loss status lines, beside size-rotated `.log` files kept
   free of ANSI sequences.
-
-The [manual](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/) documents each of these in full.
 
 ## Architecture Summary
 

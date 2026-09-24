@@ -28,8 +28,8 @@ minute per mission day).
 | File | Mission | Wall | Capacity, profile | Contacts | Channel | Disruptions, markers | Expected regime |
 |---|---|---|---|---|---|---|---|
 | `smoke_1d.toml` | 0.5 d | 12 s | physical, flat | 8 h | Bernoulli 1 % | none | one pass drains a 6 h backlog; suite smoke run |
-| `nominal_8h.toml` | 7 d | 168 s | physical, flat | 8 h, January | Bernoulli 1 % | none, no backlog | balance: 145.7 delivered against 144 produced per day, the buffer clears at the end of each pass |
-| `stress_8h_bursty.toml` | 7 d | 168 s | physical, flat | 8 h, January | GE | solar flare day 2.5, repointing day 1.5, DSN outage day 5, marker day 4 with a triggered low-latency period; 2-day backlog | growth: 138 delivered against 144 produced per day plus the disruption debt; the buffer doubles from 300 to about 600 batches and the 24 h compliance fraction falls to about 55 %; live priority keeps the live alert latency bounded |
+| `nominal_8h.toml` | 7 d | 168 s | physical, flat | 8 h, January | Bernoulli 1 % | none, no backlog | balance: link capacity 145.7 per day against 144 produced, so the buffer clears at the end of each pass when the host keeps pace with the accelerated clock; a slower receiver leaves a residual buffer |
+| `stress_8h_bursty.toml` | 7 d | 168 s | physical, flat | 8 h, January | GE | solar flare day 2.5, repointing day 1.5, DSN outage day 5, marker day 4 with a triggered low-latency period; 2-day backlog | growth: 138 delivered against 144 produced per day plus the disruption debt; the buffer doubles from 288 to about 640 batches and the 24 h compliance fraction falls to about 55 %; live priority keeps the live alert latency bounded |
 | `recovery_12h_seasonal.toml` | 7 d | 168 s | physical, flat | 8 h + 4 h seasonal, 21 June | GE | as the stress scenario, marker 25 June; 2-day backlog | recovery: about 190 batches per 12 h pass against 144 produced per day; the flare and the outage each cost about one pass, so the week ends with the backlog near its initial level (buffer between 120 and 300 batches) where the 8 h stress case doubles it |
 | `abstraction_gaussian_peak.toml` | 7 d | 168 s | 60 batches/h peak, Gaussian σ = 0.15 | 8 h, January | GE | as the stress scenario | the pre-library default: a peak abstraction with a 0.38 mean factor, 169 delivered per day, slow drain of the 2-day backlog |
 | `backlog_recovery_sine.toml` | 7 d | 168 s | 60 batches/h peak, sine | 8 h, January | Bernoulli 10 % | none; 3-day backlog | backlog recovery over the week under retransmission load (the presentation scenario) |
@@ -42,7 +42,7 @@ minute per mission day).
 The delivered-per-day figures follow from the serial receiver: one batch per
 slot of transfer time divided by the profile factor, so a day's capacity is
 the link rate times the pass length times the profile mean (flat 1.0, sine
-0.5, Gaussian σ = 0.15 0.38), reduced by the retransmission fraction.
+0.5, Gaussian with σ = 0.15: 0.38), reduced by the retransmission fraction.
 
 ## Adding a scenario
 

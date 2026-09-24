@@ -1,7 +1,7 @@
 """
     Emitter
 
-The satellite-side loop: strain generation and batching, onboard queue
+The satellite-side loop: payload generation and batching, onboard queue
 management (live FIFO with absolute priority, archive LIFO backfill),
 link-gated transmission under the in-flight cap, and ground-truth `gen`/`tx`
 event logging. Re-entrant: a restarted emitter reconstructs its queues and

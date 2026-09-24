@@ -62,7 +62,7 @@ low_latency_capacity_fraction = 0.5  # Capacity of the triggered period relative
 [physics]
 data_source = "synthetic"            # Data stream mode. One of: "synthetic" | "external".
 external_data_path = "data/example_external_strain.csv" # File path when data_source = "external".
-sample_rate = 4.0                    # Strain sampling frequency [Hz]. SAFE: > 0.
+sample_rate = 4.0                    # Payload sampling frequency [Hz]. SAFE: > 0.
 segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
 batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
 

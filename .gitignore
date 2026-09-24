@@ -7,12 +7,17 @@
 Manifest.toml
 Manifest-v*.toml
 
-# Data & Runs (Do not commit massive multi-gigabyte simulation runs!)
-# Note: `data/runs/*` (not `data/runs/`) so the .gitkeep negation can take
-# effect — git never descends into a directory excluded as a whole.
-data/runs/*
-!data/runs/.gitkeep
-data/*.csv
+# Run data and generated inputs. `/data/*` with the two negations keeps only
+# data/runs/.gitkeep: git never descends into a directory excluded as a whole,
+# so the directory itself is re-included and its contents excluded.
+/data/*
+!/data/runs/
+/data/runs/*
+!/data/runs/.gitkeep
+# A root plots/ directory (DrWatson layout) and coverage outputs
+/plots/
+lcov.info
+*.mem
 
 # Documenter.jl artifacts
 docs/build/

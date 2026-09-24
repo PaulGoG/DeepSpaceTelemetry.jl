@@ -26,6 +26,8 @@ jobs:
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
+      # The compat floor (1.12) is above the LTS series, so the matrix covers
+      # the floor, the current release, and the prerelease instead of LTS.
       matrix:
         include:
           - version: "1"

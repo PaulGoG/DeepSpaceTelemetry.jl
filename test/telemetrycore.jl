@@ -411,7 +411,7 @@ end
     )
 
     # Relative config paths resolve against PROJECT_ROOT (the test process
-    # does not run from the package root — exactly the regression condition)
+    # does not run from the package root)
     @test TelemetryCore.load_config("config.toml") isa AbstractDict
 
     # Malformed TOML: hard stop for the live config, warn + fallback to the

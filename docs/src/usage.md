@@ -1,7 +1,7 @@
 # Usage & Configuration
 
 ## The Configuration File (`config.toml`)
-The simulator is entirely controlled via a TOML config. Every key's **safe
+Every mission parameter is set in a TOML file. Every key's **safe
 interval** is documented inline in `config.toml`; `validate_config` enforces
 them at startup — code-breaking values abort with a precise message, suspicious
 ones warn. Type mismatches (quoted numbers, float counts) and malformed TOML
@@ -26,10 +26,9 @@ The repository ships a library of complete configurations under
 `scenarios/`, each runnable by path; `scenarios/README.md` carries the
 coverage matrix and the expected regime of every file. `config.toml` at the
 package root is the default entry point and is a copy of
-`scenarios/recovery_12h_seasonal.toml`. Per the configuration-comment
-policy, the TOML files carry only per-key descriptions, admissible choices,
-and safe intervals — the scenario rationale lives in the library README and
-here.
+`scenarios/recovery_12h_seasonal.toml`. The TOML comments give only
+each key's meaning, admissible choices, and safe interval; the scenario
+rationale is stated in the library README and here.
 
 The reference scenario — **recovery at the seasonal peak** (~3 min wall
 time, 7 mission days from 21 June 2035) — runs the physical link:
@@ -59,7 +58,7 @@ policy, an explicit pass schedule, a 30-day seasonal mission reaching the
 recorder ceiling, the coarse-batch regime of 2400 s segments, and external
 ingestion. Under the physical rate pair only the flat profile
 sustains production: a day's capacity is the link rate times the pass
-length times the profile mean (flat 1.0, sine 0.5, Gaussian σ = 0.15 0.38),
+length times the profile mean (flat 1.0, sine 0.5, Gaussian with σ = 0.15: 0.38),
 so the shaped profiles remain stress abstractions of a partially usable
 pass. `validate_config` warns when the rate pair meets a shaped profile,
 stating the profile mean and the capacity of one nominal pass against the

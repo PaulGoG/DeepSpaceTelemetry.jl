@@ -65,7 +65,7 @@ end
 
 @testset "VirtualInstrument External" begin
     # Relative external paths resolve against PROJECT_ROOT, not the CWD
-    # (the test process runs from test/, exactly the regression condition).
+    # (the test process runs from test/, not from the package root).
     # The fixture lives in a temporary directory and is passed as a path
     # relative to PROJECT_ROOT, so the real data/ tree stays untouched.
     fixture_dir = mktempdir()

@@ -16,7 +16,7 @@ DocMeta.setdocmeta!(
 makedocs(
     doctest = true,
     sitename = "DeepSpaceTelemetry",
-    authors = "Paul-Adrian Gogîță <gogitapaul@yahoo.ro>",
+    authors = "Paul-Adrian Gogîță",
     repo = Documenter.Remotes.GitHub("PaulGoG", "DeepSpaceTelemetry.jl"),
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
@@ -33,6 +33,8 @@ makedocs(
         DeepSpaceTelemetry.PlotTheme,
         DeepSpaceTelemetry.Emitter,
         DeepSpaceTelemetry.Receiver,
+        DeepSpaceTelemetry.Masks,
+        DeepSpaceTelemetry.MissionFigures,
         DeepSpaceTelemetry.Metrology,
         DeepSpaceTelemetry.Export,
         DeepSpaceTelemetry.Publication,

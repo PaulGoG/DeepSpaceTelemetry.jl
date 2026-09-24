@@ -4,6 +4,23 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Documentation names the payload as what it is since 2.0.0 — a binary flag
+  series — and the TOML comments call `sample_rate` the payload sampling
+  frequency; the README's full tree lists `Receiver.jl`, the twelve API
+  pages, the `[supervision]` section, and the complete run-directory
+  contents; the Documenter build checks `Masks` and `MissionFigures` for
+  missing docstrings.
+- Compat bounds of the non-upgradable standard libraries are `"1"` in every
+  environment: they follow the Julia version, and the former `"1.11"` bounds
+  invited a bump per Julia release.
+- Author metadata carries the name only (`Project.toml`, `CITATION.cff`, the
+  manual).
+- `.gitignore` covers the whole `data/` tree except `data/runs/.gitkeep`, a
+  root `plots/` directory, and coverage outputs.
+
 ## [2.0.0] - 2026-09-24
 
 ### Changed
@@ -56,8 +73,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
   and the export itself.
 - `Receiver.shade_outages!` is `MissionFigures.shade_spans!`, the generic span
   wash; the low-latency period's edges are dash-dot-dot, distinct from the
-  dotted nominal-capacity curve; `Receiver.marker_times` reads the markers
-  through `TelemetryCore.load_markers`.
+  dotted nominal-capacity curve; `MissionFigures.marker_times` (formerly
+  `Receiver.marker_times`) reads the markers through `TelemetryCore.load_markers`.
 - Every figure is composed at one standard layout — 1200 Makie units wide,
   26-unit type, 3-unit data lines, fixed panel heights — and a publication
   export scales it as a whole, so a narrower figure is a miniature of the
@@ -258,6 +275,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.0.0...HEAD
 [2.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.0.0...v1.1.0
