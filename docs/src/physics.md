@@ -7,6 +7,8 @@ The telemetry layers never read the payload: routing, loss, and delay depend on 
 
 A physical noise or waveform model enters through `physics.data_source = "external"`: the series of a CSV file is cut into the same segments and passes through the same pipeline.
 
+Every timestamp of a run — content epochs, event instants, the exported seconds — is referred to `simulation.start_sim_time`, a calendar instant without a time-scale attribution: the simulator carries no conversion between TCB and UTC. The shipped scenarios place their missions in 2035, the year of the reference epoch `LISA_EPOCH_TCB` = 2035-01-01 00:00 TCB to which the LISA science ground segment conventions refer every time grid (Baghi et al. 2026, §7); most start on that calendar day, and the seasonal cases later in the year.
+
 ## Bandwidth Profiling
 Satellite-to-ground communication is constrained by the ground station's line of sight. The daily contact window opens at `telemetry.session_start` for `telemetry.session_duration_hours` (sessions crossing midnight are handled); outside it the capacity is zero, and within it the fractional capacity follows a selectable profile of the window progress `x ∈ [0, 1]`:
 * `sine`: `sin²(πx)` — zero at both horizons, full capacity at culmination, 50 % on average.
@@ -68,6 +70,7 @@ Event markers (`[[events.markers]]`) are the instants of interest a scenario dec
 
 ## References
 
+- Baghi, Q., Babak, S., Barack, L., et al., *LISA science ground segment conventions*, LISA-DDPC-SEG-TN-007, issue 1 revision 10 (2026), [arXiv:2603.22377](https://arxiv.org/abs/2603.22377), [doi:10.48550/arXiv.2603.22377](https://doi.org/10.48550/arXiv.2603.22377).
 - Colpi, M., et al., *LISA Definition Study Report*, ESA-SCI-DIR-RP-002 (2024), [arXiv:2402.07571](https://arxiv.org/abs/2402.07571), [doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571).
 - Elliott, E. O., *Estimates of error rates for codes on burst-noise channels*, Bell System Technical Journal **42**, 1977–1997 (1963), [doi:10.1002/j.1538-7305.1963.tb00955.x](https://doi.org/10.1002/j.1538-7305.1963.tb00955.x).
 - Gilbert, E. N., *Capacity of a burst-noise channel*, Bell System Technical Journal **39**, 1253–1265 (1960), [doi:10.1002/j.1538-7305.1960.tb03959.x](https://doi.org/10.1002/j.1538-7305.1960.tb03959.x).

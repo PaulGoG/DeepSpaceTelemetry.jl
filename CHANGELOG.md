@@ -20,6 +20,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   manual).
 - `.gitignore` covers the whole `data/` tree except `data/runs/.gitkeep`, a
   root `plots/` directory, and coverage outputs.
+- The physics page sources the mission epoch of the shipped scenarios in
+  the LISA science ground segment conventions (Baghi et al. 2026,
+  arXiv:2603.22377) and lists every reference with its DOI.
 
 ### Fixed
 - Shaded event spans narrower than 0.6 % of the plotted range are widened
