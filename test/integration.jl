@@ -222,7 +222,7 @@ end
     ra_id = "TEST_RUN_reattach_pid$(getpid())"
     mktempdir() do tmp
         ext_path = joinpath(tmp, "ext.csv")
-        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:60_000)))
+        CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:400_000)))
         ra_dir = TelemetryCore.setup_run_dir(
             ra_id;
             cfg = Dict{String,Any}(
@@ -291,15 +291,13 @@ end
 
             # Simulated component outage: supervisor-style gap bounds, then a
             # cold re-attachment that reconstructs the clock from the anchor
-            # and takes a fresh instrument at the current mission time.
+            # and resumes the instrument at the current mission time.
             restored = TelemetryCore.load_clock_anchor(ra_dir)
-            TelemetryCore.log_tx_event(ra_dir, maximum(tx1.SimTime), "STREAM", "gap_start")
-            TelemetryCore.log_tx_event(
-                ra_dir,
+            resumed = VirtualInstrument.resumed(
+                vi,
                 TelemetryCore.get_current_sim_time(restored.clock),
-                "STREAM",
-                "gap_end",
             )
+            Supervisor.record_generation_gap!(ra_dir, restored.clock, resumed.last_t)
             # Reconciliation seed: a batch delivered to ground/ whose
             # ingested record was lost to a crash window — the phase-2
             # receiver must synthesize the missing record at re-attach.
@@ -307,17 +305,7 @@ end
             mkpath(orphan)
             write(joinpath(orphan, "seg_1.csv"), "Amplitude\n0.0\n")
 
-            run_phase(
-                restored.clock,
-                VirtualInstrument.InstrumentState(
-                    TelemetryCore.get_current_sim_time(restored.clock),
-                    4.0,
-                    60.0,
-                    "external",
-                    ext_path,
-                ),
-                TelemetryCore.DataSegment[],
-            )
+            run_phase(restored.clock, resumed, TelemetryCore.DataSegment[])
 
             rx2 = CSV.read(joinpath(ra_dir, "events_rx.csv"), DataFrame)
             @test any((rx2.Event .== "ingested") .& (rx2.Batch .== "ARCH_batch_500"))
@@ -330,6 +318,10 @@ end
             @test issorted(gen_rows.SimTime)           # mission time continuous across the outage
             @test count(==("gap_start"), tx2.Event) == 1
             @test count(==("gap_end"), tx2.Event) == 1
+            # The payload resumes at the rows of the resumed content instant.
+            alignment = ramp_alignment(ra_dir, vi.origin, 4.0)
+            @test alignment.checked == length(gens)
+            @test isempty(alignment.misaligned) && isempty(alignment.repeated)
 
             # Post-processing remains coherent with the gap events present.
             with_logger(NullLogger()) do
@@ -408,8 +400,8 @@ end
             )
             @test length(arch_batches) == 9
             @test vi.last_t >= start_sim
-            # Stream continuity: instrument consumed exactly 29 segments...
-            @test vi.source.index == 29 * n_per_seg + 1
+            # Stream continuity: instrument produced exactly 29 segments...
+            @test VirtualInstrument.segment_id(vi, vi.last_t) == 30
             # ...and the partial batch carries segments 28-29 for the main loop
             @test length(pending) == 2
             @test pending[1].data[1] == Float32(27 * n_per_seg + 1)
@@ -1061,11 +1053,12 @@ end
         @test String.(gap_rows.Event) == ["gap_start", "gap_end"]
         # Segments at −14.4, −13.4, −12.4 min form batch 1; −11.4 and −10.4
         # are pending when −9.4 falls inside the gap and are discarded.
+        # Recording resumes on the segment grid, at −5.4 min.
         @test DateTime(gap_rows.SimTime[1]) == start - Minute(11) - Second(24)
-        @test DateTime(gap_rows.SimTime[2]) == start - Minute(6)
+        @test DateTime(gap_rows.SimTime[2]) == start - Minute(5) - Second(24)
         @test TelemetryCore.max_logged_batch_id(gap_dir) == 3
         @test TelemetryCore.batch_content_epochs(gap_dir)["ARCH_batch_2"] ==
-              start - Minute(6)
+              start - Minute(5) - Second(24)
     finally
         rm(gap_dir; recursive = true, force = true)
     end
@@ -1145,5 +1138,119 @@ end
         ) == 2
     finally
         rm(live_dir; recursive = true, force = true)
+    end
+end
+
+@testset "External payload on the grid (scheduled gaps, recorder overflow)" begin
+    # Geometry of the consumer report: 0.2 Hz, 50 s segments of 10 samples,
+    # 10 segments per batch; ramp payload, row r holding r.
+    fs = 0.2
+    span = Second(500)
+    start = DateTime(2035, 3, 7)
+    origin = Emitter.instrument_epoch(start, 0.1) # start − 8640 s
+    stub = Dict{String,Any}(
+        "simulation" => Dict{String,Any}(
+            "speed_up" => 3600.0,
+            "start_sim_time" => "2035-03-07T00:00:00",
+        ),
+    )
+    mktempdir() do tmp
+        ramp = joinpath(tmp, "ramp.csv")
+        CSV.write(ramp, DataFrame(Amplitude = Float32.(1:40_000)))
+
+        # Scheduled gaps in the blind spot and in the mission phase, both
+        # ending off the segment grid; the second ends on the sample grid,
+        # as a gap scheduled on whole minutes does.
+        gap_id = "TEST_RUN_grid_gap_pid$(getpid())"
+        gap_dir = TelemetryCore.setup_run_dir(gap_id; cfg = stub)
+        try
+            gaps = [
+                (start - Minute(90), start - Minute(58) + Second(3)),
+                (start + Minute(15), start + Minute(25)),
+            ]
+            vi, pending = with_logger(NullLogger()) do
+                Emitter.pre_populate(
+                    VirtualInstrument.InstrumentState(origin, fs, 50.0, "external", ramp),
+                    start,
+                    gap_id;
+                    batch_size = 10,
+                    generation_gaps = gaps,
+                )
+            end
+            # The pre-population alone: every ARCH batch and the partial
+            # batch on the payload grid.
+            blind = ramp_alignment(gap_dir, origin, fs)
+            @test blind.checked == 12
+            @test isempty(blind.misaligned) && isempty(blind.repeated)
+            @test all(
+                s -> s.data[1] == round(Int, (s.timestamp - origin).value / 1000 * fs) + 1,
+                pending,
+            )
+            link = ChannelEffects.LinkModel(
+                TelemetryCore.VisibilityModel(Time(0), Second(24 * 3600), "flat"),
+            )
+            clock = TelemetryCore.SimulationClock(now(), start, 3600.0)
+            with_logger(NullLogger()) do
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    gap_id,
+                    vi;
+                    deadline = now() + Second(3),
+                    batch_size = 10,
+                    pending_segments = pending,
+                    generation_gaps = gaps,
+                )
+            end
+            tx = CSV.read(joinpath(gap_dir, "events_tx.csv"), DataFrame)
+            scheduled = tx[tx.Batch .== "SCHEDULED", :]
+            @test String.(scheduled.Event) ==
+                  ["gap_start", "gap_end", "gap_start", "gap_end"]
+            bounds = DateTime.(scheduled.SimTime)
+            # Recording resumes at the first segment boundary after each gap.
+            @test bounds[2] == origin + Second(5200) && bounds[4] == origin + Second(10_150)
+            # [gap_start, gap_end) is exactly the content not recorded: a
+            # batch closes at each gap start, the next opens at the gap end.
+            epochs = collect(values(TelemetryCore.batch_content_epochs(gap_dir)))
+            for (g0, g1) in ((bounds[1], bounds[2]), (bounds[3], bounds[4]))
+                @test g0 - span in epochs && g1 in epochs
+                @test !any(e -> e + span > g0 && e < g1, epochs)
+            end
+            alignment = ramp_alignment(gap_dir, origin, fs)
+            @test alignment.checked == count(==("gen"), tx.Event)
+            @test isempty(alignment.misaligned) && isempty(alignment.repeated)
+        finally
+            rm(gap_dir; recursive = true, force = true)
+        end
+
+        # Recorder overflow: the link is down for the first 30 min, two
+        # batches fit, and discarded batches are generated normally, so the
+        # stream stays on the grid when recording resumes.
+        rec_id = "TEST_RUN_grid_recorder_pid$(getpid())"
+        rec_dir = TelemetryCore.setup_run_dir(rec_id; cfg = stub)
+        try
+            link = ChannelEffects.LinkModel(
+                TelemetryCore.VisibilityModel(Time(0, 30), Second(23 * 3600), "flat"),
+            )
+            clock = TelemetryCore.SimulationClock(now(), start, 3600.0)
+            with_logger(NullLogger()) do
+                Emitter.run_emitter(
+                    clock,
+                    link,
+                    rec_id,
+                    VirtualInstrument.InstrumentState(start, fs, 50.0, "external", ramp);
+                    deadline = now() + Second(3),
+                    batch_size = 10,
+                    onboard_capacity_batches = 2,
+                )
+            end
+            tx = CSV.read(joinpath(rec_dir, "events_tx.csv"), DataFrame)
+            @test "gap_end" in String.(tx[tx.Batch .== "RECORDER", :Event])
+            alignment = ramp_alignment(rec_dir, start, fs)
+            @test alignment.checked == count(==("gen"), tx.Event) > 2
+            @test isempty(alignment.misaligned) && isempty(alignment.repeated)
+        finally
+            rm(rec_dir; recursive = true, force = true)
+        end
     end
 end

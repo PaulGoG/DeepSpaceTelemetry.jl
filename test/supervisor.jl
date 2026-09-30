@@ -170,6 +170,16 @@ end
             "expand_to_pointwise_masks" => true,
             "target_event_rows" => [-1],
         )
+        # A scheduled generation gap 06:28:48–06:43:48, ending off the
+        # segment grid of the payload origin 05:45:36.
+        cfg["disruption"] = Dict{String,Any}(
+            "events" => Any[Dict{String,Any}(
+                "type" => "maintenance",
+                "affects" => "generation",
+                "start_day" => 0.02,
+                "duration_hours" => 0.25,
+            ),],
+        )
         run_id = "TEST_RUN_mission_pid$(getpid())"
         # mission_plan leaves the caller's configuration untouched: the
         # provenance stamp lands on the plan's own copy.
@@ -196,11 +206,134 @@ end
             @test occursin("[POST]", read(joinpath(run_dir, "supervisor.log"), String))
             snapshot = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
             @test haskey(snapshot["provenance"], "external_data_sha256")
+            @test snapshot["provenance"]["external_data_rows"] == 200_000
+            origin = DateTime(snapshot["provenance"]["payload_origin"])
+            @test origin == DateTime(2035, 1, 1, 5, 45, 36) == plan.payload_origin
             @test !isfile(joinpath(run_dir, "component_events.csv"))
             tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
             @test count(==("gen"), tx.Event) > 5
+            scheduled = tx[tx.Batch .== "SCHEDULED", :]
+            @test String.(scheduled.Event) == ["gap_start", "gap_end"]
+            @test DateTime(scheduled.SimTime[2]) == DateTime(2035, 1, 1, 6, 44, 36)
+            alignment = ramp_alignment(run_dir, origin, 4.0)
+            @test alignment.checked == count(==("gen"), tx.Event)
+            @test isempty(alignment.misaligned) && isempty(alignment.repeated)
             @test isfile(joinpath(run_dir, "alert_latency.csv"))
             @test isfile(joinpath(run_dir, "plots", "alert_latency.png"))
+        finally
+            rm(run_dir; recursive = true, force = true)
+        end
+    end
+end
+
+@testset "Emitter restart through the supervisor (external payload)" begin
+    # The production restart path: the first emitter fails after 2 s, the
+    # supervisor records the STREAM gap and spawns a replacement with the
+    # payload origin of the first start. Geometry of the consumer report
+    # (0.2 Hz, 50 s segments, 10 per batch), ramp payload.
+    mktempdir() do tmp
+        ramp = joinpath(tmp, "ramp.csv")
+        CSV.write(ramp, DataFrame(Amplitude = Float32.(1:100_000)))
+        cfg = valid_test_cfg()
+        cfg["simulation"]["speed_up"] = 3600.0
+        cfg["simulation"]["mission_wall_seconds"] = 5.0
+        cfg["simulation"]["initial_downtime_days"] = 0.05
+        cfg["simulation"]["start_sim_time"] = "2035-03-07T00:00:00"
+        cfg["physics"] = Dict{String,Any}(
+            "data_source" => "external",
+            "external_data_path" => ramp,
+            "sample_rate" => 0.2,
+            "segment_duration_sec" => 50.0,
+            "batch_size" => 10,
+        )
+        cfg["telemetry"]["session_start"] = "00:00:00"
+        cfg["telemetry"]["session_duration_hours"] = 24.0
+        cfg["telemetry"]["bandwidth_profile"] = "flat"
+        cfg["telemetry"]["max_batches_per_hour"] = 1800.0
+        cfg["supervision"] =
+            Dict{String,Any}("on_component_failure" => "restart", "max_restarts" => 1)
+        plan = with_logger(NullLogger()) do
+            Supervisor.mission_plan(cfg; run_id = "TEST_RUN_restart_pid$(getpid())")
+        end
+        run_dir = TelemetryCore.setup_run_dir(plan.run_id; cfg = plan.cfg)
+        try
+            instrument, pending = with_logger(NullLogger()) do
+                Emitter.pre_populate(
+                    Supervisor.build_instrument(
+                        plan.physics,
+                        plan.payload_origin,
+                        plan.markers,
+                    ),
+                    plan.start_sim,
+                    plan.run_id;
+                    batch_size = plan.physics.batch_size,
+                )
+            end
+            clock = TelemetryCore.SimulationClock(now(), plan.start_sim, plan.speed_up)
+            stop_flag = Threads.Atomic{Bool}(false)
+            heartbeats = Dict{Symbol,String}(
+                :emitter => joinpath(run_dir, "emitter_alive"),
+                :receiver => joinpath(run_dir, "receiver_alive"),
+            )
+            loggers = (
+                Supervisor.CleanFileLogger(joinpath(run_dir, "emitter.log"), 10^8),
+                Supervisor.CleanFileLogger(joinpath(run_dir, "receiver.log"), 10^8),
+            )
+            spawners_until(deadline) = Supervisor.component_spawners(
+                plan,
+                run_dir,
+                clock,
+                deadline,
+                stop_flag,
+                heartbeats,
+                instrument,
+                pending,
+                loggers...,
+                devnull,
+            )
+            first_launch = spawners_until(now() + Second(2))
+            launches = spawners_until(now() + Second(5))
+            spawners = Dict{Symbol,Function}(
+                :emitter =>
+                    attempt ->
+                        attempt == 0 ?
+                        Threads.@spawn(begin
+                            wait(first_launch[:emitter](0))
+                            error("injected emitter fault")
+                        end) : launches[:emitter](attempt),
+                :receiver => launches[:receiver],
+            )
+            restarts = with_logger(NullLogger()) do
+                Supervisor.supervise!(
+                    spawners,
+                    run_dir,
+                    clock,
+                    stop_flag,
+                    heartbeats,
+                    plan.supervision,
+                )
+            end
+            @test restarts == Dict(:emitter => 1, :receiver => 0)
+            components = CSV.read(joinpath(run_dir, "component_events.csv"), DataFrame)
+            @test String.(components[components.Component .== "emitter", :Event]) ==
+                  ["down", "restart"]
+
+            # A consumer's view: the origin from the snapshot, the gap from
+            # the event log, the payload from the batches.
+            snapshot = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
+            origin = DateTime(snapshot["provenance"]["payload_origin"])
+            @test origin == plan.start_sim - Minute(72)
+            tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+            stream = tx[tx.Batch .== "STREAM", :]
+            @test String.(stream.Event) == ["gap_start", "gap_end"]
+            resume = DateTime(stream.SimTime[2])
+            @test (resume - origin).value % 50_000 == 0
+            epochs = collect(values(TelemetryCore.batch_content_epochs(run_dir)))
+            @test resume in epochs # the replacement's first batch opens at the gap end
+            @test !isempty(readdir(joinpath(run_dir, "ground")))
+            alignment = ramp_alignment(run_dir, origin, 0.2)
+            @test alignment.checked == count(==("gen"), tx.Event)
+            @test isempty(alignment.misaligned) && isempty(alignment.repeated)
         finally
             rm(run_dir; recursive = true, force = true)
         end

@@ -169,7 +169,7 @@ sample_rate = 1024.0
 segment_duration_sec = 60.0
 batch_size = 15
 ```
-The simulator slices the series into batches, consuming its first portion as the pre-existing blind-spot backlog.
+Row `r` of the series is the sample at `start_sim_time − initial_downtime_days + (r − 1) / sample_rate`: the first rows fill the pre-existing blind-spot backlog, a generation gap skips the rows of its interval, and past the last row the payload is zero. Each batch records the row of its first sample (`payload_row`, see the analysis interfaces).
 
 ## Running the Simulation
 The emitter, the receiver, and the supervisor are three cooperative tasks;

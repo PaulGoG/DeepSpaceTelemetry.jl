@@ -8,6 +8,11 @@ DeepSpaceTelemetry.VirtualInstrument.ExternalSeries
 DeepSpaceTelemetry.VirtualInstrument.InstrumentState
 DeepSpaceTelemetry.VirtualInstrument.samples_per_segment
 DeepSpaceTelemetry.VirtualInstrument.read_external_series
-DeepSpaceTelemetry.VirtualInstrument.segment_samples!
+DeepSpaceTelemetry.VirtualInstrument.segment_boundary
+DeepSpaceTelemetry.VirtualInstrument.segment_samples
+DeepSpaceTelemetry.VirtualInstrument.segment_id
+DeepSpaceTelemetry.VirtualInstrument.payload_row
+DeepSpaceTelemetry.VirtualInstrument.advance_to!
+DeepSpaceTelemetry.VirtualInstrument.resumed
 DeepSpaceTelemetry.VirtualInstrument.next_segment!
 ```

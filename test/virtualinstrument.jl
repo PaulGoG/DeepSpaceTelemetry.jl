@@ -36,7 +36,8 @@
     )
     @test VirtualInstrument.next_segment!(late).data == segments[3].data
     jumped = VirtualInstrument.InstrumentState(start_t, 4.0, 60.0, "synthetic", ""; markers)
-    jumped.last_t = start_t + Second(240)
+    @test VirtualInstrument.advance_to!(jumped, start_t + Second(200)) ==
+          start_t + Second(240)
     @test all(isone, VirtualInstrument.next_segment!(jumped).data)
 
     # Sub-second segments advance the content clock exactly.
@@ -140,4 +141,48 @@ end
         @test length(seg2.data) == 4
         @test seg2.data == Float32[0.5, 0.0, 0.0, 0.0]
     end
+end
+
+@testset "VirtualInstrument payload grid" begin
+    # Ramp payload (row r holds r) at 2 Hz in 2 s segments: n = 4 samples,
+    # segment k opens at origin + 2(k − 1) s and starts at row 4(k − 1) + 1.
+    origin = DateTime(2035, 3, 7)
+    mktempdir() do tmp
+        ramp = joinpath(tmp, "ramp.csv")
+        CSV.write(ramp, DataFrame(Amplitude = Float32.(1:100)))
+        first_start = VirtualInstrument.InstrumentState(origin, 2.0, 2.0, "external", ramp)
+        @test first_start.last_t == origin
+        # A restart at +7 s resumes on the grid at +8 s: segment 5, rows 17–20,
+        # from the series already read.
+        vi = VirtualInstrument.resumed(first_start, origin + Second(7))
+        @test vi.origin == origin && vi.last_t == origin + Second(8)
+        @test vi.source === first_start.source
+        seg = VirtualInstrument.next_segment!(vi)
+        @test seg.id == 5 && seg.timestamp == origin + Second(8)
+        @test seg.data == Float32.(17:20)
+        # A generation gap ending at +15 s resumes at +16 s: segment 9, rows 33–36.
+        @test VirtualInstrument.advance_to!(vi, origin + Second(15)) == origin + Second(16)
+        @test VirtualInstrument.advance_to!(vi, origin + Second(3)) == origin + Second(16)
+        seg = VirtualInstrument.next_segment!(vi)
+        @test seg.id == 9 && seg.data == Float32.(33:36)
+        # Row and identifier follow from the epoch alone.
+        for k in 1:30
+            epoch = origin + Second(2 * (k - 1))
+            @test VirtualInstrument.segment_id(vi, epoch) == k
+            @test VirtualInstrument.payload_row(vi, k) ==
+                  round(Int, (epoch - origin).value / 1000 * 2.0) + 1
+        end
+        @test_throws ArgumentError VirtualInstrument.segment_id(vi, origin + Second(3))
+        @test_throws ArgumentError VirtualInstrument.segment_id(vi, origin - Second(2))
+        # Rows past the end read as zeros, with one warning.
+        @test VirtualInstrument.advance_to!(vi, origin + Second(49)) == origin + Second(50)
+        seg = @test_logs (:warn,) match_mode = :any VirtualInstrument.next_segment!(vi)
+        @test seg.id == 26 && length(seg.data) == 4 && all(iszero, seg.data)
+        # A replacement never resumes behind its predecessor's content clock.
+        @test VirtualInstrument.resumed(vi, origin + Second(10)).last_t == vi.last_t
+    end
+    # A non-integer sample count per segment (1.5, rounded to 2) still reads
+    # consecutive, disjoint rows.
+    coarse = VirtualInstrument.InstrumentState(origin, 0.3, 5.0, "synthetic", "")
+    @test [VirtualInstrument.payload_row(coarse, k) for k in 1:4] == [1, 3, 5, 7]
 end

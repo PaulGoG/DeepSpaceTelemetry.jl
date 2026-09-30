@@ -190,7 +190,7 @@ batch never becomes available on the ground.
 |---|---|---|
 | `TelemetryCore` | configuration accessors and validation, run layout, batch I/O, event logs, provenance | stable; unit, guardrail, and static-QA coverage |
 | `ChannelEffects` | loss channels, disruption timeline, composite link model | stable; validated against the analytic stationary loss rate |
-| `VirtualInstrument` | binary flag payload declared by the event markers, external ingestion | stable; flag rule, boundary cases, and clock advance unit-tested |
+| `VirtualInstrument` | binary flag payload declared by the event markers, external ingestion | stable; flag rule, boundary cases, clock advance, and the payload grid across gaps and restarts tested |
 | `Emitter` / `Receiver` | spacecraft and ground-station state machines | stable; four end-to-end integration missions in the suite |
 | `Masks` / `MissionFigures` | batch-state replay and mask products; mission, session, and raster figures | stable; replay, legend, and layout tests |
 | `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |

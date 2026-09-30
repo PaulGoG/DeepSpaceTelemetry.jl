@@ -4,8 +4,13 @@
 Science-payload data source. The synthetic payload is a binary flag series:
 `0` on a segment holding noise only, `1` on a segment holding a flagged
 signal, the flagged segments being those whose content span holds an event
-marker. The alternative source is gapless segmented ingestion of an external
-CSV time series.
+marker. The alternative source is an external CSV time series whose row `r`
+is the sample at `origin + (r − 1) / sample_rate`.
+
+The instrument samples on a fixed grid anchored at the payload origin, the
+content instant of payload row 1. A generation gap suppresses whole segments
+of that grid and a restarted instrument resumes on it, so segment
+identifiers and payload rows follow from the content epoch alone.
 
 The telemetry layers never read the payload. The flag series carries what a
 downstream consumer needs from it — which delivered samples belong to an
@@ -17,14 +22,16 @@ module VirtualInstrument
 using ..TelemetryCore
 using CSV: CSV
 using DataFrames: DataFrames, DataFrame
-using Dates: Dates, DateTime
+using Dates: Dates, DateTime, Millisecond
 
 """
     PayloadSource
 
 Origin of the samples of an [`InstrumentState`](@ref). A source implements
-`segment_samples!(source, epoch, stop, n_samples) -> Vector{Float32}`, the
-samples of the segment with content span `[epoch, stop)`.
+`segment_samples(source, epoch, stop, first_row, n_samples) -> Vector{Float32}`,
+the samples of the segment with content span `[epoch, stop)` whose first
+sample is payload row `first_row`. Both addresses describe the same segment;
+a source reads the one it is indexed by.
 """
 abstract type PayloadSource end
 
@@ -44,21 +51,31 @@ end
 """
     ExternalSeries(samples::Vector{Float32})
 
-Externally supplied time series consumed in consecutive segments from
-`index` onward. Past its end the series is padded with zeros.
+Externally supplied time series addressed by payload row: row `r` is
+`samples[r]`, the sample at `origin + (r − 1) / sample_rate` of the
+[`InstrumentState`](@ref) that reads it. Rows past the end read as zeros.
 """
-mutable struct ExternalSeries <: PayloadSource
+struct ExternalSeries <: PayloadSource
     samples::Vector{Float32}
-    index::Int
-    ExternalSeries(samples::Vector{Float32}) = new(samples, 1)
 end
 
 """
-    InstrumentState(start_t, sample_rate, segment_duration_sec, data_source, ext_path; markers = EventMarker[])
+    InstrumentState(origin, sample_rate, segment_duration_sec, data_source, ext_path;
+                    markers = EventMarker[])
 
-State of the science payload: the content instant `last_t` of the next
-segment, the running segment identifier, the segment geometry, and the
-[`PayloadSource`](@ref) the samples come from.
+State of the science payload: the payload origin `origin` (the content
+instant of payload row 1 and of segment 1), the content instant `last_t` of
+the next segment, the segment geometry, and the [`PayloadSource`](@ref) the
+samples come from.
+
+Segments open on the grid `origin + k · segment_duration_sec`, `k ≥ 0`: the
+segment opening at `epoch` has the identifier
+`(epoch − origin) / segment_duration_sec + 1` ([`segment_id`](@ref)) and
+starts at payload row [`payload_row`](@ref). The content clock starts at the
+origin; it leaves the grid neither across a generation gap
+([`advance_to!`](@ref)) nor in the instrument of a restarted emitter
+([`resumed`](@ref)), so identifiers never repeat within a run and the
+payload continues at the rows of the resumed content instant.
 
 `data_source = "synthetic"` builds a [`FlaggedSignal`](@ref) from the
 instants of `markers`; `"external"` reads the CSV at `ext_path` (relative
@@ -74,15 +91,15 @@ sharing the module's name shadows the module binding in downstream `using`
 scopes and breaks qualified access (`VirtualInstrument.next_segment!`).
 """
 mutable struct InstrumentState{S<:PayloadSource}
+    const origin::DateTime
     last_t::DateTime
-    id_counter::Int
-    sample_rate::Float64
-    segment_duration_sec::Float64
-    source::S
+    const sample_rate::Float64
+    const segment_duration_sec::Float64
+    const source::S
 end
 
 function InstrumentState(
-    start_t::DateTime,
+    origin::DateTime,
     sample_rate::Float64,
     segment_duration_sec::Float64,
     data_source::String,
@@ -103,7 +120,17 @@ function InstrumentState(
             ),
         )
     end
-    return InstrumentState(start_t, 1, sample_rate, segment_duration_sec, source)
+    return InstrumentState(origin, origin, sample_rate, segment_duration_sec, source)
+end
+
+"""
+    segment_boundary(origin::DateTime, period::Millisecond, t::DateTime) -> DateTime
+
+The first instant of the grid `origin + k · period` (`k` integer) at or
+after `t`.
+"""
+function segment_boundary(origin::DateTime, period::Millisecond, t::DateTime)
+    return origin + period * cld((t - origin).value, period.value)
 end
 
 """
@@ -154,16 +181,19 @@ function read_external_series(ext_path::String)
 end
 
 """
-    segment_samples!(source::PayloadSource, epoch, stop, n_samples) -> Vector{Float32}
+    segment_samples(source::PayloadSource, epoch, stop, first_row, n_samples) -> Vector{Float32}
 
-The `n_samples` samples of the segment with content span `[epoch, stop)`.
-An [`ExternalSeries`](@ref) advances its read index; a
-[`FlaggedSignal`](@ref) is stateless.
+The `n_samples` samples of the segment with content span `[epoch, stop)`,
+whose first sample is payload row `first_row`. A [`FlaggedSignal`](@ref) is
+addressed by the span, an [`ExternalSeries`](@ref) by the rows
+`first_row … first_row + n_samples − 1`; both are stateless, so the
+samples of a segment depend on its position on the payload grid alone.
 """
-function segment_samples!(
+function segment_samples(
     source::FlaggedSignal,
     epoch::DateTime,
     stop::DateTime,
+    ::Int,
     n_samples::Int,
 )
     first_at_or_after = searchsortedfirst(source.instants, epoch)
@@ -173,33 +203,116 @@ function segment_samples!(
     return fill(Float32(flagged), n_samples)
 end
 
-function segment_samples!(source::ExternalSeries, ::DateTime, ::DateTime, n_samples::Int)
+function segment_samples(
+    source::ExternalSeries,
+    ::DateTime,
+    ::DateTime,
+    first_row::Int,
+    n_samples::Int,
+)
+    first_row >= 1 || throw(ArgumentError("first_row must be ≥ 1 (got $first_row)."))
     data = zeros(Float32, n_samples)
-    available = length(source.samples) - source.index + 1
+    available = length(source.samples) - first_row + 1
     if available < n_samples
-        @warn "[INSTRUMENT] External data exhausted at sample $(source.index) of " *
+        @warn "[INSTRUMENT] External data exhausted at row $(max(first_row, length(source.samples) + 1)) of " *
               "$(length(source.samples)): padding with zeros from here on. " *
               "Provide a longer series or shorten the mission." maxlog = 1
     end
     n_copied = clamp(available, 0, n_samples)
-    copyto!(data, 1, source.samples, source.index, n_copied)
-    source.index += n_samples
+    copyto!(data, 1, source.samples, first_row, n_copied)
     return data
+end
+
+"""
+    segment_id(vi::InstrumentState, epoch::DateTime) -> Int
+
+Identifier of the segment opening at `epoch`,
+`(epoch − origin) / segment_duration_sec + 1`: segment 1 opens at the
+payload origin. `ArgumentError` when `epoch` precedes the origin or is not
+a grid instant.
+"""
+function segment_id(vi::InstrumentState, epoch::DateTime)
+    period_ms = TelemetryCore.segment_period(vi.segment_duration_sec).value
+    offset_ms = (epoch - vi.origin).value
+    (offset_ms >= 0 && offset_ms % period_ms == 0) || throw(
+        ArgumentError(
+            "$epoch is not a segment boundary of the payload grid (origin $(vi.origin), period $period_ms ms).",
+        ),
+    )
+    return offset_ms ÷ period_ms + 1
+end
+
+"""
+    payload_row(vi::InstrumentState, segment_id::Integer) -> Int
+
+Payload row of the first sample of segment `segment_id`,
+`(segment_id − 1) · n + 1` with `n` = [`samples_per_segment`](@ref). When
+`sample_rate × segment_duration_sec` is an integer this is
+`(epoch − origin) · sample_rate + 1`, the row whose instant is the segment's
+content epoch; otherwise (a configuration warned about at validation)
+consecutive segments still read consecutive, disjoint rows.
+"""
+function payload_row(vi::InstrumentState, segment_id::Integer)
+    return (segment_id - 1) * samples_per_segment(vi.sample_rate, vi.segment_duration_sec) +
+           1
+end
+
+"""
+    advance_to!(vi::InstrumentState, t::DateTime) -> DateTime
+
+Resumes the content clock at the first grid instant at or after `t` after a
+generation gap. The sampling phase of the payload origin is kept: a gap
+suppresses whole segments and never shifts the grid. A `t` at or before the
+current content instant leaves the clock unchanged. Returns the new content
+instant.
+"""
+function advance_to!(vi::InstrumentState, t::DateTime)
+    if t > vi.last_t
+        period = TelemetryCore.segment_period(vi.segment_duration_sec)
+        vi.last_t = segment_boundary(vi.origin, period, t)
+    end
+    return vi.last_t
+end
+
+"""
+    resumed(vi::InstrumentState, t::DateTime) -> InstrumentState
+
+The instrument of a restarted emitter: the payload origin, segment geometry,
+and source of `vi` — an external series is not read again — with the
+content clock at the first grid instant at or after `t`, and never before
+the content instant of `vi`, so the replacement cannot repeat a segment of
+its predecessor.
+"""
+function resumed(vi::InstrumentState, t::DateTime)
+    period = TelemetryCore.segment_period(vi.segment_duration_sec)
+    return InstrumentState(
+        vi.origin,
+        segment_boundary(vi.origin, period, max(t, vi.last_t)),
+        vi.sample_rate,
+        vi.segment_duration_sec,
+        vi.source,
+    )
 end
 
 """
     next_segment!(vi::InstrumentState) -> DataSegment
 
-The next segment of science data, stamped with its content epoch; advances
-the content clock by one segment period and the segment identifier by one.
+The next segment of science data, stamped with its content epoch and its
+[`segment_id`](@ref); advances the content clock by one segment period.
 """
 function next_segment!(vi::InstrumentState)
     period = TelemetryCore.segment_period(vi.segment_duration_sec)
     n_samples = samples_per_segment(vi.sample_rate, vi.segment_duration_sec)
-    data = segment_samples!(vi.source, vi.last_t, vi.last_t + period, n_samples)
-    segment = TelemetryCore.DataSegment(vi.id_counter, vi.last_t, data)
+    id = segment_id(vi, vi.last_t)
+    data = segment_samples(
+        vi.source,
+        vi.last_t,
+        vi.last_t + period,
+        payload_row(vi, id),
+        n_samples,
+    )
+    segment = TelemetryCore.DataSegment(id, vi.last_t, data)
     vi.last_t += period
-    vi.id_counter += 1
     return segment
 end
 

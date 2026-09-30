@@ -2645,8 +2645,10 @@ end
 
 One contiguous segment of the observed time series: the `Float32` samples
 `data` of one `segment_duration_sec` span whose first sample lies at the
-mission instant `timestamp`; `id` is the instrument's running segment
-counter.
+mission instant `timestamp`; `id` is the segment's position on the payload
+grid, `(timestamp − origin) / segment_duration_sec + 1`
+([`DeepSpaceTelemetry.VirtualInstrument.segment_id`](@ref)), unique within a
+run.
 """
 struct DataSegment
     id::Int
@@ -3024,16 +3026,23 @@ end
 
 # --- Batch & Segment I/O ---
 """
-    save_batch(path::String, batch::DataBatch; markers = String[])
+    save_batch(path::String, batch::DataBatch; markers = String[], payload_row = nothing)
 
 Serializes a `DataBatch` and its metadata to the specified physical directory.
 `metadata.json` carries `batch_id`, `segment_count`, `created_at` (mission
 time at which the batch was finalized and became transmittable),
 `content_epoch` (mission timestamp of the first sample of the payload —
-the physical epoch the segment data belong to), and, when given, `markers`
-— the labels of the event markers whose instant lies in the payload.
+the physical epoch the segment data belong to), and, when given,
+`payload_row` — the 1-based row of the first sample in the payload series
+that starts at the payload origin — and `markers` — the labels of the event
+markers whose instant lies in the payload.
 """
-function save_batch(path::String, batch::DataBatch; markers::Vector{String} = String[])
+function save_batch(
+    path::String,
+    batch::DataBatch;
+    markers::Vector{String} = String[],
+    payload_row::Union{Int,Nothing} = nothing,
+)
     mkpath(path)
     content_epoch = isempty(batch.segments) ? batch.created_at : batch.segments[1].timestamp
     metadata = Dict{String,Any}(
@@ -3042,6 +3051,7 @@ function save_batch(path::String, batch::DataBatch; markers::Vector{String} = St
         "created_at" => string(batch.created_at),
         "content_epoch" => string(content_epoch),
     )
+    payload_row === nothing || (metadata["payload_row"] = payload_row)
     isempty(markers) || (metadata["markers"] = markers)
     open(joinpath(path, "metadata.json"), "w") do io
         JSON3.write(io, metadata)

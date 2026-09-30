@@ -130,7 +130,8 @@ end
     MissionPlan
 
 Everything derived from a validated configuration before the mission clock
-starts: the run ID, the `[simulation]` scalars, the typed `[telemetry]`,
+starts: the run ID, the `[simulation]` scalars, the payload origin
+([`Emitter.instrument_epoch`](@ref)), the typed `[telemetry]`,
 `[physics]`, `[supervision]`, `[post_processing]`,
 `[post_processing.publication]`, `[ground]`, `[dashboard]`, and `[contacts]`
 settings, the composite link model, the
@@ -154,6 +155,7 @@ struct MissionPlan{
     start_sim::DateTime
     mission_wall_seconds::Float64
     initial_downtime_days::Float64
+    payload_origin::DateTime
     telemetry::T
     physics::P
     supervision::S
@@ -178,7 +180,8 @@ External-input coverage report and provenance stamp: row count and SHA-256
 of the input file are computed up front — before any directory exists — so
 exhaustion is predicted at startup rather than discovered mid-mission, and
 the run snapshot pins the exact input consumed (no sidecar or generator
-metadata is assumed). Writes `cfg["provenance"]`.
+metadata is assumed). Adds `external_data_path`, `external_data_rows`,
+`external_data_sha256`, and `declared_sample_rate` to `cfg["provenance"]`.
 """
 function stamp_external_provenance!(
     cfg::AbstractDict,
@@ -195,11 +198,14 @@ function stamp_external_provenance!(
     else
         @info "[INPUT] External data covers ≈ $(round(covered_days, digits=2)) mission days (mission needs $(round(needed_days, digits=2)))."
     end
-    cfg["provenance"] = Dict{String,Any}(
-        "external_data_path" => resolved,
-        "external_data_rows" => rows,
-        "external_data_sha256" => digest,
-        "declared_sample_rate" => physics.sample_rate,
+    merge!(
+        get!(Dict{String,Any}, cfg, "provenance"),
+        Dict{String,Any}(
+            "external_data_path" => resolved,
+            "external_data_rows" => rows,
+            "external_data_sha256" => digest,
+            "declared_sample_rate" => physics.sample_rate,
+        ),
     )
     return cfg
 end
@@ -209,11 +215,13 @@ end
 
 Validates `cfg` (safe intervals, then the storage budget), builds the
 channel models — the loss channel, the run's only random stream, is seeded
-with `simulation.rng_seed` — stamps external-input provenance when
-`physics.data_source = "external"`, and fixes the run ID (generated when
-empty). Writes nothing to disk and leaves `cfg` unmodified: the plan
-carries a shallow copy of it, which is what receives the provenance stamp
-and becomes the run's configuration snapshot.
+with `simulation.rng_seed` — stamps the payload origin (`payload_origin`,
+the content instant of payload row 1 as an ISO-8601 string) and, when
+`physics.data_source = "external"`, the external-input provenance into
+`cfg["provenance"]`, and fixes the run ID (generated when empty). Writes
+nothing to disk and leaves `cfg` unmodified: the plan carries a shallow copy
+of it, which is what receives the provenance stamp and becomes the run's
+configuration snapshot.
 """
 function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
     TelemetryCore.validate_config(cfg)
@@ -231,6 +239,8 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
     downtime_days = Float64(get(sim, "initial_downtime_days", 0.0))
     seed = Int(get(sim, "rng_seed", 0))
     physics = TelemetryCore.physics_settings(cfg)
+    payload_origin = Emitter.instrument_epoch(start_sim, downtime_days)
+    cfg["provenance"] = Dict{String,Any}("payload_origin" => string(payload_origin))
     if physics.data_source == "external"
         stamp_external_provenance!(
             cfg,
@@ -245,6 +255,7 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
         start_sim,
         wall_seconds,
         downtime_days,
+        payload_origin,
         TelemetryCore.telemetry_settings(cfg),
         physics,
         TelemetryCore.supervision_settings(cfg),
@@ -266,26 +277,26 @@ end
 # --- Supervision ---
 
 """
-    record_generation_gap!(run_dir, clock)
+    record_generation_gap!(run_dir, clock, resume)
 
 Bounds an emitter outage in `events_tx.csv`: a `gap_start` row at the last
-recorded generation instant and a `gap_end` row at the current mission
-time (Batch = `STREAM`). Called before a replacement emitter is spawned —
-no live `events_tx` writer exists at that instant.
+recorded generation instant and a `gap_end` row at `resume`, the content
+instant at which the replacement instrument resumes (Batch = `STREAM`).
+Called before a replacement emitter is spawned — no live `events_tx` writer
+exists at that instant.
 """
-function record_generation_gap!(run_dir::String, clock::TelemetryCore.SimulationClock)
+function record_generation_gap!(
+    run_dir::String,
+    clock::TelemetryCore.SimulationClock,
+    resume::DateTime,
+)
     tx_log_path = joinpath(run_dir, "events_tx.csv")
     last_gen =
         isfile(tx_log_path) ?
         maximum(CSV.read(tx_log_path, DataFrame).SimTime; init = clock.start_sim_time) :
         clock.start_sim_time
     TelemetryCore.log_tx_event(run_dir, last_gen, "STREAM", "gap_start")
-    TelemetryCore.log_tx_event(
-        run_dir,
-        TelemetryCore.get_current_sim_time(clock),
-        "STREAM",
-        "gap_end",
-    )
+    TelemetryCore.log_tx_event(run_dir, resume, "STREAM", "gap_end")
     return nothing
 end
 
@@ -399,19 +410,19 @@ function supervise!(
 end
 
 """
-    build_instrument(physics::NamedTuple, start_t::DateTime, markers) -> VirtualInstrument.InstrumentState
+    build_instrument(physics::NamedTuple, origin::DateTime, markers) -> VirtualInstrument.InstrumentState
 
-The payload instrument of `[physics]` anchored at `start_t`: the start of
-the initial blind spot for the pre-population ([`Emitter.instrument_epoch`](@ref)),
-the current mission time for a restarted emitter.
+The payload instrument of `[physics]` with payload origin `origin`, the
+start of the initial blind spot ([`Emitter.instrument_epoch`](@ref)), where
+the pre-population begins.
 """
 function build_instrument(
     physics::NamedTuple,
-    start_t::DateTime,
+    origin::DateTime,
     markers::Vector{TelemetryCore.EventMarker},
 )
     return VirtualInstrument.InstrumentState(
-        start_t,
+        origin,
         physics.sample_rate,
         physics.segment_duration_sec,
         physics.data_source,
@@ -426,10 +437,12 @@ end
                        receiver_logger, orig_stdout) -> Dict{Symbol,Function}
 
 The emitter and receiver launchers consumed by [`supervise!`](@ref).
-Attempt 0 continues the pre-populated instrument and partial batch; a
-restarted emitter (attempt ≥ 1) takes a fresh instrument anchored at the
-current mission time — a genuine generation gap — and no carried-over
-partial batch.
+Attempt 0 continues the pre-populated instrument and partial batch. A
+restarted emitter (attempt ≥ 1) takes no carried-over partial batch and the
+instrument [`VirtualInstrument.resumed`](@ref) from its predecessor at the
+current mission time — a genuine generation gap, bounded in `events_tx.csv`
+by [`record_generation_gap!`](@ref) at the resumption instant before the
+replacement task starts.
 """
 function component_spawners(
     plan::MissionPlan,
@@ -447,20 +460,14 @@ function component_spawners(
     physics = plan.physics
     telemetry = plan.telemetry
     dashboard = plan.dashboard
-    run_emitter_logged(attempt::Int) = with_logger(emitter_logger) do
+    run_emitter_logged(vi, pending) = with_logger(emitter_logger) do
         Emitter.run_emitter(
             clock,
             plan.link,
             plan.run_id,
-            attempt == 0 ? instrument :
-            build_instrument(
-                physics,
-                TelemetryCore.get_current_sim_time(clock),
-                plan.markers,
-            );
+            vi;
             batch_size = physics.batch_size,
-            pending_segments = attempt == 0 ? pending_segments :
-                               TelemetryCore.DataSegment[],
+            pending_segments = pending,
             markers = plan.markers,
             generation_gaps = plan.generation_gaps,
             onboard_capacity_batches = plan.onboard_capacity_batches,
@@ -488,8 +495,17 @@ function component_spawners(
             heartbeat_path = heartbeats[:receiver],
         )
     end
+    latest = Ref(instrument)
+    function spawn_emitter(attempt::Int)
+        attempt == 0 &&
+            return Threads.@spawn(run_emitter_logged(instrument, pending_segments))
+        latest[] =
+            VirtualInstrument.resumed(latest[], TelemetryCore.get_current_sim_time(clock))
+        record_generation_gap!(run_dir, clock, latest[].last_t)
+        return Threads.@spawn(run_emitter_logged(latest[], TelemetryCore.DataSegment[]))
+    end
     return Dict{Symbol,Function}(
-        :emitter => attempt -> Threads.@spawn(run_emitter_logged(attempt)),
+        :emitter => spawn_emitter,
         :receiver => attempt -> Threads.@spawn(run_receiver_logged(attempt)),
     )
 end
@@ -795,11 +811,7 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
     )
     instrument, pending_segments = with_logger(emitter_logger) do
         Emitter.pre_populate(
-            build_instrument(
-                physics,
-                Emitter.instrument_epoch(plan.start_sim, plan.initial_downtime_days),
-                plan.markers,
-            ),
+            build_instrument(physics, plan.payload_origin, plan.markers),
             plan.start_sim,
             plan.run_id;
             batch_size = physics.batch_size,
@@ -846,16 +858,7 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
         receiver_logger,
         orig_stdout,
     )
-    supervise!(
-        spawners,
-        run_dir,
-        clock,
-        stop_flag,
-        heartbeats,
-        plan.supervision;
-        on_restart = (name, _) ->
-            name == :emitter && record_generation_gap!(run_dir, clock),
-    )
+    supervise!(spawners, run_dir, clock, stop_flag, heartbeats, plan.supervision)
     rm(joinpath(run_dir, "HALT"), force = true) # consumed if an operator halted the run
 
     post_process!(plan, run_dir; orig_stdout = orig_stdout)

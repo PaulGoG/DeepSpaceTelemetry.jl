@@ -42,7 +42,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `events_tx.csv` | emitter; the supervisor appends the `STREAM` gap pair while the emitter is down (one live writer at a time) | Tail/read. Generation and transmission milestones. |
 | `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics at a change-driven cadence, columns `SimTime, WallTime, Mission_Day, Hours_Elapsed, Bandwidth_Pct, Onboard_Buffer, Link_Buffer, Ground_Total, Ground_Live, Ground_Arch, Nominal_Bandwidth_Pct, Lost_Count, Retry_Count, Disruption_Active` (a pre-rename `Ground_Archive` column is normalized to `Ground_Total` on read). |
 | `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
-| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `git_dirty` (uncommitted changes in the checkout), `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `versioninfo`, `julia_threads`, `blas_threads` — the parameter hash `config_sha256` at `[provenance]` (the SHA-256 of the configuration as sorted TOML without that section; its first eight hex digits open the run identifier `RUN_cfg=<hash>_pid=<pid>_t=<yyyymmdd_HHMMSS>`), and, for external data, the input identity there (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`). |
+| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `git_dirty` (uncommitted changes in the checkout), `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `versioninfo`, `julia_threads`, `blas_threads` — the parameter hash `config_sha256` at `[provenance]` (the SHA-256 of the configuration as sorted TOML without that section; its first eight hex digits open the run identifier `RUN_cfg=<hash>_pid=<pid>_t=<yyyymmdd_HHMMSS>`), the payload origin `payload_origin` at `[provenance]` (the content instant of payload row 1, `start_sim_time` less `initial_downtime_days`, as an ISO-8601 string; see Batch Identity below), and, for external data, the input identity there (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`). |
 | `manifest_snapshot.toml` | pipeline (at startup) | Read. The manifest of the environment the run was resolved on: the exact version of every dependency. Manifests are not tracked in the repository, so this file and the commit in `config_snapshot.toml` together fix the code state. |
 | `RUN_ACTIVE` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor and absolute deadline (`wall_epoch`, `start_sim_time`, `speed_up`, `deadline_wall`); re-attaching components reconstruct the identical clock from it. |
@@ -65,13 +65,15 @@ A batch directory contains `metadata.json` and one `seg_<id>.csv` per segment
 (single `Amplitude` column; a synthetic run writes the flag values `0.0` and
 `1.0` there, an external run the ingested samples). The metadata keys are `batch_id`,
 `segment_count`, `content_epoch` — the mission timestamp of the payload's
-first sample, i.e. the physical epoch the data belong to — and `created_at`
-— the mission instant at which the batch was finalized and became
-transmittable (never earlier than the content end, and within one segment
-period of it when the host keeps pace with the accelerated clock). Segment
-files carry no timestamps; sample `k` of a batch lies at
-`content_epoch + (k − 1) / sample_rate`. A batch whose payload holds an
-event marker carries the marker labels under the optional `markers` key.
+first sample, i.e. the physical epoch the data belong to — `payload_row` —
+the payload row of that first sample (Batch Identity below) — and
+`created_at` — the mission instant at which the batch was finalized and
+became transmittable (never earlier than the content end, and within one
+segment period of it when the host keeps pace with the accelerated clock).
+Segment files carry no timestamps; sample `k` of a batch lies at
+`content_epoch + (k − 1) / sample_rate` and is payload row
+`payload_row + k − 1`. A batch whose payload holds an event marker carries
+the marker labels under the optional `markers` key.
 Batches are delivered by an atomic same-filesystem `mv`: a directory visible
 under `ground/` is complete, and it is never modified afterward except by
 the retention custodian (below).
@@ -128,16 +130,26 @@ one-sided, or `restart`s the component (bounded attempts). Consumers observe
 outages through `component_events.csv` and the heartbeat mtimes. A receiver
 outage needs no special handling — it reproduces ground-station-blackout
 phenomenology (backlog accumulation, then drain). An **emitter outage is a
-genuine generation gap**: the restarted instrument resumes at the *current*
-mission time, and the dead window is bounded
-by `gap_start`/`gap_end` rows (Batch = `STREAM`) in `events_tx.csv`. The
-same row pair bounds a **scheduled generation gap** (a disruption event with
-`affects = "generation"`; Batch = `SCHEDULED`) and a **recorder overflow**
-(the on-board buffer at `storage.onboard_capacity_days`; Batch =
-`RECORDER`, closed when room returns). Because batch IDs stay contiguous
-while mission time is not, point-wise mask rows must be re-anchored via
-`masks/batch_epochs.csv` when gap events are present; the mask replay
-itself treats gap events as state-preserving.
+genuine generation gap**: the restarted instrument resumes at the first
+segment boundary at or after the *current* mission time, on the sampling
+grid of the payload origin, and the dead window is bounded by
+`gap_start`/`gap_end` rows (Batch = `STREAM`) in `events_tx.csv`: `gap_start`
+is the last event-log instant before the outage (the partial batch the
+failed emitter held is lost with it), `gap_end` the resumption instant. The
+same row pair bounds a **scheduled
+generation gap** (a disruption event with `affects = "generation"`; Batch =
+`SCHEDULED`), whose `gap_start` is the first discarded content instant and
+whose `gap_end` is the scheduled end rounded up to the segment grid, so
+`[gap_start, gap_end)` is exactly the content not recorded;
+and a **recorder overflow** (the on-board buffer at
+`storage.onboard_capacity_days`; Batch = `RECORDER`, closed when room
+returns), during which the discarded data are generated and dropped, so the
+stream continues without a jump. No gap shifts the sampling grid: segment
+identifiers and payload rows continue from the content epoch. Because batch
+IDs stay contiguous while mission time is not, point-wise mask rows must be
+re-anchored — through `payload_row` or `masks/batch_epochs.csv` — when gap
+events are present; the mask replay itself treats gap events as
+state-preserving.
 
 ## Event Feeds
 
@@ -171,21 +183,45 @@ appended when that batch is finalized; state-preserving), and the
 Batch names are `LIVE_batch_<k>` (generated during a contact — a nominal
 pass or a low-latency period) or `ARCH_batch_<k>` (generated in a blind
 spot or blackout); `k` is the global
-1-based batch index. With
+1-based batch index.
+
+The payload is sampled on one grid for the whole run, anchored at the
+payload origin `t₀` (`[provenance] payload_origin` in
+`config_snapshot.toml`): payload row `r` is the sample at
+`t₀ + (r − 1) / sample_rate`. In external mode row `r` is data row `r` of the
+input CSV (header excluded); rows past its end are zeros. A batch with
+content epoch `e` starts at the row
+
+```
+payload_row = (e − t₀) · sample_rate + 1
+```
+
+stamped in its `metadata.json`, and holds the rows
+`payload_row … payload_row + points_per_batch − 1`, with
 
 ```
 points_per_batch = sample_rate × segment_duration_sec × batch_size
 ```
 
-(all three from `config_snapshot.toml` `[physics]`), batch `k` covers rows
+(all three from `config_snapshot.toml` `[physics]`). Segment identifiers are
+grid positions as well: `seg_<id>.csv` opens at
+`t₀ + (id − 1) · segment_duration_sec`, so identifiers never repeat within a
+run and a gap skips the identifiers of the segments it suppresses. The
+mapping is row-exact when `sample_rate × segment_duration_sec` is an
+integer, which validation warns about otherwise; the rows of consecutive
+segments then remain consecutive and disjoint, with
+`payload_row = (id − 1) · round(sample_rate × segment_duration_sec) + 1`.
+
+Only in a run whose `events_tx.csv` has no `gap_start` row does batch `k`
+cover the rows
 
 ```
 [(k − 1) · points_per_batch + 1,  k · points_per_batch]
 ```
 
-of the underlying time series. This mapping is **row-index exact**: in
-external mode the intervals index the input CSV rows one-to-one, and the
-point-wise masks are generated on the same convention.
+— the convention on which the point-wise masks are generated. With gaps
+present, batch indices stay contiguous across the missing rows, and
+`payload_row` is the reference.
 
 ## Live Consumption (streaming analysis)
 

@@ -39,9 +39,8 @@ runs from that anchor to `start_sim_time`, and an instrument anchored at or
 after `start_sim_time` returns at once with no batch written.
 
 Returns the instrument together with any trailing segments that did not fill
-a complete batch. Both must be handed to [`run_emitter`](@ref) so that the
-data stream (in particular an external CSV consumed via `ext_index`)
-continues without restarting at the first sample.
+a complete batch. Both must be handed to [`run_emitter`](@ref), which
+completes the partial batch in the mission phase.
 
 # Keyword arguments
 
@@ -112,7 +111,15 @@ function pre_populate(
             batch_name = TelemetryCore.batch_name(batch_counter, false)
             batch_dir = joinpath(buffer_path, batch_name)
 
-            stamp_markers!(batch_dir, batch, batch_name, run_dir, markers, vi.last_t)
+            stamp_markers!(
+                batch_dir,
+                batch,
+                batch_name,
+                run_dir,
+                markers,
+                vi.last_t;
+                payload_row = VirtualInstrument.payload_row(vi, batch.segments[1].id),
+            )
             # Ground-truth milestone: generation = finalization time.
             TelemetryCore.log_tx_event(run_dir, finalized_at, batch_name, "gen")
             empty!(pending)
@@ -130,11 +137,14 @@ end
 Scheduled generation gap: when the instrument's next content instant lies
 inside one of `gaps` (`(start, stop)` intervals), the segments of the
 incomplete batch are discarded (as in an emitter outage, so batch geometry
-stays uniform), the gap is bounded in `events_tx.csv` — `gap_start` at the
-first discarded epoch (or the content end when nothing was pending),
-`gap_end` at the gap's end, Batch = `SCHEDULED` — and the instrument's
-content time jumps to the gap end. Gap boundaries snap to segment
-boundaries. Returns `true` when a gap was skipped.
+stays uniform) and the content clock resumes at the first segment boundary
+at or after the gap's end ([`VirtualInstrument.advance_to!`](@ref)): the
+sampling phase of the payload origin is kept, so segment identifiers and
+payload rows continue on the same grid. The gap is bounded in
+`events_tx.csv` (Batch = `SCHEDULED`) by `gap_start` at the first discarded
+epoch (or the content end when nothing was pending) and `gap_end` at the
+resumption instant, so `[gap_start, gap_end)` is exactly the content not
+recorded. Returns `true` when a gap was skipped.
 """
 function skip_generation_gaps!(
     vi::VirtualInstrument.InstrumentState,
@@ -145,24 +155,24 @@ function skip_generation_gaps!(
     for (g0, g1) in gaps
         g0 <= vi.last_t < g1 || continue
         gap_start = isempty(pending) ? vi.last_t : pending[1].timestamp
+        resume = VirtualInstrument.advance_to!(vi, g1)
         TelemetryCore.log_tx_event(run_dir, gap_start, "SCHEDULED", "gap_start")
-        TelemetryCore.log_tx_event(run_dir, g1, "SCHEDULED", "gap_end")
-        @info "[EMITTER] Scheduled generation gap: no data from $gap_start until $g1."
+        TelemetryCore.log_tx_event(run_dir, resume, "SCHEDULED", "gap_end")
+        @info "[EMITTER] Scheduled generation gap: no data from $gap_start until $resume."
         empty!(pending)
-        vi.last_t = g1
         return true
     end
     return false
 end
 
 """
-    stamp_markers!(batch_dir, batch, batch_name, run_dir, markers, content_end)
+    stamp_markers!(batch_dir, batch, batch_name, run_dir, markers, content_end; payload_row)
 
-Saves `batch` ([`TelemetryCore.save_batch`](@ref)) with the labels of the
-event markers whose instant lies in its content span, and appends one
-`marker` row per hit to `events_tx.csv` (`SimTime` = the marker instant,
-`Batch` = the containing batch) so live consumers learn which batch holds
-the event the moment it becomes transmittable.
+Saves `batch` ([`TelemetryCore.save_batch`](@ref)) with its `payload_row`
+and the labels of the event markers whose instant lies in its content span,
+and appends one `marker` row per hit to `events_tx.csv` (`SimTime` = the
+marker instant, `Batch` = the containing batch) so live consumers learn
+which batch holds the event the moment it becomes transmittable.
 """
 function stamp_markers!(
     batch_dir::String,
@@ -170,10 +180,16 @@ function stamp_markers!(
     batch_name::String,
     run_dir::String,
     markers::Vector{TelemetryCore.EventMarker},
-    content_end::DateTime,
+    content_end::DateTime;
+    payload_row::Int,
 )
     hits = TelemetryCore.batch_markers(markers, batch.segments[1].timestamp, content_end)
-    TelemetryCore.save_batch(batch_dir, batch; markers = [m.label for m in hits])
+    TelemetryCore.save_batch(
+        batch_dir,
+        batch;
+        markers = [m.label for m in hits],
+        payload_row = payload_row,
+    )
     for m in hits
         TelemetryCore.log_tx_event(run_dir, m.time, batch_name, "marker")
     end
@@ -195,9 +211,10 @@ generating `ARCH_` batches that accumulate onboard.
 
 `instrument` is the [`VirtualInstrument.InstrumentState`](@ref) the stream
 continues from: the one returned by [`pre_populate`](@ref), with its
-`pending_segments`, on the first start; a fresh instrument anchored at the
-current mission time — a genuine generation gap — on a restart
-([`DeepSpaceTelemetry.Supervisor.build_instrument`](@ref)).
+`pending_segments`, on the first start; on a restart, the instrument
+[`VirtualInstrument.resumed`](@ref) at the first segment boundary at or
+after the current mission time, with the payload origin of the first start
+— a genuine generation gap.
 
 Generation is paced by the mission clock, not by the loop's own start: a
 segment is produced once the mission clock has passed the end of its content
@@ -374,7 +391,15 @@ function run_emitter(
                 batch_name = TelemetryCore.batch_name(batch_counter, is_live)
                 batch_dir = joinpath(buffer_path, batch_name)
 
-                stamp_markers!(batch_dir, batch, batch_name, run_dir, markers, vi.last_t)
+                stamp_markers!(
+                    batch_dir,
+                    batch,
+                    batch_name,
+                    run_dir,
+                    markers,
+                    vi.last_t;
+                    payload_row = VirtualInstrument.payload_row(vi, batch.segments[1].id),
+                )
 
                 # Add to internal queue
                 if is_live

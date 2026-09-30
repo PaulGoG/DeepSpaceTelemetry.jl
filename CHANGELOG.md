@@ -4,6 +4,63 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Every batch's `metadata.json` carries `payload_row`, the payload row of
+  its first sample: row `r` is the sample at
+  `payload_origin + (r − 1) / sample_rate`, in external mode data row `r` of
+  the input CSV.
+- `config_snapshot.toml` records `payload_origin` at `[provenance]` in every
+  run: the content instant of payload row 1, `start_sim_time` less
+  `initial_downtime_days`, as an ISO-8601 string. External runs keep
+  `external_data_rows` and `external_data_sha256` beside it.
+
+### Changed
+- For contributors: `VirtualInstrument.InstrumentState` carries the payload
+  origin, `segment_samples!` became the stateless `segment_samples` with a
+  row address, `segment_id`, `payload_row`, `advance_to!`, and `resumed` are
+  new, and `Supervisor.record_generation_gap!` takes the resumption instant.
+  A restarted emitter reuses the loaded external series instead of reading
+  the file again.
+
+### Fixed
+- An external payload stays aligned with the content epoch through scheduled
+  generation gaps and emitter restarts. Up to 2.0.1 the series was read
+  sequentially, independently of the content clock. After a scheduled gap
+  (`events_tx.csv` rows with Batch = `SCHEDULED`, in the blind spot or the
+  mission phase) the content epoch jumped to the gap end while the series
+  resumed where it had stopped, so every later batch carried rows from
+  before its `content_epoch`: each gap added its span from the end of the
+  last segment generated before it (1432 rows, 1.99 h, for a two-hour
+  repointing at 0.2 Hz). A restarted emitter (`component_events.csv`: Component
+  `emitter`, Event `restart`) read the series again from row 1, stamped
+  with the current mission time. Runs with `physics.data_source =
+  "external"` whose `[provenance.platform] package_version` is 2.0.1 or
+  earlier are affected from the first `SCHEDULED` `gap_start` or the first
+  emitter restart on; earlier batches and runs with neither, recorder
+  overflows (`RECORDER`) included, are correct. The payload is now
+  addressed by time: a segment opening at `e` starts at payload row
+  `(e − payload_origin) · sample_rate + 1`.
+- Segment identifiers are positions on the payload grid,
+  `(e − payload_origin) / segment_duration_sec + 1`, and never repeat within
+  a run. Up to 2.0.1 a restarted emitter numbered its segments from 1
+  again, in either payload mode, so `seg_<id>.csv` names repeated.
+- After a scheduled gap or an emitter restart, generation resumes at the
+  first segment boundary of the payload grid at or after the scheduled end
+  or the restart instant, and the `gap_end` row (`SCHEDULED` or `STREAM`)
+  records that instant; `[gap_start, gap_end)` of a scheduled gap is exactly
+  the content not recorded. Up to 2.0.1 generation resumed at the instant
+  itself, which moved every later segment off the grid and, when the
+  instant was off the sample grid, placed the samples between rows. In
+  synthetic runs this moves post-gap content epochs by less than one
+  segment period. Runs without a scheduled gap or an emitter restart are
+  unchanged apart from the added fields.
+- The analysis-interfaces page stated the mapping of batch `k` to rows
+  `[(k − 1) · points_per_batch + 1, k · points_per_batch]` as row-exact for
+  every external run; it holds only without generation gaps of any kind,
+  and `payload_row` is the reference otherwise.
+
 ## [2.0.1] - 2026-09-30
 
 ### Changed
