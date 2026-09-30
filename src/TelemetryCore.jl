@@ -3083,6 +3083,31 @@ function read_batch_metadata(batch_dir::String)
 end
 
 """
+    batch_metadata_values(parse_value, run_dir::String, key::String, T::Type) -> Dict{String,T}
+
+Batch name → `parse_value(meta[key])` for every batch directory under
+`onboard/`, `link/`, `ground/`, and `lost/` whose `metadata.json` records
+`key`; batches without the key, or whose value `parse_value` maps to
+`nothing`, are omitted.
+"""
+function batch_metadata_values(parse_value, run_dir::String, key::String, T::Type)
+    found = Dict{String,T}()
+    for sub in ("onboard", "link", "ground", "lost")
+        dir = joinpath(run_dir, sub)
+        isdir(dir) || continue
+        for name in readdir(dir)
+            batch_dir = joinpath(dir, name)
+            isdir(batch_dir) || continue
+            meta = read_batch_metadata(batch_dir)
+            haskey(meta, key) || continue
+            value = parse_value(meta[key])
+            value === nothing || (found[name] = value)
+        end
+    end
+    return found
+end
+
+"""
     batch_content_epochs(run_dir::String) -> Dict{String,DateTime}
 
 Batch name → content epoch (first-sample mission timestamp) for every batch
@@ -3091,20 +3116,28 @@ directory under `onboard/`, `link/`, `ground/`, and `lost/` whose
 existed are omitted).
 """
 function batch_content_epochs(run_dir::String)
-    epochs = Dict{String,DateTime}()
-    for sub in ("onboard", "link", "ground", "lost")
-        dir = joinpath(run_dir, sub)
-        isdir(dir) || continue
-        for name in readdir(dir)
-            batch_dir = joinpath(dir, name)
-            isdir(batch_dir) || continue
-            meta = read_batch_metadata(batch_dir)
-            haskey(meta, "content_epoch") || continue
-            epoch = tryparse(DateTime, String(meta["content_epoch"]))
-            epoch === nothing || (epochs[name] = epoch)
-        end
-    end
-    return epochs
+    return batch_metadata_values(
+        v -> tryparse(DateTime, string(v)),
+        run_dir,
+        "content_epoch",
+        DateTime,
+    )
+end
+
+"""
+    batch_payload_rows(run_dir::String) -> Dict{String,Int}
+
+Batch name → payload row of the first sample for every batch directory
+under `onboard/`, `link/`, `ground/`, and `lost/` whose `metadata.json`
+records a `payload_row` (batches written before 2.1.0 are omitted).
+"""
+function batch_payload_rows(run_dir::String)
+    return batch_metadata_values(
+        v -> v isa Integer ? Int(v) : nothing,
+        run_dir,
+        "payload_row",
+        Int,
+    )
 end
 
 """

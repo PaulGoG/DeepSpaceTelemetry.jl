@@ -4,6 +4,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `masks/batch_epochs.csv` carries a `PayloadRow` column, the payload row of
+  each batch's first sample from its metadata (missing for batches written
+  before 2.1.0), so point-wise mask rows re-anchor on the payload without
+  reading every batch directory; the HDF5 export's `masks/batch_epochs`
+  group gains the same dataset.
+
 ## [2.1.1] - 2026-09-30
 
 ### Fixed

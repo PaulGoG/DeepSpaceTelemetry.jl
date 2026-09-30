@@ -55,7 +55,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, the point-wise masks, and the provenance attributes in one HDF5 file (section below) — not the batch payloads, the clock anchor, the sentinels, or the logs; regenerable from the CSV products. |
 | `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact, `alert_latency`, `delivery_delay`, and `state_raster` (the batch-state timeline as a raster), each as `.png` and `.pdf`. |
 | `publication/` | post-processing (`[post_processing.publication]`) | Read/copy. Journal-width figure export, `<stem>__<run_id>.<format>`, with a `PROVENANCE.toml` sidecar (`[export]`: `run_id`, `run_directory`, `exported_at`, `column_width_mm`, `format`, `package_version`, `git_commit`, `config_snapshot_sha256`, `figures`). |
-| `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch`: the finalization instant from the event log and the first-sample timestamp from the batch metadata (missing when the metadata lacks it); written when the run has `gen` rows, it re-anchors point-wise mask rows when gap events are present. |
+| `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch, PayloadRow`: the finalization instant from the event log, and the first-sample timestamp and payload row from the batch metadata (missing when the metadata lacks them, as in runs before 2.1.0); written when the run has `gen` rows, it re-anchors point-wise mask rows on the mission timeline and the payload when gap events are present. |
 | `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`. |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline removes the file once the components have joined, before post-processing. |
 | `emitter.log`, `receiver.log`, `supervisor.log` | logger | Read. Human diagnostics — the two component logs, and the supervisor's `[SUPERVISOR]`, `[POST]`, and `[CONFIG]` records of the mission and its post-processing — rotated to `<name>#k.log` at `retention.log_rotate_mb`; not machine-parsed interfaces. |
@@ -279,7 +279,7 @@ derived view of them and can be regenerated at any time.
 | `events/tx`, `events/rx` | the event logs, one dataset per column |
 | `metrics/mission_profile` | the metrics profile, one dataset per column |
 | `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants (`SimTime`, `SimTime_iso`), and the attributes `state_codes` and `layout` |
-| `masks/batch_epochs` | the batch → epoch map |
+| `masks/batch_epochs` | the batch → epoch map, `PayloadRow` included |
 | `masks/pointwise/<stem>` | every point-wise expansion, `Ground_Available` as `Int8` per sample |
 | `metrology/alert_latency`, `metrology/alert_latency_markers`, `metrology/delivery_delay` | the metrology tables |
 | `markers`, `component_events` | the event markers and the component lifecycle record |

@@ -332,8 +332,14 @@ end
             # content epoch from each batch's metadata (the orphan seeded above
             # has no metadata and therefore no content epoch).
             epochs = CSV.read(joinpath(ra_dir, "masks", "batch_epochs.csv"), DataFrame)
-            @test names(epochs) == ["Batch", "GenSimTime", "ContentEpoch"]
+            @test names(epochs) == ["Batch", "GenSimTime", "ContentEpoch", "PayloadRow"]
             @test any(!ismissing, epochs.ContentEpoch)
+            # The payload row of every batch is the one its content epoch implies.
+            @test all(
+                r.PayloadRow ==
+                round(Int, (DateTime(r.ContentEpoch) - vi.origin).value / 1000 * 4.0) + 1
+                for r in eachrow(epochs)
+            )
             @test all(
                 ismissing(r.ContentEpoch) ||
                     DateTime(r.ContentEpoch) <= DateTime(r.GenSimTime) for

@@ -43,6 +43,13 @@
             joinpath(dir, "masks", "telemetry_mask_timeline.csv"),
             "SimTime,Batch_1,Batch_2\n2035-01-01T06:00:00,1,1\n2035-01-01T06:06:00,1,3\n",
         )
+        # One batch written before 2.1.0 (no content epoch, no payload row).
+        write(
+            joinpath(dir, "masks", "batch_epochs.csv"),
+            "Batch,GenSimTime,ContentEpoch,PayloadRow\n" *
+            "ARCH_batch_1,2035-01-01T06:00:00,,\n" *
+            "LIVE_batch_2,2035-01-01T06:03:00,2035-01-01T06:00:00,1441\n",
+        )
         write(
             joinpath(dir, "masks", "pointwise_mask_final.csv"),
             "Time_Index,Ground_Available\n1,0\n2,0\n3,1\n",
@@ -72,6 +79,10 @@
             @test size(states) == (2, 2) && states[2, 2] == 3 # Julia reads (batch, snapshot)
             @test read(f["masks/timeline/batch_id"]) == [1, 2]
             @test read(f["masks/timeline/SimTime"]) ≈ [0.0, 360.0] rtol = 1e-12
+            payload_rows = read(f["masks/batch_epochs/PayloadRow"])
+            @test isnan(payload_rows[1]) && payload_rows[2] == 1441.0
+            @test read(f["masks/batch_epochs/ContentEpoch_iso"]) ==
+                  ["", "2035-01-01T06:00:00"]
             @test read(f["masks/pointwise/pointwise_mask_final/Ground_Available"]) ==
                   Int8[0, 0, 1]
             @test !haskey(f, "metrology/delivery_delay")
