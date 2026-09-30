@@ -4,7 +4,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.0.1] - 2026-09-30
 
 ### Changed
 - Documentation names the payload as what it is since 2.0.0 — a binary flag
@@ -23,6 +23,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - The physics page sources the mission epoch of the shipped scenarios in
   the LISA science ground segment conventions (Baghi et al. 2026,
   arXiv:2603.22377) and lists every reference with its DOI.
+- Docstrings cite the Definition Study Report with its DOI; the manual,
+  the README, and the docstrings use American spelling throughout
+  (backward, afterward, acknowledgment).
 
 ### Fixed
 - Shaded event spans narrower than 0.6 % of the plotted range are widened
@@ -210,6 +213,22 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `config_source` says `snapshot` or `fallback`, and a missing snapshot is
   reported like a corrupt one.
 
+## [1.2.1] - 2026-09-30
+
+### Changed
+- The manual and the docstrings follow the writing conventions of 2.0.1:
+  literature references carry their DOIs, the LISA conventions document is
+  cited in its published issue (Baghi et al. 2026, arXiv:2603.22377),
+  American spelling throughout, commands without `--project=.`, and author
+  metadata with the name only. Code and behavior are those of 1.2.0.
+- The manual and README figures are re-rendered with the plotting code of
+  2.0.1 from a new run of `scenarios/stress_8h_bursty.toml` on 1.2.1.
+
+### Fixed
+- Robson, Cornish & Liu (2019) is cited by the paper's equation numbers:
+  Eq. 13 for the instrument term, Eqs. 10 and 11 for `P_OMS` and `P_acc`
+  (Eq. 1 before).
+
 ## [1.2.0] - 2026-09-13
 
 ### Added
@@ -251,6 +270,20 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - The storage estimate counts the two new figure products.
 - The mask expander reads the timeline on one task, which avoids a logged
   CSV.jl failure on the wide rows.
+
+## [1.1.1] - 2026-09-30
+
+### Changed
+- The manual and the docstrings follow the writing conventions of 2.0.1:
+  literature references carry their DOIs, the LISA conventions document is
+  cited in its published issue (Baghi et al. 2026, arXiv:2603.22377),
+  American spelling throughout, commands without `--project=.`, and author
+  metadata with the name only. Code and behavior are those of 1.1.0.
+
+### Fixed
+- Robson, Cornish & Liu (2019) is cited by the paper's equation numbers:
+  Eq. 13 for the instrument term, Eqs. 10 and 11 for `P_OMS` and `P_acc`
+  (Eq. 1 before).
 
 ## [1.1.0] - 2026-09-11
 
@@ -297,9 +330,11 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
-[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.0.0...HEAD
+[2.0.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...v2.0.0
+[1.2.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...v1.2.0
+[1.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/releases/tag/v0.9.0
