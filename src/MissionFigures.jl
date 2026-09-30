@@ -85,7 +85,7 @@ const SPAN_COALESCE_FRACTION = 0.005
     SPAN_MIN_VISIBLE_FRACTION
 
 Fraction of the plotted time range below which a shaded span is widened,
-about its centre, to that width ([`shade_spans!`](@ref)): a 15-minute
+about its center, to that width ([`shade_spans!`](@ref)): a 15-minute
 generation gap on a seven-day axis would otherwise collapse to a line and
 lose the band encoding its legend entry shows.
 """
@@ -335,7 +335,7 @@ Shades `(start, stop)` spans onto `ax`, clamped to the plotted range: a wash
 of `color` with same-hue edge lines (`edgecolor`, `linestyle`) at the guide
 line width of `style`, pushed behind the data. A span narrower than
 [`SPAN_MIN_VISIBLE_FRACTION`](@ref) of the plotted range is widened about its
-centre to that width so it remains a visible band. The defaults are the
+center to that width so it remains a visible band. The defaults are the
 component-outage styling ([`PlotTheme.COLOR_OUTAGE`](@ref), dotted edges);
 the generation-gap, recorder-full, and low-latency washes pass their own.
 """
@@ -353,8 +353,8 @@ function shade_spans!(
     for span in spans
         o0, o1 = span
         if o1 - o0 < min_width
-            centre = (o0 + o1) / 2
-            o0, o1 = centre - min_width / 2, centre + min_width / 2
+            center = (o0 + o1) / 2
+            o0, o1 = center - min_width / 2, center + min_width / 2
         end
         o0c, o1c = max(o0, x_lo), min(o1, x_hi)
         o0c < o1c || continue

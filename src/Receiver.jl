@@ -382,7 +382,7 @@ function run_receiver(
                 # The slot starts when the previous one completed; only after
                 # an idle stretch of at least one slot does it start now. A
                 # deadline that is still in the past after chaining means the
-                # host cannot keep the modelled rate, and the loop yields.
+                # host cannot keep the modeled rate, and the loop yields.
                 now_wall = time()
                 service_due =
                     (

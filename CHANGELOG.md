@@ -26,12 +26,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ### Fixed
 - Shaded event spans narrower than 0.6 % of the plotted range are widened
-  about their centre to that width: a 15-minute repointing gap on a
+  about their center to that width: a 15-minute repointing gap on a
   seven-day mission summary had collapsed to a line, losing the band its
   legend entry shows.
 - The batch-tracker animation and the showcase routing frames draw their
   markers without a stroke: with hundreds of batches in a row the default
-  black strokes merged into a black bar and hid the family colours.
+  black strokes merged into a black bar and hid the family colors.
 - The receiver paces its download slots against a running wall-clock
   deadline: a slot starts when the previous one completed, so the loop's own
   work — directory scans, the metrics row, the file moves — is absorbed into
@@ -41,7 +41,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
   buffer growing by about six batches per pass on an idle host; with the fix
   the median is 194 s and the buffer clears at the end of each pass. A
   deadline still in the past after chaining means the host cannot keep the
-  modelled rate, and the loop yields instead of sleeping.
+  modeled rate, and the loop yields instead of sleeping.
 
 ## [2.0.0] - 2026-09-24
 

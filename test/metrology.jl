@@ -196,7 +196,7 @@ end
     )
 
     # Seasonal extension: +4 h at the peak day of year (symmetric about the
-    # window centre), none half a year away, the plain window elsewhere.
+    # window center), none half a year away, the plain window elsewhere.
     season = daily(extension = Second(4 * 3600))
     peak = TelemetryCore.nominal_window(season, Date(2035, 6, 21))
     trough = TelemetryCore.nominal_window(season, Date(2035, 12, 21))
