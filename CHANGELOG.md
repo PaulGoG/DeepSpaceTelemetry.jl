@@ -4,7 +4,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.1.1] - 2026-09-30
 
 ### Fixed
 - The downlink keeps serving the on-board buffer during a scheduled
