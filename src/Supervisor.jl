@@ -711,7 +711,7 @@ end
 
 Compiles both component loops before the mission clock starts: each is
 entered once with a deadline already in the past against a scratch run
-directory (`<run_id>__warmup`, removed afterwards), with the same argument
+directory (`<run_id>__warmup`, removed afterward), with the same argument
 types the mission uses. Without this, the first-call compilation of the
 loops — several wall-clock seconds in a fresh process — would elapse as
 mission time after the anchor (hours at high `speed_up`; a short mission

@@ -23,7 +23,7 @@ using TOML: TOML
 """
     C_LIGHT
 
-Speed of light in vacuum (m/s).
+Speed of light in vacuum [m s⁻¹].
 """
 const C_LIGHT = 2.99792458e8
 
@@ -245,8 +245,8 @@ mask_timeline_rows(run_dir::String) = countlines(mask_timeline_path(run_dir)) - 
 """
     checked_number(v, name::String) -> Float64
 
-Coerces a config value to `Float64`, aborting with a clean `[CONFIG]` error
-when the TOML value is not numeric (e.g. a quoted `"3600"`), instead of
+Coerces a config value to `Float64`, aborting with a `[CONFIG]` error naming
+the key when the TOML value is not numeric (e.g. a quoted `"3600"`), instead of
 surfacing a raw `MethodError` from deep inside the validator or a builder.
 """
 function checked_number(v, name::String)
@@ -258,8 +258,8 @@ end
 """
     checked_integer(v, name::String) -> Int
 
-Coerces a config value to `Int` with a clean `[CONFIG]` error on non-integer
-TOML values (strings, floats, booleans).
+Coerces a config value to `Int` with a `[CONFIG]` error naming the key on
+non-integer TOML values (strings, floats, booleans).
 """
 function checked_integer(v, name::String)
     (v isa Integer && !(v isa Bool)) ||
@@ -270,8 +270,8 @@ end
 """
     checked_string(v, name::String) -> String
 
-Coerces a config value to `String` with a clean `[CONFIG]` error when the
-TOML value is not a string.
+Coerces a config value to `String` with a `[CONFIG]` error naming the key when
+the TOML value is not a string.
 """
 function checked_string(v, name::String)
     v isa AbstractString ||
@@ -282,8 +282,8 @@ end
 """
     checked_flag(v, name::String) -> Bool
 
-Coerces a config value to `Bool` with a clean `[CONFIG]` rejection when the
-TOML value is not a boolean (e.g. a quoted `"true"`).
+Coerces a config value to `Bool` with a `[CONFIG]` error naming the key when
+the TOML value is not a boolean (e.g. a quoted `"true"`).
 """
 function checked_flag(v, name::String)
     v isa Bool || config_error("[CONFIG] $name must be a boolean (got $(repr(v))).")

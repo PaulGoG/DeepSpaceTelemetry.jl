@@ -45,7 +45,7 @@ end
     ExternalSeries(samples::Vector{Float32})
 
 Externally supplied time series consumed in consecutive segments from
-`index` onwards. Past its end the series is padded with zeros.
+`index` onward. Past its end the series is padded with zeros.
 """
 mutable struct ExternalSeries <: PayloadSource
     samples::Vector{Float32}

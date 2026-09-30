@@ -398,7 +398,7 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     hours(ms::Millisecond) = ms.value / TelemetryCore.MS_PER_HOUR
 
     # Per alert, the running completion instants of the window as it grows
-    # one batch at a time towards the past; `nothing` once a batch that
+    # one batch at a time toward the past; `nothing` once a batch that
     # never arrived enters the window.
     lifo_at = Vector{Vector{Union{Nothing,Float64}}}()
     fifo_at = Vector{Vector{Union{Nothing,Float64}}}()

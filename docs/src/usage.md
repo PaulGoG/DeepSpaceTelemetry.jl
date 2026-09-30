@@ -5,7 +5,7 @@ Every mission parameter is set in a TOML file. Every key's **safe
 interval** is documented inline in `config.toml`; `validate_config` enforces
 them at startup — code-breaking values abort with a precise message, suspicious
 ones warn. Type mismatches (quoted numbers, float counts) and malformed TOML
-abort with clean `[CONFIG]` errors; a corrupt run snapshot falls back to the
+abort with a `[CONFIG]` message rather than a stack trace; a corrupt run snapshot falls back to the
 project config with a warning, so post-processing of an old run is never aborted by it.
 
 Storage is governed up front: `check_storage_limits` prints a per-artifact
@@ -208,7 +208,7 @@ julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> <total_points> <ev
 
 External collaborators without this repository can use the dependency-light copy `scripts/postprocessing/standalone_mask_expander.jl`, which needs only `CSV` and `DataFrames`.
 
-With `hdf5_export = true` in `[post_processing]` every product — event logs, metrics, masks, metrology tables, markers — is additionally written to `products.h5` with the run's provenance as attributes (layout in the Analysis Interfaces page); the same file can be produced afterwards for any run:
+With `hdf5_export = true` in `[post_processing]` every product — event logs, metrics, masks, metrology tables, markers — is additionally written to `products.h5` with the run's provenance as attributes (layout in the Analysis Interfaces page); the same file can be produced afterward for any run:
 ```bash
 julia scripts/postprocessing/export_hdf5.jl [RUN_ID]
 ```
@@ -234,7 +234,7 @@ and 5 pt. Figure heights and legend rows follow from Makie's own layout
 measurements at the standard layout. In-axis annotations move to whichever
 end of the axis the disruption rules and event markers leave free, and the
 delivery-delay requirement rule stops above its annotation block instead of
-crossing it. The same export runs afterwards for any run with the
+crossing it. The same export runs afterward for any run with the
 settings of its snapshot:
 ```bash
 julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
@@ -252,7 +252,7 @@ between the future wash and the onboard color is generation, each pass turns a
 block of columns to the ground colors — the live color for batches generated
 in contact, the archive color for blind-spot batches, as in every other
 figure — and within an archive block the higher batch identifiers turn first:
-the LIFO backfill, advancing backwards in batch identifier. What remains in the onboard color at the top of the figure is the
+the LIFO backfill, advancing backward in batch identifier. What remains in the onboard color at the top of the figure is the
 backlog the run never cleared. It needs `generate_mask_timeline`, and is
 skipped without it.
 
