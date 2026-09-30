@@ -264,7 +264,7 @@ const CONFUSION_AMPLITUDE = 9e-45
 
 Amplitude `1.5 × 10⁻¹¹ m Hz⁻¹ᐟ²` of the optical-metrology-system
 displacement noise `P_OMS(f)` in Robson, Cornish & Liu (2019,
-[doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)), Eq. 1.
+[doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)), Eq. 10.
 """
 const OMS_NOISE_AMPLITUDE = 1.5e-11
 
@@ -281,7 +281,7 @@ const OMS_NOISE_KNEE_HZ = 2e-3
 
 Amplitude `3 × 10⁻¹⁵ m s⁻² Hz⁻¹ᐟ²` of the test-mass acceleration noise
 `P_acc(f)` in Robson, Cornish & Liu (2019,
-[doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)), Eq. 1.
+[doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)), Eq. 11.
 """
 const ACCELERATION_NOISE_AMPLITUDE = 3e-15
 
@@ -306,7 +306,7 @@ const ACCELERATION_NOISE_HIGH_KNEE_HZ = 8e-3
 
 Dimensionless coefficient `0.6` of the high-frequency correction
 `1 + 0.6 (f / f*)²` to the sky-averaged response in Robson, Cornish & Liu
-(2019, [doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)), Eq. 1.
+(2019, [doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)), Eq. 13.
 """
 const RESPONSE_CORRECTION_COEFFICIENT = 0.6
 
@@ -315,7 +315,7 @@ const RESPONSE_CORRECTION_COEFFICIENT = 0.6
 
 Sky- and polarization-averaged LISA instrument sensitivity `S_n(f)` [Hz⁻¹]
 at frequency `f` [Hz], Robson, Cornish & Liu (2019,
-[doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)), Eq. 1:
+[doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)), Eq. 13:
 
     S_n(f) = 10 / (3 L²) · [P_OMS(f) + 2 (1 + cos²(f/f*)) P_acc(f) / (2π f)⁴] · [1 + 0.6 (f/f*)²]
 
@@ -388,7 +388,7 @@ Sky-averaged LISA sensitivity [Hz⁻¹] at frequency `f` [Hz]: the instrument
 term [`lisa_instrument_psd`](@ref) plus the galactic-confusion foreground
 [`lisa_confusion_psd`](@ref) of the fit for `observation_years`. It is the
 noise PSD divided by the sky- and polarization-averaged response (Robson,
-Cornish & Liu 2019, Eqs. 1 and 14;
+Cornish & Liu 2019, Eqs. 13 and 14;
 [doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)),
 the quantity the downstream classifier
 whitens against, and the synthesis reproduces it at the correct absolute

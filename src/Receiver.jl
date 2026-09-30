@@ -1310,7 +1310,7 @@ telemetry theme.
 The figure is the routing doctrine in one panel: the boundary between the
 future wash and the onboard color is generation, each pass turns a block of
 columns to the ground color, and within a block the higher batch
-identifiers turn first — the LIFO backfill, advancing backwards in batch
+identifiers turn first — the LIFO backfill, advancing backward in batch
 identifier. What survives to the top of the figure in the onboard color is
 the backlog the run never cleared.
 """

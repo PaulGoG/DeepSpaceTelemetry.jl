@@ -13,7 +13,7 @@ of analysis instances may operate concurrently on a single telemetry run.
    needs to own is copied out to consumer-managed storage.
 2. **Concurrent consumers are safe by construction.** All consumer-facing
    files are either append-only (event logs, metrics) or appear atomically
-   and are immutable afterwards (batch directories). No locking protocol
+   and are immutable afterward (batch directories). No locking protocol
    exists or is needed — provided rule 1 is respected.
 3. **The contract is invariant under `speed_up`.** A consumer developed
    against an accelerated run (`speed_up = 3600`) works unchanged against a
@@ -64,7 +64,7 @@ files carry no timestamps; sample `k` of a batch lies at
 `content_epoch + (k − 1) / sample_rate`. A batch whose payload holds an
 event marker carries the marker labels under the optional `markers` key.
 Batches are delivered by an atomic same-filesystem `mv`: a directory visible
-under `ground/` is complete, and it is never modified afterwards except by
+under `ground/` is complete, and it is never modified afterward except by
 the retention custodian (below).
 
 ## Availability Window & Lifecycle Sentinels
@@ -177,7 +177,7 @@ The recommended loop for an online sliding-window pipeline:
 
 Consumers must tolerate out-of-temporal-order arrival: live data streams FIFO
 with priority, while the archived backlog backfills LIFO (newest first), so
-coverage grows *backwards in time* from each live front — contiguously behind
+coverage grows *backward in time* from each live front — contiguously behind
 it, session by session, with a moving frontier at each blind-spot boundary.
 This is the intended behavior for sliding-window alert pipelines: the data
 most tightly coupled to a live event arrives first.
@@ -206,7 +206,7 @@ Alternatively, consume the prepared products:
 ## HDF5 Product Export
 
 With `post_processing.hdf5_export = true` (or
-`scripts/postprocessing/export_hdf5.jl [RUN_ID]` afterwards) the run's
+`scripts/postprocessing/export_hdf5.jl [RUN_ID]` afterward) the run's
 products are written into `products.h5`, one self-describing file for
 pipelines that read HDF5 rather than a directory of CSV files. The CSV
 products stay in place and remain the primary interface; the file is a

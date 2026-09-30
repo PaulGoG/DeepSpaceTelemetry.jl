@@ -13,6 +13,16 @@ Notable changes to DeepSpaceTelemetry. The format follows
   American spelling throughout, commands without `--project=.` (the scripts
   activate their environments themselves), and author metadata with the
   name only. Code and behavior are those of 1.2.0.
+- The manual and README figures are re-rendered with the plotting code of
+  2.0.1 from a new run of `scenarios/stress_8h_bursty.toml` on this release
+  (`docs/src/assets/PROVENANCE.toml`); the captions state that run's totals.
+
+### Fixed
+- The docstrings and the physics page cite Robson, Cornish & Liu (2019) by
+  the equation numbers of the paper: Eq. 13 for the instrument term with the
+  `2 (1 + cos²(f/f*))` factor the code implements, Eqs. 10 and 11 for
+  `P_OMS` and `P_acc`. Eq. 1, cited before, is the paper's combined
+  approximation with `4 P_acc`.
 
 ## [1.2.0] - 2026-09-13
 

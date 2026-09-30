@@ -330,7 +330,7 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     hours(ms::Millisecond) = ms.value / TelemetryCore.MS_PER_HOUR
 
     # Per alert, the running completion instants of the window as it grows
-    # one batch at a time towards the past; `nothing` once a batch that
+    # one batch at a time toward the past; `nothing` once a batch that
     # never arrived enters the window.
     lifo_at = Vector{Vector{Union{Nothing,Float64}}}()
     fifo_at = Vector{Vector{Union{Nothing,Float64}}}()
@@ -903,8 +903,8 @@ The figure is a validation, not a measurement: nothing is fitted, and the
 estimate reproduces the model at the correct absolute level over the band
 the synthesis block resolves. Below the first resolved bin — `1/(2·
 segment_duration_sec)` — the stream carries no power, so the estimate falls
-away from the model there; a segment length above about 2000 s is what makes
-the galactic-confusion foreground observable at all.
+away from the model there; the galactic-confusion foreground is observable
+only at segment lengths above about 2000 s.
 """
 function plot_payload_spectrum(
     run_dir::String;

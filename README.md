@@ -33,9 +33,9 @@ on the physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare
 blackout followed by a 12 h recovery ramp on day 2.5, a 12 h partial
 ground-station outage on day 5, a scheduled generation gap on day 1.5, and
 an event marker on day 4 whose triggered low-latency period opens six hours
-later at half capacity. The onboard buffer doubles from 288 to 581 batches
+later at half capacity. The onboard buffer doubles from 288 to 582 batches
 across the week — the disruption debt the link never recovers — while 707
-batches reach the ground and retransmission recovers all 47 rejected
+batches reach the ground and retransmission recovers all 46 rejected
 transfers, leaving the lost-batch strip at zero. Every number here comes
 from the run recorded in
 [`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml).
@@ -214,7 +214,7 @@ julia -i scripts/activate.jl   # the entry points' environment (terminal UI, log
 
 Each leaves a REPL with that environment active; from an existing REPL,
 `include` the same file. The first instantiation of an environment resolves
-and precompiles and is therefore slow, afterwards it is a no-op.
+and precompiles and is therefore slow, afterward it is a no-op.
 
 ## Usage & Execution
 
@@ -402,7 +402,7 @@ freely — for example `[-1, "10:20", 45]`. The
 - **Data products** — append-only emitter and receiver event logs, from which
   post-processing replays the exact per-batch state history; the 0–4 mask
   timeline and point-wise 0/1 availability masks; the metrics profile; the
-  batch-state raster, which shows the LIFO backfill advancing backwards in
+  batch-state raster, which shows the LIFO backfill advancing backward in
   batch identifier; a Welch estimate of the delivered payload against the
   noise model it was drawn from; an HDF5 export of every product carrying the
   run's provenance as attributes; publication figures at a declared printed
@@ -437,7 +437,7 @@ file-system broker, coordinated only by the shared accelerated clock:
 The routing invariant mirrors the LISA operational concept: **live data is
 transmitted FIFO with absolute priority; residual bandwidth backfills the
 archive LIFO (newest first)**, so alert pipelines can extend a live event's
-waveform backwards in time without temporal gaps.
+waveform backward in time without temporal gaps.
 
 ![Batch-routing animation: one row per stage, sky blue for live batches and
 green for archive ones, with the mission clock and the buffer counters in
@@ -448,7 +448,7 @@ satellite, in flight on the link, delivered on the ground — and the color
 the routing family: sky blue live (FIFO), green archive (LIFO), the marker
 shape repeating the distinction. Live batches cross as they are generated,
 so the sky-blue runs mark the passes, and between them the archive segment
-grows backwards in batch identifier, contiguous with the live tail. Through
+grows backward in batch identifier, contiguous with the live tail. Through
 the blackout the ground row stands still while the onboard block extends to
 the right. Each frame states the mission clock, the link state, and the
 onboard and ground counts.
