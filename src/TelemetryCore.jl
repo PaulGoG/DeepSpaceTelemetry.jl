@@ -580,8 +580,7 @@ const REMOVED_CONFIG_KEYS = Dict(
 Raises a `[CONFIG]` `ArgumentError` naming the replacement when `section`
 still carries `key`, a retired configuration key
 (`REMOVED_CONFIG_KEYS`); returns `nothing` otherwise. Called by the
-accessors that once read the key through a fallback and by
-[`validate_config`](@ref).
+accessors of the affected sections and by [`validate_config`](@ref).
 """
 function reject_removed_key(section::AbstractDict, sec_name::String, key::String)
     haskey(section, key) || return nothing
@@ -1341,7 +1340,9 @@ end
 
 The on-board recorder ceiling from `storage.onboard_capacity_days > 0`
 (default 14, the Definition Study Report's autonomy without ground
-contact): `days`, `batches` (the ceiling the emitter enforces — production
+contact; Colpi et al. 2024,
+[doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)):
+`days`, `batches` (the ceiling the emitter enforces — production
 over that span in whole batches, at least one), and `gigabit` (the
 physical volume when the link is given as a rate pair, else `NaN`).
 """
@@ -1515,7 +1516,7 @@ reproduces the plain daily window.
     `duration_hours > 0`, optional `capacity_fraction`, `label`): extra
     contact windows at constant capacity outside the nominal passes.
     Periods triggered by `[[events.markers]]`
-    ([`event_marker_settings`](@ref)) are appended, labelled by the marker.
+    ([`event_marker_settings`](@ref)) are appended, labeled by the marker.
 
 Malformed entries raise a `[CONFIG]` error: a silently dropped pass or
 period invalidates the scenario.
@@ -1728,7 +1729,7 @@ Hard errors (would break the pipeline):
 Warnings (runnable but likely unintended):
   - emitter wall-clock period `segment_duration_sec / speed_up` below
     [`EMITTER_PERIOD_WARN_MS`](@ref) (the generation loop cannot keep pace;
-    sim-time desync)
+    simulation-time desynchronization)
   - receiver nominal download slot `3600 / (max_batches_per_hour · speed_up)`
     below [`RECEIVER_SLOT_WARN_MS`](@ref) (the
     [`RECEIVER_SLEEP_FLOOR_SEC`](@ref) sleep floor distorts the download
@@ -2597,7 +2598,7 @@ existing file is rotated to `clock_anchor#k.toml` first, never
 overwritten). Written once at mission start; a re-attaching or restarted
 component reconstructs
 the identical clock from it ([`load_clock_anchor`](@ref)), so mission time
-survives component outages — the outage simply elapses as mission time.
+survives component outages — the outage elapses as mission time.
 """
 function save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
     path = joinpath(run_dir, "clock_anchor.toml")

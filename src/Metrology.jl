@@ -8,7 +8,9 @@ the ground — under the realized live-FIFO / archive-LIFO doctrine and under
 a counterfactual first-in, first-out drain that re-assigns the same service
 completions in content order. The second is the measurement-to-ground
 delay of every batch against a delivery requirement (the Definition Study
-Report's 24 hours). See [`alert_latency_table`](@ref),
+Report's 24 hours; Colpi et al. 2024,
+[doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)).
+See [`alert_latency_table`](@ref),
 [`plot_alert_latency`](@ref), [`delivery_delay_table`](@ref), and
 [`plot_delivery_delay`](@ref).
 """

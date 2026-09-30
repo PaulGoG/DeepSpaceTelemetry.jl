@@ -342,7 +342,7 @@ edges a figure draws — falls within `fraction` of the axis width of the
 right edge, in which case `:left`. `fraction` is the block's own width
 relative to the axis ([`annotation_fraction`](@ref)), so the test asks
 whether a rule would cross the text. When both ends are occupied it stays
-`:right`, since moving buys nothing.
+`:right`, since moving gains nothing.
 """
 function annotation_side(occupied, x_lo::Real, x_hi::Real, fraction::Real)
     span = x_hi - x_lo
@@ -483,7 +483,7 @@ ignored by current Makie and silently falls back to DejaVu), boxed axes with
 inward ticks, no titles, no minor ticks, a faint dashed grid, guide-weight
 upright and level rules, stroked markers, and frameless horizontal legends
 with bold group headers aligned at the top. Tick-label rotation is applied
-per axis where labels actually crowd (session HH:MM axes), not globally.
+per axis where labels crowd (session HH:MM axes), not globally.
 """
 function telemetry_theme(style::PlotStyle = PlotStyle())
     u(length) = scaled(style, length)

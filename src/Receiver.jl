@@ -67,7 +67,7 @@ console status panel to `orig_stdout`.
 
 A lost transfer leaves the batch on the link; its retransmission is served
 no earlier than one round-trip light time after the loss was detected
-(`round_trip_light_time_sec`, deferred negative acknowledgement), while the
+(`round_trip_light_time_sec`, deferred negative acknowledgment), while the
 other in-flight batches keep being served; after
 `max_retries` failed attempts the batch is moved to `lost/` — never deleted —
 which frees the emitter's transmission window slot (in-flight occupancy is
@@ -140,7 +140,7 @@ function run_receiver(
     last_bw = -1.0
 
     retry_counts = Dict{String,Int}() # failed attempts per in-flight batch
-    # Deferred negative acknowledgement: a lost transfer is detected on the
+    # Deferred negative acknowledgment: a lost transfer is detected on the
     # ground when it completes, and its retransmission cannot be served before
     # one round-trip light time later. Not persisted across a re-attach (a
     # restarted receiver may retry immediately).
