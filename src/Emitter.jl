@@ -196,6 +196,48 @@ function stamp_markers!(
     return nothing
 end
 
+"""
+    transmit_onboard!(live_queue, arch_queue, link, sim_t, run_dir; max_inflight_batches) -> Int
+
+Places on-board batches on the downlink while `link` is transmittable at
+`sim_t` (visibility and no blackout): every free in-flight slot — the
+`link/` listing below `max_inflight_batches`, a slot freeing the moment the
+receiver moves a batch out — is refilled from `live_queue` (FIFO,
+absolute priority), then from `arch_queue` (held newest first, so the
+archive drains LIFO). Each move from `onboard/` to `link/` is appended to
+`events_tx.csv` as a `tx` row. Returns the number of batches placed.
+"""
+function transmit_onboard!(
+    live_queue::Vector{String},
+    arch_queue::Vector{String},
+    link::ChannelEffects.LinkModel,
+    sim_t::DateTime,
+    run_dir::String;
+    max_inflight_batches::Int,
+)
+    ChannelEffects.is_transmittable(link, sim_t) || return 0
+    buffer_path = joinpath(run_dir, "onboard")
+    link_path = joinpath(run_dir, "link")
+    link_count = length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
+    placed = 0
+    while link_count < max_inflight_batches
+        next_batch, reason = if !isempty(live_queue)
+            popfirst!(live_queue), "Priority"
+        elseif !isempty(arch_queue)
+            popfirst!(arch_queue), "Backfill"
+        else
+            break
+        end
+        TelemetryCore.backup_existing_dir(joinpath(link_path, next_batch))
+        mv(joinpath(buffer_path, next_batch), joinpath(link_path, next_batch))
+        @info "[EMITTER] Tx ->| $next_batch ($reason)"
+        TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
+        link_count += 1
+        placed += 1
+    end
+    return placed
+end
+
 # --- Emitter Main Loop ---
 """
     run_emitter(clock, link, run_id, instrument; batch_size, kwargs...)
@@ -223,7 +265,10 @@ instant of the next due segment ([`TelemetryCore.due_wall_time`](@ref)).
 A late start or a stall is recovered by generating back-to-back (yielding to
 the partner task on every catch-up iteration) until the content has caught
 up with the clock, so the content epoch of the stream tracks mission time
-within one segment period. Each sleep is capped at
+within one segment period. The downlink is served on every iteration
+([`transmit_onboard!`](@ref)): while no segment is due the loop wakes at each
+boundary of the payload grid, so a scheduled generation gap interrupts
+production but not transmission. Each sleep is capped at
 [`TelemetryCore.EMITTER_MAX_SLEEP_SEC`](@ref) so the heartbeat and the
 stop/deadline checks stay responsive at low `speed_up`. A content lag that
 persists above one period for longer than
@@ -331,15 +376,34 @@ function run_emitter(
 
             # 1. Pacing on the mission clock: the next segment is due once its
             #    content interval has elapsed (causality — the instrument
-            #    delivers a segment after observing it). Sleep until the exact
-            #    due wall instant, capped so the checks above stay responsive;
-            #    on the catch-up path yield so a partner task on the same
-            #    thread is never starved.
+            #    delivers a segment after observing it). Until then the
+            #    downlink is served and the loop sleeps until the next boundary
+            #    of the payload grid — the due instant, or, inside a scheduled
+            #    generation gap, the boundary the segment would have closed —
+            #    capped so the checks above stay responsive; on the catch-up
+            #    path yield so a partner task on the same thread is never
+            #    starved.
             skip_generation_gaps!(vi, pending, generation_gaps, run_dir) && continue
             sim_t = TelemetryCore.get_current_sim_time(clock)
             content_end = vi.last_t + seg_period
             if content_end > sim_t
-                due = TelemetryCore.due_wall_time(clock, content_end)
+                transmit_onboard!(
+                    onboard_live_queue,
+                    onboard_arch_queue,
+                    link,
+                    sim_t,
+                    run_dir;
+                    max_inflight_batches = max_inflight_batches,
+                )
+                wake = min(
+                    content_end,
+                    VirtualInstrument.segment_boundary(
+                        vi.origin,
+                        seg_period,
+                        sim_t + Millisecond(1),
+                    ),
+                )
+                due = TelemetryCore.due_wall_time(clock, wake)
                 deadline !== nothing && (due = min(due, deadline))
                 wait_sec = (due - now()).value / 1000.0
                 sleep(clamp(wait_sec, 0.0, TelemetryCore.EMITTER_MAX_SLEEP_SEC))
@@ -435,34 +499,15 @@ function run_emitter(
                 end
             end
 
-            # 4. Transmission — gated on the effective link (visibility AND no blackout)
-            if ChannelEffects.is_transmittable(link, sim_t)
-                # In-flight occupancy is the link/ directory listing: a slot
-                # frees the moment the receiver moves a batch out.
-                link_count =
-                    length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
-
-                # Refill every free in-flight slot: transmission opportunities
-                # are bounded by the cap and the receiver's service rate, not
-                # by the generation cadence (one segment period per iteration).
-                while link_count < max_inflight_batches
-                    next_batch = ""
-                    reason = ""
-                    if !isempty(onboard_live_queue)
-                        next_batch = popfirst!(onboard_live_queue) # FIFO for Live
-                        reason = "Priority"
-                    elseif !isempty(onboard_arch_queue)
-                        next_batch = popfirst!(onboard_arch_queue) # LIFO for Arch (since we pushfirst!)
-                        reason = "Backfill"
-                    end
-                    isempty(next_batch) && break
-                    TelemetryCore.backup_existing_dir(joinpath(link_path, next_batch))
-                    mv(joinpath(buffer_path, next_batch), joinpath(link_path, next_batch))
-                    @info "[EMITTER] Tx ->| $next_batch ($reason)"
-                    TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
-                    link_count += 1
-                end
-            end
+            # 4. Transmission
+            transmit_onboard!(
+                onboard_live_queue,
+                onboard_arch_queue,
+                link,
+                sim_t,
+                run_dir;
+                max_inflight_batches = max_inflight_batches,
+            )
         end
         @info "[EMITTER] Pacing summary: maximum content lag $(round(max_lag.value / 1000, digits = 1)) mission-s " *
               "($(round(max_lag.value / 1000 / clock.speed_up, digits = 3)) wall-s); content end $(vi.last_t)."

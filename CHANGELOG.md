@@ -4,6 +4,21 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- The downlink keeps serving the on-board buffer during a scheduled
+  generation gap. Up to 2.1.0 the emitter placed no batch on the link from
+  the gap start until the first segment after the gap was due: only the
+  batches already in flight (at most `telemetry.max_inflight_batches`)
+  drained, so with the link up a gap left the downlink idle for most of its
+  duration and delayed the backlog by about as much. The loop now wakes at
+  every segment boundary while nothing is generated and refills the free
+  in-flight slots. Runs with a `SCHEDULED` gap during a contact see earlier
+  deliveries (`events_tx.csv` `tx`, `events_rx.csv` `ingested`) and the
+  derived delivery-delay and alert-latency products; payloads, content
+  epochs, and gap rows are unchanged.
+
 ## [2.1.0] - 2026-09-30
 
 ### Added

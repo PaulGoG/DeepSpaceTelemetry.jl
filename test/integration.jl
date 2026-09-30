@@ -1254,3 +1254,103 @@ end
         end
     end
 end
+
+@testset "Downlink served during a scheduled generation gap" begin
+    # A one-hour gap opening 20 min into a contact, with a backlog of
+    # seventeen archive batches, two in-flight slots, and 5 min per transfer:
+    # the backlog keeps flowing to the ground while nothing is generated.
+    start = DateTime(2035, 3, 7)
+    gap = (start + Minute(20), start + Minute(80))
+    run_id = "TEST_RUN_gap_downlink_pid$(getpid())"
+    run_dir = TelemetryCore.setup_run_dir(
+        run_id;
+        cfg = Dict{String,Any}(
+            "simulation" => Dict{String,Any}(
+                "speed_up" => 3600.0,
+                "start_sim_time" => "2035-03-07T00:00:00",
+            ),
+        ),
+    )
+    try
+        vi, pending = with_logger(NullLogger()) do
+            Emitter.pre_populate(
+                VirtualInstrument.InstrumentState(
+                    Emitter.instrument_epoch(start, 0.1),
+                    0.2,
+                    50.0,
+                    "synthetic",
+                    "",
+                ),
+                start,
+                run_id;
+                batch_size = 10,
+                generation_gaps = [gap],
+            )
+        end
+        link = ChannelEffects.LinkModel(
+            TelemetryCore.VisibilityModel(Time(0), Second(24 * 3600), "flat"),
+        )
+        # Both loops compiled before the clock anchor, as in
+        # Supervisor.warm_up_components!: at this speed-up the first-call
+        # compilation would otherwise elapse as the whole gap.
+        warm_dir = TelemetryCore.setup_run_dir(run_id * "__warmup")
+        past = now() - Second(1)
+        with_logger(NullLogger()) do
+            warm_clock = TelemetryCore.SimulationClock(now(), start, 3600.0)
+            Emitter.run_emitter(
+                warm_clock,
+                link,
+                run_id * "__warmup",
+                VirtualInstrument.InstrumentState(start, 0.2, 50.0, "synthetic", "");
+                deadline = past,
+                batch_size = 10,
+                generation_gaps = [gap],
+                max_inflight_batches = 2,
+            )
+            Receiver.run_receiver(
+                warm_clock,
+                link,
+                run_id * "__warmup";
+                deadline = past,
+                orig_stdout = devnull,
+                batch_transfer_sec = 300.0,
+            )
+        end
+        rm(warm_dir; recursive = true, force = true)
+        clock = TelemetryCore.SimulationClock(now(), start, 3600.0)
+        em = Threads.@spawn with_logger(NullLogger()) do
+            Emitter.run_emitter(
+                clock,
+                link,
+                run_id,
+                vi;
+                deadline = now() + Millisecond(2500),
+                batch_size = 10,
+                pending_segments = pending,
+                generation_gaps = [gap],
+                max_inflight_batches = 2,
+            )
+        end
+        rx = Threads.@spawn with_logger(NullLogger()) do
+            Receiver.run_receiver(
+                clock,
+                link,
+                run_id;
+                deadline = now() + Millisecond(2500),
+                orig_stdout = devnull,
+                batch_transfer_sec = 300.0,
+            )
+        end
+        wait(em)
+        wait(rx)
+        tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+        rx_events = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+        inside(t) = gap[1] + Minute(2) < DateTime(t) < gap[2]
+        @test count(==("SCHEDULED"), tx.Batch) == 2
+        @test count(r -> r.Event == "tx" && inside(r.SimTime), eachrow(tx)) >= 5
+        @test count(r -> r.Event == "ingested" && inside(r.SimTime), eachrow(rx_events)) >=
+              5
+    finally
+        rm(run_dir; recursive = true, force = true)
+    end
+end
