@@ -133,7 +133,7 @@ added by URL, at a release tag):
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.1.0")
+Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.1.1")
 ```
 
 ---
@@ -454,7 +454,7 @@ file-system broker, coordinated only by the shared accelerated clock:
 The routing invariant mirrors the LISA operational concept: **live data is
 transmitted FIFO with absolute priority; residual bandwidth backfills the
 archive LIFO (newest first)**, so alert pipelines can extend a live event's
-waveform backwards in time without temporal gaps. Every batch milestone is
+waveform backward in time without temporal gaps. Every batch milestone is
 appended to `events_tx.csv` / `events_rx.csv`, from which post-processing
 reconstructs the exact per-batch state history (plots, animation, and the
 0–4 mask matrix). External analysis pipelines (sliding-window searches, alert

@@ -1263,8 +1263,8 @@ end
 """
     generate_telemetry_masks(run_dir::String)
 
-A post-processing utility that reconstructs the LIFO/FIFO transmission state
-machine from the event logs (see [`batch_states`](@ref)). It outputs a 2D matrix `telemetry_mask_timeline.csv`
+Reconstructs the LIFO/FIFO transmission state machine from the event logs
+(see [`batch_states`](@ref)) and writes the 2D matrix `telemetry_mask_timeline.csv`,
 where rows are time steps and columns are specific `Batch_ID`s, indicating
 their exact physical location (0=Future, 1=Onboard, 2=Link, 3=Ground,
 4=Lost).
@@ -1441,7 +1441,7 @@ console status panel to `orig_stdout`.
 
 A lost transfer leaves the batch on the link; its retransmission is served
 no earlier than one round-trip light time after the loss was detected
-(`round_trip_light_time_sec`, deferred negative acknowledgement), while the
+(`round_trip_light_time_sec`, deferred negative acknowledgment), while the
 other in-flight batches keep being served; after
 `max_retries` failed attempts the batch is moved to `lost/` — never deleted —
 which frees the emitter's transmission window slot (in-flight occupancy is
@@ -1514,7 +1514,7 @@ function run_receiver(
     last_bw = -1.0
 
     retry_counts = Dict{String,Int}() # failed attempts per in-flight batch
-    # Deferred negative acknowledgement: a lost transfer is detected on the
+    # Deferred negative acknowledgment: a lost transfer is detected on the
     # ground when it completes, and its retransmission cannot be served before
     # one round-trip light time later. Not persisted across a re-attach (a
     # restarted receiver may retry immediately).
@@ -1726,7 +1726,7 @@ function run_receiver(
             )
 
             # Batches whose retransmission cannot have arrived yet are skipped
-            # in favour of the next in-flight batch; the link idles only when
+            # in favor of the next in-flight batch; the link idles only when
             # every pending batch is waiting for its round trip.
             eligible = filter(f -> get(retry_after, f, sim_t) <= sim_t, pending_batches)
 

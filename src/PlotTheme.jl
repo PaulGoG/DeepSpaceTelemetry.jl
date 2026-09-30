@@ -94,7 +94,7 @@ const COLOR_MARKER = :black
 """
     COLOR_GUIDE
 
-Neutral grey for population aggregates and reference guides: the
+Neutral gray for population aggregates and reference guides: the
 all-batches delivery curve, the delivery-requirement line, and its label.
 """
 const COLOR_GUIDE = colorant"gray40"
@@ -253,7 +253,7 @@ MathTeXEngine (a plain `font = "Computer Modern"` string is ignored by
 current Makie and silently falls back to DejaVu), ≈ 9 pt body text at
 double-column scale (floored at ≈ 7 pt for narrower `style`s), boxed axes
 with inward ticks, no titles, no minor ticks, faint dashed grid.
-Tick-label rotation is applied per axis where labels actually crowd
+Tick-label rotation is applied per axis where labels crowd
 (session HH:MM axes), not globally.
 """
 function telemetry_theme(style::PlotStyle = PlotStyle())

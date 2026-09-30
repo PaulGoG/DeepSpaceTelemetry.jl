@@ -8,7 +8,9 @@ the ground — under the realized live-FIFO / archive-LIFO doctrine and under
 a counterfactual first-in, first-out drain that re-assigns the same service
 completions in content order. The second is the measurement-to-ground
 delay of every batch against a delivery requirement (the Definition Study
-Report's 24 hours). See [`alert_latency_table`](@ref),
+Report's 24 hours; Colpi et al. 2024,
+[doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)).
+See [`alert_latency_table`](@ref),
 [`plot_alert_latency`](@ref), [`delivery_delay_table`](@ref), and
 [`plot_delivery_delay`](@ref).
 """
@@ -308,7 +310,7 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     hours(ms::Millisecond) = ms.value / TelemetryCore.MS_PER_HOUR
 
     # Per alert, the running completion instants of the window as it grows
-    # one batch at a time towards the past; `nothing` once a batch that
+    # one batch at a time toward the past; `nothing` once a batch that
     # never arrived enters the window.
     lifo_at = Vector{Vector{Union{Nothing,Float64}}}()
     fifo_at = Vector{Vector{Union{Nothing,Float64}}}()

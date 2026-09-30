@@ -21,21 +21,21 @@ using TOML: TOML
 """
     L_ARM
 
-Length of the LISA constellation arms [m]: 2.5e9 m (2.5 million km).
+Length of the LISA constellation arms [m]: 2.5 × 10⁹ m (2.5 million km).
 """
 const L_ARM = 2.5e9
 
 """
     C_LIGHT
 
-Speed of light in vacuum (m/s).
+Speed of light in vacuum [m s⁻¹].
 """
 const C_LIGHT = 2.99792458e8
 
 """
     F_STAR
 
-Characteristic transfer frequency of the LISA arm (Hz).
+Characteristic transfer frequency of the LISA arm [Hz].
 """
 const F_STAR = C_LIGHT / (2π * L_ARM)
 
@@ -218,8 +218,8 @@ end
 """
     checked_number(v, name::String) -> Float64
 
-Coerces a config value to `Float64`, aborting with a clean `[CONFIG]` error
-when the TOML value is not numeric (e.g. a quoted `"3600"`), instead of
+Coerces a config value to `Float64`, aborting with a `[CONFIG]` error naming
+the key when the TOML value is not numeric (e.g. a quoted `"3600"`), instead of
 surfacing a raw `MethodError` from deep inside the validator or a builder.
 """
 function checked_number(v, name::String)
@@ -231,8 +231,8 @@ end
 """
     checked_integer(v, name::String) -> Int
 
-Coerces a config value to `Int` with a clean `[CONFIG]` error on non-integer
-TOML values (strings, floats, booleans).
+Coerces a config value to `Int` with a `[CONFIG]` error naming the key on
+non-integer TOML values (strings, floats, booleans).
 """
 function checked_integer(v, name::String)
     (v isa Integer && !(v isa Bool)) ||
@@ -243,8 +243,8 @@ end
 """
     checked_string(v, name::String) -> String
 
-Coerces a config value to `String` with a clean `[CONFIG]` error when the
-TOML value is not a string.
+Coerces a config value to `String` with a `[CONFIG]` error naming the key when
+the TOML value is not a string.
 """
 function checked_string(v, name::String)
     v isa AbstractString ||
@@ -255,8 +255,8 @@ end
 """
     checked_flag(v, name::String) -> Bool
 
-Coerces a config value to `Bool` with a clean `[CONFIG]` rejection when the
-TOML value is not a boolean (e.g. a quoted `"true"`).
+Coerces a config value to `Bool` with a `[CONFIG]` error naming the key when
+the TOML value is not a boolean (e.g. a quoted `"true"`).
 """
 function checked_flag(v, name::String)
     v isa Bool || config_error("[CONFIG] $name must be a boolean (got $(repr(v))).")
@@ -485,8 +485,7 @@ const REMOVED_CONFIG_KEYS = Dict(
 Raises a `[CONFIG]` `ArgumentError` naming the replacement when `section`
 still carries `key`, a configuration key retired at 1.0.0
 (`REMOVED_CONFIG_KEYS`); returns `nothing` otherwise. Called by the
-accessors that once read the key through a fallback and by
-[`validate_config`](@ref).
+accessors of the affected sections and by [`validate_config`](@ref).
 """
 function reject_removed_key(section::AbstractDict, sec_name::String, key::String)
     haskey(section, key) || return nothing
@@ -799,7 +798,7 @@ and `batch_size ≥ 1`, with at least two samples per segment (the FFT
 synthesis block). The four core keys are required. The optional
 `confusion_observation_years` (one of 0.5, 1.0, 2.0, 4.0; default 1.0)
 selects the galactic-confusion fit of the noise model and
-`noise_f_min_hz > 0` (default 1e-5) the lower edge of the synthesized band.
+`noise_f_min_hz > 0` (default 10⁻⁵ Hz) the lower edge of the synthesized band.
 The retired `signal_injection_probability` is rejected (event instants are
 `[[events.markers]]`). The
 existence of the external file is checked by [`validate_config`](@ref)
@@ -1180,7 +1179,9 @@ end
 
 The on-board recorder ceiling from `storage.onboard_capacity_days > 0`
 (default 14, the Definition Study Report's autonomy without ground
-contact): `days`, `batches` (the ceiling the emitter enforces — production
+contact; Colpi et al. 2024,
+[doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)):
+`days`, `batches` (the ceiling the emitter enforces — production
 over that span in whole batches, at least one), and `gigabit` (the
 physical volume when the link is given as a rate pair, else `NaN`).
 """
@@ -1354,7 +1355,7 @@ reproduces the plain daily window.
     `duration_hours > 0`, optional `capacity_fraction`, `label`): extra
     contact windows at constant capacity outside the nominal passes.
     Periods triggered by `[[events.markers]]`
-    ([`event_marker_settings`](@ref)) are appended, labelled by the marker.
+    ([`event_marker_settings`](@ref)) are appended, labeled by the marker.
 
 Malformed entries raise a `[CONFIG]` error: a silently dropped pass or
 period invalidates the scenario.
@@ -1566,7 +1567,7 @@ Hard errors (would break the pipeline):
 Warnings (runnable but likely unintended):
   - emitter wall-clock period `segment_duration_sec / speed_up` below
     [`EMITTER_PERIOD_WARN_MS`](@ref) (the generation loop cannot keep pace;
-    sim-time desync)
+    simulation-time desynchronization)
   - receiver nominal download slot `3600 / (max_batches_per_hour · speed_up)`
     below [`RECEIVER_SLOT_WARN_MS`](@ref) (the
     [`RECEIVER_SLEEP_FLOOR_SEC`](@ref) sleep floor distorts the download
@@ -2450,7 +2451,7 @@ existing file is rotated to `clock_anchor#k.toml` first, never
 overwritten). Written once at mission start; a re-attaching or restarted
 component reconstructs
 the identical clock from it ([`load_clock_anchor`](@ref)), so mission time
-survives component outages — the outage simply elapses as mission time.
+survives component outages — the outage elapses as mission time.
 """
 function save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
     path = joinpath(run_dir, "clock_anchor.toml")
@@ -2908,7 +2909,7 @@ end
 Ground-contact model of the downlink. The nominal daily window opens at
 `session_start` for `session_duration` with the capacity `profile`
 (`sigmoid_steepness`, `gaussian_sigma`); `seasonal_extension` widens it
-symmetrically about its centre, cosine-modulated with period
+symmetrically about its center, cosine-modulated with period
 `season_period_days` and peaking at `season_peak_day_of_year`;
 `exceptions` (`date => (start, duration)`, zero duration = missed pass)
 replace the window of a date verbatim; a non-empty `schedule` of explicit

@@ -4,7 +4,22 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.1] - 2026-09-30
+
+### Changed
+- The manual and the docstrings follow the writing conventions of 2.0.1:
+  literature references carry their DOIs, the LISA conventions document is
+  cited in its published issue (Baghi et al. 2026, arXiv:2603.22377),
+  American spelling throughout, commands without `--project=.` (the scripts
+  activate their environments themselves), and author metadata with the
+  name only. Code and behavior are those of 1.1.0.
+
+### Fixed
+- The docstrings and the physics page cite Robson, Cornish & Liu (2019) by
+  the equation numbers of the paper: Eq. 13 for the instrument term with the
+  `2 (1 + cos²(f/f*))` factor the code implements, Eqs. 10 and 11 for
+  `P_OMS` and `P_acc`. Eq. 1, cited before, is the paper's combined
+  approximation with `4 P_acc`.
 
 ## [1.1.0] - 2026-09-11
 
@@ -450,7 +465,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
   repository **SpaceTelemetrySim → DeepSpaceTelemetry** — a breaking change
   for any code `using` the old module name.
 
-[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...HEAD
+[1.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/releases/tag/v0.9.0

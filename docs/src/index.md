@@ -14,7 +14,7 @@ library, benchmarks):
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.1.0")
+Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.1.1")
 ```
 
 ## Capabilities
@@ -22,12 +22,10 @@ Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.1.0"
 * **Link capacity**: either the batches-per-hour abstraction or the physical rate pair `downlink_kbps` / `onboard_data_rate_kbps`, with the catch-up ratio and the capacity of one nominal pass against the daily production reported at start-up.
 * **Pass profiles**: `sine`, `sigmoid`, `gaussian`, or `flat` capacity over the pass; the validator states the profile mean when a shaped profile meets a physical rate.
 * **Contact schedule**: seasonal pass-duration modulation, per-date exceptions, explicit pass lists (TOML or CSV), and low-latency periods at a station-availability capacity fraction.
-* **FIFO/LIFO routing**: live transmission first (FIFO), then the archive backfill in strict LIFO order, so alert pipelines extend a live event's waveform backwards in time without gaps.
+* **FIFO/LIFO routing**: live transmission first (FIFO), then the archive backfill in strict LIFO order, so alert pipelines extend a live event's waveform backward in time without gaps.
 * **Stochastic packet loss**: per-transfer loss from a memoryless Bernoulli or a bursty Gilbert–Elliott channel, a retransmit/drop policy, and retransmissions deferred by the round-trip light time of the configured range; retry-exhausted batches land in `lost/` (data preserved, mask state `4`).
 * **Disruption events**: scheduled link disruptions (full or partial blackout, linear recovery ramp, elevated loss) and scheduled generation gaps such as antenna repointing; the on-board recorder ceiling discards data at capacity and records the loss as a gap.
 * **Event markers**: declared instants stamped into the batch metadata and the transmit log; the alert-latency and delivery-delay metrics are evaluated at each marker, with an optional triggered low-latency period.
 * **Post-processing products**: the exact batch-state history replayed from the event logs (`telemetry_mask_timeline.csv`), point-wise 0/1 availability masks, metrology tables, mission and session figures, an HDF5 export of every product with provenance attributes, and a publication export at a declared printed width with a provenance sidecar.
 * **Scenario library**: eleven complete configurations under `scenarios/`, from a 12-second smoke run to a 30-day seasonal mission, each validated by the test suite.
 * **Validated configuration**: every tunable has a documented safe interval; `validate_config` rejects code-breaking values and retired keys with a precise `[CONFIG]` message and warns on suspicious ones before any data is generated. All RNGs are seeded from the configuration.
-
-Navigate the manual using the sidebar: the physics engine, usage and configuration, the filesystem analysis interfaces, and the full API reference.
