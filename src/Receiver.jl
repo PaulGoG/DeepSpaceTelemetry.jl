@@ -779,7 +779,7 @@ end
 
 Row share of the Lost strip against a full panel of the mission summary: the
 strip carries rare discrete events and needs about a third of the height its
-neighbours do. Shared by the layout and by the height floor
+neighbors do. Shared by the layout and by the height floor
 ([`summary_figure_height`](@ref)), which sizes the figure so the strip's
 label clears the panel above.
 """
@@ -793,9 +793,9 @@ figure would take from its width alone, raised whenever the rotated y-labels
 of two adjacent panels would meet. `panels` pairs each panel's y-label with
 its row share, top to bottom.
 
-A rotated label is centred on its panel and overruns it freely, so the
-constraint is not that a label fit its own panel but that two neighbours keep
-apart: the distance between the centres of adjacent panels, `(hᵢ +
+A rotated label is centered on its panel and overruns it freely, so the
+constraint is not that a label fit its own panel but that two neighbors keep
+apart: the distance between the centers of adjacent panels, `(hᵢ +
 hᵢ₊₁)/2`, must exceed half the sum of their label extents. Solving that for
 the axes height and adding the legend and the x-decorations gives the floor.
 At the design width it never binds; below about 100 mm, where the label sizes
@@ -1652,8 +1652,8 @@ end
 """
     generate_telemetry_masks(run_dir::String)
 
-A post-processing utility that reconstructs the LIFO/FIFO transmission state
-machine from the event logs (see [`batch_states`](@ref)). It outputs a 2D matrix `telemetry_mask_timeline.csv`
+Reconstructs the LIFO/FIFO transmission state machine from the event logs
+(see [`batch_states`](@ref)) and writes the 2D matrix `telemetry_mask_timeline.csv`,
 where rows are time steps and columns are specific `Batch_ID`s, indicating
 their exact physical location (0=Future, 1=Onboard, 2=Link, 3=Ground,
 4=Lost).
@@ -1833,7 +1833,7 @@ console status panel to `orig_stdout`.
 
 A lost transfer leaves the batch on the link; its retransmission is served
 no earlier than one round-trip light time after the loss was detected
-(`round_trip_light_time_sec`, deferred negative acknowledgement), while the
+(`round_trip_light_time_sec`, deferred negative acknowledgment), while the
 other in-flight batches keep being served; after
 `max_retries` failed attempts the batch is moved to `lost/` — never deleted —
 which frees the emitter's transmission window slot (in-flight occupancy is
@@ -1906,7 +1906,7 @@ function run_receiver(
     last_bw = -1.0
 
     retry_counts = Dict{String,Int}() # failed attempts per in-flight batch
-    # Deferred negative acknowledgement: a lost transfer is detected on the
+    # Deferred negative acknowledgment: a lost transfer is detected on the
     # ground when it completes, and its retransmission cannot be served before
     # one round-trip light time later. Not persisted across a re-attach (a
     # restarted receiver may retry immediately).
@@ -2118,7 +2118,7 @@ function run_receiver(
             )
 
             # Batches whose retransmission cannot have arrived yet are skipped
-            # in favour of the next in-flight batch; the link idles only when
+            # in favor of the next in-flight batch; the link idles only when
             # every pending batch is waiting for its round trip.
             eligible = filter(f -> get(retry_after, f, sim_t) <= sim_t, pending_batches)
 

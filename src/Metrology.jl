@@ -8,7 +8,9 @@ the ground — under the realized live-FIFO / archive-LIFO doctrine and under
 a counterfactual first-in, first-out drain that re-assigns the same service
 completions in content order. The second is the measurement-to-ground
 delay of every batch against a delivery requirement (the Definition Study
-Report's 24 hours). The third is derived from the delivered payload rather
+Report's 24 hours; Colpi et al. 2024,
+[doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)).
+The third is derived from the delivered payload rather
 than the logs: a Welch estimate of its spectrum against the analytic model
 the synthesis drew it from. See [`alert_latency_table`](@ref),
 [`plot_alert_latency`](@ref), [`delivery_delay_table`](@ref),
@@ -891,7 +893,9 @@ end
 Renders `<run_dir>/plots/payload_spectrum.png` (vector twin): a Welch
 estimate ([`VirtualInstrument.welch_psd`](@ref)) of the delivered payload
 against the analytic model it was drawn from — the instrument term and the
-full `S(f)` of Robson, Cornish & Liu (2019). Returns the PNG path, or
+full `S(f)` of Robson, Cornish & Liu (2019,
+[doi:10.1088/1361-6382/ab1101](https://doi.org/10.1088/1361-6382/ab1101)).
+Returns the PNG path, or
 `nothing` for an external payload (there is no model to compare against) or
 when too little payload reached the ground.
 

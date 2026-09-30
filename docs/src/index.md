@@ -23,7 +23,7 @@ library, benchmarks):
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.2.0")
+Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.2.1")
 ```
 
 ## Capabilities
@@ -38,5 +38,3 @@ Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", rev = "v1.2.0"
 * **Post-processing products**: the exact batch-state history replayed from the event logs (`telemetry_mask_timeline.csv`), point-wise 0/1 availability masks, metrology tables, mission and session figures, an HDF5 export of every product with provenance attributes, and a publication export at a declared printed width with a provenance sidecar.
 * **Scenario library**: eleven complete configurations under `scenarios/`, from a 12-second smoke run to a 30-day seasonal mission, each validated by the test suite.
 * **Validated configuration**: every tunable has a documented safe interval; `validate_config` rejects code-breaking values and retired keys with a precise `[CONFIG]` message and warns on suspicious ones before any data is generated. All RNGs are seeded from the configuration.
-
-Navigate the manual using the sidebar: the physics engine, usage and configuration, the filesystem analysis interfaces, and the full API reference.

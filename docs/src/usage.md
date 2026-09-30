@@ -1,7 +1,7 @@
 # Usage & Configuration
 
 ## The Configuration File (`config.toml`)
-The simulator is entirely controlled via a TOML config. Every key's **safe
+Every mission parameter is set in a TOML file. Every key's **safe
 interval** is documented inline in `config.toml`; `validate_config` enforces
 them at startup — code-breaking values abort with a precise message, suspicious
 ones warn. Type mismatches (quoted numbers, float counts) and malformed TOML
@@ -26,12 +26,11 @@ The repository ships a library of complete configurations under
 `scenarios/`, each runnable by path; `scenarios/README.md` carries the
 coverage matrix and the expected regime of every file. `config.toml` at the
 package root is the default entry point and is a copy of
-`scenarios/recovery_12h_seasonal.toml`. Per the configuration-comment
-policy, the TOML files carry only per-key descriptions, admissible choices,
-and safe intervals — the scenario rationale lives in the library README and
-here.
+`scenarios/recovery_12h_seasonal.toml`. The TOML comments give only
+each key's meaning, admissible choices, and safe interval; the scenario
+rationale is stated in the library README and here.
 
-The reference scenario — **recovery at the seasonal peak** (~3 min wall
+The reference scenario — **recovery at the seasonal peak** (about 3 min wall
 time, 7 mission days from 21 June 2035) — runs the physical link:
 230 kbit/s downlink against 75 kbit/s production, flat within the pass
 (the Definition Study Report's sustained rate), with the daily 8-hour
@@ -59,7 +58,7 @@ policy, an explicit pass schedule, a 30-day seasonal mission reaching the
 recorder ceiling, 2400 s segments that resolve the galactic-confusion band,
 and external ingestion. Under the physical rate pair only the flat profile
 sustains production: a day's capacity is the link rate times the pass
-length times the profile mean (flat 1.0, sine 0.5, Gaussian σ = 0.15 0.38),
+length times the profile mean (flat 1.0, sine 0.5, Gaussian with σ = 0.15: 0.38),
 so the shaped profiles remain stress abstractions of a partially usable
 pass. `validate_config` warns when the rate pair meets a shaped profile,
 stating the profile mean and the capacity of one nominal pass against the
@@ -70,7 +69,7 @@ Any CLI argument ending in `.toml` selects the configuration (relative
 paths resolve against the current directory, then the package root); any
 other argument sets the run ID (both optional, order-independent):
 ```bash
-julia --threads=3 --project=. scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
+julia --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
 ```
 Every run archives the exact configuration it used as its own
 `config_snapshot.toml`, so reproducibility never depends on the driving
@@ -189,13 +188,13 @@ yields, and the entry point prints an advisory.
 
 **Interactive Dashboard:**
 ```bash
-julia --project=. --threads=3 scripts/launch_dashboard.jl
+julia --threads=3 scripts/launch_dashboard.jl
 ```
 This spawns the log terminals and the change-driven `UnicodePlots` live viewer (redrawn only on state change).
 
 **Headless Mode:**
 ```bash
-julia --project=. --threads=3 scripts/run_full_sim.jl
+julia --threads=3 scripts/run_full_sim.jl
 ```
 The receiver's console status panel (a text panel redrawn on every receiver
 iteration, which clears the terminal) is off by default;
@@ -209,7 +208,7 @@ Post-processing always reads the run's own `config_snapshot.toml`, so analyzing 
 
 One matrix row expands into a high-resolution point-wise 0/1 availability array (multiplied against the raw time series, it blanks out undelivered data):
 ```bash
-julia --project=. scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> <total_points> <event_row_index> <output.csv>
+julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> <total_points> <event_row_index> <output.csv>
 ```
 `event_row_index = -1` selects the final snapshot. To automate this after every run, set `expand_to_pointwise_masks = true` in `config.toml` and list the rows in `target_event_rows` (accepts `"all"`, integers with `-1` for the last row, and `"start:stop"` range strings).
 
@@ -217,7 +216,7 @@ External collaborators without this repository can use the dependency-light copy
 
 With `hdf5_export = true` in `[post_processing]` every product — event logs, metrics, masks, metrology tables, markers — is additionally written to `products.h5` with the run's provenance as attributes (layout in the Analysis Interfaces page); the same file can be produced afterwards for any run:
 ```bash
-julia --project=. scripts/postprocessing/export_hdf5.jl [RUN_ID]
+julia scripts/postprocessing/export_hdf5.jl [RUN_ID]
 ```
 
 ## Publication Figures
@@ -244,7 +243,7 @@ and the delivery-delay requirement rule stops above its annotation block
 instead of crossing it. The same export runs afterwards for any run with the
 settings of its snapshot:
 ```bash
-julia --project=. scripts/postprocessing/export_publication_figures.jl [RUN_ID]
+julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 ```
 
 ## Batch-State Raster and Payload Spectrum
@@ -274,7 +273,7 @@ payloads are skipped — there is no model to compare against.
 ## GIF Animation
 To visualize the LIFO/FIFO routing physics of a completed run:
 ```bash
-julia --project=. scripts/postprocessing/generate_gif.jl [--web] [RUN_ID]
+julia scripts/postprocessing/generate_gif.jl [--web] [RUN_ID]
 ```
 Every frame is one row of `mission_profile.csv` — a change-driven cadence,
 so the animation is not linear in mission time — and states the mission
