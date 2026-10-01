@@ -9,7 +9,7 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [compat]
 BenchmarkTools = "1.8"
-CSV = "0.10"
+CSV = "0.10, 1.1"
 DataFrames = "1.8"
 Dates = "1"
 Logging = "1"
