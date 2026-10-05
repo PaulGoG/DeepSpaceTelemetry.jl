@@ -221,6 +221,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                 xlabel = "Batch ID",
                 ylabel = "",
                 yticks = (ytick_vals, ytick_labels),
+                xtickformat = DeepSpaceTelemetry.PlotTheme.count_tickformat(xlim_max),
             )
             xlims!(ax, xlim_min, xlim_max)
             ylims!(ax, show_lost ? -0.5 : 0.5, 3.5)

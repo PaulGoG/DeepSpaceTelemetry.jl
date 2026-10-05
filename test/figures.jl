@@ -217,6 +217,54 @@ end
     @test MissionFigures.SESSION_PIN_HEIGHT < 1 / 1.2 + 0.1 &&
           MissionFigures.SESSION_PIN_HEIGHT > 1 / 1.2
 
+    # Count axes from 10⁴ on: one common power of ten, 1×10ⁿ written 10ⁿ.
+    @test PlotTheme.power_of_ten_labels([0, 10_000, 20_000, 30_000]) ==
+          ["0", "10⁴", "2×10⁴", "3×10⁴"]
+    @test PlotTheme.power_of_ten_labels([0, 5_000, 10_000, 15_000]) ==
+          ["0", "0.5×10⁴", "10⁴", "1.5×10⁴"]
+    @test PlotTheme.power_of_ten_labels([0.0, 250_000.0, 500_000.0]) ==
+          ["0", "2.5×10⁵", "5×10⁵"]
+    @test PlotTheme.power_of_ten_labels([-20_000, 0, 20_000]) == ["−2×10⁴", "0", "2×10⁴"]
+    @test PlotTheme.power_of_ten_labels(Float64[]) == String[]
+    @test PlotTheme.power_of_ten_labels([0, 0]) == ["0", "0"]
+    @test PlotTheme.count_tickformat(9_999.0) === PlotTheme.Makie.automatic
+    @test PlotTheme.count_tickformat(10_000.0) === PlotTheme.power_of_ten_labels
+    # Daily-mean capacity: an 8 h pass per mission day is a third of the day.
+    daily_pass = TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat")
+    daily_link = ChannelEffects.LinkModel(daily_pass, ChannelEffects.DisruptionTimeline())
+    daily = MissionFigures.daily_mean_capacity(
+        daily_pass,
+        daily_link,
+        DateTime(2035, 1, 1, 6),
+        72.0,
+    )
+    @test daily.hours == [0.0, 24.0, 48.0, 72.0]
+    @test length(daily.effective) == 4 && daily.effective[end] == daily.effective[end-1]
+    @test all(v -> isapprox(v, 100 / 3; atol = 1.5), daily.effective)
+    @test daily.nominal == daily.effective
+    partial = MissionFigures.daily_mean_capacity(
+        daily_pass,
+        daily_link,
+        DateTime(2035, 1, 1, 6),
+        60.0,
+    )
+    @test partial.hours == [0.0, 24.0, 48.0, 60.0]
+    @test isapprox(partial.effective[3], 200 / 3; atol = 3.0)
+    @test_throws ArgumentError MissionFigures.daily_mean_capacity(
+        daily_pass,
+        daily_link,
+        DateTime(2035, 1, 1, 6),
+        0.0,
+    )
+    daily_legend = MissionFigures.figure_legend_entries(;
+        degraded = false,
+        blackout = false,
+        ramp = false,
+        lost = :none,
+        daily_mean = true,
+    )
+    @test "Link capacity, daily mean" in daily_legend[1][3]
+
     # Session figures under a cap: evenly spaced, both ends included.
     @test MissionFigures.evenly_spaced(5, 0) == 1:5
     @test MissionFigures.evenly_spaced(5, 9) == 1:5

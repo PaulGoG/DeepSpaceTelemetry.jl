@@ -505,8 +505,9 @@ Legend elements and labels of a figure, with composite fill+edge patches for
 the band+stair pairs. Entries are strictly limited to what that figure
 draws: `degraded` swaps the single capacity entry for the nominal/effective
 pair, `blackout`/`ramp`/`outage`/`scheduled_gap`/`recorder`/`low_latency`
-gate the shading patches, `marker` gates the event-marker rule, and `lost` is
-`:strip` (summary stairs + marks), `:marks` (session ✕ pins), or `:none`.
+gate the shading patches, `marker` gates the event-marker rule, `daily_mean`
+marks the capacity labels as daily means, and `lost` is `:strip` (summary
+stairs + marks), `:marks` (session ✕ pins), or `:none`.
 The entries come in three families — `Link`, `Received`, `Events` — each a
 `(title, elements, labels)` tuple for [`PlotTheme.figure_legend!`](@ref);
 under its header a label names the series only (`Total (live + archive)`, not
@@ -522,8 +523,10 @@ function figure_legend_entries(;
     recorder::Bool = false,
     low_latency::Bool = false,
     marker::Bool = false,
+    daily_mean::Bool = false,
     style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
 )
+    capacity_suffix = daily_mean ? ", daily mean" : ""
     link_elems = Any[]
     link_labels = String[]
     received_elems = Any[]
@@ -539,18 +542,18 @@ function figure_legend_entries(;
                 linestyle = :dot,
             ),
         )
-        push!(link_labels, "Nominal capacity")
+        push!(link_labels, "Nominal capacity" * capacity_suffix)
         push!(
             link_elems,
             LineElement(color = PlotTheme.COLOR_BANDWIDTH, linewidth = style.linewidth),
         )
-        push!(link_labels, "Effective capacity")
+        push!(link_labels, "Effective capacity" * capacity_suffix)
     else
         push!(
             link_elems,
             LineElement(color = PlotTheme.COLOR_BANDWIDTH, linewidth = style.linewidth),
         )
-        push!(link_labels, "Link capacity")
+        push!(link_labels, "Link capacity" * capacity_suffix)
     end
     push!(
         link_elems,
@@ -872,6 +875,61 @@ function capacity_curves(
 end
 
 """
+    SUMMARY_DAILY_MEAN_DAYS
+
+Mission span [days] above which the mission summary draws the capacity as
+its mean over each mission day ([`daily_mean_capacity`](@ref)). At the
+standard layout a day is then narrower than three line widths, and the
+passes drawn one by one merge into a solid block.
+"""
+const SUMMARY_DAILY_MEAN_DAYS = 120
+
+"""
+    DAILY_MEAN_SAMPLES
+
+Instants per mission day on which [`daily_mean_capacity`](@ref) evaluates
+the capacity: one per minute, so that a pass whose length drifts by minutes
+from day to day gives a mean that drifts with it instead of jumping by
+quarter hours.
+"""
+const DAILY_MEAN_SAMPLES = 1440
+
+"""
+    daily_mean_capacity(vis_model, link_model, t_start, x_hi) -> NamedTuple
+
+Nominal and effective link capacity [%] averaged over each mission day of
+`[0, x_hi]` hours since `t_start`, as `(hours, nominal, effective)` for a
+staircase with `step = :post`: `hours` are the day boundaries `0, 24, …`
+closed by `x_hi`, and the value at a boundary is the mean over the day that
+begins there (the last value repeats the one before it). A day's mean times
+24 h is the contact time of that day at full capacity, which is what sets
+the daily balance against production; a pass, a missed pass, and a
+disruption each remain visible as a level.
+"""
+function daily_mean_capacity(
+    vis_model::TelemetryCore.VisibilityModel,
+    link_model::ChannelEffects.LinkModel,
+    t_start::DateTime,
+    x_hi::Real,
+)
+    x_hi > 0 ||
+        throw(ArgumentError("daily_mean_capacity needs a positive span, got $x_hi."))
+    hours = collect(0.0:24.0:Float64(x_hi))
+    hours[end] < x_hi && push!(hours, Float64(x_hi))
+    nominal = Float64[]
+    effective = Float64[]
+    for k in 1:(length(hours)-1)
+        samples = max(2, round(Int, DAILY_MEAN_SAMPLES * (hours[k+1] - hours[k]) / 24) + 1)
+        day = capacity_curves(vis_model, link_model, t_start, hours[k], hours[k+1], samples)
+        push!(nominal, sum(@view day.nominal[1:(end-1)]) / (samples - 1))
+        push!(effective, sum(@view day.effective[1:(end-1)]) / (samples - 1))
+    end
+    push!(nominal, nominal[end])
+    push!(effective, effective[end])
+    return (; hours, nominal, effective)
+end
+
+"""
     step_vertices(x, y) -> Tuple{Vector{Float64},Vector{Float64}}
 
 Vertices of the staircase `stairs!` draws through `(x, y)` with
@@ -940,7 +998,10 @@ const SESSION_PIN_HEIGHT = 0.88
 Renders the mission summary — capacity with the onboard buffer on a twin
 axis, cumulative received batches (total and archive share), and, when the
 loss channel was active, the Lost strip — to
-`<run_dir>/plots/mission_summary_global.png` with a vector PDF twin. Must
+`<run_dir>/plots/mission_summary_global.png` with a vector PDF twin. Above
+[`SUMMARY_DAILY_MEAN_DAYS`](@ref) days the capacity is drawn as its mean over
+each mission day ([`daily_mean_capacity`](@ref)). Count axes that reach 10⁴
+carry power-of-ten tick labels ([`PlotTheme.count_tickformat`](@ref)). Must
 run inside the telemetry theme. Returns the PNG path.
 """
 function plot_mission_summary(
@@ -955,14 +1016,18 @@ function plot_mission_summary(
     # produce degenerate axis limits and crash the renderer.
     max_x_h = max(df_x[end], 1.0)
     tick_vals_h, tick_labels, time_label = mission_time_ticks(max_x_h)
-    capacity = capacity_curves(
-        ctx.vis_model,
-        ctx.link_model,
-        ctx.t_start,
-        0.0,
-        max_x_h,
-        SUMMARY_CAPACITY_SAMPLES,
-    )
+    daily_mean = max_x_h / 24 > SUMMARY_DAILY_MEAN_DAYS
+    capacity =
+        daily_mean ?
+        daily_mean_capacity(ctx.vis_model, ctx.link_model, ctx.t_start, max_x_h) :
+        capacity_curves(
+            ctx.vis_model,
+            ctx.link_model,
+            ctx.t_start,
+            0.0,
+            max_x_h,
+            SUMMARY_CAPACITY_SAMPLES,
+        )
 
     # Nominal (visibility-only) capacity is drawn behind the effective curve
     # when a disruption degraded the link somewhere in the run; the legend
@@ -978,6 +1043,7 @@ function plot_mission_summary(
         low_latency = spans_overlap(ctx.low_latency_spans, 0.0, max_x_h, 1, 2),
         marker = any(x -> 0.0 <= x <= max_x_h, ctx.marker_times),
         lost = ctx.show_lost_panel ? :strip : :none,
+        daily_mean = daily_mean,
     )
 
     # Provisional height: size_to_panels! sets it once the layout is complete.
@@ -1000,6 +1066,9 @@ function plot_mission_summary(
         # One grid per panel: the buffer ticks do not align with the
         # capacity ticks, and two interleaved grids read as clutter.
         ygridvisible = false,
+        ytickformat = PlotTheme.count_tickformat(
+            max(10.0, 1.3 * maximum(df.Onboard_Buffer)),
+        ),
     )
     hidespines!(ax1_twin)
     hidexdecorations!(ax1_twin)
@@ -1022,15 +1091,36 @@ function plot_mission_summary(
     end
 
     if show_nominal
-        lines!(
+        if daily_mean
+            stairs!(
+                ax1,
+                capacity.hours,
+                capacity.nominal;
+                step = :post,
+                color = (PlotTheme.COLOR_BANDWIDTH, 0.35),
+                linestyle = :dot,
+            )
+        else
+            lines!(
+                ax1,
+                capacity.hours,
+                capacity.nominal,
+                color = (PlotTheme.COLOR_BANDWIDTH, 0.35),
+                linestyle = :dot,
+            )
+        end
+    end
+    if daily_mean
+        stairs!(
             ax1,
             capacity.hours,
-            capacity.nominal,
-            color = (PlotTheme.COLOR_BANDWIDTH, 0.35),
-            linestyle = :dot,
+            capacity.effective;
+            step = :post,
+            color = PlotTheme.COLOR_BANDWIDTH,
         )
+    else
+        lines!(ax1, capacity.hours, capacity.effective, color = PlotTheme.COLOR_BANDWIDTH)
     end
-    lines!(ax1, capacity.hours, capacity.effective, color = PlotTheme.COLOR_BANDWIDTH)
     lines!(
         ax1_twin,
         df_x,
@@ -1045,6 +1135,7 @@ function plot_mission_summary(
         ylabel = "Received data batches",
         xticks = (tick_vals_h, tick_labels),
         yticks = PlotTheme.UpperPrunedTicks(),
+        ytickformat = PlotTheme.count_tickformat(max(10.0, 1.2 * maximum(df.Ground_Total))),
     )
     xlims!(ax2, 0, max_x_h)
     ylims!(ax2, 0, max(10.0, 1.2 * maximum(df.Ground_Total)))
@@ -1086,6 +1177,7 @@ function plot_mission_summary(
             ylabel = "Lost batches",
             xticks = (tick_vals_h, tick_labels),
             yticks = 0:tick_step:floor(Int, y_top),
+            ytickformat = PlotTheme.count_tickformat(y_top),
         )
         xlims!(ax3, 0, max_x_h)
         # A lossless run draws a flat zero stair, which would otherwise
@@ -1520,6 +1612,7 @@ function raster_figure(
         xlabel = "Batch ID",
         ylabel = time_label,
         yticks = (tick_values, tick_labels),
+        xtickformat = PlotTheme.count_tickformat(size(states, 2)),
     )
     by_code = sort(collect(RASTER_STATES); by = s -> s.code)
     # `rasterize` embeds the cells as one image in a vector export. Drawn as

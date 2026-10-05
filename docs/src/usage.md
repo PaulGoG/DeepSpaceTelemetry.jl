@@ -262,6 +262,15 @@ not grow with the number of windows. The start-up estimate prints it as
 `Figure RAM` and checks it against `storage.max_ram_gb`, beside the replay
 RAM of the mask timeline.
 
+Two elements of the mission summary change with the length of the mission.
+Above 120 mission days the passes drawn one by one would merge into a solid
+block, so the capacity panel shows the mean capacity of each mission day
+instead (the legend says so): an 8-hour pass is a third of the day, a
+missed pass is zero, and the seasonal extension appears as the slow rise
+and fall of that level. Count axes that reach 10⁴ batches carry tick labels
+with one common power of ten (`10⁴`, `2×10⁴`, …). Shorter missions and
+smaller counts are drawn as before.
+
 The post-processing writes its products in order of cost: the alert-latency
 and delivery-delay tables with their figures, the mask timeline and the
 raster drawn from it, then the mission summary and the session figures, the

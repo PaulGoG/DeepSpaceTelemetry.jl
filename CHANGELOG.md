@@ -4,6 +4,19 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The mission summary of a mission longer than 120 days draws the capacity
+  as its mean over each mission day. Drawn pass by pass, a year of daily
+  passes filled the panel as a solid block; the daily mean shows the
+  seasonal extension, the missed passes, and the disruptions as levels.
+
+### Fixed
+- Count axes that reach 10⁴ (received batches, buffer, lost batches, batch
+  identifiers of the raster and of the animation) carry tick labels with one
+  common power of ten in the form `10⁴`, `2×10⁴`; they read `1×10⁴` before.
+
 ## [2.3.0] - 2026-10-05
 
 ### Added

@@ -397,6 +397,69 @@ function annotation_anchor(occupied, x_lo::Real, x_hi::Real, fraction::Real)
 end
 
 """
+    POWER_OF_TEN_THRESHOLD
+
+Magnitude from which the tick labels of a count axis are written with a power
+of ten ([`power_of_ten_labels`](@ref), [`count_tickformat`](@ref)).
+"""
+const POWER_OF_TEN_THRESHOLD = 1.0e4
+
+"""
+    power_of_ten_labels(values) -> Vector{String}
+
+Tick labels with one common power of ten, that of the largest magnitude
+among `values`: `1×10ⁿ` is written `10ⁿ`, zero is `0`, a mantissa carries at
+most three significant digits without trailing zeros, and a negative value
+takes the typographic minus.
+
+```jldoctest
+julia> DeepSpaceTelemetry.PlotTheme.power_of_ten_labels([0, 10_000, 20_000, 30_000])
+4-element Vector{String}:
+ "0"
+ "10⁴"
+ "2×10⁴"
+ "3×10⁴"
+```
+"""
+function power_of_ten_labels(values)
+    isempty(values) && return String[]
+    top = maximum(abs, values)
+    top > 0 || return fill("0", length(values))
+    exponent = floor(Int, log10(top))
+    return [power_of_ten_label(v / 10.0^exponent, exponent) for v in values]
+end
+
+"""
+    power_of_ten_label(mantissa::Real, exponent::Integer) -> String
+
+One label of [`power_of_ten_labels`](@ref): `mantissa × 10^exponent` in the
+house style.
+"""
+function power_of_ten_label(mantissa::Real, exponent::Integer)
+    m = round(Float64(mantissa), sigdigits = 3)
+    m == 0 && return "0"
+    superscript = join(
+        c == '-' ? '⁻' : "⁰¹²³⁴⁵⁶⁷⁸⁹"[nextind("⁰¹²³⁴⁵⁶⁷⁸⁹", 0, c - '0' + 1)] for
+        c in string(exponent)
+    )
+    sign = m < 0 ? "−" : ""
+    a = abs(m)
+    a == 1 && return sign * "10" * superscript
+    digits = isinteger(a) ? string(Int(a)) : string(a)
+    return sign * digits * "×10" * superscript
+end
+
+"""
+    count_tickformat(top::Real)
+
+Tick format of a count axis that reaches `top`: [`power_of_ten_labels`](@ref)
+from [`POWER_OF_TEN_THRESHOLD`](@ref) on, Makie's own format below it, so
+that axes under the threshold are drawn as before.
+"""
+count_tickformat(top::Real) =
+    abs(top) >= POWER_OF_TEN_THRESHOLD ? power_of_ten_labels : Makie.automatic
+
+"""
     TICK_PRUNE_FRACTION
 
 Fraction of the axis range below the upper limit within which
