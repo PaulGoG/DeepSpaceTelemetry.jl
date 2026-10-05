@@ -1277,6 +1277,7 @@ end
     # seventeen archive batches, two in-flight slots, and 5 min per transfer:
     # the backlog keeps flowing to the ground while nothing is generated.
     start = DateTime(2035, 3, 7)
+    inflight = 2
     gap = (start + Minute(20), start + Minute(80))
     run_id = "TEST_RUN_gap_downlink_pid$(getpid())"
     run_dir = TelemetryCore.setup_run_dir(
@@ -1322,7 +1323,7 @@ end
                 deadline = past,
                 batch_size = 10,
                 generation_gaps = [gap],
-                max_inflight_batches = 2,
+                max_inflight_batches = inflight,
             )
             Receiver.run_receiver(
                 warm_clock,
@@ -1345,7 +1346,7 @@ end
                 batch_size = 10,
                 pending_segments = pending,
                 generation_gaps = [gap],
-                max_inflight_batches = 2,
+                max_inflight_batches = inflight,
             )
         end
         rx = Threads.@spawn with_logger(NullLogger()) do
@@ -1364,9 +1365,15 @@ end
         rx_events = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
         inside(t) = gap[1] + Minute(2) < DateTime(t) < gap[2]
         @test count(==("SCHEDULED"), tx.Batch) == 2
-        @test count(r -> r.Event == "tx" && inside(r.SimTime), eachrow(tx)) >= 5
-        @test count(r -> r.Event == "ingested" && inside(r.SimTime), eachrow(rx_events)) >=
-              5
+        # The defect left the link idle through the gap: no batch was placed
+        # on it, and at most the `inflight` batches already there reached the
+        # ground. More than that is the downlink being served. The full
+        # rate, about eleven transfers in the window, is a property of the
+        # host's pacing and is not asserted: a shared Windows runner
+        # delivered four.
+        @test count(r -> r.Event == "tx" && inside(r.SimTime), eachrow(tx)) > inflight
+        @test count(r -> r.Event == "ingested" && inside(r.SimTime), eachrow(rx_events)) >
+              inflight
     finally
         rm(run_dir; recursive = true, force = true)
     end

@@ -4,6 +4,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- The suite checks the downlink during a scheduled generation gap against
+  the signature of the defect fixed in 2.1.1 (no transfer placed on the
+  link, at most the in-flight batches delivered) instead of against the
+  rate a host reaches. A shared Windows runner delivered four batches in
+  the gap where the test demanded five, without a defect in the emitter.
+
 ## [2.3.1] - 2026-10-05
 
 ### Changed
