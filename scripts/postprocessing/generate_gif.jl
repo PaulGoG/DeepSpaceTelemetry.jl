@@ -141,7 +141,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                         strokewidth = 0,
                     ),
                 )
-                push!(labels, "Retry-exhausted")
+                push!(labels, "Lost")
             end
             Legend(
                 fig[0, 1],

@@ -37,7 +37,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - The batch-routing animation keeps the newest batches inside the frame. On
   a decimated profile the sliding window trailed the leading edge of the
   queue, whose markers ran past the right-hand limit. The right margin holds
-  the half of a tick label that falls on that limit.
+  the half of a tick label that falls on that limit, and the legend names
+  the lost batches *Lost*, as the static figures do.
 
 ## [2.1.1] - 2026-09-30
 
