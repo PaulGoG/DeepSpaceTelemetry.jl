@@ -54,6 +54,16 @@ Notable changes to DeepSpaceTelemetry. The format follows
   the half of a tick label that falls on that limit, and the legend names
   the lost batches *Lost*, as the static figures do.
 
+## [2.1.2] - 2026-10-05
+
+### Changed
+- The manual and README figures are re-rendered with the plotting code of
+  2.2.0 from a new run of `scenarios/stress_8h_bursty.toml` on 2.1.1. Code and behavior are those of 2.1.1.
+
+### Fixed
+- The regimes stated for the stress and the recovery scenario (usage page,
+  scenario library) follow the receiver pacing in force since 2.0.1.
+
 ## [2.1.1] - 2026-09-30
 
 ### Fixed
@@ -125,6 +135,16 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `[(k − 1) · points_per_batch + 1, k · points_per_batch]` as row-exact for
   every external run; it holds only without generation gaps of any kind,
   and `payload_row` is the reference otherwise.
+
+## [2.0.2] - 2026-10-05
+
+### Changed
+- The manual and README figures are re-rendered with the plotting code of
+  2.2.0 from a new run of `scenarios/stress_8h_bursty.toml` on 2.0.1. Code and behavior are those of 2.0.1.
+
+### Fixed
+- The regimes stated for the stress and the recovery scenario (usage page,
+  scenario library) follow the receiver pacing in force since 2.0.1.
 
 ## [2.0.1] - 2026-09-30
 
@@ -335,6 +355,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `config_source` says `snapshot` or `fallback`, and a missing snapshot is
   reported like a corrupt one.
 
+## [1.2.2] - 2026-10-05
+
+### Changed
+- The manual and README figures are re-rendered with the plotting code of
+  2.2.0 from the recorded run of 1.2.1. Code and behavior are those of 1.2.0.
+
 ## [1.2.1] - 2026-09-30
 
 ### Changed
@@ -452,8 +478,13 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[2.1.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.1.1...v2.1.2
+[2.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.1.0...v2.1.1
+[2.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.0.1...v2.1.0
+[2.0.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...v2.0.0
+[1.2.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...v1.2.0
 [1.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...v1.1.1
