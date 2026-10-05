@@ -119,16 +119,17 @@ const bench_profile = let n_batches = 1500, n_rows = 2000
         Event = fill("ingested", n_batches),
         Attempt = zeros(Int, n_batches),
     )
-    CSV.write(joinpath(bench_dir, "events_tx.csv"), sort(tx, :SimTime))
-    CSV.write(joinpath(bench_dir, "events_rx.csv"), rx)
+    DeepSpaceTelemetry.TelemetryCore.write_table(
+        joinpath(bench_dir, "events_tx.csv"),
+        sort(tx, :SimTime),
+    )
+    DeepSpaceTelemetry.TelemetryCore.write_table(joinpath(bench_dir, "events_rx.csv"), rx)
     DataFrame(SimTime = [t0 + Minute(3i) for i in 1:n_rows])
 end
 suite["postproc"] = BenchmarkGroup()
 suite["postproc"]["exact_reconstruction"] =
-    @benchmarkable DeepSpaceTelemetry.Receiver.reconstruct_batch_states(
-        $bench_dir,
-        $bench_profile,
-    ) samples = 10 evals = 1
+    @benchmarkable DeepSpaceTelemetry.Masks.batch_states($bench_dir, $bench_profile) samples =
+        10 evals = 1
 
 # Run benchmarks only when invoked as a script (suppress @info chatter from
 # the benchmarked functions; BenchmarkTools progress stays visible). The
