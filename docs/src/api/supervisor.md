@@ -14,8 +14,14 @@ DeepSpaceTelemetry.Supervisor.log_component_event!
 DeepSpaceTelemetry.Supervisor.supervise!
 DeepSpaceTelemetry.Supervisor.build_instrument
 DeepSpaceTelemetry.Supervisor.component_spawners
+DeepSpaceTelemetry.Supervisor.TIMELINE_PRODUCTS
+DeepSpaceTelemetry.Supervisor.render_products!
 DeepSpaceTelemetry.Supervisor.post_process!
 DeepSpaceTelemetry.Supervisor.expand_pointwise_masks!
+DeepSpaceTelemetry.Supervisor.post_processing_plan
+DeepSpaceTelemetry.Supervisor.STRANDED_IDLE_SEC
+DeepSpaceTelemetry.Supervisor.mission_ended
+DeepSpaceTelemetry.Supervisor.complete_run
 DeepSpaceTelemetry.Supervisor.contact_summary
 DeepSpaceTelemetry.Supervisor.print_banner
 DeepSpaceTelemetry.Supervisor.warm_up_components!

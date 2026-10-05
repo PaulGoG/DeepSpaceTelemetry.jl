@@ -220,6 +220,49 @@ end
             @test isempty(alignment.misaligned) && isempty(alignment.repeated)
             @test isfile(joinpath(run_dir, "alert_latency.csv"))
             @test isfile(joinpath(run_dir, "plots", "alert_latency.png"))
+            # A stranded run: the sentinels of a supervisor killed during
+            # post-processing, with a product missing. complete_run
+            # recomputes the products and settles the sentinels.
+            @test !isfile(joinpath(run_dir, "RUN_POSTPROCESSING"))
+            function strand!(marker::Bool)
+                rm(joinpath(run_dir, "RUN_COMPLETE"); force = true)
+                rm(joinpath(run_dir, "RUN_ABORTED"); force = true)
+                touch(joinpath(run_dir, "RUN_ACTIVE"))
+                rm(joinpath(run_dir, "RUN_POSTPROCESSING"); force = true)
+                marker && touch(joinpath(run_dir, "RUN_POSTPROCESSING"))
+                rm(joinpath(run_dir, "delivery_delay.csv"); force = true)
+                return nothing
+            end
+            complete(force::Bool) = with_logger(NullLogger()) do
+                Supervisor.complete_run(run_id; force = force, orig_stdout = devnull)
+            end
+            @test_throws ArgumentError complete(true)   # settled, not stranded
+            strand!(true)
+            @test_throws ArgumentError complete(false)  # written to a moment ago
+            @test complete(true) == run_dir
+            @test isfile(joinpath(run_dir, "RUN_COMPLETE")) &&
+                  !isfile(joinpath(run_dir, "RUN_ACTIVE")) &&
+                  !isfile(joinpath(run_dir, "RUN_POSTPROCESSING"))
+            @test isfile(joinpath(run_dir, "delivery_delay.csv"))
+            @test occursin(
+                "Completing a stranded run",
+                read(joinpath(run_dir, "supervisor.log"), String),
+            )
+            # Without the sentinel, as in a run of an earlier version, the
+            # verdict comes from the record: the profile reaches the deadline.
+            strand!(false)
+            complete(true)
+            @test isfile(joinpath(run_dir, "RUN_COMPLETE"))
+            # A profile that stops well before the deadline is a mission that
+            # did not end: the products are computed, the run is aborted.
+            strand!(false)
+            profile = joinpath(run_dir, "mission_profile.csv")
+            rows = readlines(profile)
+            write(profile, join(rows[1:max(2, length(rows)÷4)], "\n") * "\n")
+            complete(true)
+            @test isfile(joinpath(run_dir, "RUN_ABORTED")) &&
+                  !isfile(joinpath(run_dir, "RUN_ACTIVE")) &&
+                  !isfile(joinpath(run_dir, "RUN_COMPLETE"))
         finally
             rm(run_dir; recursive = true, force = true)
         end
