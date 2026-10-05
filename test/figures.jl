@@ -217,6 +217,35 @@ end
     @test MissionFigures.SESSION_PIN_HEIGHT < 1 / 1.2 + 0.1 &&
           MissionFigures.SESSION_PIN_HEIGHT > 1 / 1.2
 
+    # Session figures under a cap: evenly spaced, both ends included.
+    @test MissionFigures.evenly_spaced(5, 0) == 1:5
+    @test MissionFigures.evenly_spaced(5, 9) == 1:5
+    @test MissionFigures.evenly_spaced(10, 1) == [1]
+    @test MissionFigures.evenly_spaced(10, 4) == [1, 4, 7, 10]
+    spread = MissionFigures.evenly_spaced(365, 12)
+    @test length(spread) == 12 && first(spread) == 1 && last(spread) == 365
+    @test issorted(spread) && allunique(spread)
+    @test isempty(MissionFigures.evenly_spaced(0, 3))
+    @test_throws ArgumentError MissionFigures.evenly_spaced(10, -1)
+    @test MissionFigures.session_figure_selection(Dict{String,Any}()) ==
+          (enabled = true, cap = 0)
+    @test MissionFigures.session_figure_selection(
+        Dict{String,Any}(
+            "post_processing" =>
+                Dict{String,Any}("session_figures" => false, "session_figures_max" => 7),
+        ),
+    ) == (enabled = false, cap = 7)
+    # A saved figure is released, and a figure scope returns its value.
+    mktempdir() do dir
+        saved = PlotTheme.figure_scope() do
+            fig = PlotTheme.Makie.Figure(size = (200, 150))
+            PlotTheme.Makie.Axis(fig[1, 1])
+            path = PlotTheme.save_figure(fig, dir, "released"; formats = ("png",))
+            (path, isempty(fig.content))
+        end
+        @test isfile(saved[1]) && saved[2]
+    end
+
     # The raster is skipped, not failed, when the run carries no timeline.
     @test MissionFigures.plot_state_raster(mktempdir()) === nothing
 end

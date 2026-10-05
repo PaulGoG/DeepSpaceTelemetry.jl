@@ -16,6 +16,7 @@ DeepSpaceTelemetry.PlotTheme.fit_legend!
 DeepSpaceTelemetry.PlotTheme.figure_legend!
 DeepSpaceTelemetry.PlotTheme.size_to_panels!
 DeepSpaceTelemetry.PlotTheme.save_figure
+DeepSpaceTelemetry.PlotTheme.figure_scope
 DeepSpaceTelemetry.PlotTheme.telemetry_theme
 DeepSpaceTelemetry.PlotTheme.COLOR_LIVE
 DeepSpaceTelemetry.PlotTheme.COLOR_ARCHIVE

@@ -1578,6 +1578,49 @@ function session_figure_stems(
 end
 
 """
+    evenly_spaced(n::Integer, cap::Integer) -> Vector{Int}
+
+Indices of at most `cap` of `n` items, evenly spaced with the first and the
+last included; all of them when `cap` is zero (no cap) or not below `n`.
+Throws an `ArgumentError` for a negative cap.
+
+```jldoctest
+julia> DeepSpaceTelemetry.MissionFigures.evenly_spaced(10, 4)
+4-element Vector{Int64}:
+  1
+  4
+  7
+ 10
+```
+"""
+function evenly_spaced(n::Integer, cap::Integer)
+    cap >= 0 || throw(ArgumentError("evenly_spaced: negative cap $cap."))
+    (cap == 0 || cap >= n) && return collect(1:n)
+    cap == 1 && return [1]
+    return unique(round.(Int, range(1, n; length = cap)))
+end
+
+"""
+    session_figure_selection(cfg::AbstractDict) -> (enabled::Bool, cap::Int)
+
+The `post_processing.session_figures` flag and the
+`post_processing.session_figures_max` cap of a run configuration
+([`TelemetryCore.post_processing_settings`](@ref)). A snapshot whose
+`[post_processing]` section cannot be read, as that of a run made by an
+earlier version may be, warns and yields every session figure.
+"""
+function session_figure_selection(cfg::AbstractDict)
+    try
+        settings = TelemetryCore.post_processing_settings(cfg)
+        return (enabled = settings.session_figures, cap = settings.session_figures_max)
+    catch e
+        @warn "[POST] Could not read [post_processing] from the run snapshot; rendering every session figure." exception =
+            e
+        return (enabled = true, cap = 0)
+    end
+end
+
+"""
     generate_mission_plots(run_dir::String; style, plots_dir, formats, suffix) -> Vector{String}
 
 Reads `mission_profile.csv` and renders the mission summary
@@ -1590,6 +1633,12 @@ passes, scheduled or generated, and the low-latency periods — not detected
 from the effective bandwidth, so a fully blacked-out day still receives
 its zero-throughput figure and file names share the summary's 0-based day
 coordinates.
+Every figure is drawn in a theme scope of its own and released after
+saving ([`PlotTheme.figure_scope`](@ref)), so the memory of the stage does
+not grow with the number of contact windows. The run's
+`post_processing.session_figures` switches the session figures off and
+`post_processing.session_figures_max` caps them at that many windows,
+evenly spaced over the mission ([`evenly_spaced`](@ref)).
 """
 function generate_mission_plots(
     run_dir::String;
@@ -1608,20 +1657,32 @@ function generate_mission_plots(
     df = TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
     isempty(df) && return paths
 
-    ctx = plot_context(run_dir, df, TelemetryCore.load_run_config(run_dir))
-    with_theme(PlotTheme.telemetry_theme(style)) do
-        global_path = plot_mission_summary(ctx; style, plots_dir, formats, suffix)
-        push!(paths, global_path)
-        @info "[POST] Saved mission summary figure: $(relpath(global_path, run_dir))"
-        t_end =
-            ctx.t_start +
-            Millisecond(round(Int, TelemetryCore.MS_PER_HOUR * max(ctx.df_x[end], 1.0)))
-        for (stem, window) in session_figure_stems(ctx.vis_model, ctx.t_start, t_end)
-            p = plot_session(ctx, window, stem; style, plots_dir, formats, suffix)
-            p === nothing || push!(paths, p)
-        end
-        @info "[POST] Saved session figures."
+    cfg = TelemetryCore.load_run_config(run_dir)
+    ctx = plot_context(run_dir, df, cfg)
+    # One theme scope per figure: a scope around the whole loop keeps every
+    # figure of the run in memory until it ends (PlotTheme.figure_scope).
+    global_path = PlotTheme.figure_scope(style) do
+        plot_mission_summary(ctx; style, plots_dir, formats, suffix)
     end
+    push!(paths, global_path)
+    @info "[POST] Saved mission summary figure: $(relpath(global_path, run_dir))"
+    selection = session_figure_selection(cfg)
+    if !selection.enabled
+        @info "[POST] Session figures are switched off (post_processing.session_figures)."
+        return paths
+    end
+    t_end =
+        ctx.t_start +
+        Millisecond(round(Int, TelemetryCore.MS_PER_HOUR * max(ctx.df_x[end], 1.0)))
+    stems = session_figure_stems(ctx.vis_model, ctx.t_start, t_end)
+    chosen = stems[evenly_spaced(length(stems), selection.cap)]
+    for (stem, window) in chosen
+        p = PlotTheme.figure_scope(style) do
+            plot_session(ctx, window, stem; style, plots_dir, formats, suffix)
+        end
+        p === nothing || push!(paths, p)
+    end
+    @info "[POST] Saved session figures: $(length(chosen)) of $(length(stems)) contact windows."
     return paths
 end
 

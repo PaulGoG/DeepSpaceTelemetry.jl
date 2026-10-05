@@ -18,7 +18,8 @@ using CairoMakie:
     Theme,
     resize_to_layout!,
     rowsize!,
-    save
+    save,
+    with_theme
 using MathTeXEngine: texfont
 
 # Okabe–Ito colorblind-safe palette: one semantic color per quantity,
@@ -498,7 +499,10 @@ end
 
 Saves `fig` as `<dir>/<stem><suffix>.<ext>` for every extension in
 `formats` — PNG at `px_per_unit = 4` (≈ 380 dpi at native size), vector
-formats at native size — and returns the path of the first one.
+formats at native size — and returns the path of the first one. The figure
+is emptied after the last save: Makie keeps the color buffer of a saved
+figure, about 70 MiB for a standard PNG, reachable through its scene, so a
+caller that still needs the figure draws it again.
 """
 function save_figure(
     fig,
@@ -514,7 +518,27 @@ function save_figure(
         ext == "png" ? save(path, fig, px_per_unit = 4) : save(path, fig)
         push!(paths, path)
     end
+    empty!(fig)
     return first(paths)
+end
+
+"""
+    figure_scope(f, style::PlotStyle = PlotStyle())
+
+Runs `f()`, the drawing and saving of one figure, inside a telemetry theme
+scope of its own ([`telemetry_theme`](@ref)), collects afterwards, and
+returns the value of `f`. Makie keeps every figure drawn inside a theme
+scope reachable until the scope ends, so one scope around a loop of figures
+accumulates them, about 70 MiB per standard PNG; a year-long mission with a
+session figure per day exhausted the memory of its host that way. A scope
+per figure, the release in [`save_figure`](@ref), and the collection bound
+the stage at one figure. It must not be nested in another theme scope: the
+outer scope would hold the figures.
+"""
+function figure_scope(f, style::PlotStyle = PlotStyle())
+    result = with_theme(f, telemetry_theme(style))
+    GC.gc()
+    return result
 end
 
 """
