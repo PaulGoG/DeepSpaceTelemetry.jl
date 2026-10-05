@@ -6,12 +6,13 @@
 # the platform the recorded run used is stated below.
 
 [render]
-# The run was made with this release; the figures were rendered from it with
-# the plotting code of the commit below (release 2.0.1), which reads the run
-# directory through the same file contract. Nothing in the run was altered.
-commit = "063f4a4"
-package_version = "2.0.1"
-date = "2026-09-30"
+# The run was made with release 1.2.1, whose code this release shares; the
+# figures were rendered from it with the plotting code of the commit below
+# (released as 2.2.0), which reads the run directory through the same file
+# contract. Nothing in the run was altered.
+commit = "b9645df114877597bec243599e5acd99a848b49b"
+package_version = "2.2.0-DEV"
+date = "2026-10-05"
 mission_summary = "julia -e 'include(\"activate.jl\"); using DeepSpaceTelemetry; DeepSpaceTelemetry.MissionFigures.generate_mission_plots(DeepSpaceTelemetry.TelemetryCore.run_directory(\"RUN_README_SHOWCASE\"))'"
 animation = "julia scripts/postprocessing/generate_gif.jl --web RUN_README_SHOWCASE"
 
@@ -25,7 +26,6 @@ date = "2026-09-30"
 command = "julia --threads=3 scripts/run_full_sim.jl RUN_README_SHOWCASE scenarios/stress_8h_bursty.toml"
 
 [run.platform]
-hostname = "Lenovo-Yoga-Pro-7"
 os = "Linux x86_64-linux-gnu"
 cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
 logical_cores = 22
@@ -48,11 +48,11 @@ profile_rows = 1298
 source = "data/runs/RUN_README_SHOWCASE/plots/mission_summary_global.png"
 transform = "magick <source> -resize 1400x -strip <target>"
 width_px = 1400
-sha256_prefix = "e3bc32f6ea21fe93"
+sha256_prefix = "63956ddbcb9d67fb"
 
 ["batch_routing.gif"]
 source = "data/runs/RUN_README_SHOWCASE/plots/telemetry_animation_web.gif"
 transform = "none; the --web rendering profile writes the published size directly"
 width_px = 900
 frames = 217
-sha256_prefix = "d8b82531c9ce5f35"
+sha256_prefix = "031329275cc7dce7"

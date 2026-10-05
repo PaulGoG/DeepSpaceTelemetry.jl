@@ -4,6 +4,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] - 2026-10-05
+
+### Changed
+- The figures of the manual and of the README are re-rendered with the
+  plotting code of 2.2.0 from the run of 1.2.1 recorded in
+  `docs/src/assets/PROVENANCE.toml`: the filled areas follow their
+  staircase edges, the capacity curves are those of the link model, and the
+  capacity panel draws one grid. Code and behavior are those of 1.2.0.
+
 ## [1.2.1] - 2026-09-30
 
 ### Changed
@@ -586,6 +595,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
   repository **SpaceTelemetrySim → DeepSpaceTelemetry** — a breaking change
   for any code `using` the old module name.
 
+[1.2.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.0.0...v1.1.0
