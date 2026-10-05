@@ -32,7 +32,7 @@ DeepSpaceTelemetry/
 ├── scenarios/      # Eleven complete configurations and their coverage matrix
 ├── test/           # Static QA, unit, physics, and four integration missions
 ├── bench/          # BenchmarkTools suites
-├── docs/           # Documenter manual sources and the README figures
+├── docs/           # Documenter manual sources, the figures, and their render script
 ├── data/runs/      # Ephemeral run directories (gitignored)
 ├── activate.jl     # Activates and instantiates this environment (one per environment)
 ├── config.toml     # Default entry point (= scenarios/recovery_12h_seasonal.toml)
@@ -47,19 +47,21 @@ layout and file contract are specified on the
 growing onboard buffer, an 18 h solar-flare blackout with a 12 h recovery
 ramp, a partial ground-station outage, a scheduled generation gap, and an
 event marker with its triggered low-latency
-period](docs/src/assets/mission_summary.png)
+period](docs/src/assets/gallery/stress_8h_bursty_mission_summary_global.png)
 
 One week of the shipped `scenarios/stress_8h_bursty.toml`: 8 h daily passes
 on the physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare
 blackout followed by a 12 h recovery ramp on day 2.5, a 12 h partial
 ground-station outage on day 5, a scheduled generation gap on day 1.5, and
 an event marker on day 4 whose triggered low-latency period opens six hours
-later at half capacity. The onboard buffer grows from 288 to 636 batches
-across the week — the disruption debt the link never recovers — while 653
-batches reach the ground and retransmission recovers all 42 rejected
+later at half capacity. The onboard buffer grows from 288 to 537 batches
+across the week — the disruption debt the link never recovers — while 753
+batches reach the ground and retransmission recovers all 49 rejected
 transfers, leaving the lost-batch strip at zero. Every number here comes
 from the run recorded in
-[`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml).
+[`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml); the
+[scenario library](scenarios/README.md#gallery) shows nine further scenarios
+through the same figure.
 
 ## Obtaining the Package
 
@@ -175,6 +177,10 @@ julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> 102400 100 output.
 # Regenerate the example series for physics.data_source = "external"
 julia scripts/maintenance/generate_example_strain.jl
 
+# Regenerate the figures of the manual and of this README from fresh runs
+# of the scenario library (about 40 minutes; needs ImageMagick)
+julia docs/render_assets.jl [RUN_ID_PREFIX]
+
 # Purge previous run directories (lists candidates and asks; --yes skips the prompt)
 julia scripts/maintenance/cleanup.jl
 ```
@@ -200,7 +206,7 @@ batch never becomes available on the ground.
 | Scenario library | eleven configurations under `scenarios/` | every file validated and the smoke scenario run by the suite |
 | Entry points | `run_full_sim.jl` (argument parsing plus `Supervisor.run_mission`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release (its library call runs the smoke scenario in the suite); the dashboard, live viewer, and log follower are interactive and verified manually |
 | Post-processing wrappers | `apply_telemetry_mask.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over the tested library functions (`Masks.expand_pointwise_mask`, `Export.export_hdf5`, `Publication.export_publication_figures`); the animation engine of `generate_gif.jl` renders over the tested replay (`Masks.batch_states`) and the standalone expander is a dependency-light copy, both verified on the shipped scenarios at each release |
-| Maintenance utilities | `generate_example_strain.jl`, `cleanup.jl` | `generate_example_strain.jl` verified through `scenarios/external_ingest.toml` at each release; `cleanup.jl` interactive (confirmation prompt), verified manually |
+| Maintenance utilities | `generate_example_strain.jl`, `cleanup.jl`, `docs/render_assets.jl` | `generate_example_strain.jl` verified through `scenarios/external_ingest.toml` at each release; `cleanup.jl` interactive (confirmation prompt), verified manually; `render_assets.jl` run end to end whenever the figures of the manual are regenerated |
 
 <details>
 <summary>Full file tree, annotated</summary>
@@ -249,15 +255,18 @@ DeepSpaceTelemetry/
 │   ├── Project.toml             # Docs environment (Documenter; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the docs environment
 │   ├── make.jl                  # Documenter.jl build script
+│   ├── render_assets.jl         # Runs the gallery scenarios and renders the figures below
 │   └── src/                     # Manual pages
 │       ├── index.md             # Overview, installation, capabilities
 │       ├── physics.md           # Payload, link capacity, channels, queuing, metrology
 │       ├── usage.md             # Configuration reference and execution
+│       ├── gallery.md           # Ten scenarios through the figures of one run each
 │       ├── interfaces.md        # Filesystem contract for analysis pipelines
 │       ├── api.md               # API reference index
-│       └── api/                 # Twelve per-module API pages
+│       ├── api/                 # Twelve per-module API pages
+│       └── assets/              # gallery/ (figures of the manual and the README) and PROVENANCE.toml
 ├── scenarios/
-│   ├── README.md                # Coverage matrix and expected regime of every scenario
+│   ├── README.md                # Coverage matrix, expected regime, and mission summary of every scenario
 │   ├── smoke_1d.toml            # 12 s smoke run (suite end-to-end)
 │   ├── nominal_8h.toml          # Balanced nominal operations
 │   ├── stress_8h_bursty.toml    # 8 h January passes, bursty loss, disruptions: backlog growth
@@ -419,7 +428,7 @@ waveform backward in time without temporal gaps.
 
 ![Batch-routing animation: one row per stage, sky blue for live batches and
 green for archive ones, with the mission clock and the buffer counters in
-every frame](docs/src/assets/batch_routing.gif)
+every frame](docs/src/assets/gallery/stress_8h_bursty_telemetry_animation_web.gif)
 
 The same run, batch by batch. Each row is a stage — buffered on the
 satellite, in flight on the link, delivered on the ground — and the color

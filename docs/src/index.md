@@ -5,14 +5,16 @@ A Julia framework simulating the telemetry environment of deep-space science mis
 ## Overview
 Deep-space missions communicate on asymmetric duty cycles: a daily ground-station contact window followed by a long blind spot in which science data accumulates onboard. This framework simulates the physics, link constraints, and queuing logic of that regime end to end. The shipped configuration models LISA — orbiting the Sun 50 million kilometers behind Earth, with an 8-hour DSN window against a 16-hour blind spot (12 h passes near the seasonal peak in the default configuration), and a binary flag series marking the segments that hold declared events as the payload — while the telemetry, channel, and queuing layers remain mission-agnostic. "DSN" denotes throughout a deep-space ground-station network in the generic sense; the LISA passes are ESA ESTRACK 35 m antenna passes.
 
-![Mission summary of the stress scenario](assets/mission_summary.png)
+![Mission summary of the stress scenario](assets/gallery/stress_8h_bursty_mission_summary_global.png)
 
 One week of `scenarios/stress_8h_bursty.toml`: 8 h daily passes on the
 physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare blackout
 with a 12 h recovery ramp on day 2.5, a partial ground-station outage on day
 5, and a scheduled generation gap on day 1.5. The onboard buffer grows from
-288 to 636 batches across the week while 653 batches reach the ground and
-retransmission recovers all 42 rejected transfers.
+288 to 537 batches across the week while 753 batches reach the ground and
+retransmission recovers all 49 rejected transfers. The
+[Scenario Gallery](@ref) shows this run through its other products and nine
+further scenarios through their own.
 
 ## Installation
 

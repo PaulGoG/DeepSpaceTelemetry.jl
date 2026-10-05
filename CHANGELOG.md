@@ -12,6 +12,20 @@ Notable changes to DeepSpaceTelemetry. The format follows
   before 2.1.0), so point-wise mask rows re-anchor on the payload without
   reading every batch directory; the HDF5 export's `masks/batch_epochs`
   group gains the same dataset.
+- The manual has a Scenario Gallery chapter: ten of the shipped scenarios
+  through the figures of one run each, with the realized totals tabulated
+  from the provenance record, and `scenarios/README.md` shows the mission
+  summary of each. `docs/render_assets.jl` runs the scenarios, reduces the
+  figures, and writes `docs/src/assets/PROVENANCE.toml` with the commit, the
+  platform, and the totals of every run and the digest of every file.
+
+### Changed
+- The figures of the README and of the manual come from runs of the current
+  code and live under `docs/src/assets/gallery/`. The totals quoted for the
+  stress scenario and the regimes stated for the stress and the recovery
+  scenario (scenario library, usage page) are those the receiver reaches
+  since its slot deadlines were chained in 2.0.1: about 210 batches per
+  12-hour pass, a buffer near 540 batches at the end of the stress week.
 
 ### Fixed
 - The filled areas of the received-batch panels follow their staircase

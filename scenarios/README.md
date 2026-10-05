@@ -29,9 +29,9 @@ minute per mission day).
 |---|---|---|---|---|---|---|---|
 | `smoke_1d.toml` | 0.5 d | 12 s | physical, flat | 8 h | Bernoulli 1 % | none | one pass drains a 6 h backlog; suite smoke run |
 | `nominal_8h.toml` | 7 d | 168 s | physical, flat | 8 h, January | Bernoulli 1 % | none, no backlog | balance: link capacity 145.7 per day against 144 produced, so the buffer clears at the end of each pass when the host keeps pace with the accelerated clock; a slower receiver leaves a residual buffer |
-| `stress_8h_bursty.toml` | 7 d | 168 s | physical, flat | 8 h, January | GE | solar flare day 2.5, repointing day 1.5, DSN outage day 5, marker day 4 with a triggered low-latency period; 2-day backlog | growth: 138 delivered against 144 produced per day plus the disruption debt; the buffer doubles from 288 to about 640 batches and the 24 h compliance fraction falls to about 55 %; live priority keeps the live alert latency bounded |
-| `recovery_12h_seasonal.toml` | 7 d | 168 s | physical, flat | 8 h + 4 h seasonal, 21 June | GE | as the stress scenario, marker 25 June; 2-day backlog | recovery: about 190 batches per 12 h pass against 144 produced per day; the flare and the outage each cost about one pass, so the week ends with the backlog near its initial level (buffer between 120 and 300 batches) where the 8 h stress case doubles it |
-| `abstraction_gaussian_peak.toml` | 7 d | 168 s | 60 batches/h peak, Gaussian σ = 0.15 | 8 h, January | GE | as the stress scenario | the pre-library default: a peak abstraction with a 0.38 mean factor, 169 delivered per day, slow drain of the 2-day backlog |
+| `stress_8h_bursty.toml` | 7 d | 168 s | physical, flat | 8 h, January | GE | solar flare day 2.5, repointing day 1.5, DSN outage day 5, marker day 4 with a triggered low-latency period; 2-day backlog | growth: 138 delivered against 144 produced per day plus the disruption debt; the buffer grows from 288 to about 540 batches and the 24 h compliance fraction falls to about 58 %; live priority keeps the live alert latency bounded |
+| `recovery_12h_seasonal.toml` | 7 d | 168 s | physical, flat | 8 h + 4 h seasonal, 21 June | GE | as the stress scenario, marker 25 June; 2-day backlog | recovery: about 210 batches per 12 h pass against 144 produced per day; the flare and the outage each cost about one pass, so the week ends with the backlog below its initial level (buffer between about 50 and 300 batches) where the 8 h stress case nearly doubles it |
+| `abstraction_gaussian_peak.toml` | 7 d | 168 s | 60 batches/h peak, Gaussian σ = 0.15 | 8 h, January | GE | as the stress scenario | the pre-library default: a peak abstraction with a 0.38 mean factor, 169 delivered per day, a slow drain of the 2-day backlog between the disruptions |
 | `backlog_recovery_sine.toml` | 7 d | 168 s | 60 batches/h peak, sine | 8 h, January | Bernoulli 10 % | none; 3-day backlog | backlog recovery over the week under retransmission load (the presentation scenario) |
 | `drop_policy.toml` | 3 d | 72 s | physical, flat | 8 h, January | Bernoulli 20 %, drop on loss | partial DSN outage day 1.5; 0.5-day backlog | about one fifth of the transfers lost for good (mask state 4), no retransmission traffic |
 | `explicit_schedule.toml` | 7 d | 168 s | physical, flat | explicit pass list: day 2 shortened to 6 h, day 3 missed, day 5 extended to 12 h | GE | repointing day 1.5; 1-day backlog | planned schedules with exceptions; the missed pass produces a two-day gap |
@@ -44,8 +44,29 @@ slot of transfer time divided by the profile factor, so a day's capacity is
 the link rate times the pass length times the profile mean (flat 1.0, sine
 0.5, Gaussian with σ = 0.15: 0.38), reduced by the retransmission fraction.
 
+## Gallery
+
+The mission summary of one run of each scenario, the smoke run excepted.
+Top panel: link capacity and, on the right-hand axis, the onboard buffer;
+middle: cumulative batches on the ground; bottom: lost batches. The runs,
+their commit, and their platform are recorded in
+[`docs/src/assets/PROVENANCE.toml`](../docs/src/assets/PROVENANCE.toml); the
+manual's Scenario Gallery chapter adds the other run products (session
+figures, batch-state raster, delivery delay, alert latency, animation) and a
+reading of every figure.
+
+| | |
+|---|---|
+| ![nominal_8h](../docs/src/assets/gallery/nominal_8h_mission_summary_global.png) `nominal_8h.toml` | ![stress_8h_bursty](../docs/src/assets/gallery/stress_8h_bursty_mission_summary_global.png) `stress_8h_bursty.toml` |
+| ![recovery_12h_seasonal](../docs/src/assets/gallery/recovery_12h_seasonal_mission_summary_global.png) `recovery_12h_seasonal.toml` | ![abstraction_gaussian_peak](../docs/src/assets/gallery/abstraction_gaussian_peak_mission_summary_global.png) `abstraction_gaussian_peak.toml` |
+| ![backlog_recovery_sine](../docs/src/assets/gallery/backlog_recovery_sine_mission_summary_global.png) `backlog_recovery_sine.toml` | ![drop_policy](../docs/src/assets/gallery/drop_policy_mission_summary_global.png) `drop_policy.toml` |
+| ![explicit_schedule](../docs/src/assets/gallery/explicit_schedule_mission_summary_global.png) `explicit_schedule.toml` | ![long_30d_seasonal](../docs/src/assets/gallery/long_30d_seasonal_mission_summary_global.png) `long_30d_seasonal.toml` |
+| ![long_segments_2400s](../docs/src/assets/gallery/long_segments_2400s_mission_summary_global.png) `long_segments_2400s.toml` | ![external_ingest](../docs/src/assets/gallery/external_ingest_mission_summary_global.png) `external_ingest.toml` |
+
 ## Adding a scenario
 
 Copy the closest file, keep every key with its comment, state the scenario
 in the two header lines, and add a row to the table above and to the usage
-page. The suite's scenario testset validates the new file automatically.
+page; a scenario that is to appear in the gallery also gets an entry in the
+table of `docs/render_assets.jl`. The suite's scenario testset validates the
+new file automatically.

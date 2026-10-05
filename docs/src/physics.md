@@ -48,7 +48,7 @@ Between contacts the spacecraft accumulates a backlog (16 blind hours per day un
 1. **Near-real-time (live) data:** highest priority, sent first-in, first-out (FIFO) so the ground sees the newest observations with the smallest latency.
 2. **Archive backfill (LIFO):** the remaining bandwidth drains the backlog last-in, first-out — the newest archived data first. For a transient caught live (in the LISA case a massive black-hole binary merger), the archived data immediately preceding it are the most valuable, and LIFO delivery lets alert pipelines extend the waveform backward from the live event without a gap.
 
-![Batch-routing animation: one row per stage, sky blue for live batches and green for archive ones](assets/batch_routing.gif)
+![Batch-routing animation: one row per stage, sky blue for live batches and green for archive ones](assets/gallery/stress_8h_bursty_telemetry_animation_web.gif)
 
 The doctrine batch by batch, over one run of `scenarios/stress_8h_bursty.toml`.
 Each row is a stage — buffered on the satellite, in flight on the link,

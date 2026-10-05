@@ -44,6 +44,7 @@ makedocs(
         "Home" => "index.md",
         "Physics & Queuing Theory" => "physics.md",
         "Usage & Configuration" => "usage.md",
+        "Scenario Gallery" => "gallery.md",
         "Analysis Interfaces" => "interfaces.md",
         "API Reference" => [
             "Overview" => "api.md",

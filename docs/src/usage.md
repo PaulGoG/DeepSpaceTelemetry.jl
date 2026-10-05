@@ -28,7 +28,9 @@ coverage matrix and the expected regime of every file. `config.toml` at the
 package root is the default entry point and is a copy of
 `scenarios/recovery_12h_seasonal.toml`. The TOML comments give only
 each key's meaning, admissible choices, and safe interval; the scenario
-rationale is stated in the library README and here.
+rationale is stated in the library README and here. The
+[Scenario Gallery](@ref) shows ten of the scenarios through the figures of
+one run each.
 
 The reference scenario — **recovery at the seasonal peak** (~3 min wall
 time, 7 mission days from 21 June 2035) — runs the physical link:
@@ -37,7 +39,7 @@ time, 7 mission days from 21 June 2035) — runs the physical link:
 window widened by the 4-hour seasonal extension to 12-hour passes. The
 mission opens with a 2-day blind-spot backlog (288 batches at the shipped
 physics: 60 s segments, 10 segments per batch → 144 batches/day) served by
-12-hour passes of about 190 batches each over a bursty Gilbert–Elliott channel
+12-hour passes of about 210 batches each over a bursty Gilbert–Elliott channel
 (sticky BAD state, 50 % loss while BAD). Three scheduled events stress the
 mission: a 15-minute antenna repointing on day 1.5 (a generation gap), a
 day-2.5 solar-flare-class full blackout (18 h, then a 12 h linear recovery
@@ -45,8 +47,8 @@ ramp with 5× elevated loss), and a day-5.0 partial DSN outage (severity
 0.8, 12 h, 6 h ramp, 3× loss). An event marker at 14:00 on day 4 triggers,
 six hours later, a 3-hour low-latency period at half capacity. The flare
 and the outage each cost about one pass, so the week ends with the backlog
-near its initial level (the buffer oscillates between 120 and 300 batches)
-where the same timeline under 8-hour passes doubles it.
+below its initial level (the buffer moves between about 50 and 300 batches)
+where the same timeline under 8-hour passes nearly doubles it.
 
 The same disruption timeline under 8-hour January passes is
 `scenarios/stress_8h_bursty.toml`, where the link delivers 138 batches per
