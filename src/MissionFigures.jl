@@ -599,6 +599,7 @@ function figure_legend_entries(;
                     marker = :xcross,
                     color = PlotTheme.COLOR_LOST,
                     markersize = style.markersize,
+                    strokewidth = 0,
                 ),
             ],
         )
@@ -610,6 +611,7 @@ function figure_legend_entries(;
                 marker = :xcross,
                 color = PlotTheme.COLOR_LOST,
                 markersize = style.markersize,
+                strokewidth = 0,
             ),
         )
         push!(received_labels, "Lost")
@@ -739,8 +741,8 @@ shading_patch(fill, edge, linestyle::Symbol, style::PlotTheme.PlotStyle) = [
 Every x position at which a figure of `ctx` draws an upright rule: the
 boundaries of the disruption, outage, generation-gap and low-latency
 windows, and the event markers. In-axis annotations pick their end of the
-axis against this list ([`PlotTheme.annotation_side`](@ref)), so a rule never
-crosses a text block.
+axis against this list ([`PlotTheme.annotation_side`](@ref),
+[`PlotTheme.annotation_anchor`](@ref)), so a rule never crosses a text block.
 """
 function upright_rules(ctx::PlotContext)
     xs = Float64[]
@@ -819,6 +821,111 @@ function count_tick_step(y_top::Real)
 end
 
 """
+    SUMMARY_CAPACITY_SAMPLES
+
+Number of equidistant instants on which the mission summary evaluates the
+capacity curves ([`capacity_curves`](@ref)): about one per raster column of
+the standard PNG, so a contact edge is drawn within a pixel of its instant.
+"""
+const SUMMARY_CAPACITY_SAMPLES = 4000
+
+"""
+    SESSION_CAPACITY_SAMPLES
+
+Number of equidistant instants on which a session figure evaluates the
+capacity curves ([`capacity_curves`](@ref)).
+"""
+const SESSION_CAPACITY_SAMPLES = 200
+
+"""
+    capacity_curves(vis_model, link_model, t_start, x_lo, x_hi, samples) -> NamedTuple
+
+Nominal and effective link capacity [%] on `samples` equidistant instants
+spanning `[x_lo, x_hi]` hours since `t_start`, as
+`(hours, nominal, effective)`: the visibility model alone
+([`TelemetryCore.get_bandwidth_factor`](@ref)) and the link model with its
+disruptions ([`ChannelEffects.effective_bandwidth`](@ref)). The figures draw
+these curves rather than the `Bandwidth_Pct` column of the metrics profile:
+the profile is written on change only, so joining its rows bridges every
+interval without one — the start-up before the first pass, a contact gap
+with the recorder full — by a sloped segment the capacity never followed.
+Throws an `ArgumentError` for fewer than two samples.
+"""
+function capacity_curves(
+    vis_model::TelemetryCore.VisibilityModel,
+    link_model::ChannelEffects.LinkModel,
+    t_start::DateTime,
+    x_lo::Real,
+    x_hi::Real,
+    samples::Integer,
+)
+    samples >= 2 ||
+        throw(ArgumentError("capacity_curves needs at least two samples, got $samples."))
+    hours = collect(range(Float64(x_lo), Float64(x_hi), length = samples))
+    instants =
+        [t_start + Millisecond(round(Int, TelemetryCore.MS_PER_HOUR * h)) for h in hours]
+    nominal =
+        Float64[100.0 * TelemetryCore.get_bandwidth_factor(vis_model, t) for t in instants]
+    effective =
+        Float64[100.0 * ChannelEffects.effective_bandwidth(link_model, t) for t in instants]
+    return (; hours, nominal, effective)
+end
+
+"""
+    step_vertices(x, y) -> Tuple{Vector{Float64},Vector{Float64}}
+
+Vertices of the staircase `stairs!` draws through `(x, y)` with
+`step = :pre`, each value holding on the interval that ends at its abscissa:
+`(x₁, y₁), (x₁, y₂), (x₂, y₂), (x₂, y₃), …, (xₙ, yₙ)`. A metrics row written
+at an ingestion carries the count before it, so this is the convention under
+which the cumulative counts step at the ingestion instants. Throws a
+`DimensionMismatch` when the lengths differ.
+
+```jldoctest
+julia> DeepSpaceTelemetry.MissionFigures.step_vertices([0.0, 1.0, 3.0], [5.0, 6.0, 8.0])
+([0.0, 0.0, 1.0, 1.0, 3.0], [5.0, 6.0, 6.0, 8.0, 8.0])
+```
+"""
+function step_vertices(x::AbstractVector{<:Real}, y::AbstractVector{<:Real})
+    n = length(x)
+    n == length(y) || throw(
+        DimensionMismatch("step_vertices: $n abscissae against $(length(y)) ordinates."),
+    )
+    xs = Vector{Float64}(undef, max(2n - 1, 0))
+    ys = similar(xs)
+    n == 0 && return xs, ys
+    xs[1], ys[1] = x[1], y[1]
+    for i in 2:n
+        xs[2i-2], ys[2i-2] = x[i-1], y[i]
+        xs[2i-1], ys[2i-1] = x[i], y[i]
+    end
+    return xs, ys
+end
+
+"""
+    filled_stairs!(ax, x, y; color, style)
+
+Draws the cumulative count `y` over `x` onto `ax` as a staircase
+(`step = :pre`) at the edge line width of `style` over an area fill of the
+same hue at [`PlotTheme.FILL_ALPHA`](@ref). The fill is bounded by the
+vertices of the staircase ([`step_vertices`](@ref)), not by the straight
+segments between the samples, so the edge is the boundary of the area at
+every sampling density.
+"""
+function filled_stairs!(
+    ax,
+    x::AbstractVector{<:Real},
+    y::AbstractVector{<:Real};
+    color,
+    style::PlotTheme.PlotStyle = PlotTheme.PlotStyle(),
+)
+    xs, ys = step_vertices(x, y)
+    band!(ax, xs, zeros(length(xs)), ys, color = (color, PlotTheme.FILL_ALPHA))
+    stairs!(ax, x, y, step = :pre, color = color, linewidth = style.linewidth_edge)
+    return ax
+end
+
+"""
     SESSION_PIN_HEIGHT
 
 Relative height of the lost-batch pins on the received panel of the session
@@ -848,13 +955,19 @@ function plot_mission_summary(
     # produce degenerate axis limits and crash the renderer.
     max_x_h = max(df_x[end], 1.0)
     tick_vals_h, tick_labels, time_label = mission_time_ticks(max_x_h)
+    capacity = capacity_curves(
+        ctx.vis_model,
+        ctx.link_model,
+        ctx.t_start,
+        0.0,
+        max_x_h,
+        SUMMARY_CAPACITY_SAMPLES,
+    )
 
     # Nominal (visibility-only) capacity is drawn behind the effective curve
     # when a disruption degraded the link somewhere in the run; the legend
     # needs to know before it is built.
-    show_nominal =
-        hasproperty(df, :Nominal_Bandwidth_Pct) &&
-        maximum(abs.(df.Nominal_Bandwidth_Pct .- df.Bandwidth_Pct)) > 0.1
+    show_nominal = maximum(abs.(capacity.nominal .- capacity.effective)) > 0.1
     legend_flags = (
         degraded = show_nominal,
         blackout = spans_overlap(ctx.disruption_spans, 0.0, max_x_h, 1, 2),
@@ -884,6 +997,9 @@ function plot_mission_summary(
         yaxisposition = :right,
         ylabel = "Buffered data batches",
         yticklabelcolor = PlotTheme.COLOR_ONBOARD,
+        # One grid per panel: the buffer ticks do not align with the
+        # capacity ticks, and two interleaved grids read as clutter.
+        ygridvisible = false,
     )
     hidespines!(ax1_twin)
     hidexdecorations!(ax1_twin)
@@ -908,13 +1024,13 @@ function plot_mission_summary(
     if show_nominal
         lines!(
             ax1,
-            df_x,
-            Float64.(df.Nominal_Bandwidth_Pct),
+            capacity.hours,
+            capacity.nominal,
             color = (PlotTheme.COLOR_BANDWIDTH, 0.35),
             linestyle = :dot,
         )
     end
-    lines!(ax1, df_x, Float64.(df.Bandwidth_Pct), color = PlotTheme.COLOR_BANDWIDTH)
+    lines!(ax1, capacity.hours, capacity.effective, color = PlotTheme.COLOR_BANDWIDTH)
     lines!(
         ax1_twin,
         df_x,
@@ -939,33 +1055,19 @@ function plot_mission_summary(
     shade_low_latency!(ax2, 0.0, max_x_h, ctx; style)
     mark_events!(ax2, 0.0, max_x_h, ctx.marker_times; style)
 
-    band!(
+    filled_stairs!(
         ax2,
         df_x,
-        zeros(length(df_x)),
-        Float64.(df.Ground_Total),
-        color = (PlotTheme.COLOR_LIVE, PlotTheme.FILL_ALPHA),
-    )
-    stairs!(
-        ax2,
-        df_x,
-        Float64.(df.Ground_Total),
+        Float64.(df.Ground_Total);
         color = PlotTheme.COLOR_LIVE,
-        linewidth = style.linewidth_edge,
+        style,
     )
-    band!(
+    filled_stairs!(
         ax2,
         df_x,
-        zeros(length(df_x)),
-        Float64.(df.Ground_Arch),
-        color = (PlotTheme.COLOR_ARCHIVE, PlotTheme.FILL_ALPHA),
-    )
-    stairs!(
-        ax2,
-        df_x,
-        Float64.(df.Ground_Arch),
+        Float64.(df.Ground_Arch);
         color = PlotTheme.COLOR_ARCHIVE,
-        linewidth = style.linewidth_edge,
+        style,
     )
 
     # Dedicated Lost strip: rare discrete events get their own small linear
@@ -993,10 +1095,14 @@ function plot_mission_summary(
         ylims!(ax3, -0.06 * y_top, 1.15 * y_top)
         shade_disruptions!(ax3, 0.0, max_x_h, ctx.disruption_spans; style)
         shade_spans!(ax3, 0.0, max_x_h, ctx.outage_spans; style)
+        shade_generation_gaps!(ax3, 0.0, max_x_h, ctx; style)
         shade_low_latency!(ax3, 0.0, max_x_h, ctx; style)
         mark_events!(ax3, 0.0, max_x_h, ctx.marker_times; style)
         stairs!(ax3, df_x, lost_curve, color = PlotTheme.COLOR_LOST)
         inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
+        # No stroke: under a drop policy the marks come by the dozen per
+        # pass, and stroked marks that close merge into a dark band in
+        # which the loss color is no longer visible.
         scatter!(
             ax3,
             df_x[inc],
@@ -1004,16 +1110,18 @@ function plot_mission_summary(
             marker = :xcross,
             color = PlotTheme.COLOR_LOST,
             markersize = style.markersize,
+            strokewidth = 0,
         )
         # The strip states its takeaway in either direction: a lossless run
         # reads "0 lost (0 %)" instead of presenting an empty panel. It sits
-        # at whichever end the upright rules leave free.
+        # at the end the upright rules leave free, or between them when both
+        # ends carry one.
         lost_final = Int(lost_curve[end])
         pct = 100 * lost_final / max(1.0, Float64(df.Ground_Total[end]) + lost_final)
         lost_text =
             lost_final == 0 ? "0 lost (0 %)" :
             "$lost_final lost ($(round(pct, sigdigits = 3)) %)"
-        side = PlotTheme.annotation_side(
+        anchor, halign = PlotTheme.annotation_anchor(
             upright_rules(ctx),
             0.0,
             max_x_h,
@@ -1021,11 +1129,11 @@ function plot_mission_summary(
         )
         text!(
             ax3,
-            side === :right ? 0.985 : 0.015,
+            anchor,
             0.88,
             text = lost_text,
             space = :relative,
-            align = (side, :top),
+            align = (halign, :top),
             fontsize = style.fontsize_annotation,
             color = PlotTheme.COLOR_LOST,
         )
@@ -1086,17 +1194,15 @@ function plot_session(
     session_df = df[in_window, :]
     length(session_df.SimTime) < 2 && return nothing
 
-    window_ms = (max_sess_dt - min_sess_dt).value
-    t_smooth_dt =
-        [min_sess_dt + Millisecond(round(Int, (j - 1) * window_ms / 199)) for j in 1:200]
-    t_smooth_h = [hours_since(t, ctx.t_start) for t in t_smooth_dt]
-    bw_smooth = Float64[
-        100.0 * ChannelEffects.effective_bandwidth(ctx.link_model, t) for t in t_smooth_dt
-    ]
-    bw_nominal_smooth = Float64[
-        100.0 * TelemetryCore.get_bandwidth_factor(ctx.vis_model, t) for t in t_smooth_dt
-    ]
-    sess_degraded = maximum(abs.(bw_nominal_smooth .- bw_smooth)) > 0.1
+    capacity = capacity_curves(
+        ctx.vis_model,
+        ctx.link_model,
+        ctx.t_start,
+        min_sess_h,
+        max_sess_h,
+        SESSION_CAPACITY_SAMPLES,
+    )
+    sess_degraded = maximum(abs.(capacity.nominal .- capacity.effective)) > 0.1
 
     tick_start_dt = Dates.floor(min_sess_dt, Hour(1))
     session_tick_vals_dt = collect(tick_start_dt:Hour(1):max_sess_dt)
@@ -1133,6 +1239,9 @@ function plot_session(
         yaxisposition = :right,
         ylabel = "Buffered data batches",
         yticklabelcolor = PlotTheme.COLOR_ONBOARD,
+        # One grid per panel: the buffer ticks do not align with the
+        # capacity ticks, and two interleaved grids read as clutter.
+        ygridvisible = false,
     )
     hidespines!(ax_s1_twin)
     hidexdecorations!(ax_s1_twin)
@@ -1146,13 +1255,13 @@ function plot_session(
     if sess_degraded
         lines!(
             ax_s1,
-            t_smooth_h,
-            bw_nominal_smooth,
+            capacity.hours,
+            capacity.nominal,
             color = (PlotTheme.COLOR_BANDWIDTH, 0.35),
             linestyle = :dot,
         )
     end
-    lines!(ax_s1, t_smooth_h, bw_smooth, color = PlotTheme.COLOR_BANDWIDTH)
+    lines!(ax_s1, capacity.hours, capacity.effective, color = PlotTheme.COLOR_BANDWIDTH)
     lines!(
         ax_s1_twin,
         session_hours,
@@ -1181,33 +1290,13 @@ function plot_session(
     shade_generation_gaps!(ax_s2, min_sess_h, max_sess_h, ctx; style)
     mark_events!(ax_s2, min_sess_h, max_sess_h, ctx.marker_times; style)
 
-    band!(
+    filled_stairs!(ax_s2, plot_x, plot_gnd; color = PlotTheme.COLOR_LIVE, style)
+    filled_stairs!(
         ax_s2,
         plot_x,
-        zeros(length(plot_x)),
-        plot_gnd,
-        color = (PlotTheme.COLOR_LIVE, PlotTheme.FILL_ALPHA),
-    )
-    stairs!(
-        ax_s2,
-        plot_x,
-        plot_gnd,
-        color = PlotTheme.COLOR_LIVE,
-        linewidth = style.linewidth_edge,
-    )
-    band!(
-        ax_s2,
-        plot_x,
-        zeros(length(plot_x)),
-        plot_ground_archive,
-        color = (PlotTheme.COLOR_ARCHIVE, PlotTheme.FILL_ALPHA),
-    )
-    stairs!(
-        ax_s2,
-        plot_x,
-        plot_ground_archive,
+        plot_ground_archive;
         color = PlotTheme.COLOR_ARCHIVE,
-        linewidth = style.linewidth_edge,
+        style,
     )
 
     # Session losses: no dedicated panel (it would sit empty on loss-free
@@ -1228,6 +1317,7 @@ function plot_session(
             marker = :xcross,
             color = PlotTheme.COLOR_LOST,
             markersize = style.markersize,
+            strokewidth = 0,
         )
         # The left corner belongs to the low-latency note when there is one,
         # so the count only moves left when that corner is free.

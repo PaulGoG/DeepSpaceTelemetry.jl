@@ -35,5 +35,10 @@ DeepSpaceTelemetry.MissionFigures.TICK_LABEL_SPACE
 DeepSpaceTelemetry.MissionFigures.summary_tick_step_hours
 DeepSpaceTelemetry.MissionFigures.mission_time_ticks
 DeepSpaceTelemetry.MissionFigures.count_tick_step
+DeepSpaceTelemetry.MissionFigures.SUMMARY_CAPACITY_SAMPLES
+DeepSpaceTelemetry.MissionFigures.SESSION_CAPACITY_SAMPLES
+DeepSpaceTelemetry.MissionFigures.capacity_curves
+DeepSpaceTelemetry.MissionFigures.step_vertices
+DeepSpaceTelemetry.MissionFigures.filled_stairs!
 DeepSpaceTelemetry.MissionFigures.SESSION_PIN_HEIGHT
 ```

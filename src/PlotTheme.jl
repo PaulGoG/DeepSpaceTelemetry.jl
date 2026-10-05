@@ -353,6 +353,49 @@ function annotation_side(occupied, x_lo::Real, x_hi::Real, fraction::Real)
 end
 
 """
+    ANNOTATION_EDGE_INSET
+
+Relative distance between an in-axis annotation block and the axis frame at
+the end it is aligned to ([`annotation_anchor`](@ref)).
+"""
+const ANNOTATION_EDGE_INSET = 0.015
+
+"""
+    annotation_anchor(occupied, x_lo, x_hi, fraction) -> Tuple{Float64,Symbol}
+
+Relative x position and horizontal alignment of an in-axis annotation block
+of relative width `fraction` ([`annotation_fraction`](@ref)) on an axis
+spanning `[x_lo, x_hi]`, against the `occupied` x positions — the upright
+rules and shaded edges the axis draws; positions outside the axis are
+ignored. The right end is taken when no position falls within the block and
+its insets there, the left end likewise; with both ends occupied the block
+is centered in the widest interval between two consecutive positions that
+holds it, and it stays at the right end when no interval does.
+
+```jldoctest
+julia> DeepSpaceTelemetry.PlotTheme.annotation_anchor([0.5, 9.5], 0.0, 10.0, 0.2)
+(0.5, :center)
+```
+"""
+function annotation_anchor(occupied, x_lo::Real, x_hi::Real, fraction::Real)
+    right = (1 - ANNOTATION_EDGE_INSET, :right)
+    span = x_hi - x_lo
+    span > 0 || return right
+    positions = sort!(Float64[(x - x_lo) / span for x in occupied if x_lo <= x <= x_hi])
+    needed = fraction + 2 * ANNOTATION_EDGE_INSET
+    any(p -> p > 1 - needed, positions) || return right
+    any(p -> p < needed, positions) || return (ANNOTATION_EDGE_INSET, :left)
+    widest, center = 0.0, 0.0
+    for i in 2:length(positions)
+        width = positions[i] - positions[i-1]
+        if width > widest
+            widest, center = width, (positions[i] + positions[i-1]) / 2
+        end
+    end
+    return widest >= needed ? (center, :center) : right
+end
+
+"""
     TICK_PRUNE_FRACTION
 
 Fraction of the axis range below the upper limit within which

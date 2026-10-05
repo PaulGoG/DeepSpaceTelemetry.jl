@@ -156,6 +156,19 @@ end
     @test PlotTheme.annotation_side([9.5], 0.0, 10.0, 0.2) === :left
     @test PlotTheme.annotation_side([0.5, 9.5], 0.0, 10.0, 0.2) === :right
     @test PlotTheme.annotation_side(Float64[], 0.0, 0.0, 0.2) === :right
+    # The anchor takes a free end, else the widest interval between the
+    # rules that holds the block; positions outside the axis do not count.
+    @test PlotTheme.annotation_anchor(Float64[], 0.0, 10.0, 0.2) == (0.985, :right)
+    @test PlotTheme.annotation_anchor([0.1], 0.0, 10.0, 0.2) == (0.985, :right)
+    @test PlotTheme.annotation_anchor([9.5], 0.0, 10.0, 0.2) == (0.015, :left)
+    @test PlotTheme.annotation_anchor([0.5, 9.5], 0.0, 10.0, 0.2) == (0.5, :center)
+    crowded = PlotTheme.annotation_anchor([0.5, 4.0, 5.0, 9.5], 0.0, 10.0, 0.2)
+    @test crowded[1] ≈ 0.725 atol = 1e-12
+    @test crowded[2] === :center
+    @test PlotTheme.annotation_anchor(collect(0.5:1.0:9.5), 0.0, 10.0, 0.2) ==
+          (0.985, :right)
+    @test PlotTheme.annotation_anchor([-5.0, 20.0], 0.0, 10.0, 0.2) == (0.985, :right)
+    @test PlotTheme.annotation_anchor([1.0], 0.0, 0.0, 0.2) == (0.985, :right)
     @test PlotTheme.annotation_fraction(full, "0 lost (0 %)") <
           PlotTheme.annotation_fraction(full, "1234 lost (12.34 %)")
     @test PlotTheme.annotation_fraction(full, "a"^500) == 0.45
@@ -176,6 +189,31 @@ end
     @test MissionFigures.coalesce_spans(spans, 0.5) == [(0.0, 2.0), (5.0, 6.0)]
     @test MissionFigures.coalesce_spans(spans, 0.1) == [(0.0, 1.0), (1.2, 2.0), (5.0, 6.0)]
     @test isempty(MissionFigures.coalesce_spans(NTuple{2,Float64}[], 1.0))
+    # The fill of a cumulative count is bounded by the staircase itself.
+    @test MissionFigures.step_vertices([0.0, 1.0, 3.0], [5.0, 6.0, 8.0]) ==
+          ([0.0, 0.0, 1.0, 1.0, 3.0], [5.0, 6.0, 6.0, 8.0, 8.0])
+    @test MissionFigures.step_vertices([2.0], [7.0]) == ([2.0], [7.0])
+    @test MissionFigures.step_vertices(Float64[], Float64[]) == (Float64[], Float64[])
+    @test_throws DimensionMismatch MissionFigures.step_vertices([0.0, 1.0], [1.0])
+    # Capacity curves come from the models on a uniform grid: an 8 h pass
+    # from 08:00 on an axis starting at 06:00, no disruption.
+    pass = TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat")
+    link = ChannelEffects.LinkModel(pass, ChannelEffects.DisruptionTimeline())
+    curves =
+        MissionFigures.capacity_curves(pass, link, DateTime(2035, 1, 1, 6), 0.0, 24.0, 25)
+    @test curves.hours == collect(0.0:1.0:24.0)
+    @test curves.nominal[2] == 0.0 &&
+          curves.nominal[7] == 100.0 &&
+          curves.nominal[13] == 0.0
+    @test curves.effective == curves.nominal
+    @test_throws ArgumentError MissionFigures.capacity_curves(
+        pass,
+        link,
+        DateTime(2035, 1, 1, 6),
+        0.0,
+        24.0,
+        1,
+    )
     @test MissionFigures.SESSION_PIN_HEIGHT < 1 / 1.2 + 0.1 &&
           MissionFigures.SESSION_PIN_HEIGHT > 1 / 1.2
 

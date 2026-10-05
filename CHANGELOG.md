@@ -13,6 +13,28 @@ Notable changes to DeepSpaceTelemetry. The format follows
   reading every batch directory; the HDF5 export's `masks/batch_epochs`
   group gains the same dataset.
 
+### Fixed
+- The filled areas of the received-batch panels follow their staircase
+  edges. The fill interpolated linearly between metrics rows while the edge
+  was drawn as a step, so a low-throughput session (a recovery ramp, a
+  low-latency period) showed a sloped fill crossing its own outline.
+- The capacity curves of the mission summary are evaluated from the link
+  model on a uniform grid, as the session figures already do, instead of
+  joining the metrics rows. The rows are written on change only, so an
+  interval without one — the start-up before the first pass, a contact gap
+  with the recorder full — was bridged by a sloped segment the capacity
+  never followed.
+- The Lost strip of the mission summary shades generation gaps and
+  recorder-full intervals like the panels above it, and its count
+  annotation moves to the widest interval free of event edges when both
+  ends of the strip carry one.
+- The capacity panels draw one grid, that of the capacity axis. The buffer
+  axis on the right added its own, at a spacing unrelated to the first.
+- The loss marks of the mission summary and of the session figures are
+  drawn without a stroke. Under a drop policy they come by the dozen per
+  pass, and the stroked marks merged into a dark band that hid the loss
+  color.
+
 ## [2.1.1] - 2026-09-30
 
 ### Fixed
