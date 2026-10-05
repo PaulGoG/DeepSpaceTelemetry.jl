@@ -15,8 +15,8 @@ scenarios model the LISA (Laser Interferometer Space Antenna) mission, and
 external instrument data ingests through the same pipeline.
 
 **[Manual](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/)** · [Physics](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/physics/) ·
-[Configuration](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/usage/) · [Analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) ·
-[Scenario library](scenarios/README.md) · [Changelog](CHANGELOG.md)
+[Configuration](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/usage/) · [Scenario gallery](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/gallery/) ·
+[Analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) · [Scenario library](scenarios/README.md) · [Changelog](CHANGELOG.md)
 
 > "DSN" denotes throughout a deep-space ground-station network in the generic
 > sense; the LISA passes are ESA ESTRACK 35 m antenna passes.
@@ -468,7 +468,7 @@ widget. Cite the version used, by tag:
   author  = {Gogîță, Paul-Adrian},
   title   = {DeepSpaceTelemetry.jl: a telemetry, channel, and queuing simulator for deep-space science missions},
   year    = {2026},
-  version = {2.1.1},
+  version = {2.2.0},
   url     = {https://github.com/PaulGoG/DeepSpaceTelemetry.jl}
 }
 ```
