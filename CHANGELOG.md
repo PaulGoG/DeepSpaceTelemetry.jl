@@ -4,6 +4,22 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.2] - 2026-10-05
+
+### Changed
+- The figures of the manual and of the README are re-rendered with the
+  plotting code of 2.2.0 from a new run of `scenarios/stress_8h_bursty.toml`
+  on 2.0.1 (`docs/src/assets/PROVENANCE.toml`): the filled areas follow
+  their staircase edges, the capacity curves are those of the link model,
+  and the capacity panel draws one grid. The captions state that run's
+  totals. Code and behavior are those of 2.0.1.
+
+### Fixed
+- The regimes stated for the stress and the recovery scenario (usage page,
+  scenario library) are those the receiver reaches since its slot deadlines
+  were chained in 2.0.1: about 210 batches per 12-hour pass and a buffer
+  near 540 batches at the end of the stress week.
+
 ## [2.0.1] - 2026-09-30
 
 ### Changed
@@ -330,6 +346,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[2.0.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...v2.0.0
 [1.2.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v1.2.0...v1.2.1
