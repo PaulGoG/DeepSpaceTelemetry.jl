@@ -171,6 +171,10 @@ julia scripts/postprocessing/export_hdf5.jl [RUN_ID]
 # Figures at the width and format of [post_processing.publication], with a sidecar
 julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 
+# Complete a run whose supervisor was killed during post-processing:
+# recompute the products, settle RUN_ACTIVE (--force skips the recent-write test)
+julia --threads=3 scripts/postprocessing/complete_run.jl <RUN_ID> [--force]
+
 # Expand one mask-timeline row into a point-wise 0/1 column
 julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> 102400 100 output.csv
 
@@ -205,7 +209,7 @@ batch never becomes available on the ground.
 | `PlotTheme` | figure theme and scale-aware styling | stable |
 | Scenario library | eleven configurations under `scenarios/` | every file validated and the smoke scenario run by the suite |
 | Entry points | `run_full_sim.jl` (argument parsing plus `Supervisor.run_mission`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release (its library call runs the smoke scenario in the suite); the dashboard, live viewer, and log follower are interactive and verified manually |
-| Post-processing wrappers | `apply_telemetry_mask.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over the tested library functions (`Masks.expand_pointwise_mask`, `Export.export_hdf5`, `Publication.export_publication_figures`); the animation engine of `generate_gif.jl` renders over the tested replay (`Masks.batch_states`) and the standalone expander is a dependency-light copy, both verified on the shipped scenarios at each release |
+| Post-processing wrappers | `apply_telemetry_mask.jl`, `complete_run.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over the tested library functions (`Masks.expand_pointwise_mask`, `Supervisor.complete_run`, `Export.export_hdf5`, `Publication.export_publication_figures`); the animation engine of `generate_gif.jl` renders over the tested replay (`Masks.batch_states`) and the standalone expander is a dependency-light copy, both verified on the shipped scenarios at each release |
 | Maintenance utilities | `generate_example_strain.jl`, `cleanup.jl`, `docs/render_assets.jl` | `generate_example_strain.jl` verified through `scenarios/external_ingest.toml` at each release; `cleanup.jl` interactive (confirmation prompt), verified manually; `render_assets.jl` run end to end whenever the figures of the manual are regenerated |
 
 <details>
@@ -236,6 +240,7 @@ DeepSpaceTelemetry/
 │   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
 │   ├── postprocessing/
 │   │   ├── apply_telemetry_mask.jl      # Point-wise mask expansion (snapshot-aware)
+│   │   ├── complete_run.jl              # Post-processing and sentinels of a stranded run
 │   │   ├── export_hdf5.jl               # HDF5 product export of a run
 │   │   ├── export_publication_figures.jl # Vector figures at journal width + provenance sidecar
 │   │   ├── generate_gif.jl              # Batch-routing animation engine
@@ -287,7 +292,7 @@ DeepSpaceTelemetry/
 │                                #   component_events.csv, config_snapshot.toml, manifest_snapshot.toml,
 │                                #   clock_anchor.toml, alert_latency.csv, alert_latency_markers.csv,
 │                                #   delivery_delay.csv, emitter.log, receiver.log, supervisor.log,
-│                                #   heartbeats, RUN_ACTIVE/RUN_COMPLETE/RUN_ABORTED sentinels, and,
+│                                #   heartbeats, RUN_ACTIVE/RUN_POSTPROCESSING/RUN_COMPLETE/RUN_ABORTED sentinels, and,
 │                                #   when their flags are set, products.h5 and publication/
 │                                #   (interfaces.md documents the full contract)
 ├── .github/workflows/CI.yml     # Test matrix (Linux 1.12 / 1 / pre, macOS and Windows on 1), formatter, docs build and deployment
@@ -348,7 +353,8 @@ and external ingestion. The
                     # recovery_hours, loss_multiplier (+ optional affects, type, label)
 [events]            # [[events.markers]]: declared event instants
 [dashboard]         # auxiliary terminals to spawn, receiver status panel on the console
-[post_processing]   # mask matrix, point-wise expansions, HDF5 and publication export
+[post_processing]   # mask matrix, point-wise expansions, metric and figure flags,
+                    # session-figure switch and cap, HDF5 and publication export
 ```
 
 `target_event_rows` accepts the string `"all"` (or `["all"]`), integer row

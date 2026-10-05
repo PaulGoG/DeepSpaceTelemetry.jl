@@ -44,7 +44,7 @@ of analysis instances may operate concurrently on a single telemetry run.
 | `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
 | `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `git_dirty` (uncommitted changes in the checkout), `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `versioninfo`, `julia_threads`, `blas_threads` — the parameter hash `config_sha256` at `[provenance]` (the SHA-256 of the configuration as sorted TOML without that section; its first eight hex digits open the run identifier `RUN_cfg=<hash>_pid=<pid>_t=<yyyymmdd_HHMMSS>`), the payload origin `payload_origin` at `[provenance]` (the content instant of payload row 1, `start_sim_time` less `initial_downtime_days`, as an ISO-8601 string; see Batch Identity below), and, for external data, the input identity there (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`). |
 | `manifest_snapshot.toml` | pipeline (at startup) | Read. The manifest of the environment the run was resolved on: the exact version of every dependency. Manifests are not tracked in the repository, so this file and the commit in `config_snapshot.toml` together fix the code state. |
-| `RUN_ACTIVE` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
+| `RUN_ACTIVE` / `RUN_POSTPROCESSING` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor and absolute deadline (`wall_epoch`, `start_sim_time`, `speed_up`, `deadline_wall`); re-attaching components reconstruct the identical clock from it. |
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` one of `down`, `restart`, `stalled`, `recovered`. |
 | `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs and deleted when it exits: absence means finished, a stale mtime means stalled. |
@@ -121,6 +121,30 @@ failures — the sentinel marks "no further writes", not success) or by
 `RUN_ABORTED` when the pipeline exits before its lifecycle completes. A
 consumer may treat either terminal sentinel as the signal to switch from
 tailing to batch processing.
+
+`RUN_POSTPROCESSING` stands beside `RUN_ACTIVE` from the moment the emitter
+and the receiver have stopped until the lifecycle ends: while it is present
+the payload, the event logs, and the metrics profile are final, and only
+derived products (metrology tables, masks, figures, exports) are still
+written. The metrology tables come first, the figures last.
+
+The terminal sentinels are written by the supervisor process as it leaves.
+A process killed from outside (by the kernel's out-of-memory handler, by a
+scheduler at its time limit) leaves `RUN_ACTIVE` behind with no process to
+remove it. Such a directory is a stranded run, not a live one: its deadline
+in `clock_anchor.toml` has passed and nothing writes to it. It is settled
+with
+```bash
+julia --threads=3 scripts/postprocessing/complete_run.jl <RUN_ID>
+```
+which runs the post-processing again from the data on disk, with the
+settings of the run's own snapshot, and replaces `RUN_ACTIVE` by
+`RUN_COMPLETE` when the mission phase had ended, or by `RUN_ABORTED` when
+the process died before the mission deadline and the record is truncated.
+The mission phase counts as ended when `RUN_POSTPROCESSING` is present; for
+a run made before that sentinel existed, when the metrics profile reaches
+the deadline. The script refuses a run whose deadline has not passed and,
+without `--force`, a directory written to within the last minute.
 
 ## Component Outages & Generation Gaps
 

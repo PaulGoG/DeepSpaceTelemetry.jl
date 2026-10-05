@@ -6,7 +6,37 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- `post_processing.session_figures` switches the per-contact session
+  figures off and `post_processing.session_figures_max` caps them at that
+  many windows, evenly spaced over the mission (0, the default, is no cap).
+  Both are read from the run's snapshot, so the publication export selects
+  the same windows.
+- The sentinel `RUN_POSTPROCESSING` stands beside `RUN_ACTIVE` from the stop
+  of the emitter and the receiver to the end of the lifecycle: payload,
+  event logs, and metrics are final while it is present.
+- `scripts/postprocessing/complete_run.jl` (`Supervisor.complete_run`)
+  completes a run whose supervisor process was killed during
+  post-processing: the products are recomputed from the data on disk and
+  the stranded `RUN_ACTIVE` is settled as `RUN_COMPLETE`, or as
+  `RUN_ABORTED` when the mission itself was cut short.
+- The start-up estimate prints the RAM of the figure stage (`Figure RAM`)
+  and checks it against `storage.max_ram_gb`.
+
+### Changed
+- The post-processing writes the alert-latency and delivery-delay tables
+  first, then the mask timeline and the raster, then the mission summary and
+  the session figures. The cheap products no longer depend on the long
+  stage completing.
+
 ### Fixed
+- The figure stage holds one figure in memory. Every figure of a run was
+  drawn inside one theme scope, which kept all of them reachable until its
+  end, about 75 MiB per session figure: a 365-day mission reached 13.7 GiB
+  after 163 session figures and was killed by the kernel, which left
+  `RUN_ACTIVE` behind and the metrology tables unwritten. Each figure now
+  has a scope of its own and is released after saving; a 360-day profile
+  renders at a constant resident size.
 - The suite asserts the closing of the recorder-overflow gap only when the
   overflow began before the contact opened. On a host that stalls through
   the first half second of that test the batches go straight to the link,

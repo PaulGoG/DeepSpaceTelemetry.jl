@@ -242,6 +242,34 @@ settings of its snapshot:
 julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 ```
 
+## Session Figures of Long Missions
+Every contact window, nominal pass or low-latency period, receives a session
+figure, so their number grows with the mission: a year of daily passes is
+365 figures, about a second and 0.6 MB each. Two keys bound the stage:
+```toml
+[post_processing]
+session_figures = true      # false: the mission summary only
+session_figures_max = 0     # at most this many, evenly spaced over the contacts; 0 = no cap
+```
+Under a cap the windows are spread evenly over the mission, the first and
+the last included. The keys are read from the run's own snapshot, so the
+publication export and a later call of
+`MissionFigures.generate_mission_plots` select the same windows.
+
+The stage holds one figure in memory at a time: each figure is drawn in a
+theme scope of its own and released after it is saved, so its memory does
+not grow with the number of windows. The start-up estimate prints it as
+`Figure RAM` and checks it against `storage.max_ram_gb`, beside the replay
+RAM of the mask timeline.
+
+The post-processing writes its products in order of cost: the alert-latency
+and delivery-delay tables with their figures, the mask timeline and the
+raster drawn from it, then the mission summary and the session figures, the
+point-wise masks, and the exports. A run whose supervisor process was
+killed during that stage is completed with
+`scripts/postprocessing/complete_run.jl` (Analysis Interfaces, lifecycle
+sentinels).
+
 ## Batch-State Raster
 One further figure follows every run, behind its own flag:
 ```toml
