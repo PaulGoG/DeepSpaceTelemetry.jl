@@ -531,7 +531,7 @@ end
             ),
             "markers",
         )
-        tx = CSV.read(joinpath(stamp_dir, "events_tx.csv"), DataFrame)
+        tx = TelemetryCore.read_table(joinpath(stamp_dir, "events_tx.csv"))
         marker_rows = tx[tx.Event .== "marker", :]
         @test nrow(marker_rows) == 1 &&
               String(marker_rows.Batch[1]) == "ARCH_batch_2" &&

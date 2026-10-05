@@ -565,8 +565,8 @@ end
         TelemetryCore.safe_csv_write(p, DataFrame(a = [3]))
         @test isfile(joinpath(tmp, "res#1.csv"))
         @test isfile(joinpath(tmp, "res#2.csv"))
-        @test CSV.read(p, DataFrame).a == [3]
-        @test CSV.read(joinpath(tmp, "res#1.csv"), DataFrame).a == [1]
+        @test TelemetryCore.read_table(p).a == [3]
+        @test TelemetryCore.read_table(joinpath(tmp, "res#1.csv")).a == [1]
     end
 end
 
@@ -863,5 +863,43 @@ end
     )
     @test_throws TelemetryCore.StorageBudgetError with_logger(NullLogger()) do
         TelemetryCore.check_storage_limits(tight)
+    end
+end
+
+@testset "Table I/O: stated column types and the timestamp form" begin
+    mktempdir() do dir
+        path = joinpath(dir, "events.csv")
+        table = DataFrame(
+            SimTime = [
+                DateTime(2035, 1, 4, 12, 0, 36),
+                DateTime(2035, 1, 1, 6, 18, 21, 600),
+                DateTime(2026, 9, 24, 2, 1, 17, 51),
+            ],
+            Batch = ["ARCH_batch_1", "LIVE_batch_2", "SCHEDULED"],
+            AvailableAt = [missing, DateTime(2035, 1, 4, 13), missing],
+            Delay_Hours = [missing, 1.5, missing],
+            Live = [false, true, false],
+        )
+        @test TelemetryCore.write_table(path, table) == path
+        @test readlines(path) == [
+            "SimTime,Batch,AvailableAt,Delay_Hours,Live",
+            "2035-01-04T12:00:36.0,ARCH_batch_1,,,false",
+            "2035-01-01T06:18:21.6,LIVE_batch_2,2035-01-04T13:00:00.0,1.5,true",
+            "2026-09-24T02:01:17.051,SCHEDULED,,,false",
+        ]
+        back = TelemetryCore.read_table(path)
+        @test eltype(back.SimTime) === DateTime && eltype(back.Batch) === String
+        @test eltype(back.AvailableAt) === Union{Missing,DateTime}
+        @test back.SimTime == table.SimTime && isequal(back.AvailableAt, table.AvailableAt)
+        @test back.Live == table.Live && isequal(back.Delay_Hours, table.Delay_Hours)
+        # Appending keeps one header and the same form.
+        TelemetryCore.write_table(path, table[1:1, :]; append = true)
+        @test length(readlines(path)) == 5
+        @test last(readlines(path)) == "2035-01-04T12:00:36.0,ARCH_batch_1,,,false"
+        # A second round trip reproduces the file byte for byte.
+        again = joinpath(dir, "again.csv")
+        TelemetryCore.write_table(again, TelemetryCore.read_table(path))
+        @test read(again) == read(path)
+        @test TelemetryCore.timestamp_text(missing) === missing
     end
 end

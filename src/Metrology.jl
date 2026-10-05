@@ -18,7 +18,6 @@ module Metrology
 
 using ..TelemetryCore
 using ..PlotTheme
-using CSV: CSV
 using CairoMakie:
     CairoMakie,
     @L_str,
@@ -185,10 +184,10 @@ discipline, and no live priority. Batches without a recorded content epoch
 (pre-`content_epoch` metadata) take `generation − batch span`.
 """
 function delivery_schedule(run_dir::String)
-    tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+    tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
     rx_path = joinpath(run_dir, "events_rx.csv")
     rx =
-        isfile(rx_path) ? CSV.read(rx_path, DataFrame) :
+        isfile(rx_path) ? TelemetryCore.read_table(rx_path) :
         DataFrame(SimTime = DateTime[], Batch = String[], Event = String[])
     physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
     batch_span =

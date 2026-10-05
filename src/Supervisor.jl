@@ -20,8 +20,6 @@ using ..Masks
 using ..MissionFigures
 using ..Export
 using ..Publication
-using CSV: CSV
-using DataFrames: DataFrame
 using Dates: Dates, DateTime, Millisecond, Second, now
 using Logging: Logging, current_logger, with_logger
 using LoggingExtras: TeeLogger
@@ -294,8 +292,10 @@ function record_generation_gap!(
     tx_log_path = joinpath(run_dir, "events_tx.csv")
     last_gen =
         isfile(tx_log_path) ?
-        maximum(CSV.read(tx_log_path, DataFrame).SimTime; init = clock.start_sim_time) :
-        clock.start_sim_time
+        maximum(
+            TelemetryCore.read_table(tx_log_path).SimTime;
+            init = clock.start_sim_time,
+        ) : clock.start_sim_time
     TelemetryCore.log_tx_event(run_dir, last_gen, "STREAM", "gap_start")
     TelemetryCore.log_tx_event(run_dir, resume, "STREAM", "gap_end")
     return nothing

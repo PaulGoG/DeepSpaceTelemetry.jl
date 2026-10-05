@@ -38,7 +38,7 @@ end
     policy(p; restarts = 2, watchdog = 0.3) =
         (on_component_failure = p, max_restarts = restarts, watchdog_sec = watchdog)
     clock = TelemetryCore.SimulationClock(now(), DateTime(2035), 1.0)
-    events(dir) = CSV.read(joinpath(dir, "component_events.csv"), DataFrame)
+    events(dir) = TelemetryCore.read_table(joinpath(dir, "component_events.csv"))
     # The [SUPERVISOR] failure and policy records go to the active logger.
     with_logger(NullLogger()) do
         mktempdir() do tmp
@@ -210,7 +210,7 @@ end
             origin = DateTime(snapshot["provenance"]["payload_origin"])
             @test origin == DateTime(2035, 1, 1, 5, 45, 36) == plan.payload_origin
             @test !isfile(joinpath(run_dir, "component_events.csv"))
-            tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+            tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
             @test count(==("gen"), tx.Event) > 5
             scheduled = tx[tx.Batch .== "SCHEDULED", :]
             @test String.(scheduled.Event) == ["gap_start", "gap_end"]
@@ -357,7 +357,7 @@ end
                 )
             end
             @test restarts == Dict(:emitter => 1, :receiver => 0)
-            components = CSV.read(joinpath(run_dir, "component_events.csv"), DataFrame)
+            components = TelemetryCore.read_table(joinpath(run_dir, "component_events.csv"))
             @test String.(components[components.Component .== "emitter", :Event]) ==
                   ["down", "restart"]
 
@@ -366,7 +366,7 @@ end
             snapshot = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
             origin = DateTime(snapshot["provenance"]["payload_origin"])
             @test origin == plan.start_sim - Minute(72)
-            tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+            tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
             stream = tx[tx.Batch .== "STREAM", :]
             @test String.(stream.Event) == ["gap_start", "gap_end"]
             resume = DateTime(stream.SimTime[2])
@@ -429,7 +429,7 @@ end
         @test isfile(joinpath(run_dir, "RUN_COMPLETE"))
         @test isfile(joinpath(run_dir, "delivery_delay.csv"))
         @test isfile(joinpath(run_dir, "plots", "mission_summary_global.png"))
-        rx = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+        rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
         # How many batches the scenario delivers within its 12 s wall-clock
         # budget depends on the host keeping pace with the accelerated clock,
         # so the floor only separates a pipeline that moved data from one that

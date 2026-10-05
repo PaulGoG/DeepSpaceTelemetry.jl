@@ -9,7 +9,6 @@ availability expansion of one timeline row.
 module Masks
 
 using ..TelemetryCore
-using CSV: CSV
 using DataFrames: DataFrame, nrow
 using Dates: DateTime
 
@@ -50,10 +49,10 @@ causal order (`gen` → `tx` → terminal) with later stages absorbing, keeping
 every batch's state sequence monotone.
 """
 function reconstruct_batch_states(run_dir::String, df::DataFrame)
-    tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+    tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
     rx_path = joinpath(run_dir, "events_rx.csv")
     rx =
-        isfile(rx_path) ? CSV.read(rx_path, DataFrame) :
+        isfile(rx_path) ? TelemetryCore.read_table(rx_path) :
         DataFrame(SimTime = DateTime[], Batch = String[], Event = String[], Attempt = Int[])
 
     # Chronological milestone list; the priority index breaks same-timestamp
@@ -213,7 +212,7 @@ function generate_telemetry_masks(run_dir::String)
         return
     end
 
-    df = TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
+    df = TelemetryCore.normalize_profile!(TelemetryCore.read_table(log_path))
     if isempty(df)
         return
     end
@@ -261,7 +260,7 @@ function generate_telemetry_masks(run_dir::String)
     # before those keys existed).
     tx_path = joinpath(run_dir, "events_tx.csv")
     if isfile(tx_path)
-        tx_events = CSV.read(tx_path, DataFrame)
+        tx_events = TelemetryCore.read_table(tx_path)
         gens = tx_events[tx_events.Event .== "gen", :]
         if !isempty(gens)
             content = TelemetryCore.batch_content_epochs(run_dir)

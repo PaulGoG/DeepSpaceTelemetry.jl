@@ -73,7 +73,16 @@ segment period of it when the host keeps pace with the accelerated clock).
 Segment files carry no timestamps; sample `k` of a batch lies at
 `content_epoch + (k − 1) / sample_rate` and is payload row
 `payload_row + k − 1`. A batch whose payload holds an event marker carries
-the marker labels under the optional `markers` key.
+the marker labels under the optional `markers` key. The order of the keys
+in `metadata.json` carries no meaning.
+
+Instants in the CSV tables (`SimTime`, `WallTime`, `GenSimTime`,
+`ContentEpoch`, `ContentEnd`, `AvailableAt`, `Marker`) are written as
+`yyyy-mm-ddTHH:MM:SS.s`, the seconds with one to three decimals
+(`2035-01-04T12:00:36.0`, `2026-09-24T02:01:17.051`). The package states
+that form when it writes and the column types when it reads
+(`TelemetryCore.write_table`, `TelemetryCore.read_table`), so neither
+follows the defaults of the CSV library in use.
 Batches are delivered by an atomic same-filesystem `mv`: a directory visible
 under `ground/` is complete, and it is never modified afterward except by
 the retention custodian (below).

@@ -11,7 +11,6 @@ module MissionFigures
 using ..TelemetryCore
 using ..ChannelEffects
 using ..PlotTheme
-using CSV: CSV
 using CairoMakie:
     Axis,
     Figure,
@@ -129,7 +128,7 @@ function generation_gap_spans(
     spans = NTuple{2,Float64}[]
     path = joinpath(run_dir, "events_tx.csv")
     isfile(path) || return spans
-    events = CSV.read(path, DataFrame)
+    events = TelemetryCore.read_table(path)
     isempty(events) && return spans
     open_start = nothing
     for r in eachrow(events)
@@ -162,7 +161,7 @@ function component_outage_spans(run_dir::String, t_start::DateTime, x_end::Float
     spans = NTuple{2,Float64}[]
     path = joinpath(run_dir, "component_events.csv")
     isfile(path) || return spans
-    events = CSV.read(path, DataFrame)
+    events = TelemetryCore.read_table(path)
     open_down = Dict{String,DateTime}()
     for r in eachrow(events)
         comp = String(r.Component)
@@ -1515,7 +1514,7 @@ run carries no emitter log.
 function archive_batch_ids(run_dir::String)
     path = joinpath(run_dir, "events_tx.csv")
     isfile(path) || return Set{Int}()
-    events = CSV.read(path, DataFrame)
+    events = TelemetryCore.read_table(path)
     return Set{Int}(
         TelemetryCore.batch_id(String(row.Batch)) for row in eachrow(events) if
         row.Event == "gen" && TelemetryCore.is_archive_batch(String(row.Batch))
@@ -1747,7 +1746,7 @@ function generate_mission_plots(
         @warn "[POST] mission_profile.csv missing in $run_dir — the receiver produced no metrics (component never ran?); skipping this product."
         return paths
     end
-    df = TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
+    df = TelemetryCore.normalize_profile!(TelemetryCore.read_table(log_path))
     isempty(df) && return paths
 
     cfg = TelemetryCore.load_run_config(run_dir)

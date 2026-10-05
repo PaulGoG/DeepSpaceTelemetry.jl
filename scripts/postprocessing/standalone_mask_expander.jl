@@ -53,7 +53,7 @@ function expand_pointwise_mask(
     println("Loading mask timeline from: $matrix_path")
     # ntasks = 1: one wide row per event defeats CSV.jl's multithreaded
     # chunking, which logs a failure before falling back to a single task.
-    mask_df = CSV.read(matrix_path, DataFrame; ntasks = 1)
+    mask_df = CSV.read(matrix_path, DataFrame; ntasks = 1, types = Dict(:SimTime => String))
 
     target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
 

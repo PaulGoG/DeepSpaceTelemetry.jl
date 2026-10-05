@@ -12,7 +12,6 @@ primary interface; the export is a derived, regenerable view of them
 module Export
 
 using ..TelemetryCore
-using CSV: CSV
 using DataFrames: DataFrame, nrow
 using Dates: DateTime, now
 using HDF5: HDF5, h5open, create_group
@@ -163,7 +162,7 @@ function write_pointwise_masks!(file::HDF5.File, run_dir::String)
     isdir(masks_dir) || return nothing
     for f in sort!(filter(startswith("pointwise_mask_"), readdir(masks_dir)))
         endswith(f, ".csv") || continue
-        df = CSV.read(joinpath(masks_dir, f), DataFrame)
+        df = TelemetryCore.read_table(joinpath(masks_dir, f))
         hasproperty(df, :Ground_Available) || continue
         g = ensure_group(file, "masks/pointwise/" * splitext(f)[1])
         HDF5.write_attribute(g, "source", joinpath("masks", f))
@@ -240,7 +239,7 @@ function export_hdf5(run_dir::String; path::String = joinpath(run_dir, "products
         for (group, rel) in TABLE_PRODUCTS
             csv = joinpath(run_dir, rel)
             isfile(csv) || continue
-            df = CSV.read(csv, DataFrame)
+            df = TelemetryCore.read_table(csv)
             rel == "mission_profile.csv" && TelemetryCore.normalize_profile!(df)
             write_table!(file, group, df, epoch, rel)
         end

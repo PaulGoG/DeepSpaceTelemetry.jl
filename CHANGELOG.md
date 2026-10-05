@@ -12,10 +12,22 @@ Notable changes to DeepSpaceTelemetry. The format follows
   passes filled the panel as a solid block; the daily mean shows the
   seasonal extension, the missed passes, and the disruptions as levels.
 
+- The package runs on CSV.jl 1.1 and JSON.jl 1 in place of CSV.jl 0.10 and
+  JSON3, which cannot be installed together with CSV.jl 1.x. CSV.jl 1.x
+  infers instants and text as types of its own and writes a `DateTime`
+  without the decimal the tables have always carried, so every table is now
+  read with stated column types (`TelemetryCore.read_table`) and written
+  with a stated timestamp form (`TelemetryCore.write_table`). The tables
+  are unchanged to the byte; in `metadata.json` the keys appear in a
+  different order.
+
 ### Fixed
 - Count axes that reach 10⁴ (received batches, buffer, lost batches, batch
   identifiers of the raster and of the animation) carry tick labels with one
   common power of ten in the form `10⁴`, `2×10⁴`; they read `1×10⁴` before.
+- `bench/benchmarks.jl` benchmarks the event-log replay through
+  `Masks.batch_states`. It still named the function at its place before
+  2.0.0 and stopped there.
 
 ## [2.3.0] - 2026-10-05
 

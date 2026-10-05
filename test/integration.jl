@@ -282,7 +282,7 @@ end
                 end
 
             run_phase(clock1, vi, pending)
-            tx1 = CSV.read(joinpath(ra_dir, "events_tx.csv"), DataFrame)
+            tx1 = TelemetryCore.read_table(joinpath(ra_dir, "events_tx.csv"))
             gens1 = [
                 parse(Int, String(last(split(String(b), "_")))) for
                 b in tx1[tx1.Event .== "gen", :Batch]
@@ -307,10 +307,10 @@ end
 
             run_phase(restored.clock, resumed, TelemetryCore.DataSegment[])
 
-            rx2 = CSV.read(joinpath(ra_dir, "events_rx.csv"), DataFrame)
+            rx2 = TelemetryCore.read_table(joinpath(ra_dir, "events_rx.csv"))
             @test any((rx2.Event .== "ingested") .& (rx2.Batch .== "ARCH_batch_500"))
 
-            tx2 = CSV.read(joinpath(ra_dir, "events_tx.csv"), DataFrame)
+            tx2 = TelemetryCore.read_table(joinpath(ra_dir, "events_tx.csv"))
             gen_rows = tx2[tx2.Event .== "gen", :]
             gens = [parse(Int, String(last(split(String(b), "_")))) for b in gen_rows.Batch]
             @test length(gens) == length(unique(gens)) # no batch-ID collisions
@@ -331,7 +331,7 @@ end
             # Epoch sidecar: finalization instant from the event log plus the
             # content epoch from each batch's metadata (the orphan seeded above
             # has no metadata and therefore no content epoch).
-            epochs = CSV.read(joinpath(ra_dir, "masks", "batch_epochs.csv"), DataFrame)
+            epochs = TelemetryCore.read_table(joinpath(ra_dir, "masks", "batch_epochs.csv"))
             @test names(epochs) == ["Batch", "GenSimTime", "ContentEpoch", "PayloadRow"]
             @test any(!ismissing, epochs.ContentEpoch)
             # The payload row of every batch is the one its content epoch implies.
@@ -446,9 +446,9 @@ end
 
             # Ground-truth event logs exist and are consistent
             @test isfile(joinpath(run_dir, "events_tx.csv"))
-            tx_events = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+            tx_events = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
             @test all(e -> e in ("gen", "tx"), tx_events.Event)
-            rx_events = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+            rx_events = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
             @test all(==("ingested"), rx_events.Event)
             @test nrow(rx_events) == length(ground)
 
@@ -471,7 +471,7 @@ end
             Masks.generate_telemetry_masks(run_dir)
             mask_path = joinpath(run_dir, "masks", "telemetry_mask_timeline.csv")
             @test isfile(mask_path)
-            mask_df = CSV.read(mask_path, DataFrame)
+            mask_df = TelemetryCore.read_table(mask_path)
             @test nrow(mask_df) > 0
             for col in names(mask_df)
                 col == "SimTime" && continue
@@ -515,7 +515,7 @@ end
                 init = 0,
             )
             profile_rows =
-                nrow(CSV.read(joinpath(run_dir, "mission_profile.csv"), DataFrame))
+                nrow(TelemetryCore.read_table(joinpath(run_dir, "mission_profile.csv")))
             @test realized_files <= est.file_count
             @test realized_payload <= est.payload_bytes
             @test profile_rows <= est.metrics_rows
@@ -604,7 +604,7 @@ end
                 @test "metadata.json" in files                # provenance retained
             end
 
-            rx_events = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+            rx_events = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
             @test count(==("pruned"), rx_events.Event) == length(pruned)
             # Grace guarantee: ingest → prune gap ≥ grace_hours of mission time
             ingest_times = Dict(
@@ -619,9 +619,8 @@ end
             with_logger(NullLogger()) do
                 Masks.generate_telemetry_masks(run_dir)
             end
-            mask_df = CSV.read(
+            mask_df = TelemetryCore.read_table(
                 joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"),
-                DataFrame,
             )
             for col in names(mask_df)
                 col == "SimTime" && continue
@@ -719,7 +718,7 @@ end
 
             # Event log: every batch that reached the link produced exactly
             # 2 retries followed by 1 loss (deterministic under p = 1)
-            rx_events = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+            rx_events = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
             @test !any(==("ingested"), rx_events.Event)
             lost_rows = filter(r -> r.Event == "lost", rx_events)
             @test all(==(3), lost_rows.Attempt)
@@ -734,7 +733,7 @@ end
             @test all(b -> isfile(joinpath(run_dir, "lost", b, "metadata.json")), lost)
 
             # Conservation across all four stages
-            tx_events = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
+            tx_events = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
             n_gen = count(==("gen"), tx_events.Event)
             n_onboard = length(
                 filter(
@@ -752,9 +751,8 @@ end
 
             # Mask matrix carries terminal state 4 and stays monotone
             Masks.generate_telemetry_masks(run_dir)
-            mask_df = CSV.read(
+            mask_df = TelemetryCore.read_table(
                 joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"),
-                DataFrame,
             )
             saw_lost = false
             for col in names(mask_df)
@@ -942,7 +940,7 @@ end
                     round_trip_light_time_sec = round_trip_sec,
                 )
             end
-            rx = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+            rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
             return [
                 (String(r.Batch), String(r.Event), DateTime(r.SimTime)) for r in eachrow(rx)
             ]
@@ -1054,7 +1052,7 @@ end
                 generation_gaps = [gap],
             )
         end
-        tx = CSV.read(joinpath(gap_dir, "events_tx.csv"), DataFrame)
+        tx = TelemetryCore.read_table(joinpath(gap_dir, "events_tx.csv"))
         gap_rows = tx[tx.Batch .== "SCHEDULED", :]
         @test String.(gap_rows.Event) == ["gap_start", "gap_end"]
         # Segments at −14.4, −13.4, −12.4 min form batch 1; −11.4 and −10.4
@@ -1090,7 +1088,7 @@ end
             )
         end
         @test TelemetryCore.max_logged_batch_id(rec_dir) == 2
-        tx = CSV.read(joinpath(rec_dir, "events_tx.csv"), DataFrame)
+        tx = TelemetryCore.read_table(joinpath(rec_dir, "events_tx.csv"))
         rec_rows = tx[tx.Batch .== "RECORDER", :]
         @test String.(rec_rows.Event) == ["gap_start"]
         @test DateTime(rec_rows.SimTime[1]) == start - Minute(8) - Second(24)
@@ -1133,7 +1131,7 @@ end
             )
         end
         @test TelemetryCore.max_logged_batch_id(live_dir) == 2
-        tx = CSV.read(joinpath(live_dir, "events_tx.csv"), DataFrame)
+        tx = TelemetryCore.read_table(joinpath(live_dir, "events_tx.csv"))
         @test String.(tx[tx.Batch .== "RECORDER", :Event]) == ["gap_start"]
         @test count(
             isdir,
@@ -1208,7 +1206,7 @@ end
                     generation_gaps = gaps,
                 )
             end
-            tx = CSV.read(joinpath(gap_dir, "events_tx.csv"), DataFrame)
+            tx = TelemetryCore.read_table(joinpath(gap_dir, "events_tx.csv"))
             scheduled = tx[tx.Batch .== "SCHEDULED", :]
             @test String.(scheduled.Event) ==
                   ["gap_start", "gap_end", "gap_start", "gap_end"]
@@ -1250,7 +1248,7 @@ end
                     onboard_capacity_batches = 2,
                 )
             end
-            tx = CSV.read(joinpath(rec_dir, "events_tx.csv"), DataFrame)
+            tx = TelemetryCore.read_table(joinpath(rec_dir, "events_tx.csv"))
             recorder = tx[tx.Batch .== "RECORDER", :]
             # The gap closes when the link opens and the two buffered batches
             # leave. That presupposes an overflow that began while the link
@@ -1362,8 +1360,8 @@ end
         end
         wait(em)
         wait(rx)
-        tx = CSV.read(joinpath(run_dir, "events_tx.csv"), DataFrame)
-        rx_events = CSV.read(joinpath(run_dir, "events_rx.csv"), DataFrame)
+        tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
+        rx_events = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
         inside(t) = gap[1] + Minute(2) < DateTime(t) < gap[2]
         @test count(==("SCHEDULED"), tx.Batch) == 2
         @test count(r -> r.Event == "tx" && inside(r.SimTime), eachrow(tx)) >= 5

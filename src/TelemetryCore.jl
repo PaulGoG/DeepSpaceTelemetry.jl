@@ -11,9 +11,9 @@ and `Receiver`.
 module TelemetryCore
 
 using CSV: CSV
-using DataFrames: DataFrames, DataFrame
+using DataFrames: DataFrames, DataFrame, names
 using Dates: Dates, Date, DateTime, Day, Millisecond, Second, Time, now
-using JSON3: JSON3
+using JSON: JSON
 using InteractiveUtils: InteractiveUtils
 using LinearAlgebra: LinearAlgebra
 using SHA: sha256
@@ -230,8 +230,7 @@ The batch-state timeline of a run as a table, one wide row per event
 snapshot. Read on a single task: CSV.jl's multithreaded chunking logs a
 failure on that shape before falling back to one task anyway.
 """
-read_mask_timeline(run_dir::String) =
-    CSV.read(mask_timeline_path(run_dir), DataFrame; ntasks = 1)
+read_mask_timeline(run_dir::String) = read_table(mask_timeline_path(run_dir); ntasks = 1)
 
 """
     mask_timeline_rows(run_dir::String) -> Int
@@ -1221,7 +1220,7 @@ plain [`EventMarker`](@ref)s without triggered periods.
 function load_markers(run_dir::String)
     path = joinpath(run_dir, "markers.csv")
     isfile(path) || return EventMarker[]
-    df = CSV.read(path, DataFrame)
+    df = read_table(path)
     return [EventMarker(DateTime(r.SimTime), String(r.Label)) for r in eachrow(df)]
 end
 
@@ -1389,7 +1388,7 @@ so a re-attaching emitter closes it when the buffer has room again.
 function open_recorder_gap(run_dir::String)
     path = joinpath(run_dir, "events_tx.csv")
     isfile(path) || return false
-    df = CSV.read(path, DataFrame)
+    df = read_table(path)
     isempty(df) && return false
     rows = df[df.Batch .== "RECORDER", :]
     return count(==("gap_start"), rows.Event) > count(==("gap_end"), rows.Event)
@@ -1589,7 +1588,11 @@ function contacts_settings(cfg::AbstractDict)
             isabspath(schedule_csv) || isfile(schedule_csv) ? schedule_csv :
             joinpath(PROJECT_ROOT, schedule_csv)
         isfile(path) || config_error("[CONFIG] contacts.schedule_csv not found: $path")
-        df = CSV.read(path, DataFrame)
+        header = strip.(split(readline(path), ','))
+        df =
+            "Start" in header ?
+            CSV.read(path, DataFrame; types = Dict(:Start => String), stringtype = String) :
+            CSV.read(path, DataFrame; stringtype = String)
         for col in ("Start", "DurationHours")
             hasproperty(df, Symbol(col)) ||
                 config_error("[CONFIG] contacts.schedule_csv lacks the column $col.")
@@ -2768,7 +2771,7 @@ function save_metrics(run_dir::String, m::MissionMetrics)
 
     # Row-wise append: the profile is an append-only log of the run, so no
     # backup rotation applies to it.
-    CSV.write(log_path, df; append = exists)
+    write_table(log_path, df; append = exists)
 end
 
 # --- Ground-Truth Event Logs ---
@@ -2786,7 +2789,7 @@ Only the emitter task writes this file (single-writer; no lock needed).
 function log_tx_event(run_dir::String, sim_t::DateTime, batch::String, event::String)
     path = joinpath(run_dir, "events_tx.csv")
     df = DataFrame(SimTime = sim_t, Batch = batch, Event = event)
-    CSV.write(path, df; append = isfile(path))
+    write_table(path, df; append = isfile(path))
 end
 
 """
@@ -2809,7 +2812,7 @@ function log_rx_event(
 )
     path = joinpath(run_dir, "events_rx.csv")
     df = DataFrame(SimTime = sim_t, Batch = batch, Event = event, Attempt = attempt)
-    CSV.write(path, df; append = isfile(path))
+    write_table(path, df; append = isfile(path))
 end
 
 """
@@ -2822,7 +2825,7 @@ counter, immune to batches already delivered out of `onboard/`.
 function max_logged_batch_id(run_dir::String)
     path = joinpath(run_dir, "events_tx.csv")
     isfile(path) || return 0
-    df = CSV.read(path, DataFrame)
+    df = read_table(path)
     isempty(df) && return 0
     return maximum(batch_id(String(b)) for b in df.Batch)
 end
@@ -2870,15 +2873,75 @@ function backup_existing(path::String)
 end
 
 """
+    TIMESTAMP_COLUMNS
+
+Columns of the run-directory tables that hold instants. [`read_table`](@ref)
+reads them as `DateTime` whatever the CSV parser would infer, and
+[`write_table`](@ref) writes every `DateTime` column in one fixed form.
+"""
+const TIMESTAMP_COLUMNS =
+    (:SimTime, :WallTime, :GenSimTime, :ContentEpoch, :ContentEnd, :AvailableAt, :Marker)
+
+"""
+    timestamp_text(t) -> Union{String,Missing}
+
+The lexical form of an instant in the run-directory tables:
+`yyyy-mm-ddTHH:MM:SS.s`, the seconds with at least one and at most three
+decimals (`2035-01-04T12:00:36.0`, `2026-09-24T02:01:17.051`). `missing`
+stays `missing`.
+"""
+timestamp_text(t::DateTime) = Dates.format(t, Dates.ISODateTimeFormat)
+timestamp_text(::Missing) = missing
+
+"""
+    read_table(path::AbstractString; kwargs...) -> DataFrame
+
+Reads a table of the run directory with stated types: the columns of
+[`TIMESTAMP_COLUMNS`](@ref) present in its header as `DateTime` (`missing`
+where a field is empty) and every text column as `String`; numbers and
+booleans are inferred. The inference of the CSV parser is not part of the
+file contract: CSV.jl 1.x reads an ISO instant as a nanosecond timestamp
+type and text as a string type of its own. `kwargs` are passed to
+`CSV.read`.
+"""
+function read_table(path::AbstractString; kwargs...)
+    header = Symbol.(strip.(split(readline(path), ',')))
+    types =
+        Dict{Symbol,Type}(name => DateTime for name in header if name in TIMESTAMP_COLUMNS)
+    return CSV.read(path, DataFrame; types = types, stringtype = String, kwargs...)
+end
+
+"""
+    write_table(path::AbstractString, table; append = false) -> String
+
+Writes a table of the run directory, every `DateTime` column as text in the
+form of [`timestamp_text`](@ref). That form is the one these files have
+always carried and is part of the file contract; the default of the CSV
+writer is not, and it changed between CSV.jl 0.10 and 1.x.
+"""
+function write_table(path::AbstractString, table; append::Bool = false)
+    source = DataFrame(table; copycols = false)
+    out = DataFrame()
+    for name in names(source)
+        column = source[!, name]
+        out[!, name] =
+            nonmissingtype(eltype(column)) === DateTime ? timestamp_text.(column) : column
+    end
+    CSV.write(path, out; append = append)
+    return String(path)
+end
+
+"""
     safe_csv_write(path::String, table) -> String
 
 Writes `table` to `path` as CSV, first rotating any pre-existing file to a
-`#k`-suffixed backup via [`backup_existing`](@ref). Returns `path`.
+`#k`-suffixed backup via [`backup_existing`](@ref). Instants are written in
+the fixed form of [`timestamp_text`](@ref). Returns `path`.
 """
 function safe_csv_write(path::String, table)
     backup = backup_existing(path)
     backup !== nothing && @info "[SAFESAVE] Existing file backed up to: $backup"
-    CSV.write(path, table)
+    write_table(path, table)
     return path
 end
 
@@ -3097,7 +3160,7 @@ function save_batch(
     payload_row === nothing || (metadata["payload_row"] = payload_row)
     isempty(markers) || (metadata["markers"] = markers)
     open(joinpath(path, "metadata.json"), "w") do io
-        JSON3.write(io, metadata)
+        JSON.json(io, metadata)
     end
 
     for seg in batch.segments
@@ -3116,7 +3179,7 @@ function read_batch_metadata(batch_dir::String)
     path = joinpath(batch_dir, "metadata.json")
     isfile(path) || return Dict{String,Any}()
     parsed = try
-        JSON3.read(read(path, String), Dict{String,Any})
+        JSON.parse(read(path, String); dicttype = Dict{String,Any})
     catch e
         @warn "[BATCH] Unparsable metadata.json in $batch_dir — treated as unknown." exception =
             e
@@ -3190,7 +3253,7 @@ Saves a 1D `DataSegment` array to a raw CSV format for downstream pipeline usage
 """
 function save_segment(path::String, seg::DataSegment)
     df = DataFrame(Amplitude = seg.data)
-    CSV.write(path, df)
+    write_table(path, df)
 end
 
 """
@@ -3203,7 +3266,7 @@ it via `timestamp`; otherwise the `DateTime(0)` sentinel marks it unknown —
 never a fabricated wall-clock time.
 """
 function load_segment(path::String; timestamp::DateTime = DateTime(0))
-    df = CSV.read(path, DataFrame)
+    df = read_table(path)
     id_match = match(r"seg_(\d+)\.csv", basename(path))
     # The capture is a Union{Nothing, SubString}: guard the full chain so a
     # nonconforming filename degrades to id 0 instead of throwing.

@@ -11,8 +11,6 @@ module Receiver
 
 using ..TelemetryCore
 using ..ChannelEffects
-using CSV: CSV
-using DataFrames: DataFrame
 using Dates: DateTime, Millisecond, Second, now
 using FileWatching: watch_folder
 
@@ -30,7 +28,7 @@ episodes.
 function delivered_payload_queue(run_dir::String, ground_path::String)
     rx_log_path = joinpath(run_dir, "events_rx.csv")
     isfile(rx_log_path) || return Tuple{DateTime,String,Int}[]
-    rx_hist = CSV.read(rx_log_path, DataFrame)
+    rx_hist = TelemetryCore.read_table(rx_log_path)
     isempty(rx_hist) && return Tuple{DateTime,String,Int}[]
     ingested_t = Dict(
         String(r.Batch) => r.SimTime for r in eachrow(rx_hist) if r.Event == "ingested"
@@ -170,7 +168,7 @@ function run_receiver(
     # logging (they remain on the link in the mask replay).
     rx_log_path = joinpath(run_dir, "events_rx.csv")
     if isfile(rx_log_path)
-        rx_hist = CSV.read(rx_log_path, DataFrame)
+        rx_hist = TelemetryCore.read_table(rx_log_path)
         if !isempty(rx_hist)
             total_retries = count(==("retry"), rx_hist.Event)
             pending = Set(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))

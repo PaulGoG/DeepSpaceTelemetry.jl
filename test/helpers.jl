@@ -74,7 +74,7 @@ function ramp_alignment(run_dir::String, origin::DateTime, sample_rate::Float64)
             samples = reduce(
                 vcat,
                 (
-                    CSV.read(joinpath(batch_dir, "seg_$(id).csv"), DataFrame).Amplitude
+                    TelemetryCore.read_table(joinpath(batch_dir, "seg_$(id).csv")).Amplitude
                     for id in seg_ids
                 ),
             )

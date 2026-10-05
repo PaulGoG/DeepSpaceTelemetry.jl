@@ -1,6 +1,6 @@
 include(joinpath(@__DIR__, "..", "activate.jl"))
 using DeepSpaceTelemetry
-using CairoMakie, CSV, DataFrames, Dates
+using CairoMakie, DataFrames, Dates
 
 """
     GifProfile
@@ -49,7 +49,9 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
         exit(1)
     end
 
-    df = DeepSpaceTelemetry.TelemetryCore.normalize_profile!(CSV.read(log_path, DataFrame))
+    df = DeepSpaceTelemetry.TelemetryCore.normalize_profile!(
+        DeepSpaceTelemetry.TelemetryCore.read_table(log_path),
+    )
     if isempty(df)
         @error "mission_profile.csv is empty" run_id
         exit(1)
