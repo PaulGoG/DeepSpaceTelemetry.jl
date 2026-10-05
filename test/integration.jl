@@ -1251,7 +1251,20 @@ end
                 )
             end
             tx = CSV.read(joinpath(rec_dir, "events_tx.csv"), DataFrame)
-            @test "gap_end" in String.(tx[tx.Batch .== "RECORDER", :Event])
+            recorder = tx[tx.Batch .== "RECORDER", :]
+            # The gap closes when the link opens and the two buffered batches
+            # leave. That presupposes an overflow that began while the link
+            # was down. On a host that stalls through those 30 mission
+            # minutes, half a second of wall time, the first batches go
+            # straight to the link, the in-flight slots fill, and with no
+            # receiver in this test the buffer never drains again. Keeping
+            # pace is a precondition here, as in the emitter-pacing testset.
+            kept_pace =
+                nrow(recorder) > 0 && DateTime(recorder.SimTime[1]) < start + Minute(30)
+            kept_pace ||
+                @warn "[TEST] Host did not keep pace with the accelerated clock; " *
+                      "the recorder-gap closing assertion is skipped."
+            kept_pace && @test "gap_end" in String.(recorder.Event)
             alignment = ramp_alignment(rec_dir, start, fs)
             @test alignment.checked == count(==("gen"), tx.Event) > 2
             @test isempty(alignment.misaligned) && isempty(alignment.repeated)

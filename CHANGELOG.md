@@ -4,6 +4,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- The suite asserts the closing of the recorder-overflow gap only when the
+  overflow began before the contact opened. On a host that stalls through
+  the first half second of that test the batches go straight to the link,
+  its in-flight slots fill, and the gap cannot close; the assertion then
+  failed on shared CI runners without a defect in the emitter.
+
 ## [2.2.0] - 2026-10-05
 
 ### Added
