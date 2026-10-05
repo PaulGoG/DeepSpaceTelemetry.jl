@@ -34,6 +34,10 @@ Notable changes to DeepSpaceTelemetry. The format follows
   drawn without a stroke. Under a drop policy they come by the dozen per
   pass, and the stroked marks merged into a dark band that hid the loss
   color.
+- The batch-routing animation keeps the newest batches inside the frame. On
+  a decimated profile the sliding window trailed the leading edge of the
+  queue, whose markers ran past the right-hand limit. The right margin holds
+  the half of a tick label that falls on that limit.
 
 ## [2.1.1] - 2026-09-30
 

@@ -157,8 +157,19 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
 
     CairoMakie.with_theme(DeepSpaceTelemetry.PlotTheme.telemetry_theme(style)) do
         # Outer margin scaled with the canvas, as the theme's 10 units are
-        # set for the design width.
-        fig = Figure(size = canvas, figure_padding = round(Int, 10 * style.scale))
+        # set for the design width. The right margin also holds half a tick
+        # label: the sliding window puts a tick on the right-hand limit every
+        # so often, and its label would otherwise leave the canvas.
+        margin = round(Int, 10 * style.scale)
+        fig = Figure(
+            size = canvas,
+            figure_padding = (
+                margin,
+                round(Int, 1.5 * style.fontsize_tick),
+                margin,
+                margin,
+            ),
+        )
 
         frame_iterator = 1:step_size:nrow(df)
 
@@ -189,6 +200,14 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
             target_max = isempty(all_x) ? view_max : Float64(maximum(all_x) + lead_buffer)
             view_min += glide * (target_min - view_min)
             view_max += glide * (target_max - view_max)
+            # On a decimated profile the newest batch advances by several
+            # identifiers per frame and the glide alone trails it by more
+            # than the lookahead, which put the leading edge of the queue
+            # past the frame: the right limit keeps a floor ahead of it.
+            if !isempty(all_x)
+                lead_floor = max(lead_buffer / 2, 0.02 * (view_max - view_min))
+                view_max = max(view_max, maximum(all_x) + lead_floor)
+            end
 
             xlim_min = view_min
             xlim_max = max(view_max, view_min + 50)
