@@ -386,6 +386,8 @@ const STORAGE_CALIBRATION_DEFAULTS = (
     bytes_plot = 1.2e6,           # one PNG at px_per_unit = 4 (measured maximum 1.07 MB)
     bytes_plot_pdf = 100_000.0,   # vector PDF twin of one figure
     bytes_replay_cell = 12.0,     # replay RAM per (row x batch) membership
+    bytes_figure_stage = 4.5e8,   # figure stage with one figure in memory (measured 3.8e8 above the pre-stage resident size)
+    bytes_figure_row = 4500.0,    # plot vertices of the mission summary per metrics row (measured 3850)
     bytes_log_per_batch = 600.0,  # emitter+receiver log lines per batch
 )
 
@@ -507,6 +509,8 @@ const KNOWN_CONFIG_KEYS = Dict(
             "alert_lookback_hours",
             "delivery_requirement_hours",
             "hdf5_export",
+            "session_figures",
+            "session_figures_max",
             "publication",
         ],
         [String(product.flag) for product in FIGURE_PRODUCTS],
@@ -1107,7 +1111,9 @@ end
 Validated `[post_processing]` section: `generate_mask_timeline` (default
 `true`), `expand_to_pointwise_masks` (`false`), `target_event_rows`
 ([`normalize_target_rows`](@ref), default `[-1]`), `alert_lookback_hours > 0`
-(72), `delivery_requirement_hours > 0` (24), `hdf5_export` (`false`), and
+(72), `delivery_requirement_hours > 0` (24), `hdf5_export` (`false`),
+`session_figures` (`true`, the per-contact session figures),
+`session_figures_max >= 0` (0, the cap on their number, 0 meaning none), and
 `figures`, a `NamedTuple` of booleans keyed by the flags of
 [`FIGURE_PRODUCTS`](@ref) with their defaults. The retired
 `generate_batch_matrix` is rejected with its replacement named;
@@ -1134,6 +1140,13 @@ function post_processing_settings(cfg::AbstractDict)
         return v
     end
     flags = map(product -> product.flag, FIGURE_PRODUCTS)
+    session_figures_max = checked_integer(
+        get(pp, "session_figures_max", 0),
+        "post_processing.session_figures_max",
+    )
+    session_figures_max >= 0 || config_error(
+        "[CONFIG] post_processing.session_figures_max must be >= 0 (got $session_figures_max).",
+    )
     return (
         generate_mask_timeline = flag("generate_mask_timeline", true),
         expand_to_pointwise_masks = flag("expand_to_pointwise_masks", false),
@@ -1141,6 +1154,8 @@ function post_processing_settings(cfg::AbstractDict)
         alert_lookback_hours = positive("alert_lookback_hours", 72.0),
         delivery_requirement_hours = positive("delivery_requirement_hours", 24.0),
         hdf5_export = flag("hdf5_export", false),
+        session_figures = flag("session_figures", true),
+        session_figures_max = session_figures_max,
         figures = NamedTuple{flags}(
             map(product -> flag(String(product.flag), product.default), FIGURE_PRODUCTS),
         ),
@@ -2189,7 +2204,7 @@ const RUN_FILE_COUNT_SLACK = 8
 Resolves the run-directory disk budget [GB] and inode budget from `[storage]`.
 The retired `simulation.max_storage_gb` is rejected with the replacement
 named; without the key the default of 5.0 GB applies.
-`max_ram_gb` (default 8.0) budgets the post-processing replay RAM.
+`max_ram_gb` (default 8.0) budgets the post-processing RAM: the replay and the figure stage.
 """
 function storage_budget(cfg::AbstractDict)
     st = get(cfg, "storage", Dict{String,Any}())
@@ -2252,7 +2267,9 @@ Classes: payload segment CSVs, batch metadata, event logs, metrics, the 2D
 mask timeline, point-wise expansions, plots (session + summary figures, PNG
 and vector-PDF twins; the optional GIF is a manual post-processing product
 and is excluded), and text logs. `replay_ram_bytes` estimates the
-post-processing replay RAM (gated against `storage.max_ram_gb`). Calibration constants default to measured values and are overridable
+post-processing replay RAM (gated against `storage.max_ram_gb`).
+`figure_ram_bytes` estimates the RAM of the figure stage, one figure at a
+time, and is gated against the same budget. Calibration constants default to measured values and are overridable
 key-by-key in `[storage]`.
 
 Returns counts (`n_segments`, `n_batches`, `n_points`, `mission_days`,
@@ -2336,12 +2353,19 @@ function estimate_artifacts(cfg::AbstractDict)
         post_processing.hdf5_export ?
         event_bytes + metrics_bytes + mask_bytes + pointwise_bytes : 0.0
 
-    # Mission summary, one session figure per day and per low-latency period,
-    # and one figure per enabled metric or raster product. The same count
-    # sizes the plots directory and enters the file count below.
+    # Mission summary, the session figures, and one figure per enabled metric
+    # or raster product. The same count sizes the plots directory and enters
+    # the file count below.
     n_low_latency = length(contacts_settings(cfg).low_latency_periods)
     n_flagged_figures = count(values(post_processing.figures))
-    n_figures = 1 + mission_days + n_low_latency + n_flagged_figures
+    # Session figures: one per day and per low-latency period, unless the
+    # run switches them off or caps them.
+    n_windows = mission_days + n_low_latency
+    n_session_figures =
+        !post_processing.session_figures ? 0 :
+        post_processing.session_figures_max == 0 ? n_windows :
+        min(post_processing.session_figures_max, n_windows)
+    n_figures = 1 + n_session_figures + n_flagged_figures
     plot_bytes = n_figures * (cal("bytes_plot") + cal("bytes_plot_pdf"))
     log_bytes = n_batches * cal("bytes_log_per_batch") + LOG_FIXED_OVERHEAD_BYTES
 
@@ -2350,6 +2374,14 @@ function estimate_artifacts(cfg::AbstractDict)
     # is excluded, matching the plots policy above.
     replay_ram_bytes =
         (do_matrix || do_expand) ? metrics_rows * n_batches * cal("bytes_replay_cell") : 0.0
+    # Figure stage: every figure is released after saving, so the stage
+    # holds one raster at a time plus the plot vertices of the mission
+    # summary, which scale with the metrics rows.
+    # The rows are the realized ones, not the polling bound of the metrics
+    # estimate: a row is admitted on a state change, and a batch changes the
+    # state at most three times (generation, transmission, ingestion).
+    figure_rows = min(metrics_rows, 3 * n_batches)
+    figure_ram_bytes = cal("bytes_figure_stage") + figure_rows * cal("bytes_figure_row")
 
     total_bytes =
         payload_bytes +
@@ -2415,6 +2447,7 @@ function estimate_artifacts(cfg::AbstractDict)
         total_bytes = total_bytes,
         file_count = file_count,
         replay_ram_bytes = replay_ram_bytes,
+        figure_ram_bytes = figure_ram_bytes,
         prunable_bytes = payload_bytes * delivered_fraction,
         prunable_files = round(Int, n_segments * delivered_fraction),
     )
@@ -2450,9 +2483,9 @@ mitigation awareness:
     `grace_hours` window alone exceeds the watermark (the custodian could
     never satisfy both constraints simultaneously).
 
-The same logic gates `storage.max_file_count`, and the post-processing
-replay RAM estimate is gated against `storage.max_ram_gb` (a mitigation-free
-hard budget). Every abort is a [`StorageBudgetError`](@ref). Returns
+The same logic gates `storage.max_file_count`, and the replay and the
+figure-stage RAM estimates are each gated against `storage.max_ram_gb` (a
+mitigation-free hard budget). Every abort is a [`StorageBudgetError`](@ref). Returns
 `nothing`; called before any run directory is created.
 """
 function check_storage_limits(cfg::AbstractDict)
@@ -2474,6 +2507,7 @@ function check_storage_limits(cfg::AbstractDict)
     @info "  -> Total:                $(to_gb(est.total_bytes)) GB, ≈ $(est.file_count) files (budget: $(budget.max_gb) GB, $(budget.max_files) files)"
     est.replay_ram_bytes > 0 &&
         @info "  -> Replay RAM:           $(to_gb(est.replay_ram_bytes)) GB (budget: $(budget.max_ram_gb) GB)"
+    @info "  -> Figure RAM:           $(to_gb(est.figure_ram_bytes)) GB (budget: $(budget.max_ram_gb) GB)"
 
     max_ram_bytes = budget.max_ram_gb * 1024^3
     if est.replay_ram_bytes > max_ram_bytes
@@ -2484,6 +2518,15 @@ function check_storage_limits(cfg::AbstractDict)
         )
     elseif est.replay_ram_bytes > STORAGE_WARN_FRACTION * max_ram_bytes
         @warn "[STORAGE] Post-processing replay RAM estimate ($(to_gb(est.replay_ram_bytes)) GB) is within $(round(Int, 100 * (1 - STORAGE_WARN_FRACTION))) % of storage.max_ram_gb ($(budget.max_ram_gb) GB)."
+    end
+    if est.figure_ram_bytes > max_ram_bytes
+        throw(
+            StorageBudgetError(
+                "[STORAGE] Figure-stage RAM estimate ($(to_gb(est.figure_ram_bytes)) GB) exceeds storage.max_ram_gb ($(budget.max_ram_gb) GB). Raise storage.max_ram_gb.",
+            ),
+        )
+    elseif est.figure_ram_bytes > STORAGE_WARN_FRACTION * max_ram_bytes
+        @warn "[STORAGE] Figure-stage RAM estimate ($(to_gb(est.figure_ram_bytes)) GB) is within $(round(Int, 100 * (1 - STORAGE_WARN_FRACTION))) % of storage.max_ram_gb ($(budget.max_ram_gb) GB)."
     end
 
     max_bytes = budget.max_gb * 1024^3

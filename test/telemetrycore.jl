@@ -817,3 +817,51 @@ end
     @test occursin(r"^RUN_cfg=[0-9a-f]{8}_pid=\d+_t=\d{8}_\d{6}$", id)
     @test startswith(id, "RUN_cfg=" * first(h, 8))
 end
+
+@testset "Session-figure keys and the figure-stage RAM estimate" begin
+    base = valid_test_cfg()
+    pp = TelemetryCore.post_processing_settings(base)
+    @test pp.session_figures === true && pp.session_figures_max === 0
+    for (key, value) in (
+        ("session_figures", "yes"),
+        ("session_figures_max", -1),
+        ("session_figures_max", 2.5),
+    )
+        bad = valid_test_cfg()
+        bad["post_processing"] = Dict{String,Any}(key => value)
+        @test_throws ArgumentError TelemetryCore.post_processing_settings(bad)
+        @test_throws ArgumentError TelemetryCore.validate_config(bad)
+    end
+    for key in ("session_figures", "session_figures_max")
+        @test key in TelemetryCore.KNOWN_CONFIG_KEYS["post_processing"]
+    end
+
+    # The estimator counts two files (PNG and PDF) per session figure.
+    est = TelemetryCore.estimate_artifacts(base)
+    off = valid_test_cfg()
+    off["post_processing"] = Dict{String,Any}("session_figures" => false)
+    windows = (est.file_count - TelemetryCore.estimate_artifacts(off).file_count) ÷ 2
+    @test windows >= 1
+    capped = valid_test_cfg()
+    capped["post_processing"] = Dict{String,Any}("session_figures_max" => 1)
+    @test est.file_count - TelemetryCore.estimate_artifacts(capped).file_count ==
+          2 * (windows - 1)
+    loose = valid_test_cfg()
+    loose["post_processing"] = Dict{String,Any}("session_figures_max" => 10_000)
+    @test TelemetryCore.estimate_artifacts(loose).file_count == est.file_count
+
+    # The figure stage enters the RAM gate with a fixed term and one per
+    # metrics row.
+    calibration = TelemetryCore.STORAGE_CALIBRATION_DEFAULTS
+    @test est.figure_ram_bytes ≈
+          calibration.bytes_figure_stage +
+          min(est.metrics_rows, 3 * est.n_batches) * calibration.bytes_figure_row
+    tight = valid_test_cfg()
+    tight["storage"] = merge(
+        get(tight, "storage", Dict{String,Any}()),
+        Dict{String,Any}("max_ram_gb" => 0.1),
+    )
+    @test_throws TelemetryCore.StorageBudgetError with_logger(NullLogger()) do
+        TelemetryCore.check_storage_limits(tight)
+    end
+end
