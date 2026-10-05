@@ -4,7 +4,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.3.0] - 2026-10-05
 
 ### Added
 - `post_processing.session_figures` switches the per-contact session
@@ -517,6 +517,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[2.3.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.1.1...v2.2.0
 [2.1.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.1.0...v2.1.1
