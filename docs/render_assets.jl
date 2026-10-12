@@ -408,9 +408,10 @@ end
 """
     main(args) -> Nothing
 
-Runs the gallery scenarios in order, publishes the listed run products under
-[`ASSET_DIR`](@ref), warns about gallery files the table does not produce, and
-writes `PROVENANCE.toml`. Throws on a malformed argument list or prefix.
+Runs every gallery scenario in order, then publishes the listed run products
+under [`ASSET_DIR`](@ref), warns about gallery files the table does not
+produce, and writes `PROVENANCE.toml`. Throws on a malformed argument list or
+prefix.
 """
 function main(args)
     length(args) <= 1 || error("usage: julia docs/render_assets.jl [PREFIX]")
@@ -424,8 +425,14 @@ function main(args)
 
     runs = Dict{String,Any}()
     assets = Dict{String,Any}()
+    # Every scenario runs before any asset is published: the assets are
+    # tracked files, and a run started after the first publication would
+    # record a dirty tree that holds nothing but an earlier run's figures.
+    ids = Dict{String,String}(
+        entry.scenario => ensure_run(prefix, entry) for entry in GALLERY
+    )
     for entry in GALLERY
-        id = ensure_run(prefix, entry)
+        id = ids[entry.scenario]
         plots = joinpath(run_directory(id), "plots")
         for stem in entry.figures
             name = "$(entry.scenario)_$(stem).png"
