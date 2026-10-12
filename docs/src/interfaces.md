@@ -1,8 +1,10 @@
 # Analysis Interfaces
 
-The framework couples to external data-analysis pipelines (sliding-window
-searches, matched filters, alert generators) exclusively through the
-filesystem. There is no in-memory API to link against: every interface below
+The framework couples to external data-analysis pipelines — streaming
+consumers that follow an active run (sliding-window searches, alert
+generators, online estimators) and stationary consumers that open a finished
+one (post-hoc replays, gap-aware statistics, cross-run comparisons) —
+exclusively through the filesystem. There is no in-memory API to link against: every interface below
 is a file contract, so consumers may be written in any language and any number
 of analysis instances may operate concurrently on a single telemetry run.
 
@@ -29,6 +31,40 @@ of analysis instances may operate concurrently on a single telemetry run.
    products is a major release. The Julia modules and functions are the
    implementation and may change between minor releases; the API pages
    document them for contributors.
+
+## Two Consumer Classes
+
+A run serves two kinds of analysis, and the contract below is organized
+around them.
+
+A **streaming consumer** attaches to an *active* run and reacts to
+arrivals as they happen: a sliding-window search that scores every window
+the moment its data are on the ground, an alert generator, an online
+estimator that updates a statistic sample by sample. It owns state (what is
+covered, what is pending, what is a hole), sees the data out of temporal
+order, and must decide what to do with windows that may never fill.
+
+A **stationary consumer** opens a *finished* run as a fixed record: a
+post-hoc replay of the arrival stream for a latency study, a batch analysis
+of the delivered series with its gaps declared, a comparison across runs. It
+may read everything, including the products post-processing derives from the
+record, and nothing it reads will change.
+
+| | Streaming (active run) | Stationary (finished run) |
+|---|---|---|
+| Sentinel to check | `RUN_ACTIVE` present, heartbeats fresh | `RUN_COMPLETE` (or `RUN_ABORTED`: a truncated but consistent record) |
+| Source of truth | `events_rx.csv`, tailed, plus the batch directories it names | the batch directories, the two event logs, `mission_profile.csv`, and everything post-processing derived from them |
+| Order of the data | arrival order: the live front FIFO, the backlog LIFO behind it | any order; the record is complete |
+| What can still change | new batches, `lost` and `pruned` events, a declared gap closing, the terminal sentinel | nothing |
+| Gaps | holes that may close (undelivered yet) or are permanent (`lost`, a generation gap) | declared intervals with a cause |
+| State | the consumer's: coverage, pending windows, horizon | none required; the mask timeline carries the live view at every snapshot |
+| Read with | [Streaming Consumption](@ref) | [Stationary Analysis](@ref) |
+
+The two meet at the terminal sentinel: a streaming consumer that sees
+`RUN_COMPLETE` appear may finish as a stationary one, and a stationary
+consumer that replays `events_rx.csv` in `SimTime` order reproduces exactly
+what a streaming consumer saw. The design principles above hold for both;
+the file contract is the same, read at different moments.
 
 ## The Run-Directory Contract
 
@@ -256,46 +292,288 @@ cover the rows
 present, batch indices stay contiguous across the missing rows, and
 `payload_row` is the reference.
 
-## Live Consumption (streaming analysis)
+## Streaming Consumption
 
-The recommended loop for an online sliding-window pipeline:
+A streaming consumer follows an active run through its arrival feed. The
+loop has five parts: attach, follow the feed, maintain coverage, treat the
+holes, and leave when the run ends.
 
-1. Tail `events_rx.csv` (poll or `FileWatching`-style monitoring).
-2. On `ingested`: map the batch to its sample interval, add it to a coverage
-   structure (interval set), and copy the payload out if the pipeline needs
-   it beyond the run's lifetime.
-3. Evaluate every analysis window that the updated coverage now fully (or
-   acceptably) spans.
-4. On `lost`: mark the interval as a **permanent hole** — windows crossing it
-   must gap-handle or be discarded, never waited on.
+**Attach.** Check that `RUN_ACTIVE` exists and that `receiver_alive` is
+fresh (its mtime refreshes about once per wall second). Read
+`config_snapshot.toml` once: `[physics]` gives the geometry
+(`sample_rate`, `segment_duration_sec`, `batch_size`, hence
+`points_per_batch`), `[simulation] start_sim_time` the mission epoch, and
+`[provenance] payload_origin` the instant of payload row 1 (see Batch
+Identity above); `external_data_rows` is the record length of an external
+payload, beyond which the producer pads with zeros. Read `clock_anchor.toml`
+if the consumer paces itself against mission time: `wall_epoch`,
+`start_sim_time`, and `speed_up` convert a wall instant to a mission
+instant, and `deadline_wall` is when the mission phase ends.
 
-Consumers must tolerate out-of-temporal-order arrival: live data streams FIFO
-with priority, while the archived backlog backfills LIFO (newest first), so
-coverage grows *backward in time* from each live front — contiguously behind
-it, session by session, with a moving frontier at each blind-spot boundary.
-This is the intended behavior for sliding-window alert pipelines: the data
-most tightly coupled to a live event arrives first.
+**Follow the feed.** `events_rx.csv` is append-only with a single writer,
+and the payload of a batch is moved into `ground/` *before* its `ingested`
+row is appended, so a consumer that keeps the count of rows it has consumed
+and reads the rows beyond it on every poll never sees a batch it cannot
+open. The four event values and the consumer's response:
 
-## Post-Hoc Replay (offline analysis)
+| `Event` | Meaning | Response |
+|---|---|---|
+| `ingested` | the batch is in `ground/`; `Attempt` counts the failed transfers before it | map the batch to its rows, read its segments, extend the coverage |
+| `retry` | a transfer was lost; the batch stays on the link and is re-served after one round-trip light time | none (state-preserving); it tells the consumer that the batch is coming late |
+| `lost` | the retry budget is exhausted; the batch is in `lost/` and will never be on the ground | a permanent hole: discard or gap-handle the windows that cross it, never wait on it |
+| `pruned` | the retention custodian removed the payload of a delivered batch; `metadata.json` and a `PRUNED` marker remain | the rows stay covered for a consumer that copied the payload within `retention.grace_hours`; otherwise a hole |
 
-For reproducible offline studies, replay `events_rx.csv` in `SimTime` order
-as a simulated arrival stream and drive the same consumer logic — the event
-log is the ground truth from which the framework's own mask reconstruction is
-computed, so replayed availability is bit-identical to the live view.
-Alternatively, consume the prepared products:
+The poll interval follows the cadence of the run: one segment per
+`segment_duration_sec / speed_up` wall seconds, a batch every `batch_size`
+segments. Polling a few times per batch period is enough; at `speed_up = 1`
+that is minutes. For a long run, tail by byte offset rather than re-reading
+the file.
 
-* `masks/telemetry_mask_timeline.csv` — rows = time snapshots; the first
-  column is `SimTime` (the snapshot instant), then `Batch_<k>` for
-  `k = 1 … <largest batch ID>` (an ID never generated is an all-zero
-  column), values `0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost`. A window
-  anchored at snapshot `r` may use exactly the batches with state 3 in
-  row `r`.
-* Point-wise 0/1 expansions via
-  `scripts/postprocessing/apply_telemetry_mask.jl` (config-aware) or the
-  dependency-light `standalone_mask_expander.jl` (requires only `CSV` and
-  `DataFrames`; suitable for Python/MATLAB/C++ collaborators to run
-  alongside their own tooling). Multiply an expanded row against the raw
-  series to blank undelivered data.
+**Maintain coverage.** A batch covers the payload rows `payload_row …
+payload_row + points_per_batch − 1` of its `metadata.json`; sample `k` of
+the batch lies at `content_epoch + (k − 1) / sample_rate`. Keep the delivered
+rows as a set of disjoint intervals. Arrival is out of temporal order by
+design — live batches stream FIFO with priority, the blind-spot backlog
+backfills LIFO (newest first) behind them — so coverage grows *backward in
+time* from each live front, contiguously behind it, session by session. A
+window is evaluable when the coverage spans it (fully, or to an acceptable
+fraction with the holes known); evaluate it once, when that first becomes
+true, and do not re-evaluate it when later batches arrive behind it unless
+the analysis is meant to.
+
+**Treat the holes.** A row not yet covered is in one of three states, and
+the feed and the transmission log tell them apart:
+
+* *Pending*: the batch was generated (`gen` row in `events_tx.csv`) and is
+  on board or on the link. It will arrive, late; a window that needs it
+  waits. The `retry` rows say how many attempts it has survived.
+* *Permanent*: the batch is `lost`, or the rows were never generated — a
+  generation gap bounded by the `gap_start` / `gap_end` pair of
+  `events_tx.csv` (`Batch` = `STREAM` for an emitter outage, `SCHEDULED`
+  for a scheduled gap, `RECORDER` for an overflow of the on-board recorder).
+  Read those rows as they appear and declare the hole at once, rather than
+  discovering it later from the spacing of the content epochs.
+* *Unknown*: no `gen` row yet, because mission time has not reached the
+  rows. Beyond the current mission instant nothing is pending.
+
+A consumer that keeps an *order horizon* — a bound on how long it waits for
+a pending batch before scoring without it — turns pending holes into
+declared ones at the horizon; the realized arrival delays of the shipped
+scenarios (`delivery_delay.csv`) are the reference for choosing it.
+
+**Leave.** `RUN_POSTPROCESSING` appears beside `RUN_ACTIVE` when both
+components have stopped: from then on the payload, the event logs, and
+`mission_profile.csv` are final, and only derived products are still being
+written. `RUN_COMPLETE` or `RUN_ABORTED` replaces `RUN_ACTIVE` when the
+lifecycle ends; either is the signal to finish as a stationary consumer.
+A run whose deadline has passed, whose heartbeats are stale, and which still
+shows `RUN_ACTIVE` is stranded, not live; `complete_run.jl` settles it
+(Availability Window above).
+
+A minimal consumer in Julia, with the package as a reader (consumers in
+other languages read the same files):
+
+```julia
+using DeepSpaceTelemetry: TelemetryCore
+using Dates
+
+run_dir = TelemetryCore.run_directory("RUN_ID")
+cfg = TelemetryCore.load_run_config(run_dir)
+phys = cfg["physics"]
+points_per_batch = round(Int, phys["sample_rate"] * phys["segment_duration_sec"]) * phys["batch_size"]
+
+segment_files(dir) = sort(
+    filter(f -> occursin(r"^seg_\d+\.csv$", f), readdir(dir));
+    by = f -> parse(Int, match(r"\d+", f).match),
+)
+read_payload(dir) = reduce(vcat, (TelemetryCore.load_segment(joinpath(dir, f)).data for f in segment_files(dir)))
+
+covered = UnitRange{Int}[]          # delivered payload rows
+holes = Pair{UnitRange{Int},Symbol}[] # permanent holes with their cause
+consumed = 0
+while true
+    rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
+    for row in eachrow(rx[(consumed + 1):end, :])
+        stage = row.Event == "lost" ? "lost" : "ground"
+        meta = TelemetryCore.read_batch_metadata(joinpath(run_dir, stage, row.Batch))
+        first = meta["payload_row"]
+        rows = first:(first + points_per_batch - 1)
+        if row.Event == "ingested"
+            payload = read_payload(joinpath(run_dir, "ground", row.Batch))
+            push!(covered, rows)        # feed `payload` at `rows` to the analysis
+        elseif row.Event == "lost"
+            push!(holes, rows => :lost)
+        elseif row.Event == "pruned"
+            push!(holes, rows => :pruned)
+        end                             # `retry`: nothing to do
+        consumed += 1
+    end
+    isfile(joinpath(run_dir, "RUN_ACTIVE")) || break
+    sleep(poll_seconds)
+end
+```
+
+The generation gaps enter the same `holes` list from `events_tx.csv`: every
+`gap_start` row with `Batch` in `STREAM`, `SCHEDULED`, or `RECORDER` opens a
+hole at the row of its instant, closed by the matching `gap_end` (the
+conversion between an instant and a payload row is in Batch Identity
+above). A batch directory written before 2.1.0 has no `payload_row`; such a
+run has no gap rows either, and batch `k` then covers the rows
+`(k − 1) · points_per_batch + 1 … k · points_per_batch`.
+
+**Consumers in use.** [StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl)
+implements this loop generically — a coverage set, a window scheduler that
+emits each window once, conditioning on the delivered stretch, an ordered
+commit with an order horizon for stateful estimators — behind a
+five-function run interface (`run_geometry`, `list_batches`, `read_batch`,
+`arrival_events`, `run_state`); its `follow_run` polls an active run and
+`replay_run` consumes a finished one. The adapter that reads this run
+directory into that interface is the `DeepSpaceTelemetry` extension of
+[MilliHertzBase.jl](https://github.com/PaulGoG/MilliHertzBase.jl)
+(`open_telemetry_run`), and [MilliHertzQML.jl](https://github.com/PaulGoG/MilliHertzQML.jl)
+scores the windows with its classifier. An online estimator that requires
+strictly increasing sample times, such as the streaming waiting-time
+estimator of [WaitingTimes.jl](https://github.com/PaulGoG/WaitingTimes.jl),
+fits the live FIFO front only; the LIFO backfill behind it is out of order
+for such a consumer and is better analyzed from the finished record.
+
+## Stationary Analysis
+
+A stationary consumer opens a finished run — `RUN_COMPLETE`, or
+`RUN_ABORTED` for a record truncated at the abort but consistent up to it —
+and reads a fixed record. Three views of the same record serve different
+questions.
+
+**The delivered series.** Concatenate the ground batches on the payload
+grid: batch rows from `payload_row` (`masks/batch_epochs.csv` tabulates
+`Batch, GenSimTime, ContentEpoch, PayloadRow` for every generated batch),
+samples from the segment files, and `missing` wherever no delivered batch
+covers a row. The holes carry a cause, and the record states every one of
+them:
+
+| Hole | Where it is declared | Rows |
+|---|---|---|
+| lost batch | `events_rx.csv` row `lost`; the batch in `lost/` with its metadata | its `payload_row … + points_per_batch − 1` |
+| pruned payload | `events_rx.csv` row `pruned`; the `PRUNED` marker in `ground/<BATCH>/` | the same |
+| generation gap | `gap_start` / `gap_end` pair in `events_tx.csv` (`STREAM`, `SCHEDULED`, `RECORDER`) | the rows between the two instants |
+| undelivered at run end | a `gen` row in `events_tx.csv` with no `ingested` or `lost` row; the batch directory under `onboard/` or `link/` | its `payload_row … + points_per_batch − 1` |
+| not generated by run end | no `gen` row: the mission ended before the payload was exhausted | the rows past the last generated batch, up to `external_data_rows` |
+| beyond the record | `external_data_rows` in `[provenance]` (external payload) | every row past it holds the producer's zero padding |
+
+A gap-aware statistic takes the holes as declared intervals rather than
+inferring them from the spacing of the delivered samples: the spacing cannot
+tell a lost batch from an undelivered one, and cannot see a gap before the
+first or after the last delivered sample.
+
+```julia
+using DeepSpaceTelemetry: TelemetryCore
+using Dates, DataFrames
+
+run_dir = TelemetryCore.run_directory("RUN_ID")
+cfg = TelemetryCore.load_run_config(run_dir)
+phys = cfg["physics"]
+fs = phys["sample_rate"]
+points_per_batch = round(Int, fs * phys["segment_duration_sec"]) * phys["batch_size"]
+origin = DateTime(cfg["provenance"]["payload_origin"])
+row_of(t::DateTime) = round(Int, Dates.value(t - origin) * fs / 1000) + 1
+
+first_row = TelemetryCore.batch_payload_rows(run_dir)   # every generated batch, all stages
+rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
+tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
+pruned = Set(rx.Batch[rx.Event .== "pruned"])
+delivered = setdiff(Set(rx.Batch[rx.Event .== "ingested"]), pruned)
+lost = Set(rx.Batch[rx.Event .== "lost"])
+
+n_rows = get(cfg["provenance"], "external_data_rows",
+             maximum(r + points_per_batch - 1 for r in values(first_row)))
+series = Vector{Union{Missing,Float32}}(missing, n_rows)
+for name in delivered
+    dir = joinpath(run_dir, "ground", name)
+    payload = read_payload(dir)                     # as in the streaming example
+    r = first_row[name]
+    series[r:(r + length(payload) - 1)] .= payload
+end
+
+batch_rows(name) = first_row[name]:(first_row[name] + points_per_batch - 1)
+holes = Pair{UnitRange{Int},Symbol}[]
+append!(holes, batch_rows(name) => :lost for name in lost)
+append!(holes, batch_rows(name) => :pruned for name in pruned)
+append!(holes, batch_rows(name) => :undelivered
+        for name in keys(first_row) if name ∉ delivered && name ∉ lost && name ∉ pruned)
+gaps = tx[in.(tx.Batch, Ref(("STREAM", "SCHEDULED", "RECORDER"))), :]
+for label in unique(gaps.Batch)
+    starts = gaps.SimTime[(gaps.Batch .== label) .& (gaps.Event .== "gap_start")]
+    ends = gaps.SimTime[(gaps.Batch .== label) .& (gaps.Event .== "gap_end")]
+    for (a, b) in zip(starts, ends)
+        push!(holes, row_of(a):(row_of(b) - 1) => Symbol(lowercase(label)))
+    end
+end
+last_generated = maximum(r + points_per_batch - 1 for r in values(first_row))
+last_generated < n_rows && push!(holes, (last_generated + 1):n_rows => :not_generated)
+sort!(holes; by = h -> first(h.first))
+```
+
+`series` is the stationary record and `holes` its declared gaps with
+causes; a `RECORDER` gap is the one hole whose rows were generated and
+dropped on board rather than never generated, so its rows sit on the grid
+like every other. A run older than 2.1.0 has no `payload_row` stamps and no
+gap rows; batch `k` then starts at row `(k − 1) · points_per_batch + 1`.
+
+**The arrival stream, replayed.** For a latency study, replay
+`events_rx.csv` in `SimTime` order as the arrival stream and drive the same
+consumer logic as in Streaming Consumption: the event log is the ground
+truth from which the framework's own mask products are computed, so the
+replayed availability is bit-identical to what a live consumer saw. This is
+how a streaming analysis is developed and regression-tested against recorded
+runs before it follows a live one, and how two routing rules or two link
+models are compared on the same arrival logic.
+
+**The prepared products.** Post-processing derives from the record the
+views most analyses want and that need no replay of one's own:
+
+* `masks/telemetry_mask_timeline.csv` — rows = snapshot instants (`SimTime`,
+  one per `mission_profile.csv` row), columns `Batch_<k>` for every batch
+  identifier up to the largest generated, values `0 = Future`, `1 = Onboard`,
+  `2 = Link`, `3 = Ground`, `4 = Lost`. A window anchored at snapshot `r` may
+  use exactly the batches with state 3 in row `r`: the live view of a
+  streaming consumer at that instant, without running one.
+* `masks/pointwise_mask_final.csv` and `masks/pointwise_mask_t<row>.csv` —
+  the 0/1 expansion of one snapshot row onto the sample grid (`Time_Index,
+  Ground_Available`), from `scripts/postprocessing/apply_telemetry_mask.jl`
+  (config-aware) or the dependency-light `standalone_mask_expander.jl`
+  (`CSV` and `DataFrames` only, for collaborators on other toolchains);
+  multiply an expanded row against the raw series to blank undelivered data.
+  Re-anchor the rows through `masks/batch_epochs.csv` when gap events are
+  present.
+* `mission_profile.csv` — link capacity, on-board and link buffers, the
+  cumulative ground counts, losses and retries at a change-driven cadence;
+  `delivery_delay.csv` — the measurement-to-ground delay of every generated
+  batch, `missing` for the undelivered; `alert_latency.csv` and
+  `alert_latency_markers.csv` — the completion of the look-back window after
+  a live event, realized against the FIFO counterfactual, and at every
+  marker; `markers.csv` — the event markers.
+* `products.h5` — all of the above in one file (HDF5 Product Export below).
+
+**Reproducibility.** `config_snapshot.toml` (the parameters, the commit,
+the platform) and `manifest_snapshot.toml` fix the code and the environment
+of a run; the seeded scenario fixes the loss draws. The host's throughput is
+not fixed: the components are paced against wall time, so a rerun of the
+same scenario on another machine delivers the same regimes with different
+counts to the last batch. A stationary study across runs compares regimes,
+distributions, and declared products, not raw counts, unless the runs share
+a host and a load.
+
+**Consumers in use.** `replay_run` of
+[StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl)
+consumes a finished run through the same adapter as its streaming path;
+[MilliHertzQML.jl](https://github.com/PaulGoG/MilliHertzQML.jl) runs its
+batch inference on a finished, gapped record (its training stage requires a
+gapless one); the telemetry example of
+[WaitingTimes.jl](https://github.com/PaulGoG/WaitingTimes.jl) builds a
+series with gaps from the ground batches of a finished run and classifies
+every waiting time as exact, gap-crossing, or censored. The declared holes
+of the example above are the input such a consumer wants in place of gaps
+inferred from spacing.
 
 ## HDF5 Product Export
 

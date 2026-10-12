@@ -450,7 +450,11 @@ External analysis pipelines couple to a run exclusively through the
 filesystem — batch directories delivered by atomic `mv`, append-only event
 feeds, and the mask products — under a read/copy-only contract that admits
 any number of concurrent consumers. The
-[analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) page specifies every file and column.
+[analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/interfaces/) page specifies every file and column, and
+documents the two consumer classes a run serves — a streaming analysis that
+follows an active run through its arrival feed, and a stationary analysis
+that opens a finished run as a fixed record with its gaps declared — each
+with a worked reader.
 
 ## Public surface and versioning
 
