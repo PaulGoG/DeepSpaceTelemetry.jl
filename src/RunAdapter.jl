@@ -9,7 +9,7 @@ followed through its arrival feed and for a finished one replayed from it.
 [`open_run`](@ref) checks the producer's version against
 [`MINIMUM_PRODUCER_VERSION`](@ref); [`GapTracker`](@ref) declares the holes
 of the delivered record as the feeds announce them, with the rules of
-[`Masks.gap_table`](@ref). A consumer in another language reads the same
+[`DeepSpaceTelemetry.Masks.gap_table`](@ref). A consumer in another language reads the same
 files; the manual's Analysis Interfaces chapter is the contract.
 """
 module RunAdapter
@@ -374,7 +374,7 @@ producer does rather than discovering it from the spacing of the content
 epochs. [`declare!`](@ref) returns the holes new since the last call;
 [`open_gaps`](@ref) lists the generation gaps that have opened and not
 closed. On a finished run one call declares the same lost, pruned, and
-generation-gap holes as [`Masks.gap_table`](@ref); the undelivered and
+generation-gap holes as [`DeepSpaceTelemetry.Masks.gap_table`](@ref); the undelivered and
 unreached rows of that table are end-of-run categories a feed cannot
 announce.
 """
