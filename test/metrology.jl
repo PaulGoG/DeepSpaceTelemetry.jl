@@ -163,20 +163,45 @@ end
         @test isfile(joinpath(dir, "plots", "delivery_delay.pdf"))
     end
 
-    @testset "Requirement label at the free end of its rule" begin
+    @testset "Requirement label at a free slot beside its rule" begin
         anchor = Metrology.requirement_label_anchor
-        y, h = anchor([0.36, 0.53], 0.0, 0.35)          # room above the highest curve
-        @test y ≈ 0.98 && h === :right
-        y, h = anchor([0.85, 0.95], 0.0, 0.35)          # room only below the lowest
-        @test y ≈ 0.02 && h === :left
-        y, h = anchor([0.1, 0.9], 0.0, 0.35)            # widest interval between curves
-        @test y ≈ 0.5 && h === :center
-        y, h = anchor([0.3, 0.6, 0.9], 0.0, 0.35)       # nothing holds it: the top
-        @test y ≈ 0.98 && h === :right
-        y, h = anchor(Float64[], 0.3, 0.35)             # no curve reaches the rule
-        @test y ≈ 0.98 && h === :right
-        y, h = anchor([0.9], 0.3, 0.35)                 # rule hidden below the block
-        @test y ≈ 0.32 && h === :left
+        none = Tuple{Float64,Float64}[]
+        level(h...) = [(v, v) for v in h]                 # curves flat across the footprint
+        y, h, s = anchor(level(0.36, 0.53), none, 0.0, 0.0, 0.35)   # room above the highest curve
+        @test y ≈ 0.98 && h === :right && s === :left
+        y, h, s = anchor(level(0.85, 0.95), none, 0.0, 0.0, 0.35)   # room only below the lowest
+        @test y ≈ 0.02 && h === :left && s === :left
+        y, h, s = anchor(level(0.1, 0.9), none, 0.0, 0.0, 0.35)     # widest gap between curves
+        @test y ≈ 0.5 && h === :center && s === :left
+        y, h, s = anchor([(0.1, 0.4), (0.9, 0.9)], none, 0.0, 0.0, 0.35)  # a curve climbing across the footprint narrows the gap
+        @test y ≈ 0.65 && h === :center && s === :left
+        y, h, s = anchor(level(0.3, 0.6, 0.9), level(0.3), 0.0, 0.0, 0.35)  # the left side is full, the right free above
+        @test y ≈ 0.98 && h === :right && s === :right
+        y, h, s = anchor(level(0.3, 0.6, 0.9), level(0.3, 0.6, 0.9), 0.0, 0.0, 0.35)  # nothing holds it: the top left
+        @test y ≈ 0.98 && h === :right && s === :left
+        y, h, s = anchor(none, none, 0.3, 0.3, 0.35)        # no curve reaches the rule
+        @test y ≈ 0.98 && h === :right && s === :left
+        y, h, s = anchor(level(0.9), none, 0.3, 0.0, 0.35)  # rule hidden below the block
+        @test y ≈ 0.32 && h === :left && s === :left
+        # A curve ending beside the rule (a live family delivered in full
+        # before the requirement) fills the top of the left side; the
+        # right side, where it is absent, holds the label.
+        left = [(0.35, 0.40), (0.48, 0.55), (0.83, 0.95)]
+        right = [(0.40, 0.40), (0.55, 0.55)]
+        y, h, s = anchor(left, right, 0.0, 0.0, 0.40)
+        @test y ≈ 0.98 && h === :right && s === :right
+    end
+
+    @testset "Occupancy of step curves across a band" begin
+        occupancy = Metrology.requirement_label_occupancy
+        Y = Metrology.Y_HEADROOM
+        x = [0.0, 2.0, 4.0, 6.0]
+        y = [0.0, 0.25, 0.5, 1.0]
+        curves = ((x, y, true), (x, y, false))
+        @test occupancy(curves, 8.0, 10.0) == []            # the curve ended before the band
+        @test occupancy(curves, 3.0, 5.0) == [(0.25 / Y, 0.5 / Y)]
+        @test occupancy(curves, 5.0, 9.0) == [(0.5 / Y, 1.0 / Y)]   # ends inside the band
+        @test occupancy(curves, -1.0, 1.0) == [(0.0, 0.0)]          # band clipped at the origin, before the first step
     end
 end
 

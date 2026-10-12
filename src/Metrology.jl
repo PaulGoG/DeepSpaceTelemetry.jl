@@ -93,44 +93,96 @@ annotation_block_top(style::PlotTheme.PlotStyle, n_lines::Int) =
     REQUIREMENT_LABEL_MARGIN
 
 Relative clearance the requirement label of the delivery-delay figure keeps
-from the frame, from the curves crossing its rule, and from the corner
+from the frame, from the curves across its footprint, and from the corner
 annotation.
 """
 const REQUIREMENT_LABEL_MARGIN = 0.02
 
 """
-    requirement_label_anchor(occupied::AbstractVector{<:Real}, floor::Real, extent::Real) -> Tuple{Float64,Symbol}
+    requirement_label_occupancy(curves, xa::Real, xb::Real) -> Vector{Tuple{Float64,Float64}}
 
-Relative ordinate of the anchor of the delivery-delay figure's vertical
-requirement label and the horizontal alignment of the rotated text (`:left`,
-the label rises from the anchor; `:right`, it hangs from it; `:center`).
-`occupied` holds the relative heights of the curves crossing the rule at the
-requirement, `floor` the relative height below which the rule is hidden
-(the corner annotation's top, or 0), `extent` the label length as a fraction
-of the axis height. The label takes the free end of the rule: above the
-highest curve when the room up to the frame holds it with
-[`REQUIREMENT_LABEL_MARGIN`](@ref) at both ends, else below the lowest curve
-when the room down to `floor` does, else the middle of the widest interval
-between two curves, else the top regardless.
+Relative height intervals the drawn step curves of the delivery-delay figure
+cover over the abscissa band `[xa, xb]`, one per curve present there. `curves`
+holds `(x, y, drawn)` triples of non-decreasing step data starting at the
+origin, each value holding from its abscissa to the next (the `:post` step
+of the drawn stairs); a curve whose last abscissa precedes the band is
+absent, one ending inside it covers up to its last value. Heights are
+divided by [`Y_HEADROOM`](@ref), the figure's upper limit.
 """
-function requirement_label_anchor(
-    occupied::AbstractVector{<:Real},
+function requirement_label_occupancy(curves, xa::Real, xb::Real)
+    intervals = Tuple{Float64,Float64}[]
+    for (x, y, drawn) in curves
+        drawn && maximum(x) >= xa || continue
+        lo = y[searchsortedlast(x, max(xa, 0.0))]
+        hi = y[searchsortedlast(x, max(xb, 0.0))]
+        push!(intervals, (lo / Y_HEADROOM, hi / Y_HEADROOM))
+    end
+    return intervals
+end
+
+"""
+    requirement_label_slot(intervals, floor::Real, extent::Real) -> Union{Nothing,Tuple{Float64,Symbol}}
+
+Free slot for the delivery-delay figure's requirement label on one side of
+its rule: the relative ordinate of the anchor and the horizontal alignment
+of the rotated text (`:right`, the label hangs from the anchor; `:left`, it
+rises from it; `:center`), or `nothing` when the side holds no slot.
+`intervals` are the relative height intervals the curves occupy across the
+label's footprint on that side ([`requirement_label_occupancy`](@ref)),
+`floor` the relative height below which the rule is hidden (the corner
+annotation's top, or 0), `extent` the label length as a fraction of the
+axis height. The slot is above the highest interval when the room up to the
+frame holds the label with [`REQUIREMENT_LABEL_MARGIN`](@ref) at both ends,
+else below the lowest when the room down to `floor` does, else the middle
+of the widest gap between two intervals when it does.
+"""
+function requirement_label_slot(
+    intervals::AbstractVector{<:Tuple{Real,Real}},
     floor::Real,
     extent::Real,
 )
     m = REQUIREMENT_LABEL_MARGIN
-    hi = maximum(occupied; init = float(floor))
+    hi = maximum(last, intervals; init = float(floor))
     1 - m - hi >= extent + m && return (1 - m, :right)
-    lo = minimum(occupied; init = 1.0)
+    lo = minimum(first, intervals; init = 1.0)
     lo - m - floor >= extent + m && return (floor + m, :left)
-    levels = sort(Float64.(occupied))
-    best_gap, best_mid = 0.0, 0.0
-    for i in 1:(length(levels)-1)
-        gap = levels[i+1] - levels[i]
-        gap > best_gap && ((best_gap, best_mid) = (gap, (levels[i] + levels[i+1]) / 2))
+    spans = sort([(Float64(a), Float64(b)) for (a, b) in intervals]; by = first)
+    best_gap, best_mid, top = 0.0, 0.0, -Inf
+    for (a, b) in spans
+        if isfinite(top) && a - top > best_gap
+            best_gap, best_mid = a - top, (top + a) / 2
+        end
+        top = max(top, b)
     end
     best_gap >= extent + 2m && return (best_mid, :center)
-    return (1 - m, :right)
+    return nothing
+end
+
+"""
+    requirement_label_anchor(left, right, floor_left::Real, floor_right::Real, extent::Real) -> Tuple{Float64,Symbol,Symbol}
+
+Anchor of the delivery-delay figure's vertical requirement label: the
+relative ordinate, the horizontal alignment of the rotated text, and the
+side of the rule it stands on (`:left` or `:right`). `left` and `right`
+hold the height intervals the curves occupy across the label's footprint
+on each side ([`requirement_label_occupancy`](@ref)), `floor_left` and
+`floor_right` the heights below which the rule is hidden there, `extent`
+the label length as a fraction of the axis height. The label takes the
+first slot [`requirement_label_slot`](@ref) finds, on the left of the rule
+before the right, and the top of the left side when neither holds one.
+"""
+function requirement_label_anchor(
+    left::AbstractVector{<:Tuple{Real,Real}},
+    right::AbstractVector{<:Tuple{Real,Real}},
+    floor_left::Real,
+    floor_right::Real,
+    extent::Real,
+)
+    slot = requirement_label_slot(left, floor_left, extent)
+    slot === nothing || return (slot..., :left)
+    slot = requirement_label_slot(right, floor_right, extent)
+    slot === nothing || return (slot..., :right)
+    return (1 - REQUIREMENT_LABEL_MARGIN, :right, :left)
 end
 
 """
@@ -816,13 +868,16 @@ function plot_delivery_delay(
         )
         # One curve per batch family present, the all-batches aggregate only
         # when both families exist (it coincides with the single family
-        # otherwise); the legend entries follow the same guards.
+        # otherwise); the legend entries follow the same guards. The
+        # empirical fraction holds from each delay to the next, the `:post`
+        # step; Makie's default `:pre` would raise every step one delay
+        # early.
         has_live = count(table.Live) > 0
         has_archive = count(.!table.Live) > 0
         legend_elems = LineElement[]
         legend_labels = String[]
         if has_live && has_archive
-            stairs!(ax, x_all, y_all, color = PlotTheme.COLOR_GUIDE)
+            stairs!(ax, x_all, y_all, color = PlotTheme.COLOR_GUIDE, step = :post)
             push!(
                 legend_elems,
                 LineElement(color = PlotTheme.COLOR_GUIDE, linewidth = style.linewidth),
@@ -830,7 +885,7 @@ function plot_delivery_delay(
             push!(legend_labels, "All batches")
         end
         if has_live
-            stairs!(ax, x_live, y_live, color = PlotTheme.COLOR_LIVE)
+            stairs!(ax, x_live, y_live, color = PlotTheme.COLOR_LIVE, step = :post)
             push!(
                 legend_elems,
                 LineElement(color = PlotTheme.COLOR_LIVE, linewidth = style.linewidth),
@@ -838,7 +893,7 @@ function plot_delivery_delay(
             push!(legend_labels, "Live")
         end
         if has_archive
-            stairs!(ax, x_arch, y_arch, color = PlotTheme.COLOR_ARCHIVE)
+            stairs!(ax, x_arch, y_arch, color = PlotTheme.COLOR_ARCHIVE, step = :post)
             push!(
                 legend_elems,
                 LineElement(color = PlotTheme.COLOR_ARCHIVE, linewidth = style.linewidth),
@@ -865,27 +920,44 @@ function plot_delivery_delay(
             justification = :right,
             fontsize = style.fontsize_annotation,
         )
-        # Requirement label vertical along the rule on its left, at the free
-        # end of the rule: the drawn curves are evaluated at the requirement
-        # (a curve ending before it occupies nothing there) in relative
-        # units of the axis, against the label length at half an em per
-        # character; the axis spans [0, x_max], so the rule's relative
-        # abscissa is exact.
+        # Requirement label vertical beside the rule, at a free slot of it:
+        # each drawn curve is evaluated across the label's horizontal
+        # footprint on either side of the rule (a curve ending before the
+        # footprint occupies nothing there, one ending inside it occupies up
+        # to its last value), in relative units of the axis, against the
+        # label length at half an em per character. The axis spans
+        # [0, x_max], so the rule's relative abscissa is exact; the footprint
+        # is the rule offset plus the rotated text's height at one and a half
+        # font sizes, over the figure width less its padding.
         label = "Requirement: $(round(requirement_hours, digits = 1)) h"
-        occupied = Float64[]
-        for (x, y, drawn) in (
+        offset = PlotTheme.scaled(style, 8)
+        footprint =
+            x_max * (offset + 1.5 * style.fontsize_annotation) /
+            PlotTheme.legend_width(style)
+        curves = (
             (x_all, y_all, has_live && has_archive),
             (x_live, y_live, has_live),
             (x_arch, y_arch, has_archive),
         )
-            drawn && maximum(x) >= requirement_hours || continue
-            push!(occupied, y[searchsortedlast(x, requirement_hours)] / Y_HEADROOM)
-        end
+        left = requirement_label_occupancy(
+            curves,
+            requirement_hours - footprint,
+            requirement_hours,
+        )
+        right = requirement_label_occupancy(
+            curves,
+            requirement_hours,
+            requirement_hours + footprint,
+        )
         extent =
             0.5 * style.fontsize_annotation * length(label) /
             (SINGLE_PANEL_SHARE * style.panel_height)
-        y_label, halign =
-            requirement_label_anchor(occupied, crosses_annotation ? block_top : 0.0, extent)
+        floor_left = crosses_annotation ? block_top : 0.0
+        floor_right =
+            (requirement_hours + footprint) / x_max > ANNOTATION_BLOCK_LEFT ? block_top :
+            0.0
+        y_label, halign, side =
+            requirement_label_anchor(left, right, floor_left, floor_right, extent)
         text!(
             ax,
             requirement_hours / x_max,
@@ -893,8 +965,8 @@ function plot_delivery_delay(
             text = label,
             space = :relative,
             rotation = π / 2,
-            align = (halign, :bottom),
-            offset = (-PlotTheme.scaled(style, 8), 0),
+            align = (halign, side === :left ? :bottom : :top),
+            offset = (side === :left ? -offset : offset, 0),
             fontsize = style.fontsize_annotation,
             color = PlotTheme.COLOR_GUIDE,
         )

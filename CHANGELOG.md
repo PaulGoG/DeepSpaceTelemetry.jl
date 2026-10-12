@@ -7,6 +7,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Fixed
+- The requirement label of the delivery-delay figure keeps clear of a
+  curve that ends beside its rule. The label was placed against the curves
+  crossing the rule only, so a live family delivered in full shortly before
+  the requirement ran up to the label's edge. The curves are now evaluated
+  across the label's footprint on either side of the rule, and the label
+  stands on the right of the rule when the left holds no free slot. The
+  curves themselves step up at each delay rather than one delay early:
+  they were drawn with the plotting library's default step, which holds
+  each value up to its abscissa instead of from it.
 - The suite checks the downlink during a scheduled generation gap against
   the signature of the defect fixed in 2.1.1 (no transfer placed on the
   link, at most the in-flight batches delivered) instead of against the
