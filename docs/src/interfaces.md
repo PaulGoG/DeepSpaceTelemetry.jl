@@ -421,21 +421,29 @@ above). A batch directory written before 2.1.0 has no `payload_row`; such a
 run has no gap rows either, and batch `k` then covers the rows
 `(k − 1) · points_per_batch + 1 … k · points_per_batch`.
 
-**Consumers in use.** [StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl)
-implements this loop generically — a coverage set, a window scheduler that
-emits each window once, conditioning on the delivered stretch, an ordered
-commit with an order horizon for stateful estimators — behind a
-five-function run interface (`run_geometry`, `list_batches`, `read_batch`,
-`arrival_events`, `run_state`); its `follow_run` polls an active run and
-`replay_run` consumes a finished one. The adapter that reads this run
-directory into that interface is the `DeepSpaceTelemetry` extension of
-[MilliHertzBase.jl](https://github.com/PaulGoG/MilliHertzBase.jl)
-(`open_telemetry_run`), and [MilliHertzQML.jl](https://github.com/PaulGoG/MilliHertzQML.jl)
-scores the windows with its classifier. An online estimator that requires
-strictly increasing sample times, such as the streaming waiting-time
-estimator of [WaitingTimes.jl](https://github.com/PaulGoG/WaitingTimes.jl),
-fits the live FIFO front only; the LIFO backfill behind it is out of order
-for such a consumer and is better analyzed from the finished record.
+**Consumer archetypes.** The loop above is what a *streaming engine* does
+generically — a coverage set, a window scheduler that emits each window
+once, conditioning on the delivered stretch, a scorer, and an ordered commit
+with an order horizon for stateful estimators — and such an engine is best
+kept independent of this run directory behind a *run adapter* that answers
+five questions:
+
+```julia
+run_geometry(run)      # sample rate, segment length, batch size, payload origin, record length
+list_batches(run)      # per batch: name, index, live?, payload rows, content epoch,
+                       #            state ∈ ground | lost | pruned
+read_batch(run, name)  # the samples of one ground batch as Float32, segments in ascending id
+arrival_events(run)    # (sim_time, batch, event, attempt) in mission-time order
+run_state(run)         # active | complete | aborted, from the sentinels
+```
+
+Everything the adapter needs is in the snapshot, the batch directories, and
+`events_rx.csv` (the sections above), and one adapter serves the engine's
+follow mode on an active run and its replay mode on a finished one. A
+*detector* — a classifier, a matched filter — then scores the conditioned
+windows. An *online estimator* that requires strictly increasing sample
+times fits the live FIFO front only; the LIFO backfill behind it is out of
+order for such a consumer and is better analyzed from the finished record.
 
 ## Stationary Analysis
 
@@ -563,17 +571,14 @@ counts to the last batch. A stationary study across runs compares regimes,
 distributions, and declared products, not raw counts, unless the runs share
 a host and a load.
 
-**Consumers in use.** `replay_run` of
-[StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl)
-consumes a finished run through the same adapter as its streaming path;
-[MilliHertzQML.jl](https://github.com/PaulGoG/MilliHertzQML.jl) runs its
-batch inference on a finished, gapped record (its training stage requires a
-gapless one); the telemetry example of
-[WaitingTimes.jl](https://github.com/PaulGoG/WaitingTimes.jl) builds a
-series with gaps from the ground batches of a finished run and classifies
-every waiting time as exact, gap-crossing, or censored. The declared holes
-of the example above are the input such a consumer wants in place of gaps
-inferred from spacing.
+**Consumer archetypes.** A *replay engine* consumes a finished run through
+the same adapter as its streaming counterpart, in replay mode. A *batch
+inference* runs on the finished record with its holes declared; a training
+stage usually wants a gapless record, an inference stage tolerates a gapped
+one. A *gap-aware statistic* takes the series and the declared holes and
+classifies every quantity that spans a hole as exact, gap-crossing, or
+censored. The `holes` of the example above are the input such a consumer
+wants in place of gaps inferred from spacing.
 
 ## HDF5 Product Export
 
