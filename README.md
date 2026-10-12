@@ -504,7 +504,7 @@ widget. Cite the version used, by tag:
   author  = {Gogîță, Paul-Adrian},
   title   = {DeepSpaceTelemetry.jl: a telemetry, channel, and queuing simulator for deep-space science missions},
   year    = {2026},
-  version = {2.3.1},
+  version = {2.4.0},
   url     = {https://github.com/PaulGoG/DeepSpaceTelemetry.jl}
 }
 ```

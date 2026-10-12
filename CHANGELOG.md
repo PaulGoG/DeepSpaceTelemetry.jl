@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-12
+
 ### Added
 - `simulation.mode = "tick"`: the mission runs on a logical clock
   (`TelemetryCore.TickClock`) that advances from one component wakeup to
@@ -616,6 +618,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[2.4.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.1.1...v2.2.0
