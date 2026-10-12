@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-12
+
 ### Added
 - `RunAdapter`, the reference consumer shipped with the package: `open_run`
   (by path or identifier, refusing a producer older than 2.1.0 unless told
@@ -646,6 +648,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[2.5.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.2.0...v2.3.0
