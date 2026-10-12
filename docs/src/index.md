@@ -11,10 +11,11 @@ One week of `scenarios/stress_8h_bursty.toml`: 8 h daily passes on the
 physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare blackout
 with a 12 h recovery ramp on day 2.5, a partial ground-station outage on day
 5, and a scheduled generation gap on day 1.5. The onboard buffer grows from
-288 to 537 batches across the week while 753 batches reach the ground and
-retransmission recovers all 49 rejected transfers. The
-[Scenario Gallery](@ref) shows this run through its other products and nine
-further scenarios through their own.
+288 to 530 batches across the week while 760 batches reach the ground and
+retransmission recovers all 49 rejected transfers; the run is a tick-mode
+run, reproducible to the byte from the scenario, the seed, and the commit.
+The [Scenario Gallery](@ref) shows this run through its other products and
+nine further scenarios through their own.
 
 ## Installation
 

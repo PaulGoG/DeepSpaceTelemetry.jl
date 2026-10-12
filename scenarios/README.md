@@ -49,7 +49,8 @@ the link rate times the pass length times the profile mean (flat 1.0, sine
 
 ## Gallery
 
-The mission summary of one run of each scenario, the smoke run excepted.
+The mission summary of one tick-mode run of each scenario, the smoke and
+the deterministic one-day runs excepted.
 Top panel: link capacity and, on the right-hand axis, the onboard buffer;
 middle: cumulative batches on the ground; bottom: lost batches. The runs,
 their commit, and their platform are recorded in

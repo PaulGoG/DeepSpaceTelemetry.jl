@@ -57,11 +57,12 @@ on the physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare
 blackout followed by a 12 h recovery ramp on day 2.5, a 12 h partial
 ground-station outage on day 5, a scheduled generation gap on day 1.5, and
 an event marker on day 4 whose triggered low-latency period opens six hours
-later at half capacity. The onboard buffer grows from 288 to 537 batches
-across the week — the disruption debt the link never recovers — while 753
+later at half capacity. The onboard buffer grows from 288 to 530 batches
+across the week — the disruption debt the link never recovers — while 760
 batches reach the ground and retransmission recovers all 49 rejected
-transfers, leaving the lost-batch strip at zero. Every number here comes
-from the run recorded in
+transfers, leaving the lost-batch strip at zero. The run is a tick-mode run:
+every number here reproduces to the byte from the scenario, the seed, and
+the commit recorded in
 [`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml); the
 [scenario library](scenarios/README.md#gallery) shows nine further scenarios
 through the same figure.
