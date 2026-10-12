@@ -17,10 +17,12 @@ of analysis instances may operate concurrently on a single telemetry run.
    files are either append-only (event logs, metrics) or appear atomically
    and are immutable afterward (batch directories). No locking protocol
    exists or is needed — provided rule 1 is respected.
-3. **The contract is invariant under `speed_up`.** A consumer developed
-   against an accelerated run (`speed_up = 3600`) works unchanged against a
-   real-time run (`speed_up = 1.0`); only the wall-clock arrival cadence
-   differs. Development runs accelerated; rehearsal runs at mission cadence.
+3. **The contract is invariant under `speed_up` and under the clock mode.**
+   A consumer developed against an accelerated run (`speed_up = 3600`)
+   works unchanged against a real-time run (`speed_up = 1.0`) or a tick-mode
+   run (`simulation.mode = "tick"`); only the wall-clock arrival cadence
+   differs. Development runs accelerated or on the tick clock, where a run
+   reproduces to the byte; rehearsal runs at mission cadence.
 4. **`config_snapshot.toml` is the only source of derived quantities.**
    Sample rates, segment/batch geometry, and session parameters are read from
    the run's own snapshot, never from the live `config.toml`.
@@ -91,6 +93,7 @@ the file contract is the same, read at different moments.
 | `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, the point-wise masks, and the provenance attributes in one HDF5 file (section below) — not the batch payloads, the clock anchor, the sentinels, or the logs; regenerable from the CSV products. |
 | `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact, `alert_latency`, `delivery_delay`, and `state_raster` (the batch-state timeline as a raster), each as `.png` and `.pdf`. |
 | `publication/` | post-processing (`[post_processing.publication]`) | Read/copy. Journal-width figure export, `<stem>__<run_id>.<format>`, with a `PROVENANCE.toml` sidecar (`[export]`: `run_id`, `run_directory`, `exported_at`, `column_width_mm`, `format`, `package_version`, `git_commit`, `config_snapshot_sha256`, `figures`). |
+| `masks/gaps.csv` | post-processing | Read. Every hole of the delivered record as a declared interval with its cause, columns `Cause, Batch, RowFirst, RowLast, ContentStart, ContentEnd` (Stationary Analysis below): the input of a gap-aware consumer, written first among the products. |
 | `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch, PayloadRow`: the finalization instant from the event log, and the first-sample timestamp and payload row from the batch metadata (missing when the metadata lacks them, as in runs before 2.1.0); written when the run has `gen` rows, it re-anchors point-wise mask rows on the mission timeline and the payload when gap events are present. |
 | `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`. |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline removes the file once the components have joined, before post-processing. |
@@ -326,7 +329,10 @@ open. The four event values and the consumer's response:
 The poll interval follows the cadence of the run: one segment per
 `segment_duration_sec / speed_up` wall seconds, a batch every `batch_size`
 segments. Polling a few times per batch period is enough; at `speed_up = 1`
-that is minutes. For a long run, tail by byte offset rather than re-reading
+that is minutes. Under the tick clock there is no wall mapping and arrivals
+come as fast as the host processes them, so a consumer following a tick
+run polls as fast as it can and is best developed against the finished
+record instead. For a long run, tail by byte offset rather than re-reading
 the file.
 
 **Maintain coverage.** A batch covers the payload rows `payload_row …
@@ -456,8 +462,12 @@ questions.
 grid: batch rows from `payload_row` (`masks/batch_epochs.csv` tabulates
 `Batch, GenSimTime, ContentEpoch, PayloadRow` for every generated batch),
 samples from the segment files, and `missing` wherever no delivered batch
-covers a row. The holes carry a cause, and the record states every one of
-them:
+covers a row. The holes carry a cause, and post-processing writes them as
+`masks/gaps.csv` — one row per hole, `Cause, Batch, RowFirst, RowLast,
+ContentStart, ContentEnd`, the content interval `[ContentStart,
+ContentEnd)`, sorted by `RowFirst`; the rows of the table and the rows no
+delivered batch covers are the same set. The causes and where the record
+declares each:
 
 | Hole | Where it is declared | Rows |
 |---|---|---|
@@ -480,52 +490,33 @@ using Dates, DataFrames
 run_dir = TelemetryCore.run_directory("RUN_ID")
 cfg = TelemetryCore.load_run_config(run_dir)
 phys = cfg["physics"]
-fs = phys["sample_rate"]
-points_per_batch = round(Int, fs * phys["segment_duration_sec"]) * phys["batch_size"]
-origin = DateTime(cfg["provenance"]["payload_origin"])
-row_of(t::DateTime) = round(Int, Dates.value(t - origin) * fs / 1000) + 1
+points_per_batch = round(Int, phys["sample_rate"] * phys["segment_duration_sec"]) * phys["batch_size"]
 
-first_row = TelemetryCore.batch_payload_rows(run_dir)   # every generated batch, all stages
+holes = TelemetryCore.read_table(joinpath(run_dir, "masks", "gaps.csv"))
 rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
-tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
-pruned = Set(rx.Batch[rx.Event .== "pruned"])
-delivered = setdiff(Set(rx.Batch[rx.Event .== "ingested"]), pruned)
-lost = Set(rx.Batch[rx.Event .== "lost"])
+first_row = TelemetryCore.batch_payload_rows(run_dir)      # every generated batch, all stages
+delivered = setdiff(Set(rx.Batch[rx.Event .== "ingested"]), Set(rx.Batch[rx.Event .== "pruned"]))
 
-n_rows = get(cfg["provenance"], "external_data_rows",
-             maximum(r + points_per_batch - 1 for r in values(first_row)))
+n_rows = max(
+    maximum(holes.RowLast; init = 0),
+    maximum(first_row[name] + points_per_batch - 1 for name in delivered),
+)
 series = Vector{Union{Missing,Float32}}(missing, n_rows)
 for name in delivered
-    dir = joinpath(run_dir, "ground", name)
-    payload = read_payload(dir)                     # as in the streaming example
+    payload = read_payload(joinpath(run_dir, "ground", name))   # as in the streaming example
     r = first_row[name]
     series[r:(r + length(payload) - 1)] .= payload
 end
-
-batch_rows(name) = first_row[name]:(first_row[name] + points_per_batch - 1)
-holes = Pair{UnitRange{Int},Symbol}[]
-append!(holes, batch_rows(name) => :lost for name in lost)
-append!(holes, batch_rows(name) => :pruned for name in pruned)
-append!(holes, batch_rows(name) => :undelivered
-        for name in keys(first_row) if name ∉ delivered && name ∉ lost && name ∉ pruned)
-gaps = tx[in.(tx.Batch, Ref(("STREAM", "SCHEDULED", "RECORDER"))), :]
-for label in unique(gaps.Batch)
-    starts = gaps.SimTime[(gaps.Batch .== label) .& (gaps.Event .== "gap_start")]
-    ends = gaps.SimTime[(gaps.Batch .== label) .& (gaps.Event .== "gap_end")]
-    for (a, b) in zip(starts, ends)
-        push!(holes, row_of(a):(row_of(b) - 1) => Symbol(lowercase(label)))
-    end
-end
-last_generated = maximum(r + points_per_batch - 1 for r in values(first_row))
-last_generated < n_rows && push!(holes, (last_generated + 1):n_rows => :not_generated)
-sort!(holes; by = h -> first(h.first))
 ```
 
 `series` is the stationary record and `holes` its declared gaps with
-causes; a `RECORDER` gap is the one hole whose rows were generated and
-dropped on board rather than never generated, so its rows sit on the grid
-like every other. A run older than 2.1.0 has no `payload_row` stamps and no
-gap rows; batch `k` then starts at row `(k − 1) · points_per_batch + 1`.
+causes, each row an interval `RowFirst:RowLast` on the same grid; a
+`recorder` hole is the one whose rows were generated and dropped on board
+rather than never generated, so its rows sit on the grid like every other.
+`Masks.gap_table(run_dir)` computes the same table from the record for a
+run made before the product existed; a run older than 2.1.0 has no
+`payload_row` stamps and no gap rows, and batch `k` then starts at row
+`(k − 1) · points_per_batch + 1`.
 
 **The arrival stream, replayed.** For a latency study, replay
 `events_rx.csv` in `SimTime` order as the arrival stream and drive the same
@@ -553,6 +544,9 @@ views most analyses want and that need no replay of one's own:
   multiply an expanded row against the raw series to blank undelivered data.
   Re-anchor the rows through `masks/batch_epochs.csv` when gap events are
   present.
+* `masks/gaps.csv` — the holes of the delivered record with their causes,
+  as above; `masks/batch_epochs.csv` — the batch → epoch and payload-row
+  map.
 * `mission_profile.csv` — link capacity, on-board and link buffers, the
   cumulative ground counts, losses and retries at a change-driven cadence;
   `delivery_delay.csv` — the measurement-to-ground delay of every generated
@@ -564,12 +558,15 @@ views most analyses want and that need no replay of one's own:
 
 **Reproducibility.** `config_snapshot.toml` (the parameters, the commit,
 the platform) and `manifest_snapshot.toml` fix the code and the environment
-of a run; the seeded scenario fixes the loss draws. The host's throughput is
-not fixed: the components are paced against wall time, so a rerun of the
-same scenario on another machine delivers the same regimes with different
-counts to the last batch. A stationary study across runs compares regimes,
-distributions, and declared products, not raw counts, unless the runs share
-a host and a load.
+of a run; the seeded scenario fixes the loss draws. A tick-mode run
+(`clock_anchor.toml` with `mode = "tick"`) is then reproducible to the
+byte on one platform: its event logs, mask timeline, batch epochs, and
+metrics profile apart from the wall-clock column. A wall-mode run is not:
+its components are paced against wall time, so a rerun of the same
+scenario on another machine delivers the same regimes with different
+counts to the last batch, and a stationary study across wall runs
+compares regimes, distributions, and declared products rather than raw
+counts.
 
 **Consumer archetypes.** A *replay engine* consumes a finished run through
 the same adapter as its streaming counterpart, in replay mode. A *batch
@@ -596,6 +593,7 @@ derived view of them and can be regenerated at any time.
 | `metrics/mission_profile` | the metrics profile, one dataset per column |
 | `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants (`SimTime`, `SimTime_iso`), and the attributes `state_codes` and `layout` |
 | `masks/batch_epochs` | the batch → epoch map, `PayloadRow` included |
+| `masks/gaps` | the gap table, every hole of the delivered record with its cause |
 | `masks/pointwise/<stem>` | every point-wise expansion, `Ground_Available` as `Int8` per sample |
 | `metrology/alert_latency`, `metrology/alert_latency_markers`, `metrology/delivery_delay` | the metrology tables |
 | `markers`, `component_events` | the event markers and the component lifecycle record |

@@ -52,8 +52,8 @@
   behavior.
 - The figures of the manual and of the README are run products.
   `julia docs/render_assets.jl` runs the gallery scenarios one after another
-  (about 40 minutes; the runs are paced against wall time and need an
-  otherwise idle host), reduces the figures with ImageMagick, and rewrites
+  on the tick clock (reproducible to the byte, as fast as the host processes
+  the events), reduces the figures with ImageMagick, and rewrites
   `docs/src/assets/PROVENANCE.toml`. They are regenerated when a change
   alters a figure or the regime a shipped scenario reaches, under a new
   run-ID prefix or after purging the earlier runs.

@@ -12,8 +12,9 @@ using TOML
 #
 # Run IDs are <PREFIX>_<SCENARIO>, the default prefix is DOCS. A completed run
 # of the same ID is reused, so a refresh at a new commit takes a new prefix or
-# a purge of the old runs with scripts/maintenance/cleanup.jl. The runs are
-# paced against wall time and therefore need an otherwise idle host.
+# a purge of the old runs with scripts/maintenance/cleanup.jl. Every scenario
+# runs on the tick clock (`--tick`), so the figures are reproducible to the
+# byte for the recorded commit and seed and the host's load plays no part.
 # ImageMagick (magick) must be on the PATH.
 
 """
@@ -46,11 +47,6 @@ const RUN_THREADS = 3
 Published width of every PNG, in pixels.
 """
 const PNG_WIDTH_PX = 1400
-
-"""
-One-minute load average above which a run warns that the host is loaded.
-"""
-const LOAD_WARN = 1.0
 
 """
 File name of the web-profile batch-routing animation inside `<run_dir>/plots/`.
@@ -195,15 +191,10 @@ function ensure_run(prefix, entry)
             "scripts/maintenance/cleanup.jl or choose another prefix.",
         )
     end
-    if first(Sys.loadavg()) > LOAD_WARN
-        @warn "[ASSETS] The host is loaded; the run is paced against wall time, so the " *
-              "realized totals will fall below those of an idle host." load_average =
-            first(Sys.loadavg())
-    end
     ensure_external_series(entry)
     println("[ASSETS] Running $config as $id ...")
     script = joinpath("scripts", "run_full_sim.jl")
-    run(Cmd(`$(julia_command()) $script $id $config`; dir = REPO))
+    run(Cmd(`$(julia_command()) $script --tick $id $config`; dir = REPO))
     log_path = joinpath(dir, "supervisor.log")
     isfile(joinpath(dir, "RUN_COMPLETE")) ||
         error("[ASSETS] Run $id did not complete; see $log_path.")
@@ -345,6 +336,7 @@ function run_record(id::String, entry)
         delivery_totals(dir, get(post_processing, "delivery_requirement_hours", 24.0)),
     )
     mission_days =
+        get(simulation, "mode", "wall") == "tick" ? get(simulation, "mission_days", 0.0) :
         get(simulation, "mission_wall_seconds", 0.0) * get(simulation, "speed_up", 0.0) /
         86400
     platform_keys = (
@@ -358,7 +350,7 @@ function run_record(id::String, entry)
     return Dict{String,Any}(
         "scenario" => "scenarios/$(entry.scenario).toml",
         "command" =>
-            "julia --threads=$(RUN_THREADS) scripts/run_full_sim.jl $id " *
+            "julia --threads=$(RUN_THREADS) scripts/run_full_sim.jl --tick $id " *
             "scenarios/$(entry.scenario).toml",
         "commit" => get(platform, "git_commit", ""),
         "git_dirty" => get(platform, "git_dirty", false),
@@ -403,10 +395,9 @@ function write_provenance(path::String, record::Dict{String,Any})
             # Provenance of the figures shown in README.md and in the manual. Written by
             # docs/render_assets.jl, which runs every listed scenario, reduces the run
             # products to the published size, and records each run and each file here.
-            # The realized totals depend on how much mission time the host completes
-            # within the configured wall-clock budget, so a re-run on another machine
-            # reproduces the regimes and the figures, not the counts to the batch; the
-            # platform of each run is stated with it.
+            # Every run is a tick-mode run (`--tick`): the realized totals are
+            # reproducible to the byte from the scenario, the seed, and the commit
+            # recorded with each run; the platform of each run is stated with it.
             """,
         )
         TOML.print(io, record; sorted = true)

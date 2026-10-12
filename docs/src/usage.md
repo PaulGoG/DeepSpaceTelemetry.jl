@@ -33,7 +33,10 @@ is a configuration error naming the mode, and tick mode also rejects
 option and issues no thread advisory: its components are cooperative tasks
 of one thread by construction. `scenarios/deterministic_1d.toml` is the
 library's tick scenario, one mission day that the same seed reproduces to
-the byte.
+the byte, and any wall scenario runs on the tick clock with its span
+unchanged through `--tick` on the command line
+(`TelemetryCore.tick_configuration` in a session): this is how the figures
+of the manual, the gallery, and the showcase are made.
 
 ### Scenario Library
 
@@ -189,13 +192,16 @@ batch_size = 15
 Row `r` of the series is the sample at `start_sim_time − initial_downtime_days + (r − 1) / sample_rate`: the first rows fill the pre-existing blind-spot backlog, a generation gap skips the rows of its interval, and past the last row the payload is zero. Each batch records the row of its first sample (`payload_row`, see the analysis interfaces).
 
 ## Running the Simulation
-The emitter, the receiver, and the supervisor are three cooperative tasks;
-launch with `--threads=3` so each owns a thread (`auto` is equivalent in
-effect, more threads bring nothing). On a single thread the run is still
-correct — the emitter paces itself on the mission clock and recovers stalls
-by catch-up — but a non-yielding stretch in one component (compilation
-warm-up, garbage collection, figure rendering) pauses the others until it
-yields, and the entry point prints an advisory.
+In wall mode the emitter, the receiver, and the supervisor are three
+cooperative tasks; launch with `--threads=3` so each owns a thread (`auto`
+is equivalent in effect, more threads bring nothing). On a single thread
+the run is still correct — the emitter paces itself on the mission clock
+and recovers stalls by catch-up — but a non-yielding stretch in one
+component (compilation warm-up, garbage collection, figure rendering)
+pauses the others until it yields, and the entry point prints an advisory.
+In tick mode the two components are cooperative tasks of one thread under
+the driver, no thread option is needed, and the run takes as long as its
+events take to process.
 
 **Interactive Dashboard:**
 ```bash
@@ -206,8 +212,12 @@ This spawns the log terminals and the change-driven `UnicodePlots` live viewer (
 **Headless Mode:**
 ```bash
 julia --threads=3 scripts/run_full_sim.jl
+julia scripts/run_full_sim.jl --tick MY_RUN scenarios/stress_8h_bursty.toml
 ```
-The receiver's console status panel (a text panel redrawn on every receiver
+Any argument ending in `.toml` selects the configuration, `--tick` runs it
+on the tick clock with its span unchanged, and any other argument sets the
+run ID; all are optional and order-independent. The receiver's console
+status panel (a text panel redrawn on every receiver
 iteration, which clears the terminal) is off by default;
 `dashboard.receiver_status_panel = true` enables it for a headless run whose
 terminal shows nothing else.
@@ -216,6 +226,8 @@ terminal shows nothing else.
 After a run, the system outputs `masks/telemetry_mask_timeline.csv`. This 2D matrix logs the exact state of every batch (`0=Future`, `1=Onboard`, `2=Link`, `3=Ground`, `4=Lost`) at every telemetry event. The reconstruction is exact: the emitter and receiver append every batch milestone to `events_tx.csv` / `events_rx.csv` (generation, transmission, ingest, retry, loss) and post-processing replays those ground-truth logs. Runs without event logs (pre-0.9 layouts) are not supported by the replay.
 
 Post-processing always reads the run's own `config_snapshot.toml`, so analyzing an old run stays correct after `config.toml` edits.
+
+Before any figure, post-processing writes `masks/gaps.csv`, the gap table: every hole of the delivered record as a payload-row interval with its cause — a lost or pruned batch, a batch undelivered at run end, a generation gap by type (`stream`, `scheduled`, `recorder`), or the unreached tail of an external record — the declared input of a gap-aware analysis (Stationary Analysis in the Analysis Interfaces page). `Masks.gap_table(run_dir)` computes it for a run made before the product existed.
 
 One matrix row expands into a high-resolution point-wise 0/1 availability array (multiplied against the raw time series, it blanks out undelivered data):
 ```bash

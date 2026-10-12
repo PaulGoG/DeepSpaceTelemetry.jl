@@ -10,7 +10,7 @@ module Masks
 
 using ..TelemetryCore
 using DataFrames: DataFrame, nrow
-using Dates: DateTime
+using Dates: DateTime, Dates, Millisecond
 
 """
     BatchStates
@@ -277,6 +277,135 @@ function generate_telemetry_masks(run_dir::String)
             )
         end
     end
+end
+
+"""
+    GAP_CAUSES
+
+The values of the `Cause` column of [`gap_table`](@ref): `lost` (retry
+budget exhausted), `pruned` (payload removed by the retention custodian),
+`undelivered` (generated, on board or on the link at run end), `stream`
+(emitter outage), `scheduled` (a scheduled generation gap), `recorder`
+(on-board recorder overflow), and `not_generated` (an external record not
+exhausted by run end).
+"""
+const GAP_CAUSES =
+    ("lost", "pruned", "undelivered", "stream", "scheduled", "recorder", "not_generated")
+
+"""
+    gap_table(run_dir::String) -> DataFrame
+
+Every hole of the delivered record of a run, as declared intervals with
+their cause: columns `Cause` ([`GAP_CAUSES`](@ref)), `Batch` (the batch of
+a batch-level hole, `missing` for a generation gap or the unreached tail),
+`RowFirst` and `RowLast` (payload rows, inclusive), and `ContentStart`,
+`ContentEnd` (the content interval `[ContentStart, ContentEnd)`), sorted
+by `RowFirst`. Batch rows come from the `payload_row` stamp of the batch
+metadata, or from the batch index when the stamp is absent (runs before
+2.1.0, which have no gap rows either); generation gaps from the
+`gap_start` / `gap_end` pairs of `events_tx.csv`, a gap left open at run
+end closed at the mission's end; the unreached tail from
+`external_data_rows` of the snapshot. The rows of the table and the rows
+no delivered batch covers are the same set.
+"""
+function gap_table(run_dir::String)
+    cfg = TelemetryCore.load_run_config(run_dir)
+    physics = TelemetryCore.physics_settings(cfg)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    provenance = get(cfg, "provenance", Dict{String,Any}())
+    fs = physics.sample_rate
+    points_per_batch = round(Int, fs * physics.segment_duration_sec) * physics.batch_size
+    start_sim = DateTime(sim["start_sim_time"])
+    downtime = Float64(get(sim, "initial_downtime_days", 0.0))
+    origin =
+        haskey(provenance, "payload_origin") ? DateTime(provenance["payload_origin"]) :
+        start_sim - Millisecond(round(Int, downtime * TelemetryCore.MS_PER_DAY))
+    t_end =
+        start_sim + Millisecond(
+            round(Int, TelemetryCore.mission_span_days(cfg) * TelemetryCore.MS_PER_DAY),
+        )
+    row_of(t::DateTime) = round(Int, Dates.value(t - origin) * fs / 1000) + 1
+    time_of(r::Integer) = origin + Millisecond(round(Int, 1000 * (r - 1) / fs))
+
+    stamped = TelemetryCore.batch_payload_rows(run_dir)
+    first_row(name) =
+        get(stamped, name, (TelemetryCore.batch_id(name) - 1) * points_per_batch + 1)
+    tx_path = joinpath(run_dir, "events_tx.csv")
+    rx_path = joinpath(run_dir, "events_rx.csv")
+    empty_rx() =
+        DataFrame(SimTime = DateTime[], Batch = String[], Event = String[], Attempt = Int[])
+    tx =
+        isfile(tx_path) ? TelemetryCore.read_table(tx_path) :
+        DataFrame(SimTime = DateTime[], Batch = String[], Event = String[])
+    rx = isfile(rx_path) ? TelemetryCore.read_table(rx_path) : empty_rx()
+
+    causes, batches, firsts, lasts = String[], Union{Missing,String}[], Int[], Int[]
+    function hole!(cause, batch, r1, r2)
+        r2 >= r1 || return
+        push!(causes, cause)
+        push!(batches, batch)
+        push!(firsts, r1)
+        push!(lasts, r2)
+        return nothing
+    end
+    batch_hole!(cause, name) =
+        hole!(cause, name, first_row(name), first_row(name) + points_per_batch - 1)
+    generated = Set(String.(tx.Batch[tx.Event .== "gen"]))
+    delivered = Set(String.(rx.Batch[rx.Event .== "ingested"]))
+    lost = Set(String.(rx.Batch[rx.Event .== "lost"]))
+    pruned = Set(String.(rx.Batch[rx.Event .== "pruned"]))
+    foreach(name -> batch_hole!("lost", name), lost)
+    foreach(name -> batch_hole!("pruned", name), pruned)
+    for name in generated
+        name in delivered || name in lost || batch_hole!("undelivered", name)
+    end
+    # Generation gaps: one open gap per label at a time, closed by the next
+    # gap_end of that label or at the mission's end.
+    for label in ("STREAM", "SCHEDULED", "RECORDER")
+        open_at = nothing
+        for r in eachrow(tx[tx.Batch .== label, :])
+            if r.Event == "gap_start"
+                open_at === nothing && (open_at = r.SimTime)
+            elseif r.Event == "gap_end" && open_at !== nothing
+                hole!(lowercase(label), missing, row_of(open_at), row_of(r.SimTime) - 1)
+                open_at = nothing
+            end
+        end
+        open_at === nothing ||
+            hole!(lowercase(label), missing, row_of(open_at), row_of(t_end) - 1)
+    end
+    external_rows = get(provenance, "external_data_rows", nothing)
+    if external_rows isa Integer && !isempty(generated)
+        last_generated =
+            maximum(first_row(name) + points_per_batch - 1 for name in generated)
+        last_generated < external_rows &&
+            hole!("not_generated", missing, last_generated + 1, Int(external_rows))
+    end
+    table = DataFrame(
+        Cause = causes,
+        Batch = batches,
+        RowFirst = firsts,
+        RowLast = lasts,
+        ContentStart = time_of.(firsts),
+        ContentEnd = time_of.(lasts .+ 1),
+    )
+    sort!(table, [:RowFirst, :Cause])
+    return table
+end
+
+"""
+    write_gap_table(run_dir::String) -> String
+
+Writes [`gap_table`](@ref) of a run to `<run_dir>/masks/gaps.csv`
+(rotated, never overwritten) and returns the path.
+"""
+function write_gap_table(run_dir::String)
+    path = joinpath(run_dir, "masks", "gaps.csv")
+    mkpath(dirname(path))
+    table = gap_table(run_dir)
+    TelemetryCore.safe_csv_write(path, table)
+    @info "[POST] Gap table saved: $(relpath(path, run_dir)) ($(nrow(table)) holes)."
+    return path
 end
 
 """

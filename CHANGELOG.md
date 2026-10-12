@@ -27,6 +27,25 @@ Notable changes to DeepSpaceTelemetry. The format follows
   the smoke scenario's physics over a full day; the suite runs it twice
   and asserts the reproducibility, and asserts the production count from
   the span alone.
+- `--tick` on `scripts/run_full_sim.jl` runs any configuration on the
+  tick clock with its span unchanged (`TelemetryCore.tick_configuration`
+  in a session: `mission_days` from the wall span, the wall keys removed,
+  the status panel off). The gallery of the manual (`docs/render_assets.jl`)
+  runs every scenario that way, so its figures and realized totals are
+  reproducible to the byte from the scenario, the seed, and the commit
+  recorded with them; the provenance file and the gallery page say so in
+  place of the one-realization hedge.
+- `masks/gaps.csv`, the gap table: every hole of the delivered record as a
+  payload-row interval with its cause — a lost or pruned batch, a batch
+  undelivered at run end, a generation gap by type (`stream`,
+  `scheduled`, `recorder`), or the unreached tail of an external record —
+  with the batch and the content interval, sorted by row; the rows of the
+  table and the rows no delivered batch covers are the same set, which the
+  suite asserts on a lossy tick run and on a run with a scheduled gap.
+  Written first among the post-processing products, exported to
+  `products.h5` as `masks/gaps`, computable for older runs by
+  `Masks.gap_table`. The Analysis Interfaces chapter makes it the input of
+  the stationary reader.
 
 ### Changed
 - The manual's Analysis Interfaces chapter is organized around the two

@@ -34,6 +34,7 @@ DeepSpaceTelemetry.TelemetryCore.SIMULATION_MODES
 DeepSpaceTelemetry.TelemetryCore.simulation_mode
 DeepSpaceTelemetry.TelemetryCore.mission_days_setting
 DeepSpaceTelemetry.TelemetryCore.mission_span_days
+DeepSpaceTelemetry.TelemetryCore.tick_configuration
 DeepSpaceTelemetry.TelemetryCore.normalize_profile!
 DeepSpaceTelemetry.TelemetryCore.telemetry_settings
 DeepSpaceTelemetry.TelemetryCore.physics_settings

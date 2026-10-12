@@ -23,7 +23,9 @@ the synthetic flag series (4 Hz, 60 s segments, 10 per batch: 144 batches per da
 and a 14-day on-board recorder. GE denotes the Gilbert–Elliott bursty
 channel with the shipped parameters (stationary loss 6.25 %). Wall times
 are at the configured acceleration, before post-processing (about half a
-minute per mission day).
+minute per mission day); every scenario also runs on the tick clock with
+`--tick`, reproducibly and as fast as the host processes the events, which
+is how the manual's gallery and the showcase are made.
 
 | File | Mission | Wall | Capacity, profile | Contacts | Channel | Disruptions, markers | Expected regime |
 |---|---|---|---|---|---|---|---|

@@ -12,7 +12,10 @@ near-real-time (FIFO) transmission with LIFO archival backfill, stochastic
 packet loss with retransmission, and scheduled link disruptions. The
 telemetry, channel, and queuing layers are mission-agnostic; the shipped
 scenarios model the LISA (Laser Interferometer Space Antenna) mission, and
-external instrument data ingests through the same pipeline.
+external instrument data ingests through the same pipeline. A mission runs
+on a wall-paced clock, accelerated or at mission cadence, for rehearsals
+with live dashboards, or on a logical clock whose runs reproduce to the
+byte for a given seed.
 
 **[Manual](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/)** · [Physics](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/physics/) ·
 [Configuration](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/usage/) · [Scenario gallery](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/gallery/) ·
@@ -29,7 +32,7 @@ DeepSpaceTelemetry/
 │                   #   instrument, emitter, receiver, metrology, HDF5 export,
 │                   #   publication figures, and the mission supervisor
 ├── scripts/        # Entry points (headless run, dashboard) and post-processing
-├── scenarios/      # Eleven complete configurations and their coverage matrix
+├── scenarios/      # Twelve complete configurations and their coverage matrix
 ├── test/           # Static QA, unit, physics, and four integration missions
 ├── bench/          # BenchmarkTools suites
 ├── docs/           # Documenter manual sources, the figures, and their render script
@@ -102,13 +105,19 @@ and precompiles and is therefore slow, afterward it is a no-op.
 
 ## Usage & Execution
 
-The satellite emitter, the ground receiver, and their supervisor run as three
-cooperative tasks. Launch with `--threads=3` so each owns a thread
-(`--threads=auto` is equivalent in effect; more threads bring no benefit). On
-a single thread the pipeline still runs correctly, but a non-yielding stretch
-in one component — compilation warm-up, garbage collection, figure rendering
-— pauses the others until it yields; the entry point prints an advisory in
-that case.
+A mission runs on one of two clocks. In wall mode, the default, mission
+time is paced against the wall clock at `simulation.speed_up` for
+`mission_wall_seconds`; the satellite emitter, the ground receiver, and
+their supervisor run as three cooperative tasks, so launch with
+`--threads=3` to give each its own thread (`--threads=auto` is equivalent in
+effect; more threads bring no benefit). On a single thread the pipeline
+still runs correctly, but a non-yielding stretch in one component —
+compilation warm-up, garbage collection, figure rendering — pauses the
+others until it yields; the entry point prints an advisory in that case. In
+tick mode (`simulation.mode = "tick"`, span `mission_days`), mission time
+advances from one component wakeup to the next on one thread: the run takes
+as long as its events take to process, needs no `--threads` option, and
+reproduces its event logs, masks, and metrics to the byte for a given seed.
 
 ### Run a mission
 
@@ -120,11 +129,13 @@ julia --threads=3 scripts/run_full_sim.jl
 
 Any argument ending in `.toml` selects another configuration (relative paths
 resolve against the current directory, then the package root, so scenario
-files may live outside the repository); any other argument sets the run ID.
-Both are optional and order-independent:
+files may live outside the repository); `--tick` runs it on the tick clock
+with its span unchanged; any other argument sets the run ID. All are
+optional and order-independent:
 
 ```bash
 julia --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
+julia scripts/run_full_sim.jl --tick MY_RUN scenarios/stress_8h_bursty.toml
 ```
 
 Interactively, with the live viewer and the two log followers in their own
@@ -147,9 +158,10 @@ julia docs/make.jl       # the manual into docs/build/
 ```
 
 The suite (equivalently `Pkg.test()`) runs the Aqua, ExplicitImports, and JET
-checks beside the unit and physics-validation testsets and four end-to-end
-integration missions: lossless, retention custodian, deterministic total
-loss, and a headless mission through the supervisor. The manual is published
+checks beside the unit and physics-validation testsets, four end-to-end
+integration missions — lossless, retention custodian, deterministic total
+loss, and a headless mission through the supervisor — and the tick missions
+of the reproducibility claim: the same seed twice, another seed once. The manual is published
 at <https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/>, deployed by the
 CI docs job on every version tag. The build of the `main` branch is deployed
 alongside it on every push and reachable from the version selector at the top
@@ -181,8 +193,8 @@ julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> 102400 100 output.
 # Regenerate the example series for physics.data_source = "external"
 julia scripts/maintenance/generate_example_strain.jl
 
-# Regenerate the figures of the manual and of this README from fresh runs
-# of the scenario library (about 40 minutes; needs ImageMagick)
+# Regenerate the figures of the manual and of this README from fresh tick-mode
+# runs of the scenario library (reproducible to the byte; needs ImageMagick)
 julia docs/render_assets.jl [RUN_ID_PREFIX]
 
 # Purge previous run directories (lists candidates and asks; --yes skips the prompt)
@@ -198,17 +210,17 @@ batch never becomes available on the ground.
 
 | Component | Role | Status |
 |---|---|---|
-| `TelemetryCore` | configuration accessors and validation, run layout, batch I/O, event logs, provenance | stable; unit, guardrail, and static-QA coverage |
+| `TelemetryCore` | configuration accessors and validation, run layout, batch I/O, event logs, provenance, the wall and tick mission clocks | stable; unit, guardrail, scheduler, and static-QA coverage |
 | `ChannelEffects` | loss channels, disruption timeline, composite link model | stable; validated against the analytic stationary loss rate |
 | `VirtualInstrument` | binary flag payload declared by the event markers, external ingestion | stable; flag rule, boundary cases, clock advance, and the payload grid across gaps and restarts tested |
-| `Emitter` / `Receiver` | spacecraft and ground-station state machines | stable; four end-to-end integration missions in the suite |
-| `Masks` / `MissionFigures` | batch-state replay and mask products; mission, session, and raster figures | stable; replay, legend, and layout tests |
+| `Emitter` / `Receiver` | spacecraft and ground-station state machines, on either clock | stable; four end-to-end integration missions and the tick missions in the suite |
+| `Masks` / `MissionFigures` | batch-state replay, mask products, the gap table; mission, session, and raster figures | stable; replay, gap-table, legend, and layout tests |
 | `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
-| `Supervisor` | mission plan, supervised tasks, sentinels, banner | stable; restart and policy tests |
+| `Supervisor` | mission plan, supervised tasks on the wall clock, the tick driver, sentinels, banner | stable; restart, policy, and reproducibility tests |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
-| Scenario library | eleven configurations under `scenarios/` | every file validated and the smoke scenario run by the suite |
-| Entry points | `run_full_sim.jl` (argument parsing plus `Supervisor.run_mission`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release (its library call runs the smoke scenario in the suite); the dashboard, live viewer, and log follower are interactive and verified manually |
+| Scenario library | twelve configurations under `scenarios/` | every file validated, the smoke scenario run, and the deterministic scenario run twice by the suite |
+| Entry points | `run_full_sim.jl` (argument parsing, `--tick`, plus `Supervisor.run_mission`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release (its library call runs the smoke scenario in the suite); the dashboard, live viewer, and log follower are interactive and verified manually |
 | Post-processing wrappers | `apply_telemetry_mask.jl`, `complete_run.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over the tested library functions (`Masks.expand_pointwise_mask`, `Supervisor.complete_run`, `Export.export_hdf5`, `Publication.export_publication_figures`); the animation engine of `generate_gif.jl` renders over the tested replay (`Masks.batch_states`) and the standalone expander is a dependency-light copy, both verified on the shipped scenarios at each release |
 | Maintenance utilities | `generate_example_strain.jl`, `cleanup.jl`, `docs/render_assets.jl` | `generate_example_strain.jl` verified through `scenarios/external_ingest.toml` at each release; `cleanup.jl` interactive (confirmation prompt), verified manually; `render_assets.jl` run end to end whenever the figures of the manual are regenerated |
 
@@ -235,7 +247,7 @@ DeepSpaceTelemetry/
 │   ├── Project.toml             # Script environment (terminal UI and logging dependencies; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the script environment
 │   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
-│   ├── run_full_sim.jl          # Headless entry point ([run_id] [config.toml]) → Supervisor.run_mission
+│   ├── run_full_sim.jl          # Headless entry point ([run_id] [config.toml] [--tick]) → Supervisor.run_mission
 │   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
 │   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
 │   ├── postprocessing/
@@ -251,7 +263,7 @@ DeepSpaceTelemetry/
 ├── test/
 │   ├── Project.toml             # Test environment (QA deps; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the test environment
-│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, channel, instrument, masks, integration, supervisor, metrology, export, figures)
+│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, channel, instrument, masks, integration, supervisor, tick mode, metrology, export, figures)
 ├── bench/
 │   ├── Project.toml             # Benchmark environment (BenchmarkTools; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the benchmark environment
@@ -282,7 +294,8 @@ DeepSpaceTelemetry/
 │   ├── explicit_schedule.toml   # Explicit pass list with missed, shortened, extended passes
 │   ├── long_30d_seasonal.toml   # 30 days, contact gap reaching the recorder ceiling
 │   ├── long_segments_2400s.toml # 2400 s segments: the coarse-batch regime
-│   └── external_ingest.toml     # External CSV ingestion
+│   ├── external_ingest.toml     # External CSV ingestion
+│   └── deterministic_1d.toml    # One mission day on the tick clock: reproducible to the byte
 ├── data/
 │   ├── example_external_strain.csv # Generated demo input (gitignored)
 │   └── runs/                    # Ephemeral run directories (gitignored)
@@ -372,6 +385,13 @@ freely — for example `[-1, "10:20", 45]`. The
   `onboard_data_rate_kbps`); seasonal pass-duration modulation, per-date
   exceptions for missed and shortened passes, explicit pass lists in TOML or
   CSV, and low-latency periods at a station-availability capacity fraction.
+- **Two clocks** — wall mode paces mission time against the wall clock at
+  `speed_up`, with heartbeats, a watchdog, restart-on-death, and the live
+  dashboards; tick mode advances it from one component wakeup to the next,
+  as fast as the host processes the events, and reproduces a run to the
+  byte for a given seed on a given platform. The physics is written in
+  mission time and is the same under both; `--tick` runs any scenario on
+  the logical clock with its span unchanged.
 - **FIFO/LIFO routing** — live data is transmitted immediately with absolute
   priority; the blind-spot backlog is downlinked newest-first, so the data
   most tightly coupled to a live event is recovered first.
@@ -397,7 +417,10 @@ freely — for example `[-1, "10:20", 45]`. The
   into the batch metadata and evaluated by both metrics.
 - **Data products** — append-only emitter and receiver event logs, from which
   post-processing replays the exact per-batch state history; the 0–4 mask
-  timeline and point-wise 0/1 availability masks; the metrics profile; the
+  timeline and point-wise 0/1 availability masks; the gap table, every hole
+  of the delivered record as a payload-row interval with its cause (lost,
+  pruned, undelivered, a generation gap by type, an unreached record); the
+  metrics profile; the
   batch-state raster, which shows the LIFO backfill advancing backward in
   batch identifier; an HDF5 export of every product carrying the
   run's provenance as attributes; publication figures at a declared printed
@@ -415,7 +438,8 @@ freely — for example `[-1, "10:20", 45]`. The
 ## Architecture Summary
 
 Two asynchronous tasks exchange physical batch directories through a
-file-system broker, coordinated only by the shared accelerated clock:
+file-system broker, coordinated only by the shared mission clock — paced
+against the wall, or advanced logically from one wakeup to the next:
 
 1. **Emitter** (`src/Emitter.jl`) — generates payload segments, assembles them
    into batches under `onboard/`, stamps them `LIVE_` (generated during a

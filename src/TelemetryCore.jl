@@ -682,6 +682,41 @@ function mission_days_setting(cfg::AbstractDict)
 end
 
 """
+    tick_configuration(cfg::AbstractDict) -> Dict{String,Any}
+
+A copy of a configuration switched to `simulation.mode = "tick"` with the
+same mission span: `mission_days` set from [`mission_span_days`](@ref),
+`speed_up` and `mission_wall_seconds` removed, and the console status
+panel off. A wall scenario runs deterministically through it; a
+configuration already in tick mode comes back unchanged. The result is
+validated like any other configuration when it is run.
+
+# Examples
+```jldoctest
+julia> cfg = Dict{String,Any}("simulation" => Dict{String,Any}("speed_up" => 3600.0, "mission_wall_seconds" => 168.0, "start_sim_time" => "2035-01-01T06:00:00"));
+
+julia> sim = TelemetryCore.tick_configuration(cfg)["simulation"];
+
+julia> sim["mode"], sim["mission_days"], haskey(sim, "speed_up")
+("tick", 7.0, false)
+```
+"""
+function tick_configuration(cfg::AbstractDict)
+    out = deepcopy(Dict{String,Any}(cfg))
+    simulation_mode(out) == "tick" && return out
+    days = mission_span_days(out)
+    sim = out["simulation"]
+    delete!(sim, "speed_up")
+    delete!(sim, "mission_wall_seconds")
+    sim["mode"] = "tick"
+    sim["mission_days"] = days
+    if haskey(out, "dashboard") && out["dashboard"] isa AbstractDict
+        out["dashboard"]["receiver_status_panel"] = false
+    end
+    return out
+end
+
+"""
     mission_span_days(cfg::AbstractDict) -> Float64
 
 The mission span in days in either mode: `mission_wall_seconds × speed_up /
@@ -3269,8 +3304,16 @@ Columns of the run-directory tables that hold instants. [`read_table`](@ref)
 reads them as `DateTime` whatever the CSV parser would infer, and
 [`write_table`](@ref) writes every `DateTime` column in one fixed form.
 """
-const TIMESTAMP_COLUMNS =
-    (:SimTime, :WallTime, :GenSimTime, :ContentEpoch, :ContentEnd, :AvailableAt, :Marker)
+const TIMESTAMP_COLUMNS = (
+    :SimTime,
+    :WallTime,
+    :GenSimTime,
+    :ContentEpoch,
+    :ContentStart,
+    :ContentEnd,
+    :AvailableAt,
+    :Marker,
+)
 
 """
     timestamp_text(t) -> Union{String,Missing}

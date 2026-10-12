@@ -218,6 +218,34 @@ end
             alignment = ramp_alignment(run_dir, origin, 4.0)
             @test alignment.checked == count(==("gen"), tx.Event)
             @test isempty(alignment.misaligned) && isempty(alignment.repeated)
+            # The gap table declares the scheduled gap on the payload grid and
+            # the unreached tail of the external record, and its rows are
+            # exactly the rows no delivered batch covers.
+            gaps = TelemetryCore.read_table(joinpath(run_dir, "masks", "gaps.csv"))
+            @test all(in(Masks.GAP_CAUSES), gaps.Cause)
+            @test issorted(gaps.RowFirst)
+            sched = gaps[gaps.Cause .== "scheduled", :]
+            @test nrow(sched) == 1 &&
+                  sched.ContentStart[1] == DateTime(scheduled.SimTime[1]) &&
+                  sched.ContentEnd[1] == DateTime(scheduled.SimTime[2])
+            row_of(t) = round(Int, Dates.value(t - origin) * 4.0 / 1000) + 1
+            @test sched.RowFirst[1] == row_of(DateTime(scheduled.SimTime[1])) &&
+                  sched.RowLast[1] == row_of(DateTime(scheduled.SimTime[2])) - 1
+            tail = gaps[gaps.Cause .== "not_generated", :]
+            @test nrow(tail) == 1 && tail.RowLast[1] == 200_000
+            rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
+            delivered = Set(String.(rx.Batch[rx.Event .== "ingested"]))
+            first_row = TelemetryCore.batch_payload_rows(run_dir)
+            points = 4 * 60 * 3
+            covered = falses(200_000)
+            for name in delivered
+                covered[first_row[name]:(first_row[name]+points-1)] .= true
+            end
+            declared = falses(200_000)
+            for r in eachrow(gaps)
+                declared[r.RowFirst:r.RowLast] .= true
+            end
+            @test declared == .!covered
             @test isfile(joinpath(run_dir, "alert_latency.csv"))
             @test isfile(joinpath(run_dir, "plots", "alert_latency.png"))
             # A stranded run: the sentinels of a supervisor killed during

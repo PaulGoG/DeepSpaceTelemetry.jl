@@ -37,6 +37,7 @@ const TABLE_PRODUCTS = (
     ("events/rx", "events_rx.csv"),
     ("metrics/mission_profile", "mission_profile.csv"),
     ("masks/batch_epochs", joinpath("masks", "batch_epochs.csv")),
+    ("masks/gaps", joinpath("masks", "gaps.csv")),
     ("metrology/alert_latency", "alert_latency.csv"),
     ("metrology/alert_latency_markers", "alert_latency_markers.csv"),
     ("metrology/delivery_delay", "delivery_delay.csv"),

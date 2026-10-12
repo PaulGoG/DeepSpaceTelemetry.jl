@@ -1,29 +1,32 @@
 # Scenario Gallery
 
-Ten of the eleven shipped scenarios, each run once and shown through the
+Ten of the twelve shipped scenarios, each run once and shown through the
 figures the run itself wrote. Every image on this page is a product from the
 `plots/` directory of a run, reduced to the page width and otherwise
-untouched. The smoke scenario exists for the test suite and is left out.
+untouched. The smoke scenario and the deterministic one-day scenario exist
+for the test suite and are left out.
 
-Any scenario runs by path from the package root:
+Any scenario runs by path from the package root, on the wall clock or, with
+`--tick`, on the tick clock:
 
 ```bash
 julia --threads=3 scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
+julia scripts/run_full_sim.jl --tick <RUN_ID> scenarios/<file>.toml
 ```
 
 One command regenerates this page. It runs the ten scenarios one after
-another (about 40 minutes of wall time), reduces the figures, and records
-every run and every file in `docs/src/assets/PROVENANCE.toml`:
+another on the tick clock, reduces the figures, and records every run and
+every file in `docs/src/assets/PROVENANCE.toml`:
 
 ```bash
 julia docs/render_assets.jl
 ```
 
-The components are paced against wall time, so the totals below belong to
-one realization on one host: another machine reproduces the regimes and the
-shapes of the curves, not the counts to the batch. The regime each scenario
-is built to reach follows from its link budget and is derived in the
-coverage matrix of `scenarios/README.md`.
+Every run of this page is a tick-mode run: the totals below are reproducible
+to the byte from the scenario, the seed, and the commit recorded with them,
+and the host's load plays no part. The regime each scenario is built to
+reach follows from its link budget and is derived in the coverage matrix of
+`scenarios/README.md`.
 
 ## Realized Totals
 

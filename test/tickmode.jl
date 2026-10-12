@@ -39,6 +39,18 @@
     # The storage estimate sizes a tick mission from its span.
     est = TelemetryCore.estimate_artifacts(tick)
     @test est.mission_days == 1
+    # A wall scenario converts to tick mode with its span intact and
+    # validates; a tick configuration passes through unchanged.
+    converted = TelemetryCore.tick_configuration(wall)
+    @test converted["simulation"]["mode"] == "tick"
+    @test converted["simulation"]["mission_days"] ≈ TelemetryCore.mission_span_days(wall)
+    @test !haskey(converted["simulation"], "speed_up") &&
+          !haskey(converted["simulation"], "mission_wall_seconds")
+    @test wall["simulation"]["speed_up"] == 3600.0   # the source is untouched
+    @test with_logger(NullLogger()) do
+        TelemetryCore.validate_config(converted)
+    end isa AbstractDict
+    @test TelemetryCore.tick_configuration(tick) == tick
 end
 
 @testset "Tick clock anchor and scheduler" begin
@@ -207,6 +219,30 @@ end
         @test count(==("ingested"), rx.Event) + count(==("lost"), rx.Event) ==
               count(==("gen"), tx.Event)
         @test maximum(rx.SimTime) < anchor.horizon
+        # The gap table of a lossy run: every lost batch is a hole of its own
+        # rows, nothing else is missing from a synthetic record served in
+        # full, and the holes are the rows no delivered batch covers.
+        gaps = TelemetryCore.read_table(joinpath(a, "masks", "gaps.csv"))
+        lost = Set(String.(rx.Batch[rx.Event .== "lost"]))
+        @test Set(String.(skipmissing(gaps.Batch))) == lost
+        @test all(==("lost"), gaps.Cause)
+        points =
+            round(Int, phys["sample_rate"] * phys["segment_duration_sec"]) *
+            phys["batch_size"]
+        @test all(gaps.RowLast .- gaps.RowFirst .+ 1 .== points)
+        first_row = TelemetryCore.batch_payload_rows(a)
+        generated = Set(String.(tx.Batch[tx.Event .== "gen"]))
+        n_rows = maximum(first_row[b] for b in generated) + points - 1
+        covered = falses(n_rows)
+        for name in setdiff(generated, lost)
+            covered[first_row[name]:(first_row[name]+points-1)] .= true
+        end
+        declared = falses(n_rows)
+        for r in eachrow(gaps)
+            declared[r.RowFirst:r.RowLast] .= true
+        end
+        @test declared == .!covered
+        @test Masks.gap_table(a) == gaps
     finally
         foreach(dir -> rm(dir; recursive = true, force = true), runs)
     end
