@@ -327,19 +327,20 @@ file's location.
 `config.toml` at the package root is the default entry point, a copy of the
 reference scenario `scenarios/recovery_12h_seasonal.toml`: 7 mission days at
 the seasonal peak on the physical link, a 2-day backlog, Gilbert–Elliott
-loss, three disruption events, one marker, about 3 minutes of wall time. Ten
-further scenarios ship beside it, from a 12-second smoke run to a 30-day
-seasonal mission, covering the physical link rates and the peak-capacity
-abstraction, bursty and memoryless channels, the drop policy, explicit pass
-schedules, the recorder ceiling, the coarse-batch regime of long segments,
-and external ingestion. The
+loss, three disruption events, one marker, about 3 minutes of wall time.
+Eleven further scenarios ship beside it, from a 12-second smoke run to a
+30-day seasonal mission, covering the physical link rates and the
+peak-capacity abstraction, bursty and memoryless channels, the drop policy,
+explicit pass schedules, the recorder ceiling, the coarse-batch regime of
+long segments, external ingestion, and a mission day on the tick clock,
+which the same seed reproduces to the byte. The
 [coverage matrix](scenarios/README.md) states the regime each one produces.
 
 <details>
 <summary>Configuration sections</summary>
 
 ```toml
-[simulation]        # speed_up, mission span, backlog, rng_seed
+[simulation]        # mode (wall | tick), speed_up and wall span or mission_days, backlog, rng_seed
 [supervision]       # component-failure policy, restart budget, watchdog
 [storage]           # disk + inode budgets for the run directory, estimator calibration
 [retention]         # the retention custodian: grace window, watermark, log rotation

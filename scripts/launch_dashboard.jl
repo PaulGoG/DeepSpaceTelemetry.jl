@@ -49,6 +49,11 @@ cfg = DeepSpaceTelemetry.TelemetryCore.load_config(config_arg)
 
 # Fail fast on an invalid configuration before any terminal is spawned.
 DeepSpaceTelemetry.TelemetryCore.validate_config(cfg)
+# The dashboard watches a mission paced against the wall clock; a tick-mode
+# mission has no live clock to watch and runs headless.
+DeepSpaceTelemetry.TelemetryCore.simulation_mode(cfg) == "tick" && error(
+    "[CONFIG] simulation.mode = \"tick\" runs on the logical clock and has no live dashboard: run scripts/run_full_sim.jl instead.",
+)
 
 # Generate a run ID. The run directory itself is created exactly once, by
 # run_full_sim.jl below — pre-creating it here would trip the run-ID reuse

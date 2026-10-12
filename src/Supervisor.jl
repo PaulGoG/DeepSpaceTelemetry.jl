@@ -153,6 +153,8 @@ struct MissionPlan{
     speed_up::Float64
     start_sim::DateTime
     mission_wall_seconds::Float64
+    mode::String
+    mission_days::Float64
     initial_downtime_days::Float64
     payload_origin::DateTime
     telemetry::T
@@ -229,23 +231,23 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
     # must not surface in the caller's dictionary.
     cfg = Dict{String,Any}(cfg)
     sim = cfg["simulation"]
-    speed_up = Float64(sim["speed_up"])
+    mode = TelemetryCore.simulation_mode(cfg)
+    # The wall scalars have no value in tick mode and the span is the
+    # mission's own; NaN keeps them unusable rather than silently wrong.
+    speed_up = mode == "wall" ? Float64(sim["speed_up"]) : NaN
     start_sim = TelemetryCore.parsed_datetime(
         TelemetryCore.required_value(sim, "simulation", "start_sim_time"),
         "simulation.start_sim_time",
     )
-    wall_seconds = TelemetryCore.mission_wall_seconds(cfg)
+    wall_seconds = mode == "wall" ? TelemetryCore.mission_wall_seconds(cfg) : NaN
+    mission_days = TelemetryCore.mission_span_days(cfg)
     downtime_days = Float64(get(sim, "initial_downtime_days", 0.0))
     seed = Int(get(sim, "rng_seed", 0))
     physics = TelemetryCore.physics_settings(cfg)
     payload_origin = Emitter.instrument_epoch(start_sim, downtime_days)
     cfg["provenance"] = Dict{String,Any}("payload_origin" => string(payload_origin))
     if physics.data_source == "external"
-        stamp_external_provenance!(
-            cfg,
-            physics,
-            wall_seconds * speed_up / 86_400.0 + downtime_days,
-        )
+        stamp_external_provenance!(cfg, physics, mission_days + downtime_days)
     end
     return MissionPlan(
         cfg,
@@ -253,6 +255,8 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
         speed_up,
         start_sim,
         wall_seconds,
+        mode,
+        mission_days,
         downtime_days,
         payload_origin,
         TelemetryCore.telemetry_settings(cfg),
@@ -286,7 +290,7 @@ exists at that instant.
 """
 function record_generation_gap!(
     run_dir::String,
-    clock::TelemetryCore.SimulationClock,
+    clock::TelemetryCore.MissionClock,
     resume::DateTime,
 )
     tx_log_path = joinpath(run_dir, "events_tx.csv")
@@ -310,7 +314,7 @@ Appends one row to the single-writer `component_events.csv`
 """
 function log_component_event!(
     run_dir::String,
-    clock::TelemetryCore.SimulationClock,
+    clock::TelemetryCore.MissionClock,
     component::Symbol,
     event::String,
 )
@@ -319,6 +323,51 @@ function log_component_event!(
     open(path, "a") do io
         header && println(io, "SimTime,Component,Event")
         println(io, TelemetryCore.get_current_sim_time(clock), ",", component, ",", event)
+    end
+    return nothing
+end
+
+"""
+    apply_failure_policy!(name, task, run_dir, clock, stop_flag, policy, restart_counts, spawners, on_restart) -> Union{Task,Nothing}
+
+The supervisor's response to a component task that ended with an
+exception, shared by [`supervise!`](@ref) and [`supervise_ticks!`](@ref):
+the failure is reported and recorded as `down`, then the policy
+(`policy.on_component_failure`) decides — `"restart"` relaunches through
+`spawners[name]` up to `policy.max_restarts` times after calling
+`on_restart(name, attempt)` and returns the replacement task; `"continue"`
+leaves the partner running one-sided; `"abort"` raises `stop_flag` so the
+partner stops cooperatively. Returns the replacement task, or `nothing`
+when the component stays down.
+"""
+function apply_failure_policy!(
+    name::Symbol,
+    task::Task,
+    run_dir::String,
+    clock::TelemetryCore.MissionClock,
+    stop_flag::Threads.Atomic{Bool},
+    policy::NamedTuple,
+    restart_counts::Dict{Symbol,Int},
+    spawners,
+    on_restart::Function,
+)
+    stack = current_exceptions(task)
+    failure = isempty(stack) ? task.result : (stack[end].exception, stack[end].backtrace)
+    @error "[SUPERVISOR] Component $name failed." exception = failure
+    log_component_event!(run_dir, clock, name, "down")
+    if policy.on_component_failure == "restart" &&
+       restart_counts[name] < policy.max_restarts
+        restart_counts[name] += 1
+        on_restart(name, restart_counts[name])
+        replacement = spawners[name](restart_counts[name])
+        log_component_event!(run_dir, clock, name, "restart")
+        @warn "[SUPERVISOR] Restarted $name (attempt $(restart_counts[name]) of $(policy.max_restarts))."
+        return replacement
+    elseif policy.on_component_failure == "continue"
+        @warn "[SUPERVISOR] Policy continue: $name stays down."
+    else
+        stop_flag[] = true
+        @error "[SUPERVISOR] Policy abort: stopping the partner component."
     end
     return nothing
 end
@@ -362,26 +411,19 @@ function supervise!(
         sleep(poll_sec)
         for (name, t) in collect(tasks)
             (istaskfailed(t) && !(name in failure_handled)) || continue
-            stack = current_exceptions(t)
-            failure =
-                isempty(stack) ? t.result : (stack[end].exception, stack[end].backtrace)
-            @error "[SUPERVISOR] Component $name failed." exception = failure
-            log_component_event!(run_dir, clock, name, "down")
-            if policy.on_component_failure == "restart" &&
-               restart_counts[name] < policy.max_restarts
-                restart_counts[name] += 1
-                on_restart(name, restart_counts[name])
-                tasks[name] = spawners[name](restart_counts[name])
-                log_component_event!(run_dir, clock, name, "restart")
-                @warn "[SUPERVISOR] Restarted $name (attempt $(restart_counts[name]) of $(policy.max_restarts))."
-            elseif policy.on_component_failure == "continue"
-                push!(failure_handled, name)
-                @warn "[SUPERVISOR] Policy continue: $name stays down."
-            else
-                push!(failure_handled, name)
-                stop_flag[] = true
-                @error "[SUPERVISOR] Policy abort: stopping the partner component."
-            end
+            replacement = apply_failure_policy!(
+                name,
+                t,
+                run_dir,
+                clock,
+                stop_flag,
+                policy,
+                restart_counts,
+                spawners,
+                on_restart,
+            )
+            replacement isa Task ? (tasks[name] = replacement) :
+            push!(failure_handled, name)
         end
         # Watchdog: a hung (not dead) component stops heartbeating.
         for (name, heartbeat_file) in heartbeats
@@ -411,6 +453,46 @@ function supervise!(
 end
 
 """
+    supervise_ticks!(spawners, run_dir, clock::TelemetryCore.TickClock, stop_flag, policy;
+                     on_restart = (name, attempt) -> nothing) -> Dict{Symbol,Int}
+
+The tick-mode counterpart of [`supervise!`](@ref): the component tasks of
+`spawners` (created through [`TelemetryCore.tick_spawn`](@ref)) are driven
+by [`TelemetryCore.run_ticks!`](@ref) on the calling thread, and a task
+that ends with an exception meets the same policy
+([`apply_failure_policy!`](@ref)). There are no heartbeats and no
+watchdog: a task that does not park does not stall the clock, it holds it.
+Returns the restart count per component.
+"""
+function supervise_ticks!(
+    spawners::Dict{Symbol,<:Function},
+    run_dir::String,
+    clock::TelemetryCore.TickClock,
+    stop_flag::Threads.Atomic{Bool},
+    policy::NamedTuple;
+    on_restart::Function = (name, attempt) -> nothing,
+)
+    tasks = Dict{Symbol,Task}(name => spawn(0) for (name, spawn) in spawners)
+    restart_counts = Dict{Symbol,Int}(name => 0 for name in keys(spawners))
+    TelemetryCore.run_ticks!(
+        clock,
+        tasks;
+        on_task_failed = (name, task) -> apply_failure_policy!(
+            name,
+            task,
+            run_dir,
+            clock,
+            stop_flag,
+            policy,
+            restart_counts,
+            spawners,
+            on_restart,
+        ),
+    )
+    return restart_counts
+end
+
+"""
     build_instrument(physics::NamedTuple, origin::DateTime, markers) -> VirtualInstrument.InstrumentState
 
 The payload instrument of `[physics]` with payload origin `origin`, the
@@ -435,9 +517,14 @@ end
 """
     component_spawners(plan, run_dir, clock, deadline, stop_flag, heartbeats,
                        instrument, pending_segments, emitter_logger,
-                       receiver_logger, orig_stdout) -> Dict{Symbol,Function}
+                       receiver_logger, orig_stdout;
+                       spawn = (name, f) -> Threads.@spawn(f())) -> Dict{Symbol,Function}
 
-The emitter and receiver launchers consumed by [`supervise!`](@ref).
+The emitter and receiver launchers consumed by [`supervise!`](@ref) and
+[`supervise_ticks!`](@ref); `spawn(name, f)` turns a component body into
+its task (a thread of its own under the wall clock,
+[`TelemetryCore.tick_spawn`](@ref) under the tick clock, where `deadline`
+and the heartbeat paths are `nothing`).
 Attempt 0 continues the pre-populated instrument and partial batch. A
 restarted emitter (attempt ≥ 1) takes no carried-over partial batch and the
 instrument [`VirtualInstrument.resumed`](@ref) from its predecessor at the
@@ -448,15 +535,16 @@ replacement task starts.
 function component_spawners(
     plan::MissionPlan,
     run_dir::String,
-    clock::TelemetryCore.SimulationClock,
-    deadline::DateTime,
+    clock::TelemetryCore.MissionClock,
+    deadline::Union{DateTime,Nothing},
     stop_flag::Threads.Atomic{Bool},
-    heartbeats::Dict{Symbol,String},
+    heartbeats::AbstractDict{Symbol,<:Union{String,Nothing}},
     instrument::VirtualInstrument.InstrumentState,
     pending_segments::Vector{TelemetryCore.DataSegment},
     emitter_logger::CleanFileLogger,
     receiver_logger::CleanFileLogger,
-    orig_stdout::IO,
+    orig_stdout::IO;
+    spawn::Function = (name, f) -> Threads.@spawn(f()),
 )
     physics = plan.physics
     telemetry = plan.telemetry
@@ -499,15 +587,18 @@ function component_spawners(
     latest = Ref(instrument)
     function spawn_emitter(attempt::Int)
         attempt == 0 &&
-            return Threads.@spawn(run_emitter_logged(instrument, pending_segments))
+            return spawn(:emitter, () -> run_emitter_logged(instrument, pending_segments))
         latest[] =
             VirtualInstrument.resumed(latest[], TelemetryCore.get_current_sim_time(clock))
         record_generation_gap!(run_dir, clock, latest[].last_t)
-        return Threads.@spawn(run_emitter_logged(latest[], TelemetryCore.DataSegment[]))
+        return spawn(
+            :emitter,
+            () -> run_emitter_logged(latest[], TelemetryCore.DataSegment[]),
+        )
     end
     return Dict{Symbol,Function}(
         :emitter => spawn_emitter,
-        :receiver => attempt -> Threads.@spawn(run_receiver_logged(attempt)),
+        :receiver => attempt -> spawn(:receiver, () -> run_receiver_logged(attempt)),
     )
 end
 
@@ -634,9 +725,7 @@ function expand_pointwise_masks!(plan, run_dir::String, orig_stdout::IO)
     println(orig_stdout, "\nExpanding the telemetry masks to point-wise 0/1 arrays")
     try
         physics = plan.physics
-        total_sim_sec =
-            plan.mission_wall_seconds * plan.speed_up +
-            plan.initial_downtime_days * 86_400.0
+        total_sim_sec = (plan.mission_days + plan.initial_downtime_days) * 86_400.0
         total_segments = ceil(Int, total_sim_sec / physics.segment_duration_sec)
         total_points =
             round(Int, total_segments * physics.segment_duration_sec * physics.sample_rate)
@@ -672,8 +761,8 @@ end
 
 What [`post_process!`](@ref) reads, taken from a configuration or a run
 snapshot without building the mission models: `post_processing`, `ground`,
-`publication`, `physics`, and the `[simulation]` scalars
-`mission_wall_seconds`, `speed_up`, and `initial_downtime_days`. The
+`publication`, `physics`, and the `[simulation]` scalars `mode`,
+`mission_days` (the span in either mode), and `initial_downtime_days`. The
 `retention` policy rides along for the log rotation size of
 [`complete_run`](@ref).
 """
@@ -684,8 +773,8 @@ function post_processing_plan(cfg::AbstractDict)
         ground = TelemetryCore.ground_settings(cfg),
         publication = TelemetryCore.publication_settings(cfg),
         physics = TelemetryCore.physics_settings(cfg),
-        mission_wall_seconds = TelemetryCore.mission_wall_seconds(cfg),
-        speed_up = Float64(sim["speed_up"]),
+        mode = TelemetryCore.simulation_mode(cfg),
+        mission_days = TelemetryCore.mission_span_days(cfg),
         initial_downtime_days = Float64(get(sim, "initial_downtime_days", 0.0)),
         retention = TelemetryCore.retention_settings(cfg),
     )
@@ -706,13 +795,16 @@ Whether the record of a run reaches its deadline: the wall-clock instant of
 the last row of `mission_profile.csv` lies within one second, or one percent
 of the mission's wall-clock span if that is longer, of the deadline in
 `anchor` (the result of `TelemetryCore.load_clock_anchor`, or `nothing`).
-`false` without an anchor or a profile. The components write until the
-deadline, so a profile that stops earlier is that of a process that died
-during the mission.
+`false` without an anchor or a profile, and for a tick-mode anchor, which
+has no wall deadline (a tick run that ended its mission phase carries
+`RUN_POSTPROCESSING`). The components write until the deadline, so a
+profile that stops earlier is that of a process that died during the
+mission.
 """
 function mission_ended(run_dir::String, anchor)
     anchor === nothing && return false
-    clock, deadline = anchor
+    anchor.deadline === nothing && return false
+    clock, deadline = anchor.clock, anchor.deadline
     path = joinpath(run_dir, "mission_profile.csv")
     isfile(path) || return false
     lines = filter(!isempty, readlines(path))
@@ -768,7 +860,7 @@ function complete_run(run_id::AbstractString; force::Bool = false, orig_stdout::
         e isa ArgumentError || rethrow()
         nothing
     end
-    if anchor !== nothing
+    if anchor !== nothing && anchor.deadline !== nothing
         deadline = anchor.deadline
         now() < deadline && throw(
             ArgumentError(
@@ -860,12 +952,20 @@ function print_banner(io::IO, plan::MissionPlan, run_dir::String)
     println(io, lpad("DEEP-SPACE TELEMETRY MISSION START", 44))
     println(io, "="^55)
     println(io, rpad("Run ID:", 20), plan.run_id)
-    println(
-        io,
-        rpad("Mission span:", 20),
-        "$(plan.mission_wall_seconds) wall-clock seconds",
-    )
-    println(io, rpad("Speed-up:", 20), "$(plan.speed_up)x")
+    if plan.mode == "tick"
+        println(
+            io,
+            rpad("Mission span:", 20),
+            "$(plan.mission_days) mission days on the tick clock (logical time)",
+        )
+    else
+        println(
+            io,
+            rpad("Mission span:", 20),
+            "$(plan.mission_wall_seconds) wall-clock seconds",
+        )
+        println(io, rpad("Speed-up:", 20), "$(plan.speed_up)x")
+    end
     link_line =
         isnan(plan.telemetry.catch_up_ratio) ?
         "$(round(plan.telemetry.max_batches_per_hour, digits = 1)) batches/h at full capacity" :
@@ -968,9 +1068,13 @@ end
     execute_mission!(plan, run_dir, orig_stdout)
 
 The mission proper inside an existing run directory: fresh component logs,
-sequential pre-population of the onboard buffer, the component warm-up
-([`warm_up_components!`](@ref)), the mission clock with its persisted
-anchor and absolute deadline, the supervised component tasks, and the
+sequential pre-population of the onboard buffer, then by `plan.mode` either
+the wall path — the component warm-up ([`warm_up_components!`](@ref)), the
+[`TelemetryCore.SimulationClock`](@ref) with its persisted anchor and
+absolute deadline, the supervised component threads ([`supervise!`](@ref))
+— or the tick path — the [`TelemetryCore.TickClock`](@ref) spanning
+`plan.mission_days`, its anchor, and the cooperative component tasks
+driven on this thread ([`supervise_ticks!`](@ref)) — and the
 post-processing stages. Called by [`run_mission`](@ref), which owns the
 lifecycle sentinels.
 """
@@ -1002,44 +1106,78 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
         )
     end
 
-    # Component loops compiled before the clock anchor: compilation must
-    # not elapse as mission time.
-    warm_up_sec = warm_up_components!(plan, orig_stdout)
-    println(
-        orig_stdout,
-        "Component warm-up (compilation): $(round(warm_up_sec, digits = 1)) s",
-    )
-
-    # Shared absolute deadline + persisted anchor: both loops terminate at
-    # the same wall instant, and a re-attaching component reconstructs the
-    # identical mission clock (component outages elapse as mission time).
-    clock = TelemetryCore.SimulationClock(now(), plan.start_sim, plan.speed_up)
-    deadline =
-        clock.start_real_time + Millisecond(round(Int, plan.mission_wall_seconds * 1000))
-    TelemetryCore.save_clock_anchor(run_dir, clock, deadline)
-    TelemetryCore.save_markers(run_dir, plan.markers)
-
     stop_flag = Threads.Atomic{Bool}(false)
-    heartbeats = Dict{Symbol,String}(
-        :emitter => joinpath(run_dir, "emitter_alive"),
-        :receiver => joinpath(run_dir, "receiver_alive"),
-    )
-    print_banner(orig_stdout, plan, run_dir)
+    if plan.mode == "tick"
+        # Logical clock: no warm-up (compilation does not elapse as mission
+        # time), no wall deadline, no heartbeats; the components are
+        # cooperative tasks of the driver.
+        clock = TelemetryCore.TickClock(
+            plan.start_sim,
+            plan.start_sim +
+            Millisecond(round(Int, plan.mission_days * TelemetryCore.MS_PER_DAY)),
+        )
+        TelemetryCore.save_clock_anchor(run_dir, clock)
+        TelemetryCore.save_markers(run_dir, plan.markers)
+        print_banner(orig_stdout, plan, run_dir)
+        priority = Dict(
+            :emitter => TelemetryCore.EMITTER_PRIORITY,
+            :receiver => TelemetryCore.RECEIVER_PRIORITY,
+        )
+        spawners = component_spawners(
+            plan,
+            run_dir,
+            clock,
+            nothing,
+            stop_flag,
+            Dict{Symbol,Union{String,Nothing}}(:emitter => nothing, :receiver => nothing),
+            instrument,
+            pending_segments,
+            emitter_logger,
+            receiver_logger,
+            orig_stdout;
+            spawn = (name, f) -> TelemetryCore.tick_spawn(clock, priority[name], f),
+        )
+        supervise_ticks!(spawners, run_dir, clock, stop_flag, plan.supervision)
+    else
+        # Component loops compiled before the clock anchor: compilation must
+        # not elapse as mission time.
+        warm_up_sec = warm_up_components!(plan, orig_stdout)
+        println(
+            orig_stdout,
+            "Component warm-up (compilation): $(round(warm_up_sec, digits = 1)) s",
+        )
 
-    spawners = component_spawners(
-        plan,
-        run_dir,
-        clock,
-        deadline,
-        stop_flag,
-        heartbeats,
-        instrument,
-        pending_segments,
-        emitter_logger,
-        receiver_logger,
-        orig_stdout,
-    )
-    supervise!(spawners, run_dir, clock, stop_flag, heartbeats, plan.supervision)
+        # Shared absolute deadline + persisted anchor: both loops terminate at
+        # the same wall instant, and a re-attaching component reconstructs the
+        # identical mission clock (component outages elapse as mission time).
+        clock = TelemetryCore.SimulationClock(now(), plan.start_sim, plan.speed_up)
+        deadline =
+            clock.start_real_time +
+            Millisecond(round(Int, plan.mission_wall_seconds * 1000))
+        TelemetryCore.save_clock_anchor(run_dir, clock, deadline)
+        TelemetryCore.save_markers(run_dir, plan.markers)
+
+        heartbeats = Dict{Symbol,String}(
+            :emitter => joinpath(run_dir, "emitter_alive"),
+            :receiver => joinpath(run_dir, "receiver_alive"),
+        )
+        print_banner(orig_stdout, plan, run_dir)
+
+        spawners = component_spawners(
+            plan,
+            run_dir,
+            clock,
+            deadline,
+            stop_flag,
+            heartbeats,
+            instrument,
+            pending_segments,
+            emitter_logger,
+            receiver_logger,
+            orig_stdout,
+        )
+        supervise!(spawners, run_dir, clock, stop_flag, heartbeats, plan.supervision)
+    end
     rm(joinpath(run_dir, "HALT"), force = true) # consumed if an operator halted the run
 
     # The components have stopped: payload and event logs are final from here on, and only derived products are still written.
@@ -1071,9 +1209,11 @@ function run_mission(
     run_id::AbstractString = "",
     orig_stdout::IO = stdout,
 )
-    advisory = TelemetryCore.thread_advisory()
-    advisory === nothing || @warn advisory
     plan = mission_plan(cfg; run_id = run_id)
+    if plan.mode == "wall"
+        advisory = TelemetryCore.thread_advisory()
+        advisory === nothing || @warn advisory
+    end
     run_dir = TelemetryCore.setup_run_dir(plan.run_id; cfg = plan.cfg)
     rm(joinpath(run_dir, "RUN_COMPLETE"), force = true)
     rm(joinpath(run_dir, "RUN_POSTPROCESSING"), force = true)

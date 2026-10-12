@@ -54,6 +54,73 @@ end
 
 # --- Receiver Main Loop ---
 """
+    ServicePacer
+
+The running completion deadline of the receiver's download slot: `wall`
+seconds under a [`TelemetryCore.SimulationClock`](@ref), the mission
+instant `sim` under a [`TelemetryCore.TickClock`](@ref). Service
+completions are paced against it, so the loop's own overhead — directory
+scans, the metrics row, the file moves — is absorbed into the slot instead
+of being added to every one of them.
+"""
+mutable struct ServicePacer
+    wall::Float64
+    sim::DateTime
+end
+
+"""
+    serve_slot!(pacer::ServicePacer, clock::TelemetryCore.MissionClock, slot_sim_sec::Real)
+
+Waits out one download slot of `slot_sim_sec` mission seconds. The slot
+starts when the previous one completed, or now after an idle stretch of at
+least one slot. On the wall clock the slot is `slot_sim_sec / speed_up`
+wall seconds, floored at [`TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC`](@ref);
+a completion deadline still in the past after chaining means the host
+cannot keep the modeled rate, and the loop yields instead of sleeping. On
+the tick clock the slot elapses as mission time exactly.
+"""
+function serve_slot!(
+    pacer::ServicePacer,
+    clock::TelemetryCore.SimulationClock,
+    slot_sim_sec::Real,
+)
+    effective = max(TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC, slot_sim_sec / clock.speed_up)
+    now_wall = time()
+    pacer.wall = (now_wall - pacer.wall >= effective ? now_wall : pacer.wall) + effective
+    wait_sec = pacer.wall - time()
+    wait_sec > 0.0 ? sleep(wait_sec) : yield()
+    return nothing
+end
+function serve_slot!(
+    pacer::ServicePacer,
+    clock::TelemetryCore.TickClock,
+    slot_sim_sec::Real,
+)
+    slot = Millisecond(round(Int, slot_sim_sec * 1000))
+    t = clock.now_sim
+    pacer.sim = (t - pacer.sim >= slot ? t : pacer.sim) + slot
+    TelemetryCore.wait_until!(clock, pacer.sim; priority = TelemetryCore.RECEIVER_PRIORITY)
+    return nothing
+end
+
+"""
+    idle_wait!(clock::TelemetryCore.MissionClock, link_path::String)
+
+The receiver's wait while nothing is on the link: on the wall clock a
+filesystem watch of `link_path` capped at
+[`TelemetryCore.RECEIVER_POLL_INTERVAL_SEC`](@ref); on the tick clock a
+park until another component has run
+([`TelemetryCore.wait_for_change!`](@ref)), since the link changes only
+when the emitter does.
+"""
+function idle_wait!(::TelemetryCore.SimulationClock, link_path::String)
+    watch_folder(link_path, TelemetryCore.RECEIVER_POLL_INTERVAL_SEC)
+    return nothing
+end
+idle_wait!(clock::TelemetryCore.TickClock, ::String) =
+    TelemetryCore.wait_for_change!(clock; priority = TelemetryCore.RECEIVER_PRIORITY)
+
+"""
     run_receiver(clock, link, run_id; ...)
 
 The main ground-station loop. It continually checks the `link/` directory for
@@ -96,7 +163,9 @@ materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
   - `loss_model`: stochastic packet-loss channel (`ChannelEffects.LossModel`).
   - `max_retries`: failed attempts before a batch moves to `lost/`.
   - `retention`: the custodian's [`TelemetryCore.RetentionPolicy`](@ref).
-  - `deadline`: absolute wall-clock stop shared by both components.
+  - `deadline`: absolute wall-clock stop shared by both components (wall
+    clock); under a [`TelemetryCore.TickClock`](@ref) the loop ends at the
+    horizon instead and every wait parks the task on the logical clock.
   - `stop`: cooperative stop flag raised by the supervisor.
   - `heartbeat_path`: liveness file touched once per second when set.
   - `min_link_factor`: capacity floor below which no transfer is attempted.
@@ -104,7 +173,7 @@ materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
     detected loss [mission s]; `0.0` retries immediately.
 """
 function run_receiver(
-    clock::TelemetryCore.SimulationClock,
+    clock::TelemetryCore.MissionClock,
     link::ChannelEffects.LinkModel,
     run_id::String;
     orig_stdout::IO = stdout,
@@ -212,11 +281,8 @@ function run_receiver(
 
     @info "[RECEIVER] Ground-station loop started."
 
-    # Wall-clock instant [s] at which the current download slot completes.
-    # Service completions are paced against this running deadline, so the
-    # loop's own overhead — directory scans, the metrics row, the file moves —
-    # is absorbed into the slot instead of being added to every one of them.
-    service_due = time()
+    # The running completion deadline of the download slot ([`ServicePacer`](@ref)).
+    pacer = ServicePacer(time(), TelemetryCore.get_current_sim_time(clock))
 
     try
         while true
@@ -231,6 +297,7 @@ function run_receiver(
             if deadline !== nothing && now() >= deadline
                 break
             end
+            TelemetryCore.horizon_reached(clock) && break
             if heartbeat_path !== nothing &&
                (now() - last_heartbeat).value >= TelemetryCore.HEARTBEAT_INTERVAL_MS
                 touch(heartbeat_path)
@@ -373,22 +440,10 @@ function run_receiver(
                 )
                 batch_name = first(eligible)
 
-                effective_slot_sec = max(
-                    TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC,
-                    batch_transfer_sec / (bw_factor * clock.speed_up),
-                )
-                # The slot starts when the previous one completed; only after
-                # an idle stretch of at least one slot does it start now. A
-                # deadline that is still in the past after chaining means the
-                # host cannot keep the modeled rate, and the loop yields.
-                now_wall = time()
-                service_due =
-                    (
-                        now_wall - service_due >= effective_slot_sec ? now_wall :
-                        service_due
-                    ) + effective_slot_sec
-                wait_sec = service_due - time()
-                wait_sec > 0.0 ? sleep(wait_sec) : yield()
+                # One transfer takes batch_transfer_sec / bw_factor mission
+                # seconds; the pacer chains the slots and converts them to
+                # the clock in use.
+                serve_slot!(pacer, clock, batch_transfer_sec / bw_factor)
 
                 loss_mult =
                     ChannelEffects.disruption_loss_multiplier(link.disruptions, sim_t)
@@ -463,17 +518,15 @@ function run_receiver(
                 # Every in-flight batch awaits its round trip: sleep until the
                 # earliest becomes eligible, capped at the poll interval.
                 earliest = minimum(get(retry_after, f, sim_t) for f in pending_batches)
-                wait_sec =
-                    (TelemetryCore.due_wall_time(clock, earliest) - now()).value / 1000.0
-                sleep(
-                    clamp(
-                        wait_sec,
-                        TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC,
-                        TelemetryCore.RECEIVER_POLL_INTERVAL_SEC,
-                    ),
+                TelemetryCore.wait_until_or_change!(
+                    clock,
+                    earliest;
+                    floor_sec = TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC,
+                    cap_sec = TelemetryCore.RECEIVER_POLL_INTERVAL_SEC,
+                    priority = TelemetryCore.RECEIVER_PRIORITY,
                 )
             else
-                watch_folder(link_path, TelemetryCore.RECEIVER_POLL_INTERVAL_SEC)
+                idle_wait!(clock, link_path)
             end
         end
     finally

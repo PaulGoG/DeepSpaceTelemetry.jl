@@ -11,7 +11,9 @@ DeepSpaceTelemetry.Supervisor.mission_plan
 DeepSpaceTelemetry.Supervisor.stamp_external_provenance!
 DeepSpaceTelemetry.Supervisor.record_generation_gap!
 DeepSpaceTelemetry.Supervisor.log_component_event!
+DeepSpaceTelemetry.Supervisor.apply_failure_policy!
 DeepSpaceTelemetry.Supervisor.supervise!
+DeepSpaceTelemetry.Supervisor.supervise_ticks!
 DeepSpaceTelemetry.Supervisor.build_instrument
 DeepSpaceTelemetry.Supervisor.component_spawners
 DeepSpaceTelemetry.Supervisor.TIMELINE_PRODUCTS

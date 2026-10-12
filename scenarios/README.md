@@ -10,8 +10,8 @@ julia --threads=3 scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
 `config.toml` at the package root is the default entry point and is a copy
 of `recovery_12h_seasonal.toml`. Each run archives the configuration it used
 as `config_snapshot.toml`, so provenance never depends on this directory.
-The test suite validates every file here and runs `smoke_1d.toml` end to
-end. Safe intervals are documented per key inside each file; the scenario
+The test suite validates every file here, runs `smoke_1d.toml` end to
+end, and runs `deterministic_1d.toml` twice to assert its reproducibility. Safe intervals are documented per key inside each file; the scenario
 rationale is stated below and in the manual's usage page.
 
 ## Coverage
@@ -38,6 +38,7 @@ minute per mission day).
 | `long_30d_seasonal.toml` | 30 d | 360 s at 7200× | physical, flat | 8 h + 4 h seasonal from 1 March; passes missed on 9 and 10 March, shortened on 12 March, a 12-day gap 16–27 March | GE | repointing days 2.5 and 20.5, solar flare day 4, 36 h safe mode day 8 (generation), DSN outage day 27; markers 6 and 20 March with triggered periods; 3-day backlog | long horizon: the recorder ceiling is reached inside the contact gap (validation warns; RECORDER rows), the marker inside the gap opens a low-latency period, three passes drain part of the backlog at the end |
 | `long_segments_2400s.toml` | 7 d | 168 s | physical, flat | 8 h, January | Bernoulli 1 % | none; 1-day backlog | 2400 s segments at 0.5 Hz, three per 2 h batch: the coarse-batch regime, 12 batches produced per day and 12.3 deliverable |
 | `external_ingest.toml` | 2 d | 48 s | physical, flat | 8 h, January | Bernoulli 1 % | none; 0.5-day backlog | ingestion of the generated example series (`scripts/maintenance/generate_example_strain.jl`, 16 Hz, 75 h) through the same pipeline |
+| `deterministic_1d.toml` | 1 d | as fast as the host (tick clock, no pacing) | physical, flat | 8 h, January | Bernoulli 1 % | none; 6 h backlog | `simulation.mode = "tick"`: the same seed reproduces the event logs and the mask timeline to the byte; the smoke scenario's physics over a full day |
 
 The delivered-per-day figures follow from the serial receiver: one batch per
 slot of transfer time divided by the profile factor, so a day's capacity is

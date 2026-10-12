@@ -1,0 +1,97 @@
+# DeepSpaceTelemetry scenario "deterministic_1d": one mission day on the tick clock (logical time, no wall pacing) on the physical rate pair, 1 % Bernoulli loss, 6 h backlog, no disruptions; the same seed reproduces the event logs to the byte.
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/deterministic_1d.toml
+
+[simulation]
+mode = "tick"                        # Mission clock. One of: "wall" | "tick".
+start_sim_time = "2035-01-01T06:00:00" # Mission epoch. SAFE: ISO-8601 datetime.
+mission_days = 1.0                   # Mission span on the tick clock [days]; tick mode only. SAFE: > 0.
+initial_downtime_days = 0.25         # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
+rng_seed = 1                         # Seed of the packet-loss channel. SAFE: integer.
+
+[storage]
+max_storage_gb = 5.0                 # Run-directory disk budget [GB]. SAFE: > 0.
+max_file_count = 500000              # Run-directory inode budget. SAFE: > 0.
+max_ram_gb = 8.0                     # Post-processing replay RAM budget [GB]. SAFE: > 0.
+onboard_capacity_days = 14.0         # On-board recorder capacity [days of production]. SAFE: > 0.
+# Estimator calibration overrides, one key per artifact class (bytes_per_sample,
+# bytes_per_flag_sample, bytes_batch_metadata, bytes_event_row,
+# bytes_metrics_row, bytes_mask_cell, bytes_pointwise_cell, bytes_plot,
+# bytes_plot_pdf, bytes_replay_cell, bytes_log_per_batch). SAFE: > 0 each;
+# defaults are measured values.
+
+[supervision]
+on_component_failure = "abort"       # Policy on a component failure. One of: "abort" | "continue" | "restart".
+max_restarts = 3                     # Relaunch budget per component when policy = "restart". SAFE: >= 0.
+watchdog_sec = 30.0                  # Heartbeat-silence threshold flagging a hung component [s]. SAFE: > 0.
+
+[retention]
+enabled = false                      # Delivered payload pruning flag. One of: true | false.
+grace_hours = 24.0                   # Minimum payload retention window [h]. SAFE: > 0.
+high_watermark_gb = 1.5              # Prunable payload size threshold [GB]. SAFE: (0, max_storage_gb].
+log_rotate_mb = 64.0                 # Log file rotation limit [MB]. SAFE: > 0.
+
+[telemetry]
+session_start = "08:00:00"           # Daily DSN window start time. SAFE: HH:MM:SS format.
+session_duration_hours = 8.0         # Daily DSN window duration [h]. SAFE: (0, 24].
+downlink_kbps = 230.0                # Downlink data rate [kbit/s]; with onboard_data_rate_kbps replaces max_batches_per_hour. SAFE: > 0.
+onboard_data_rate_kbps = 75.0        # On-board data production rate [kbit/s]. SAFE: > 0.
+bandwidth_profile = "flat"           # Downlink profile. One of: "sine" | "sigmoid" | "gaussian" | "flat".
+max_inflight_batches = 5             # Concurrent batches allowed on the downlink. SAFE: >= 1.
+min_link_factor = 0.05               # Capacity floor below which no transfer is attempted. SAFE: [0, 1).
+range_million_km = 50.0              # Spacecraft–Earth range [10^6 km]; sets the round-trip light time of retransmissions, 0 disables. SAFE: >= 0.
+sigmoid_steepness = 10.0             # Sigmoid profile edge steepness. SAFE: > 0.
+gaussian_sigma = 0.15                # Gaussian profile standard deviation. SAFE: > 0.
+
+[contacts]
+seasonal_extension_hours = 0.0       # Peak seasonal extension of the daily window [h]. SAFE: >= 0, session_duration_hours + extension <= 24.
+season_period_days = 365.25          # Period of the seasonal modulation [days]. SAFE: > 0.
+season_peak_day_of_year = 172.0      # Day of year at which the extension peaks. SAFE: [1, 366].
+schedule_csv = ""                    # Explicit pass list (columns Start, DurationHours) replacing the daily window. SAFE: file path or "".
+low_latency_enabled = true           # Low-latency periods flag. One of: true | false.
+low_latency_capacity_fraction = 1.0  # Default capacity of a low-latency period relative to peak. SAFE: (0, 1].
+
+[ground]
+processing_latency_hours = 1.0       # Ground processing budget added to every alert latency [h]. SAFE: >= 0.
+
+[physics]
+data_source = "synthetic"            # Data stream mode. One of: "synthetic" | "external".
+external_data_path = "data/example_external_strain.csv" # File path when data_source = "external".
+sample_rate = 4.0                    # Payload sampling frequency [Hz]. SAFE: > 0.
+segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
+batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
+
+[packet_loss]
+enabled = true                       # Packet loss toggle. One of: true | false.
+model = "bernoulli"                  # Loss model. One of: "bernoulli" | "gilbert_elliott".
+p_good_to_bad = 0.03                 # Good-to-bad state transition probability. SAFE: [0, 1].
+p_bad_to_good = 0.25                 # Bad-to-good state transition probability. SAFE: [0, 1].
+p_loss_good = 0.01                   # Loss probability in good state. SAFE: [0, 1].
+p_loss_bad = 0.5                     # Loss probability in bad state. SAFE: [0, 1].
+p_loss = 0.01                        # Loss probability when model = "bernoulli". SAFE: [0, 1].
+on_loss = "retransmit"               # Action on loss. One of: "retransmit" | "drop".
+max_retries = 3                      # Retry limit before moving batch to lost/. SAFE: >= 0.
+
+[dashboard]
+open_live_viewer = false             # Live viewer terminal flag. One of: true | false.
+open_receiver_log = false            # Receiver log terminal flag. One of: true | false.
+open_emitter_log = false             # Emitter log terminal flag. One of: true | false.
+receiver_status_panel = false        # Receiver status panel on the console flag. One of: true | false.
+
+[post_processing]
+generate_mask_timeline = true        # 2D telemetry mask timeline flag. One of: true | false.
+expand_to_pointwise_masks = true     # Point-wise mask expansion flag. One of: true | false.
+target_event_rows = [-1]             # Target rows for mask expansion. SAFE: "all", ints, or range strings.
+alert_latency = true                 # Alert-latency metric (realized vs FIFO drain) flag. One of: true | false.
+alert_lookback_hours = 72.0          # Largest look-back tabulated by the alert-latency metric [h]. SAFE: > 0.
+delivery_delay = true                # Delivery-delay metric (measurement-to-ground, requirement compliance) flag. One of: true | false.
+delivery_requirement_hours = 24.0    # Delivery requirement marked by the delivery-delay metric [h]. SAFE: > 0.
+state_raster = true                  # Batch-state raster figure flag. One of: true | false.
+session_figures = true               # Per-contact session figures flag. One of: true | false.
+session_figures_max = 0              # Cap on the session figures, evenly spaced over the contacts; 0 = no cap. SAFE: >= 0.
+hdf5_export = false                  # HDF5 product export (products.h5) flag. One of: true | false.
+
+[post_processing.publication]
+enabled = false                      # Publication figure export flag. One of: true | false.
+format = "pdf"                       # Vector format of the exported figures. One of: "pdf" | "svg".
+column_width_mm = 178.0              # Printed width of the exported figures [mm]. SAFE: [100, 400].
+export_dir = ""                      # Export directory; "" = <run_dir>/publication. SAFE: directory path or "".

@@ -20,6 +20,21 @@ footprint — non-prunable classes plus delivered payload capped at
 within `grace_hours` of mission time, and records every pruning as a
 `pruned` event; event logs, metrics, masks, snapshots, and `lost/` are never
 pruned. Log files rotate at `log_rotate_mb` regardless of `enabled`.
+### Mission Clock
+
+`simulation.mode` selects the clock the mission runs on (Mission Clocks in
+the physics page). `"wall"`, the default, paces mission time against the
+wall clock and reads `speed_up` and `mission_wall_seconds`; `"tick"`
+advances mission time logically from one component wakeup to the next and
+reads `mission_days` instead. The two key sets are disjoint: a `speed_up`
+or `mission_wall_seconds` in tick mode, or a `mission_days` in wall mode,
+is a configuration error naming the mode, and tick mode also rejects
+`dashboard.receiver_status_panel = true`. A tick run needs no `--threads`
+option and issues no thread advisory: its components are cooperative tasks
+of one thread by construction. `scenarios/deterministic_1d.toml` is the
+library's tick scenario, one mission day that the same seed reproduces to
+the byte.
+
 ### Scenario Library
 
 The repository ships a library of complete configurations under
@@ -57,8 +72,8 @@ is the balanced case without backlog or disruptions; the pre-library
 default — a 60 batches/h peak under a Gaussian profile — is
 `scenarios/abstraction_gaussian_peak.toml`. The library also covers a drop
 policy, an explicit pass schedule, a 30-day seasonal mission reaching the
-recorder ceiling, the coarse-batch regime of 2400 s segments, and external
-ingestion. Under the physical rate pair only the flat profile
+recorder ceiling, the coarse-batch regime of 2400 s segments, external
+ingestion, and one mission day on the tick clock. Under the physical rate pair only the flat profile
 sustains production: a day's capacity is the link rate times the pass
 length times the profile mean (flat 1.0, sine 0.5, Gaussian with σ = 0.15: 0.38),
 so the shaped profiles remain stress abstractions of a partially usable

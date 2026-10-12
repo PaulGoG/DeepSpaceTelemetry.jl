@@ -451,9 +451,11 @@ function render_figure_product end
 
 const KNOWN_CONFIG_KEYS = Dict(
     "simulation" => [
+        "mode",
         "speed_up",
         "start_sim_time",
         "mission_wall_seconds",
+        "mission_days",
         "initial_downtime_days",
         "rng_seed",
     ],
@@ -628,6 +630,69 @@ function mission_wall_seconds(cfg::AbstractDict)
     v > 0.0 ||
         config_error("[CONFIG] simulation.mission_wall_seconds must be > 0 (got $v).")
     return v
+end
+
+"""
+    SIMULATION_MODES
+
+The values of `simulation.mode`: `"wall"`, the operational mode paced
+against the wall clock at `speed_up` for `mission_wall_seconds`
+([`SimulationClock`](@ref)), and `"tick"`, the analysis mode on the logical
+clock of [`TickClock`](@ref) spanning `mission_days`.
+"""
+const SIMULATION_MODES = ("wall", "tick")
+
+"""
+    simulation_mode(cfg::AbstractDict) -> String
+
+Validated `simulation.mode`, one of [`SIMULATION_MODES`](@ref); `"wall"`
+when absent.
+
+# Examples
+```jldoctest
+julia> TelemetryCore.simulation_mode(Dict{String,Any}())
+"wall"
+```
+"""
+function simulation_mode(cfg::AbstractDict)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    mode = lowercase(checked_string(get(sim, "mode", "wall"), "simulation.mode"))
+    mode in SIMULATION_MODES || config_error(
+        "[CONFIG] simulation.mode must be one of \"wall\" | \"tick\" (got \"$mode\").",
+    )
+    return mode
+end
+
+"""
+    mission_days_setting(cfg::AbstractDict) -> Float64
+
+Validated `simulation.mission_days` (> 0), the span of a mission in
+`simulation.mode = "tick"`; missing is a configuration error naming the
+mode.
+"""
+function mission_days_setting(cfg::AbstractDict)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    raw = get(sim, "mission_days", nothing)
+    raw === nothing && config_error(
+        "[CONFIG] Missing required key simulation.mission_days (simulation.mode = \"tick\" spans mission_days of logical time).",
+    )
+    v = checked_number(raw, "simulation.mission_days")
+    v > 0.0 || config_error("[CONFIG] simulation.mission_days must be > 0 (got $v).")
+    return v
+end
+
+"""
+    mission_span_days(cfg::AbstractDict) -> Float64
+
+The mission span in days in either mode: `mission_wall_seconds × speed_up /
+86 400` in wall mode, `mission_days` in tick mode.
+"""
+function mission_span_days(cfg::AbstractDict)
+    simulation_mode(cfg) == "tick" && return mission_days_setting(cfg)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    speed_up =
+        checked_number(required_value(sim, "simulation", "speed_up"), "simulation.speed_up")
+    return mission_wall_seconds(cfg) * speed_up / 86_400.0
 end
 
 """
@@ -1821,8 +1886,13 @@ function validate_config(cfg::AbstractDict)
 
     # Required keys: a missing core tunable is a configuration error, never
     # a silently invented default.
+    mode = simulation_mode(cfg)
     for (section, sec_name, required) in (
-        (sim, "simulation", ("speed_up", "start_sim_time")),
+        (
+            sim,
+            "simulation",
+            mode == "tick" ? ("start_sim_time",) : ("speed_up", "start_sim_time"),
+        ),
         (tel, "telemetry", ("session_start", "session_duration_hours")),
         (
             phy,
@@ -1843,10 +1913,31 @@ function validate_config(cfg::AbstractDict)
         )
 
     # -- [simulation] --
-    speed_up = checked_number(get(sim, "speed_up", 0.0), "simulation.speed_up")
-    speed_up > 0.0 ||
-        config_error("[CONFIG] simulation.speed_up must be > 0 (got $speed_up).")
-    mission_wall_sec = mission_wall_seconds(cfg)
+    # The two modes read disjoint span keys: wall mode paces
+    # mission_wall_seconds at speed_up, tick mode spans mission_days of
+    # logical time, and a key of the other mode is an error that names the
+    # mode rather than a value silently ignored.
+    speed_up = NaN # wall mode only; read below by the pacing warnings
+    if mode == "tick"
+        for key in ("speed_up", "mission_wall_seconds")
+            haskey(sim, key) && config_error(
+                "[CONFIG] simulation.$key has no meaning in simulation.mode = \"tick\": the mission spans simulation.mission_days of logical time; remove it.",
+            )
+        end
+        mission_days_setting(cfg)
+        dashboard_settings(cfg).receiver_status_panel && config_error(
+            "[CONFIG] dashboard.receiver_status_panel needs the wall clock: set it false in simulation.mode = \"tick\".",
+        )
+    else
+        haskey(sim, "mission_days") && config_error(
+            "[CONFIG] simulation.mission_days is read in simulation.mode = \"tick\" only: in wall mode the span is mission_wall_seconds × speed_up; remove it.",
+        )
+        speed_up = checked_number(get(sim, "speed_up", 0.0), "simulation.speed_up")
+        speed_up > 0.0 ||
+            config_error("[CONFIG] simulation.speed_up must be > 0 (got $speed_up).")
+        mission_wall_seconds(cfg)
+    end
+    mission_days = mission_span_days(cfg)
     downtime = checked_number(
         get(sim, "initial_downtime_days", 0.0),
         "simulation.initial_downtime_days",
@@ -1902,19 +1993,22 @@ function validate_config(cfg::AbstractDict)
               "a shaped profile with max_batches_per_hour is the abstraction of a partially usable pass."
     end
 
-    # -- Real-time pacing sanity (loop-scheduler corner cases) --
-    emitter_period_ms = segment_duration_sec / speed_up * 1000.0
-    if emitter_period_ms < EMITTER_PERIOD_WARN_MS
-        @warn "[CONFIG] Emitter wall-clock period is $(round(emitter_period_ms, digits=2)) ms " *
-              "(segment_duration_sec / speed_up). Below $(EMITTER_PERIOD_WARN_MS) ms the generation loop cannot keep " *
-              "pace with the accelerated clock and batch timestamps desynchronize. " *
-              "Increase segment_duration_sec or decrease speed_up."
-    end
-    rx_slot_ms = tel_settings.nominal_batch_transfer_sec / speed_up * 1000.0
-    if rx_slot_ms < RECEIVER_SLOT_WARN_MS
-        @warn "[CONFIG] Receiver download slot is $(round(rx_slot_ms, digits=2)) ms " *
-              "(batch transfer time / speed_up). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
-              "the effective downlink rate. Decrease speed_up or the link capacity."
+    # -- Real-time pacing sanity (loop-scheduler corner cases; wall mode
+    #    only — the tick clock has no sleep to distort) --
+    if mode == "wall"
+        emitter_period_ms = segment_duration_sec / speed_up * 1000.0
+        if emitter_period_ms < EMITTER_PERIOD_WARN_MS
+            @warn "[CONFIG] Emitter wall-clock period is $(round(emitter_period_ms, digits=2)) ms " *
+                  "(segment_duration_sec / speed_up). Below $(EMITTER_PERIOD_WARN_MS) ms the generation loop cannot keep " *
+                  "pace with the accelerated clock and batch timestamps desynchronize. " *
+                  "Increase segment_duration_sec or decrease speed_up."
+        end
+        rx_slot_ms = tel_settings.nominal_batch_transfer_sec / speed_up * 1000.0
+        if rx_slot_ms < RECEIVER_SLOT_WARN_MS
+            @warn "[CONFIG] Receiver download slot is $(round(rx_slot_ms, digits=2)) ms " *
+                  "(batch transfer time / speed_up). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
+                  "the effective downlink rate. Decrease speed_up or the link capacity."
+        end
     end
     # -- [contacts], [[events.markers]], [ground], [post_processing.publication] --
     contacts_settings(cfg)
@@ -1926,7 +2020,6 @@ function validate_config(cfg::AbstractDict)
     if downtime > capacity.days
         @warn "[CONFIG] simulation.initial_downtime_days = $downtime exceeds the on-board recorder capacity ($(capacity.days) days): pre-populated batches beyond $(capacity.batches) are discarded."
     end
-    mission_days = mission_wall_sec * speed_up / 86_400.0
     t_end = t_start + Millisecond(round(Int, mission_days * MS_PER_DAY))
     windows = contact_windows(visibility_model(cfg), t_start, t_end)
     longest_gap_hours = 0.0
@@ -1968,7 +2061,6 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [disruption] --
-    mission_days = mission_wall_sec * speed_up / 86_400.0
     event_windows = Tuple{Float64,Float64,Int}[] # (start_h, end_h incl. ramp, event index)
     for (i, ev) in enumerate(events)
         ev.loss_multiplier >= 1.0 ||
@@ -2287,9 +2379,6 @@ function estimate_artifacts(cfg::AbstractDict)
     phy = get(cfg, "physics", Dict{String,Any}())
     st = get(cfg, "storage", Dict{String,Any}())
 
-    speed_up =
-        checked_number(required_value(sim, "simulation", "speed_up"), "simulation.speed_up")
-    mission_wall_sec = mission_wall_seconds(cfg)
     segment_duration_sec = checked_number(
         required_value(phy, "physics", "segment_duration_sec"),
         "physics.segment_duration_sec",
@@ -2310,7 +2399,7 @@ function estimate_artifacts(cfg::AbstractDict)
     cal =
         key -> Float64(get(st, key, getproperty(STORAGE_CALIBRATION_DEFAULTS, Symbol(key))))
 
-    sim_sec = mission_wall_sec * speed_up
+    sim_sec = mission_span_days(cfg) * 86_400.0
     total_sec_gen = sim_sec + downtime_days * 86_400.0
     n_segments = ceil(Int, total_sec_gen / segment_duration_sec)
     n_batches = ceil(Int, n_segments / batch_size)
@@ -2595,9 +2684,23 @@ function check_storage_limits(cfg::AbstractDict)
     return nothing
 end
 
-# --- Simulation clock ---
+# --- Mission clocks ---
 """
-    SimulationClock(start_real_time::DateTime, start_sim_time::DateTime, speed_up::Float64)
+    MissionClock
+
+The clock a mission runs on. [`SimulationClock`](@ref) paces mission time
+against the wall clock (`simulation.mode = "wall"`); [`TickClock`](@ref)
+advances it logically, from one component wakeup to the next
+(`simulation.mode = "tick"`). The components read the current instant
+through [`get_current_sim_time`](@ref), wait through [`wait_until!`](@ref),
+[`wait_until_or_change!`](@ref), and the receiver's idle wait, and stop at
+[`horizon_reached`](@ref); the mission's physics is expressed in mission
+time and is the same under both.
+"""
+abstract type MissionClock end
+
+"""
+    SimulationClock(start_real_time::DateTime, start_sim_time::DateTime, speed_up::Float64) <: MissionClock
 
 The accelerated mission clock: mission time advances `speed_up` times
 faster than wall-clock time from the anchor pair `start_real_time` (the
@@ -2605,7 +2708,7 @@ wall instant of the anchor) and `start_sim_time` (the mission instant at
 that anchor). [`get_current_sim_time`](@ref) maps the wall clock to mission
 `SimTime`; [`due_wall_time`](@ref) is its inverse.
 """
-struct SimulationClock
+struct SimulationClock <: MissionClock
     start_real_time::DateTime
     start_sim_time::DateTime
     speed_up::Float64
@@ -2653,6 +2756,7 @@ function save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::Da
         TOML.print(
             io,
             Dict(
+                "mode" => "wall",
                 "wall_epoch" => string(clock.start_real_time),
                 "start_sim_time" => string(clock.start_sim_time),
                 "speed_up" => clock.speed_up,
@@ -2663,11 +2767,16 @@ function save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::Da
 end
 
 """
-    load_clock_anchor(run_dir::String) -> (clock::SimulationClock, deadline::DateTime)
+    load_clock_anchor(run_dir::String) -> NamedTuple
 
-Reconstructs the mission clock and the absolute deadline persisted by
-[`save_clock_anchor`](@ref). Throws an `ArgumentError` when the anchor
-file is absent (runs started by an older pipeline cannot be re-attached).
+Reconstructs the anchor persisted by [`save_clock_anchor`](@ref):
+`(mode, clock, deadline, horizon)` with `mode` `"wall"` (also for anchors
+written before the key existed) or `"tick"`, `clock` the
+[`SimulationClock`](@ref) or the [`TickClock`](@ref) at its epoch,
+`deadline` the absolute wall deadline of a wall run (`nothing` for a tick
+run), and `horizon` the mission end of a tick run (`nothing` for a wall
+run). Throws an `ArgumentError` when the anchor file is absent (runs
+started by an older pipeline cannot be re-attached).
 """
 function load_clock_anchor(run_dir::String)
     path = joinpath(run_dir, "clock_anchor.toml")
@@ -2677,12 +2786,293 @@ function load_clock_anchor(run_dir::String)
         ),
     )
     a = TOML.parsefile(path)
+    mode = String(get(a, "mode", "wall"))
+    if mode == "tick"
+        clock = TickClock(
+            DateTime(a["start_sim_time"]),
+            DateTime(a["horizon_sim"]);
+            wall_epoch = DateTime(a["wall_epoch"]),
+        )
+        return (mode = mode, clock = clock, deadline = nothing, horizon = clock.horizon)
+    end
     clock = SimulationClock(
         DateTime(a["wall_epoch"]),
         DateTime(a["start_sim_time"]),
         Float64(a["speed_up"]),
     )
-    return (clock = clock, deadline = DateTime(a["deadline_wall"]))
+    return (
+        mode = mode,
+        clock = clock,
+        deadline = DateTime(a["deadline_wall"]),
+        horizon = nothing,
+    )
+end
+
+# --- Tick clock ---
+"""
+    TickWakeup
+
+A parked component of the [`TickClock`](@ref): the mission instant `at` it
+asked to resume at, its component `priority` (the emitter before the
+receiver at an equal instant), the registration `sequence` breaking the
+remaining ties, and the `release` channel the driver signals.
+"""
+struct TickWakeup
+    at::DateTime
+    priority::Int
+    sequence::Int
+    release::Channel{Nothing}
+end
+
+"""
+    TickClock(start_sim_time::DateTime, horizon::DateTime; wall_epoch = now()) <: MissionClock
+
+The logical mission clock of `simulation.mode = "tick"`. Mission time
+advances only while every component task is parked, jumping to the earliest
+requested wakeup, so a mission is a deterministic sequence of events for a
+given seed and never waits on the wall clock. `now_sim` is the current
+instant, `horizon` the mission end (`start_sim_time + mission_days`),
+`wall_epoch` the wall instant of the start (recorded in the anchor, never
+read back). The components park through [`wait_until!`](@ref),
+[`wait_until_or_change!`](@ref), and [`wait_for_change!`](@ref), are
+created by [`tick_spawn`](@ref), and are driven by [`run_ticks!`](@ref) on
+the driver's own thread.
+"""
+mutable struct TickClock <: MissionClock
+    const start_sim_time::DateTime
+    const horizon::DateTime
+    const wall_epoch::DateTime
+    now_sim::DateTime
+    const wakeups::Vector{TickWakeup}
+    sequence::Int
+    const parked::Channel{Nothing}
+end
+
+function TickClock(
+    start_sim_time::DateTime,
+    horizon::DateTime;
+    wall_epoch::DateTime = now(),
+)
+    horizon > start_sim_time || throw(
+        ArgumentError(
+            "[CLOCK] The tick horizon $horizon must lie after the mission epoch $start_sim_time.",
+        ),
+    )
+    return TickClock(
+        start_sim_time,
+        horizon,
+        wall_epoch,
+        start_sim_time,
+        TickWakeup[],
+        0,
+        Channel{Nothing}(1),
+    )
+end
+
+"""
+    save_clock_anchor(run_dir::String, clock::TickClock)
+
+Persists the anchor of a tick-mode mission into `<run_dir>/clock_anchor.toml`
+(rotated, never overwritten): `mode = "tick"`, the wall instant of the
+start (`wall_epoch`, recorded only), the mission epoch, and the horizon
+(`horizon_sim`). A tick run has no wall deadline.
+"""
+function save_clock_anchor(run_dir::String, clock::TickClock)
+    path = joinpath(run_dir, "clock_anchor.toml")
+    backup_existing(path)
+    open(path, "w") do io
+        TOML.print(
+            io,
+            Dict(
+                "mode" => "tick",
+                "wall_epoch" => string(clock.wall_epoch),
+                "start_sim_time" => string(clock.start_sim_time),
+                "horizon_sim" => string(clock.horizon),
+            ),
+        )
+    end
+end
+
+"""
+    get_current_sim_time(clock::TickClock) -> DateTime
+
+The current logical instant of the tick clock.
+"""
+get_current_sim_time(clock::TickClock) = clock.now_sim
+
+"""
+    horizon_reached(clock::MissionClock) -> Bool
+
+Whether the mission clock has reached its horizon: never for the wall
+clock, whose components hold the wall deadline themselves; for the tick
+clock, once its instant equals the horizon.
+"""
+horizon_reached(::SimulationClock) = false
+horizon_reached(clock::TickClock) = clock.now_sim >= clock.horizon
+
+"""
+    EMITTER_PRIORITY
+
+Wakeup priority of the emitter under the [`TickClock`](@ref): at an equal
+instant generation precedes service, as the instrument delivers a segment
+after observing it and the ground serves what is on the link.
+"""
+const EMITTER_PRIORITY = 0
+
+"""
+    RECEIVER_PRIORITY
+
+Wakeup priority of the receiver under the [`TickClock`](@ref), after the
+emitter ([`EMITTER_PRIORITY`](@ref)).
+"""
+const RECEIVER_PRIORITY = 1
+
+"""
+    park!(clock::TickClock, at::DateTime, priority::Int)
+
+Registers a wakeup of the calling task at `at` with `priority`, tells the
+driver the task has parked, and blocks until the driver releases it.
+"""
+function park!(clock::TickClock, at::DateTime, priority::Int)
+    release = Channel{Nothing}(1)
+    clock.sequence += 1
+    push!(clock.wakeups, TickWakeup(at, priority, clock.sequence, release))
+    put!(clock.parked, nothing)
+    take!(release)
+    return nothing
+end
+
+"""
+    earliest_wakeup(clock::TickClock) -> DateTime
+
+The earliest instant a parked task asked to resume at, or the horizon when
+none is parked.
+"""
+earliest_wakeup(clock::TickClock) =
+    isempty(clock.wakeups) ? clock.horizon : minimum(w.at for w in clock.wakeups)
+
+"""
+    wait_until!(clock::MissionClock, sim_time::DateTime; deadline = nothing, floor_sec = 0.0, cap_sec = Inf, priority = 0)
+
+Blocks the calling component until the mission clock reaches `sim_time`.
+On the wall clock the wait is a sleep until [`due_wall_time`](@ref) of the
+instant, clamped at the wall `deadline` when given, with the sleep length
+clamped to `[floor_sec, cap_sec]` wall seconds so the caller's periodic
+checks stay responsive (a zero-length sleep yields). On the tick clock the
+task parks with a wakeup at `sim_time` (or now, if that is later) and
+`priority`, and resumes once the driver has advanced the clock to it; the
+keywords of the wall form are ignored.
+"""
+function wait_until!(
+    clock::SimulationClock,
+    sim_time::DateTime;
+    deadline::Union{DateTime,Nothing} = nothing,
+    floor_sec::Float64 = 0.0,
+    cap_sec::Float64 = Inf,
+    priority::Int = 0,
+)
+    due = due_wall_time(clock, sim_time)
+    deadline !== nothing && (due = min(due, deadline))
+    wait_sec = (due - now()).value / 1000.0
+    sleep(clamp(wait_sec, floor_sec, cap_sec))
+    return nothing
+end
+function wait_until!(clock::TickClock, sim_time::DateTime; priority::Int = 0, kwargs...)
+    return park!(clock, max(sim_time, clock.now_sim), priority)
+end
+
+"""
+    wait_until_or_change!(clock::MissionClock, sim_time::DateTime; kwargs...)
+
+Like [`wait_until!`](@ref), but a wait that another component's activity
+may cut short: on the wall clock the clamped sleep re-polls at `cap_sec` at
+the latest; on the tick clock the task resumes at `sim_time` or at the next
+wakeup of another component, whichever comes first. The receiver waits this
+way for a deferred retransmission, so a batch placed on the link in the
+meantime is served without waiting out the round trip.
+"""
+function wait_until_or_change!(clock::SimulationClock, sim_time::DateTime; kwargs...)
+    return wait_until!(clock, sim_time; kwargs...)
+end
+function wait_until_or_change!(
+    clock::TickClock,
+    sim_time::DateTime;
+    priority::Int = 0,
+    kwargs...,
+)
+    return park!(clock, max(min(sim_time, earliest_wakeup(clock)), clock.now_sim), priority)
+end
+
+"""
+    wait_for_change!(clock::TickClock; priority = 0)
+
+Parks the calling task until the next wakeup of another component has run
+(or the horizon, when none is parked): the receiver's idle wait under the
+tick clock, where the link can only change when the emitter runs.
+"""
+function wait_for_change!(clock::TickClock; priority::Int = 0)
+    return park!(clock, max(earliest_wakeup(clock), clock.now_sim), priority)
+end
+
+"""
+    tick_spawn(clock::TickClock, priority::Int, f) -> Task
+
+Creates the task of a component under the tick clock: `f()` starts when the
+driver first releases the task, at the current instant with `priority`, and
+the driver is told when the task parks or ends. The task runs on the
+driver's thread, so the components interleave only at their waits.
+"""
+function tick_spawn(clock::TickClock, priority::Int, f)
+    release = Channel{Nothing}(1)
+    clock.sequence += 1
+    push!(clock.wakeups, TickWakeup(clock.now_sim, priority, clock.sequence, release))
+    return @async begin
+        take!(release)
+        try
+            f()
+        finally
+            put!(clock.parked, nothing)
+        end
+    end
+end
+
+"""
+    run_ticks!(clock::TickClock, tasks::Dict{Symbol,Task}; on_task_failed = (name, task) -> nothing)
+
+The driver of the tick clock: releases the parked task with the earliest
+wakeup — ties by component priority, then by registration order — after
+advancing the clock to its instant (never past the horizon: a wakeup beyond
+it resumes at the horizon, where the component sees
+[`horizon_reached`](@ref) and leaves), waits until that task parks again or
+ends, and repeats until no task is parked. A task that ended with an
+exception is handed to `on_task_failed(name, task)` once; the callback may
+return a replacement `Task` created by [`tick_spawn`](@ref), which takes
+the name in `tasks`, or `nothing`. Runs on the calling task's thread.
+"""
+function run_ticks!(
+    clock::TickClock,
+    tasks::Dict{Symbol,Task};
+    on_task_failed = (name, task) -> nothing,
+)
+    failed = Set{Symbol}()
+    while !isempty(clock.wakeups)
+        _, i = findmin(w -> (w.at, w.priority, w.sequence), clock.wakeups)
+        wake = clock.wakeups[i]
+        deleteat!(clock.wakeups, i)
+        clock.now_sim = min(max(clock.now_sim, wake.at), clock.horizon)
+        put!(wake.release, nothing)
+        take!(clock.parked)
+        for (name, task) in collect(tasks)
+            (istaskfailed(task) && !(name in failed)) || continue
+            push!(failed, name)
+            replacement = on_task_failed(name, task)
+            if replacement isa Task
+                tasks[name] = replacement
+                delete!(failed, name)
+            end
+        end
+    end
+    return nothing
 end
 
 # --- Data Structures ---

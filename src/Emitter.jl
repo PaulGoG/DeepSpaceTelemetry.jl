@@ -270,7 +270,10 @@ within one segment period. The downlink is served on every iteration
 boundary of the payload grid, so a scheduled generation gap interrupts
 production but not transmission. Each sleep is capped at
 [`TelemetryCore.EMITTER_MAX_SLEEP_SEC`](@ref) so the heartbeat and the
-stop/deadline checks stay responsive at low `speed_up`. A content lag that
+stop/deadline checks stay responsive at low `speed_up`. Under a
+[`TelemetryCore.TickClock`](@ref) the same waits park the task on the
+logical clock ([`TelemetryCore.wait_until!`](@ref)) and the loop ends at
+the horizon ([`TelemetryCore.horizon_reached`](@ref)). A content lag that
 persists above one period for longer than
 [`TelemetryCore.EMITTER_LAG_WARN_SEC`](@ref) is reported once as a warning
 (the host cannot keep pace); the maximum lag is logged at loop exit.
@@ -293,7 +296,7 @@ persists above one period for longer than
     while the buffer holds that many batches.
 """
 function run_emitter(
-    clock::TelemetryCore.SimulationClock,
+    clock::TelemetryCore.MissionClock,
     link::ChannelEffects.LinkModel,
     run_id::String,
     instrument::VirtualInstrument.InstrumentState;
@@ -368,6 +371,10 @@ function run_emitter(
                 @info "[EMITTER] Mission deadline reached. Shutting down."
                 break
             end
+            if TelemetryCore.horizon_reached(clock)
+                @info "[EMITTER] Mission horizon reached. Shutting down."
+                break
+            end
             if heartbeat_path !== nothing &&
                (now() - last_heartbeat).value >= TelemetryCore.HEARTBEAT_INTERVAL_MS
                 touch(heartbeat_path)
@@ -403,10 +410,13 @@ function run_emitter(
                         sim_t + Millisecond(1),
                     ),
                 )
-                due = TelemetryCore.due_wall_time(clock, wake)
-                deadline !== nothing && (due = min(due, deadline))
-                wait_sec = (due - now()).value / 1000.0
-                sleep(clamp(wait_sec, 0.0, TelemetryCore.EMITTER_MAX_SLEEP_SEC))
+                TelemetryCore.wait_until!(
+                    clock,
+                    wake;
+                    deadline = deadline,
+                    cap_sec = TelemetryCore.EMITTER_MAX_SLEEP_SEC,
+                    priority = TelemetryCore.EMITTER_PRIORITY,
+                )
                 continue
             end
             yield()
@@ -481,7 +491,9 @@ function run_emitter(
 
                 lag = sim_t - vi.last_t
                 lag > max_lag && (max_lag = lag)
-                if lag > seg_period
+                # The lag warning concerns the wall clock: under the tick
+                # clock generation is never late, time waits for it.
+                if lag > seg_period && clock isa TelemetryCore.SimulationClock
                     lag_since == DateTime(0) && (lag_since = now())
                     if !lag_warned &&
                        (now() - lag_since).value / 1000.0 >
@@ -509,8 +521,11 @@ function run_emitter(
                 max_inflight_batches = max_inflight_batches,
             )
         end
-        @info "[EMITTER] Pacing summary: maximum content lag $(round(max_lag.value / 1000, digits = 1)) mission-s " *
-              "($(round(max_lag.value / 1000 / clock.speed_up, digits = 3)) wall-s); content end $(vi.last_t)."
+        wall_note =
+            clock isa TelemetryCore.SimulationClock ?
+            " ($(round(max_lag.value / 1000 / clock.speed_up, digits = 3)) wall-s)" : ""
+        @info "[EMITTER] Pacing summary: maximum content lag $(round(max_lag.value / 1000, digits = 1)) mission-s" *
+              "$wall_note; content end $(vi.last_t)."
     finally
         # Heartbeat exists only while the loop runs — removed on every exit
         # path (including a throw), so the watchdog reads "finished", never a

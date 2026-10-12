@@ -68,6 +68,71 @@ The alert-latency metric measures the effect of the LIFO backfill from the event
 
 Event markers (`[[events.markers]]`) are the instants of interest a scenario declares — a transient, a glitch — and the alert latency is evaluated at each of them as well (`Metrology.marker_latency_table`): the alert batch is the one whose content span holds the marker, `t_m` is the marker instant itself, and every marker's `L(δ)` is written to `alert_latency_markers.csv` and drawn over the population bands. The end-to-end alert latency adds the ground processing budget `ground.processing_latency_hours` (default 1 h, the low-latency alert pipeline allocation), which the figure annotates; a marker may also trigger a low-latency period `low_latency_after_hours` after its instant (Contact Schedule above). The emitter stamps the labels of the markers held by a batch into its `metadata.json` and appends a `marker` row to `events_tx.csv` when that batch is finalized.
 
+## Mission Clocks: Wall and Tick
+
+A mission runs on one of two clocks, chosen by `simulation.mode`. The
+physics — contact windows, capacity profile, loss channel, the round-trip
+deferral of retransmissions, the recorder ceiling, the routing doctrine —
+is written in mission time and is the same under both; the clocks differ
+in how mission time advances.
+
+**Wall mode** (`"wall"`, the default and the operational mode) paces
+mission time against the wall clock: `speed_up` mission seconds elapse per
+wall second for `mission_wall_seconds`, the emitter sleeps until the wall
+instant at which the next segment is due, the receiver sleeps out each
+download slot, and the supervisor watches heartbeats and restarts a dead
+component. A consumer developed against an accelerated run follows a
+real-time rehearsal (`speed_up = 1`) unchanged. The price is that how much
+of the mission a run completes depends on the host: everything that
+competes for it — synthesis, I/O, the figure stage, another process — moves
+the totals, so the counts of a wall run are one realization on one host.
+
+**Tick mode** (`"tick"`, the analysis mode) advances mission time
+logically. The emitter and the receiver run as cooperative tasks on one
+thread under a driver (`TelemetryCore.run_ticks!`): each task computes the
+mission instant it next needs — the end of the segment being observed, the
+completion of a download slot, the earliest deferred retransmission — and
+parks; when every task is parked the clock jumps to the earliest request
+and releases that task alone. Nothing sleeps, nothing is paced against the
+host, and the run takes as long as its events take to process. The span is
+`mission_days`; `speed_up` and `mission_wall_seconds` have no meaning and
+are rejected, as is the console status panel, and the dashboard launcher
+refuses the mode. The run directory, the sentinels, and every product are
+those of a wall run; `clock_anchor.toml` records `mode = "tick"` and the
+horizon in place of a wall deadline.
+
+Two rules make the schedule total. At an equal instant the emitter runs
+before the receiver (`TelemetryCore.EMITTER_PRIORITY`,
+`RECEIVER_PRIORITY`): the instrument delivers a segment after observing
+it, and the ground serves what is on the link once it is there — a
+semantic choice, since the two tasks never share an instant on the wall
+clock. Among a task's own requests, registration order decides. The
+receiver's idle wait resumes after the emitter's next wakeup, since the
+link changes only when the emitter runs, and its wait for a deferred
+retransmission is cut short by the emitter's activity in the same way, so a
+batch placed on the link in the meantime is served without waiting out the
+round trip (`TelemetryCore.wait_until_or_change!`). At the horizon the
+clock stops: a segment whose content interval ends at the horizon is not
+generated, a transfer in service at the horizon completes in the record at
+its start instant, as on the wall clock, and both tasks leave at their
+next iteration.
+
+What the mode guarantees, and what it does not. On one platform and one
+Julia version, two runs of the same configuration and seed produce the
+same `events_tx.csv`, `events_rx.csv`, mask timeline, batch epochs, and
+metrics profile apart from its wall-clock column; the test suite asserts
+exactly this, and asserts the production count from the span alone. Across
+platforms the telemetry layer should agree — routing, counts, and event
+order follow from integer arithmetic on the millisecond grid and from the
+Xoshiro stream of the loss channel, which is bit-identical everywhere —
+but the synthetic payload passes through FFTW, whose builds may differ in
+the last bits, so the delivered samples and the payload spectrum are
+outside the claim. Determinism is a claim within the mode: a wall run and
+a tick run of the same seed attempt different numbers of transfers and
+differ, as expected. The deliverables of this package — the gallery
+figures, the showcase, the deck — come from wall runs and keep their
+hedge until they are regenerated in tick mode.
+
 ## References
 
 - Baghi, Q., Babak, S., Barack, L., et al., *LISA science ground segment conventions*, LISA-DDPC-SEG-TN-007, issue 1 revision 10 (2026), [arXiv:2603.22377](https://arxiv.org/abs/2603.22377), [doi:10.48550/arXiv.2603.22377](https://doi.org/10.48550/arXiv.2603.22377).
