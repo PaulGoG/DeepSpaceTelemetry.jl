@@ -6,6 +6,34 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- `RunAdapter`, the reference consumer shipped with the package: `open_run`
+  (by path or identifier, refusing a producer older than 2.1.0 unless told
+  otherwise), `run_geometry`, `list_batches`, `read_batch`,
+  `arrival_events` with a cursor for tailing, `run_state`, `record_final`,
+  and `markers`, all from the file contract; and `GapTracker`, the
+  streaming form of the gap table, whose `declare!` turns every `lost` or
+  `pruned` row and every closed `gap_start` / `gap_end` pair into a
+  declared hole the moment the feeds announce it. On a finished run it
+  declares the holes of `masks/gaps.csv` for those causes, which the suite
+  asserts.
+- `descriptor.toml`, written last among the post-processing products: the
+  run's identity for a downstream collection — run, producer version and
+  commit, configuration hash, seed, clock mode, payload geometry, the
+  external record's hash and length, and the size and SHA-256 of every
+  table present.
+- `markers.csv` carries `PayloadRow`, the payload row of each marker's
+  instant, beside `SimTime` and `Label`.
+- `Sweeps` and `scripts/run_sweep.jl`: ensembles and parameter sweeps on
+  the tick clock, one run per seed with overrides of any key, serial or
+  over worker processes, the post-processing reduced to tables, and the
+  realized totals of every run in `data/sweeps/<PREFIX>/summary.csv` with
+  the sweep's provenance in `sweep.toml`.
+
+### Changed
+- The package depends on the `Distributed` standard library for the
+  worker processes of a sweep.
+
 ## [2.4.0] - 2026-10-12
 
 ### Added

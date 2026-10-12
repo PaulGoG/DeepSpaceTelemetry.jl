@@ -19,7 +19,9 @@ using DeepSpaceTelemetry:
     Export,
     Publication,
     PlotTheme,
-    Supervisor
+    Supervisor,
+    RunAdapter,
+    Sweeps
 
 # The entire suite writes its runs into a disposable data root: the real
 # data/ tree stays untouched even if the process is killed mid-suite.
@@ -34,6 +36,8 @@ include("masks.jl")
 include("integration.jl")
 include("supervisor.jl")
 include("tickmode.jl")
+include("runadapter.jl")
+include("sweeps.jl")
 include("metrology.jl")
 include("export.jl")
 include("figures.jl")

@@ -719,6 +719,14 @@ function post_process!(plan, run_dir::String; orig_stdout::IO = stdout)
                 (e, catch_backtrace())
         end
     end
+    # The descriptor comes last: its hashes cover the products above.
+    println(orig_stdout, "\nWriting the run descriptor")
+    try
+        TelemetryCore.write_run_descriptor(run_dir)
+    catch e
+        @error "[POST] Run descriptor failed — run data is intact." exception =
+            (e, catch_backtrace())
+    end
     return nothing
 end
 
@@ -1126,7 +1134,12 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
             Millisecond(round(Int, plan.mission_days * TelemetryCore.MS_PER_DAY)),
         )
         TelemetryCore.save_clock_anchor(run_dir, clock)
-        TelemetryCore.save_markers(run_dir, plan.markers)
+        TelemetryCore.save_markers(
+            run_dir,
+            plan.markers;
+            origin = plan.payload_origin,
+            sample_rate = plan.physics.sample_rate,
+        )
         print_banner(orig_stdout, plan, run_dir)
         priority = Dict(
             :emitter => TelemetryCore.EMITTER_PRIORITY,
@@ -1164,7 +1177,12 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
             clock.start_real_time +
             Millisecond(round(Int, plan.mission_wall_seconds * 1000))
         TelemetryCore.save_clock_anchor(run_dir, clock, deadline)
-        TelemetryCore.save_markers(run_dir, plan.markers)
+        TelemetryCore.save_markers(
+            run_dir,
+            plan.markers;
+            origin = plan.payload_origin,
+            sample_rate = plan.physics.sample_rate,
+        )
 
         heartbeats = Dict{Symbol,String}(
             :emitter => joinpath(run_dir, "emitter_alive"),

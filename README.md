@@ -30,8 +30,9 @@ byte for a given seed.
 DeepSpaceTelemetry/
 ├── src/            # The library: configuration and I/O, channel models, the
 │                   #   instrument, emitter, receiver, metrology, HDF5 export,
-│                   #   publication figures, and the mission supervisor
-├── scripts/        # Entry points (headless run, dashboard) and post-processing
+│                   #   publication figures, the mission supervisor, the run
+│                   #   adapter for consumers, and sweeps
+├── scripts/        # Entry points (headless run, dashboard, sweeps) and post-processing
 ├── scenarios/      # Twelve complete configurations and their coverage matrix
 ├── test/           # Static QA, unit, physics, and four integration missions
 ├── bench/          # BenchmarkTools suites
@@ -139,6 +140,15 @@ julia --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
 julia scripts/run_full_sim.jl --tick MY_RUN scenarios/stress_8h_bursty.toml
 ```
 
+A sweep runs a configuration on the tick clock once per seed, with
+optional overrides, over worker processes, and gathers the realized totals
+of every run into `data/sweeps/<PREFIX>/summary.csv` with the sweep's
+provenance:
+
+```bash
+julia scripts/run_sweep.jl scenarios/stress_8h_bursty.toml MY_SWEEP --seeds 1:8 --workers 4 --set packet_loss.p_loss=0.2
+```
+
 Interactively, with the live viewer and the two log followers in their own
 terminal windows:
 
@@ -219,9 +229,11 @@ batch never becomes available on the ground.
 | `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
 | `Supervisor` | mission plan, supervised tasks on the wall clock, the tick driver, sentinels, banner | stable; restart, policy, and reproducibility tests |
+| `RunAdapter` | the reference consumer: the five questions (geometry, batches, payload, arrivals, state) answered from the file contract, the gap tracker, the marker rows, the producer-version check | new in 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
+| `Sweeps` | ensembles and parameter sweeps on the tick clock, serial or over worker processes, with a summary table and provenance | new in 2.5.0; serial two-seed sweep in the suite, the worker path verified manually |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
 | Scenario library | twelve configurations under `scenarios/` | every file validated, the smoke scenario run, and the deterministic scenario run twice by the suite |
-| Entry points | `run_full_sim.jl` (argument parsing, `--tick`, plus `Supervisor.run_mission`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release (its library call runs the smoke scenario in the suite); the dashboard, live viewer, and log follower are interactive and verified manually |
+| Entry points | `run_full_sim.jl` (argument parsing, `--tick`, plus `Supervisor.run_mission`), `run_sweep.jl` (`Sweeps.run_sweep`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release (its library call runs the smoke scenario in the suite); the dashboard, live viewer, and log follower are interactive and verified manually |
 | Post-processing wrappers | `apply_telemetry_mask.jl`, `complete_run.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over the tested library functions (`Masks.expand_pointwise_mask`, `Supervisor.complete_run`, `Export.export_hdf5`, `Publication.export_publication_figures`); the animation engine of `generate_gif.jl` renders over the tested replay (`Masks.batch_states`) and the standalone expander is a dependency-light copy, both verified on the shipped scenarios at each release |
 | Maintenance utilities | `generate_example_strain.jl`, `cleanup.jl`, `docs/render_assets.jl` | `generate_example_strain.jl` verified through `scenarios/external_ingest.toml` at each release; `cleanup.jl` interactive (confirmation prompt), verified manually; `render_assets.jl` run end to end whenever the figures of the manual are regenerated |
 
@@ -243,12 +255,15 @@ DeepSpaceTelemetry/
 │   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay
 │   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
 │   ├── Publication.jl           # Publication figure export at a declared printed width
-│   └── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
+│   ├── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
+│   ├── RunAdapter.jl            # The reference consumer: five questions, gap tracker, markers
+│   └── Sweeps.jl                # Ensembles and sweeps on the tick clock
 ├── scripts/
 │   ├── Project.toml             # Script environment (terminal UI and logging dependencies; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the script environment
 │   ├── launch_dashboard.jl      # Interactive entry point (live viewer + log terminals)
 │   ├── run_full_sim.jl          # Headless entry point ([run_id] [config.toml] [--tick]) → Supervisor.run_mission
+│   ├── run_sweep.jl             # Sweep entry point (<config> <PREFIX> --seeds --workers --set) → Sweeps.run_sweep
 │   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
 │   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
 │   ├── postprocessing/
@@ -264,7 +279,7 @@ DeepSpaceTelemetry/
 ├── test/
 │   ├── Project.toml             # Test environment (QA deps; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the test environment
-│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, channel, instrument, masks, integration, supervisor, tick mode, metrology, export, figures)
+│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, channel, instrument, masks, integration, supervisor, tick mode, run adapter, sweeps, metrology, export, figures)
 ├── bench/
 │   ├── Project.toml             # Benchmark environment (BenchmarkTools; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the benchmark environment
@@ -304,7 +319,7 @@ DeepSpaceTelemetry/
 │       └── <RUN_ID>/            # onboard/ link/ ground/ lost/ plots/ masks/
 │                                # + mission_profile.csv, events_tx.csv, events_rx.csv, markers.csv,
 │                                #   component_events.csv, config_snapshot.toml, manifest_snapshot.toml,
-│                                #   clock_anchor.toml, alert_latency.csv, alert_latency_markers.csv,
+│                                #   clock_anchor.toml, descriptor.toml, alert_latency.csv, alert_latency_markers.csv,
 │                                #   delivery_delay.csv, emitter.log, receiver.log, supervisor.log,
 │                                #   heartbeats, RUN_ACTIVE/RUN_POSTPROCESSING/RUN_COMPLETE/RUN_ABORTED sentinels, and,
 │                                #   when their flags are set, products.h5 and publication/
@@ -416,6 +431,14 @@ freely — for example `[-1, "10:20", 45]`. The
   completions; and the measurement-to-ground delivery delay of every batch
   against a requirement (24 h for LISA). Declared event markers are stamped
   into the batch metadata and evaluated by both metrics.
+- **Consumers and ensembles** — the reference run adapter answers the five
+  questions a consumer asks of a run (geometry, batches, payload, arrivals,
+  state) from the file contract, declares the holes as the feeds announce
+  them, and checks the producer's version; a sweep runs a configuration on
+  the tick clock once per seed, with overrides, over worker processes, and
+  gathers the totals of every reproducible run into one table with its
+  provenance; every run ends with a descriptor a downstream collection
+  copies as its source identity.
 - **Data products** — append-only emitter and receiver event logs, from which
   post-processing replays the exact per-batch state history; the 0–4 mask
   timeline and point-wise 0/1 availability masks; the gap table, every hole
@@ -492,7 +515,8 @@ reads from a run directory, rejects a configuration that was accepted, or
 changes a script's arguments or products is a major release. The Julia
 modules and their functions are the implementation; they may move or change
 between minor releases, and the API reference documents them for
-contributors.
+contributors. The one exception is `RunAdapter`: its functions follow the
+file contract and are versioned with it.
 
 ## How to cite
 

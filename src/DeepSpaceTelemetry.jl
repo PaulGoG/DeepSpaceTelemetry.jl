@@ -24,6 +24,8 @@ include("Metrology.jl")
 include("Export.jl")
 include("Publication.jl")
 include("Supervisor.jl")
+include("RunAdapter.jl")
+include("Sweeps.jl")
 
 export TelemetryCore,
     ChannelEffects,
@@ -36,7 +38,9 @@ export TelemetryCore,
     Metrology,
     Export,
     Publication,
-    Supervisor
+    Supervisor,
+    RunAdapter,
+    Sweeps
 
 using PrecompileTools: @setup_workload, @compile_workload
 using Dates: DateTime, Time, Second

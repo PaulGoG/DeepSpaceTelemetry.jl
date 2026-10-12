@@ -1304,11 +1304,103 @@ Writes `<run_dir>/markers.csv` (`SimTime, Label`) — the run's event
 instants for consumers and post-processing; nothing is written when there
 are no markers.
 """
-function save_markers(run_dir::String, markers::Vector{EventMarker})
+function save_markers(
+    run_dir::String,
+    markers::Vector{EventMarker};
+    origin::Union{DateTime,Nothing} = nothing,
+    sample_rate::Real = 0.0,
+)
     isempty(markers) && return nothing
     df = DataFrame(SimTime = [m.time for m in markers], Label = [m.label for m in markers])
+    if origin !== nothing && sample_rate > 0
+        df.PayloadRow = [
+            round(Int, Dates.value(m.time - origin) * sample_rate / 1000) + 1 for
+            m in markers
+        ]
+    end
     safe_csv_write(joinpath(run_dir, "markers.csv"), df)
     return nothing
+end
+
+"""
+    DESCRIPTOR_PRODUCTS
+
+The tabular products [`write_run_descriptor`](@ref) lists with their size
+and SHA-256, those present in the run directory.
+"""
+const DESCRIPTOR_PRODUCTS = (
+    "events_tx.csv",
+    "events_rx.csv",
+    "mission_profile.csv",
+    "markers.csv",
+    "component_events.csv",
+    "delivery_delay.csv",
+    "alert_latency.csv",
+    "alert_latency_markers.csv",
+    "masks/gaps.csv",
+    "masks/batch_epochs.csv",
+    "masks/telemetry_mask_timeline.csv",
+)
+
+"""
+    write_run_descriptor(run_dir::String) -> String
+
+Writes `<run_dir>/descriptor.toml`, the run's identity for a downstream
+collection to copy verbatim: `schema`, `run_id`, the producer's
+`package_version`, `git_commit`, `git_dirty`, the configuration hash
+`config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`,
+`payload_origin`, `rng_seed`, the payload geometry, the external record's
+`external_data_sha256` and `external_data_rows` when present, and under
+`[products]` the size and SHA-256 of every table of
+[`DESCRIPTOR_PRODUCTS`](@ref) present. Written last among the
+post-processing products, so the hashes are final; rotated, never
+overwritten. Returns the path.
+"""
+function write_run_descriptor(run_dir::String)
+    cfg = load_run_config(run_dir)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    provenance = get(cfg, "provenance", Dict{String,Any}())
+    platform = get(provenance, "platform", Dict{String,Any}())
+    physics = physics_settings(cfg)
+    descriptor = Dict{String,Any}(
+        "schema" => "deepspacetelemetry-run/1",
+        "run_id" => basename(run_dir),
+        "package_version" => String(get(platform, "package_version", "")),
+        "git_commit" => String(get(platform, "git_commit", "")),
+        "git_dirty" => Bool(get(platform, "git_dirty", false)),
+        "config_sha256" => String(get(provenance, "config_sha256", "")),
+        "mode" => simulation_mode(cfg),
+        "mission_days" => mission_span_days(cfg),
+        "start_sim_time" => string(get(sim, "start_sim_time", "")),
+        "payload_origin" => string(get(provenance, "payload_origin", "")),
+        "rng_seed" => Int(get(sim, "rng_seed", 0)),
+        "sample_rate" => physics.sample_rate,
+        "segment_duration_sec" => physics.segment_duration_sec,
+        "batch_size" => physics.batch_size,
+        "points_per_batch" =>
+            round(Int, physics.sample_rate * physics.segment_duration_sec) *
+            physics.batch_size,
+        "written_at" => string(now()),
+    )
+    for key in ("external_data_sha256", "external_data_rows")
+        haskey(provenance, key) && (descriptor[key] = provenance[key])
+    end
+    products = Dict{String,Any}()
+    for rel in DESCRIPTOR_PRODUCTS
+        path = joinpath(run_dir, split(rel, '/')...)
+        isfile(path) || continue
+        products[rel] = Dict{String,Any}(
+            "bytes" => filesize(path),
+            "sha256" => bytes2hex(open(sha256, path)),
+        )
+    end
+    descriptor["products"] = products
+    path = joinpath(run_dir, "descriptor.toml")
+    backup_existing(path)
+    open(path, "w") do io
+        TOML.print(io, descriptor)
+    end
+    return path
 end
 
 """

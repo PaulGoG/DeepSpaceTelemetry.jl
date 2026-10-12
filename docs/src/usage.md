@@ -222,12 +222,38 @@ iteration, which clears the terminal) is off by default;
 `dashboard.receiver_status_panel = true` enables it for a headless run whose
 terminal shows nothing else.
 
+## Ensembles and Sweeps
+A sweep runs one configuration on the tick clock once per seed, with
+optional overrides of any key, and gathers the realized totals of every
+run into one table. Every run is reproducible to the byte, so the table is
+the result and the runs can be regenerated from it:
+```bash
+julia scripts/run_sweep.jl scenarios/stress_8h_bursty.toml MY_SWEEP --seeds 1:8 --workers 4 --set packet_loss.p_loss=0.2
+```
+`--seeds` takes a range or a comma-separated list; `--workers N`
+distributes the runs over `N` worker processes started with the active
+project (serial without it — on the tick clock the runs are independent
+of the host's load, so parallel runs do not distort each other); every
+`--set section.key=value` applies to all runs, parsed as TOML would parse
+the value. The runs land under `data/runs/<PREFIX>_seed<seed>/` with
+their post-processing reduced to tables (no figures, no point-wise masks,
+no mask timeline; the gap table and the metrology tables are written), and
+`data/sweeps/<PREFIX>/` receives `summary.csv` — one row per run: seed,
+generated and delivered counts, live and archive, lost, retries, the
+buffer and link at the end, the share within the delivery requirement, the
+alert-latency medians at 24 h and 72 h under the realized doctrine and
+the FIFO drain, the hole count — and `sweep.toml`, the sweep's provenance
+(the base configuration's hash, the overrides, the seeds, the commit and
+version, the date). In a session, `Sweeps.run_sweep(cfg; prefix, seeds,
+overrides, workers)` returns the table and the directory, and
+`Sweeps.summarize_run(run_dir)` reads one run's totals.
+
 ## Post-Processing & Masks
 After a run, the system outputs `masks/telemetry_mask_timeline.csv`. This 2D matrix logs the exact state of every batch (`0=Future`, `1=Onboard`, `2=Link`, `3=Ground`, `4=Lost`) at every telemetry event. The reconstruction is exact: the emitter and receiver append every batch milestone to `events_tx.csv` / `events_rx.csv` (generation, transmission, ingest, retry, loss) and post-processing replays those ground-truth logs. Runs without event logs (pre-0.9 layouts) are not supported by the replay.
 
 Post-processing always reads the run's own `config_snapshot.toml`, so analyzing an old run stays correct after `config.toml` edits.
 
-Before any figure, post-processing writes `masks/gaps.csv`, the gap table: every hole of the delivered record as a payload-row interval with its cause — a lost or pruned batch, a batch undelivered at run end, a generation gap by type (`stream`, `scheduled`, `recorder`), or the unreached tail of an external record — the declared input of a gap-aware analysis (Stationary Analysis in the Analysis Interfaces page). `Masks.gap_table(run_dir)` computes it for a run made before the product existed.
+Before any figure, post-processing writes `masks/gaps.csv`, the gap table: every hole of the delivered record as a payload-row interval with its cause — a lost or pruned batch, a batch undelivered at run end, a generation gap by type (`stream`, `scheduled`, `recorder`), or the unreached tail of an external record — the declared input of a gap-aware analysis (Stationary Analysis in the Analysis Interfaces page). `Masks.gap_table(run_dir)` computes it for a run made before the product existed. After every other product, post-processing writes `descriptor.toml`, the run's identity for a downstream collection: producer version and commit, configuration hash, seed, clock mode, payload geometry, and the size and SHA-256 of every table present.
 
 One matrix row expands into a high-resolution point-wise 0/1 availability array (multiplied against the raw time series, it blanks out undelivered data):
 ```bash

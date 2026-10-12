@@ -39,6 +39,8 @@ makedocs(
         DeepSpaceTelemetry.Export,
         DeepSpaceTelemetry.Publication,
         DeepSpaceTelemetry.Supervisor,
+        DeepSpaceTelemetry.RunAdapter,
+        DeepSpaceTelemetry.Sweeps,
     ],
     pages = [
         "Home" => "index.md",
@@ -59,6 +61,8 @@ makedocs(
             "Export" => "api/export.md",
             "Publication" => "api/publication.md",
             "Supervisor" => "api/supervisor.md",
+            "RunAdapter" => "api/runadapter.md",
+            "Sweeps" => "api/sweeps.md",
             "PlotTheme" => "api/plottheme.md",
         ],
     ],

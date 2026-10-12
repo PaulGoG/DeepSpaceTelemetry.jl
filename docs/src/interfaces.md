@@ -86,7 +86,8 @@ the file contract is the same, read at different moments.
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor and absolute deadline (`wall_epoch`, `start_sim_time`, `speed_up`, `deadline_wall`); re-attaching components reconstruct the identical clock from it. |
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` one of `down`, `restart`, `stalled`, `recovered`. |
 | `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs and deleted when it exits: absence means finished, a stale mtime means stalled. |
-| `markers.csv` | pipeline (at mission start) | Read. Event markers of the run (`SimTime, Label`) — the instants the alert-latency metric is evaluated at (`alert_latency_markers.csv`). |
+| `markers.csv` | pipeline (at mission start) | Read. Event markers of the run (`SimTime, Label, PayloadRow`, the last the payload row of the instant, since 2.5.0) — the instants the alert-latency metric is evaluated at (`alert_latency_markers.csv`). |
+| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema`, `run_id`, the producer's `package_version`, `git_commit`, `git_dirty`, `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry, the external record's hash and length, and under `[products]` the size and SHA-256 of every table present. |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period); `plots/delivery_delay.png` renders the distribution against the requirement. |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine against the counterfactual FIFO drain — columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
 | `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
@@ -427,29 +428,44 @@ above). A batch directory written before 2.1.0 has no `payload_row`; such a
 run has no gap rows either, and batch `k` then covers the rows
 `(k − 1) · points_per_batch + 1 … k · points_per_batch`.
 
+**The reference adapter.** The package ships the run adapter a consumer
+builds on, `RunAdapter`, answering the five questions from the files above
+and nothing else, so that a consumer in Julia needs no reader of its own
+and a consumer in another language has a worked reference:
+
+```julia
+using DeepSpaceTelemetry: RunAdapter
+
+run = RunAdapter.open_run("RUN_ID")           # a path or an identifier; checks the producer's version
+RunAdapter.run_geometry(run)                 # sample rate, segment length, batch size, payload origin, record length, clock mode
+RunAdapter.list_batches(run)                 # per batch: name, index, live?, payload rows, content epoch,
+                                             #            state ∈ :ground | :lost | :pruned
+RunAdapter.read_batch(run, "LIVE_batch_7")   # the samples, Float32, segments in ascending id
+RunAdapter.arrival_events(run; after = n)    # the feed beyond the n rows already consumed, in mission-time order
+RunAdapter.run_state(run)                    # :active | :complete | :aborted, from the sentinels
+RunAdapter.markers(run)                      # the event markers with their payload row
+```
+
+`open_run` refuses a run of a producer older than 2.1.0, the first with
+`payload_row` stamps, unless told otherwise (`minimum_version`). The holes
+come from the same files through `RunAdapter.GapTracker`: `declare!` reads
+the two feeds beyond its cursors and returns every hole they announce —
+a `lost` or `pruned` batch as its rows, a closed `gap_start` / `gap_end`
+pair as the rows between — so a streaming consumer declares a permanent
+hole the moment the producer does; `open_gaps` lists the generation gaps
+not yet closed. On a finished run one call returns the holes of
+`masks/gaps.csv` for those causes.
+
 **Consumer archetypes.** The loop above is what a *streaming engine* does
 generically — a coverage set, a window scheduler that emits each window
 once, conditioning on the delivered stretch, a scorer, and an ordered commit
 with an order horizon for stateful estimators — and such an engine is best
-kept independent of this run directory behind a *run adapter* that answers
-five questions:
-
-```julia
-run_geometry(run)      # sample rate, segment length, batch size, payload origin, record length
-list_batches(run)      # per batch: name, index, live?, payload rows, content epoch,
-                       #            state ∈ ground | lost | pruned
-read_batch(run, name)  # the samples of one ground batch as Float32, segments in ascending id
-arrival_events(run)    # (sim_time, batch, event, attempt) in mission-time order
-run_state(run)         # active | complete | aborted, from the sentinels
-```
-
-Everything the adapter needs is in the snapshot, the batch directories, and
-`events_rx.csv` (the sections above), and one adapter serves the engine's
-follow mode on an active run and its replay mode on a finished one. A
-*detector* — a classifier, a matched filter — then scores the conditioned
-windows. An *online estimator* that requires strictly increasing sample
-times fits the live FIFO front only; the LIFO backfill behind it is out of
-order for such a consumer and is better analyzed from the finished record.
+kept behind the adapter, which serves its follow mode on an active run and
+its replay mode on a finished one. A *detector* — a classifier, a matched
+filter — then scores the conditioned windows. An *online estimator* that
+requires strictly increasing sample times fits the live FIFO front only;
+the LIFO backfill behind it is out of order for such a consumer and is
+better analyzed from the finished record.
 
 ## Stationary Analysis
 
@@ -575,7 +591,17 @@ stage usually wants a gapless record, an inference stage tolerates a gapped
 one. A *gap-aware statistic* takes the series and the declared holes and
 classifies every quantity that spans a hole as exact, gap-crossing, or
 censored. The `holes` of the example above are the input such a consumer
-wants in place of gaps inferred from spacing.
+wants in place of gaps inferred from spacing, and `descriptor.toml` is
+the identity its collection records — run, producer version and commit,
+configuration hash, seed, clock mode, and the hashes of the tables it
+read — so that the collection names its source as precisely as the run
+names its configuration.
+
+**Ensembles.** A stationary study over seeds or parameters starts from a
+sweep (`scripts/run_sweep.jl`, the Sweeps module): the same configuration
+on the tick clock once per seed, every run reproducible, the realized
+totals of all of them in one table with the sweep's own provenance
+(Ensembles and Sweeps in the usage page).
 
 ## HDF5 Product Export
 
