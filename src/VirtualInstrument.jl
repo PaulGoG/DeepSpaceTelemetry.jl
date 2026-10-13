@@ -5,7 +5,10 @@ Science-payload data source. The synthetic payload is a binary flag series:
 `0` on a segment holding noise only, `1` on a segment holding a flagged
 signal, the flagged segments being those whose content span holds an event
 marker. The alternative source is an external CSV time series whose row `r`
-is the sample at `origin + (r − 1) / sample_rate`.
+is the sample at `origin + (r − 1) / sample_rate`. An external file may
+carry several columns; those configured are ingested as one payload, each
+segment a samples × columns matrix, under one link accounting: one batch,
+one transfer, and one loss draw for all columns.
 
 The instrument samples on a fixed grid anchored at the payload origin, the
 content instant of payload row 1. A generation gap suppresses whole segments
@@ -28,8 +31,8 @@ using Dates: Dates, DateTime, Millisecond
     PayloadSource
 
 Origin of the samples of an [`InstrumentState`](@ref). A source implements
-`segment_samples(source, epoch, stop, first_row, n_samples) -> Vector{Float32}`,
-the samples of the segment with content span `[epoch, stop)` whose first
+`segment_samples(source, epoch, stop, first_row, n_samples) -> Matrix{Float32}`,
+the samples × columns matrix of the segment with content span `[epoch, stop)` whose first
 sample is payload row `first_row`. Both addresses describe the same segment;
 a source reads the one it is indexed by.
 """
@@ -49,24 +52,26 @@ struct FlaggedSignal <: PayloadSource
 end
 
 """
-    ExternalSeries(samples::Vector{Float32})
+    ExternalSeries(samples::Matrix{Float32})
 
-Externally supplied time series addressed by payload row: row `r` is
-`samples[r]`, the sample at `origin + (r − 1) / sample_rate` of the
-[`InstrumentState`](@ref) that reads it. Rows past the end read as zeros.
+Externally supplied time series addressed by payload row: row `r` of
+`samples` is payload row `r`, the sample at `origin + (r − 1) / sample_rate`
+of the [`InstrumentState`](@ref) that reads it, with one matrix column per
+payload column. Rows past the end read as zeros.
 """
 struct ExternalSeries <: PayloadSource
-    samples::Vector{Float32}
+    samples::Matrix{Float32}
 end
 
 """
     InstrumentState(origin, sample_rate, segment_duration_sec, data_source, ext_path;
-                    markers = EventMarker[])
+                    markers = EventMarker[], columns = String[])
 
 State of the science payload: the payload origin `origin` (the content
 instant of payload row 1 and of segment 1), the content instant `last_t` of
-the next segment, the segment geometry, and the [`PayloadSource`](@ref) the
-samples come from.
+the next segment, the segment geometry, the [`PayloadSource`](@ref) the
+samples come from, and the names `columns` of the payload columns its
+segments carry.
 
 Segments open on the grid `origin + k · segment_duration_sec`, `k ≥ 0`: the
 segment opening at `epoch` has the identifier
@@ -78,10 +83,14 @@ origin; it leaves the grid neither across a generation gap
 payload continues at the rows of the resumed content instant.
 
 `data_source = "synthetic"` builds a [`FlaggedSignal`](@ref) from the
-instants of `markers`; `"external"` reads the CSV at `ext_path` (relative
-paths resolve against the project root) into an [`ExternalSeries`](@ref),
-taking the column `Amplitude` when present and the first column otherwise.
-A missing, unreadable, empty, or non-numeric file is a `[CONFIG]` error.
+instants of `markers`, one column named
+[`TelemetryCore.PAYLOAD_COLUMN_DEFAULT`](@ref); a non-empty `columns` is
+then an `ArgumentError`. `"external"` reads the CSV at `ext_path` (relative
+paths resolve against the project root) into an [`ExternalSeries`](@ref)
+([`read_external_series`](@ref)): the listed `columns` in that order, or,
+when `columns` is empty, the column `Amplitude` when present and the first
+column otherwise, named `Amplitude`. A missing, unreadable, or empty file, an
+absent column, or a non-numeric column is a `[CONFIG]` error.
 
 `segment_duration_sec` must be a whole number of milliseconds
 ([`TelemetryCore.segment_period`](@ref)) and hold at least one sample.
@@ -96,6 +105,7 @@ mutable struct InstrumentState{S<:PayloadSource}
     const sample_rate::Float64
     const segment_duration_sec::Float64
     const source::S
+    const columns::Vector{String}
 end
 
 function InstrumentState(
@@ -105,14 +115,35 @@ function InstrumentState(
     data_source::String,
     ext_path::String;
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
+    columns::Vector{String} = String[],
 )
     sample_rate > 0 || throw(ArgumentError("sample_rate must be > 0 (got $sample_rate)."))
     TelemetryCore.segment_period(segment_duration_sec)
     samples_per_segment(sample_rate, segment_duration_sec)
-    source = if data_source == "external"
-        ExternalSeries(read_external_series(ext_path))
+    if data_source == "external"
+        samples, payload_columns = read_external_series(ext_path, columns)
+        return InstrumentState(
+            origin,
+            origin,
+            sample_rate,
+            segment_duration_sec,
+            ExternalSeries(samples),
+            payload_columns,
+        )
     elseif data_source == "synthetic"
-        FlaggedSignal([m.time for m in markers])
+        isempty(columns) || throw(
+            ArgumentError(
+                "payload columns apply to data_source = \"external\" only (got $columns).",
+            ),
+        )
+        return InstrumentState(
+            origin,
+            origin,
+            sample_rate,
+            segment_duration_sec,
+            FlaggedSignal([m.time for m in markers]),
+            [TelemetryCore.PAYLOAD_COLUMN_DEFAULT],
+        )
     else
         throw(
             ArgumentError(
@@ -120,7 +151,6 @@ function InstrumentState(
             ),
         )
     end
-    return InstrumentState(origin, origin, sample_rate, segment_duration_sec, source)
 end
 
 """
@@ -151,13 +181,18 @@ function samples_per_segment(sample_rate::Real, segment_duration_sec::Real)
 end
 
 """
-    read_external_series(ext_path::String) -> Vector{Float32}
+    read_external_series(ext_path::String, columns::Vector{String} = String[]) -> Tuple{Matrix{Float32},Vector{String}}
 
 The external payload series of the CSV at `ext_path`, relative paths resolved
-against the project root as in `validate_config`. Every failure is a
-`[CONFIG]` error naming the file.
+against the project root as in `validate_config`, as a samples × columns
+matrix and the names of its columns. An empty `columns` takes the column
+`Amplitude` when present and the first column otherwise, named
+[`TelemetryCore.PAYLOAD_COLUMN_DEFAULT`](@ref); otherwise the listed columns
+are taken in that order under their own names. Every failure — an absent
+file, an unparsable or empty table, an absent column, a column that is not
+numeric or holds missing values — is a `[CONFIG]` error naming the file.
 """
-function read_external_series(ext_path::String)
+function read_external_series(ext_path::String, columns::Vector{String} = String[])
     resolved =
         isabspath(ext_path) ? ext_path : joinpath(TelemetryCore.PROJECT_ROOT, ext_path)
     isfile(resolved) || TelemetryCore.config_error(
@@ -173,20 +208,39 @@ function read_external_series(ext_path::String)
     isempty(df) && TelemetryCore.config_error(
         "[CONFIG] External data CSV at $resolved contains no rows.",
     )
-    column = hasproperty(df, :Amplitude) ? df.Amplitude : df[:, 1]
-    eltype(column) <: Real || TelemetryCore.config_error(
-        "[CONFIG] External data column in $resolved must be numeric with no missing values (got eltype $(eltype(column))).",
-    )
-    return Vector{Float32}(column)
+    if isempty(columns)
+        column = hasproperty(df, :Amplitude) ? df.Amplitude : df[:, 1]
+        eltype(column) <: Real || TelemetryCore.config_error(
+            "[CONFIG] External data column in $resolved must be numeric with no missing values (got eltype $(eltype(column))).",
+        )
+        return (
+            reshape(Vector{Float32}(column), :, 1),
+            [TelemetryCore.PAYLOAD_COLUMN_DEFAULT],
+        )
+    end
+    samples = Matrix{Float32}(undef, DataFrames.nrow(df), length(columns))
+    for (j, name) in enumerate(columns)
+        hasproperty(df, Symbol(name)) || TelemetryCore.config_error(
+            "[CONFIG] External data CSV at $resolved lacks the column $name.",
+        )
+        column = df[!, name]
+        eltype(column) <: Real || TelemetryCore.config_error(
+            "[CONFIG] External data column $name in $resolved must be numeric with no missing values (got eltype $(eltype(column))).",
+        )
+        samples[:, j] = Vector{Float32}(column)
+    end
+    return samples, copy(columns)
 end
 
 """
-    segment_samples(source::PayloadSource, epoch, stop, first_row, n_samples) -> Vector{Float32}
+    segment_samples(source::PayloadSource, epoch, stop, first_row, n_samples) -> Matrix{Float32}
 
 The `n_samples` samples of the segment with content span `[epoch, stop)`,
-whose first sample is payload row `first_row`. A [`FlaggedSignal`](@ref) is
-addressed by the span, an [`ExternalSeries`](@ref) by the rows
-`first_row … first_row + n_samples − 1`; both are stateless, so the
+whose first sample is payload row `first_row`, as an `n_samples` × columns
+matrix: one column for a [`FlaggedSignal`](@ref), one per payload column for
+an [`ExternalSeries`](@ref). A `FlaggedSignal` is addressed by the span, an
+`ExternalSeries` by the rows `first_row … first_row + n_samples − 1`, rows
+past its end read as zeros in every column; both are stateless, so the
 samples of a segment depend on its position on the payload grid alone.
 """
 function segment_samples(
@@ -200,7 +254,7 @@ function segment_samples(
     flagged =
         first_at_or_after <= length(source.instants) &&
         source.instants[first_at_or_after] < stop
-    return fill(Float32(flagged), n_samples)
+    return fill(Float32(flagged), n_samples, 1)
 end
 
 function segment_samples(
@@ -211,15 +265,18 @@ function segment_samples(
     n_samples::Int,
 )
     first_row >= 1 || throw(ArgumentError("first_row must be ≥ 1 (got $first_row)."))
-    data = zeros(Float32, n_samples)
-    available = length(source.samples) - first_row + 1
+    n_rows = size(source.samples, 1)
+    data = zeros(Float32, n_samples, size(source.samples, 2))
+    available = n_rows - first_row + 1
     if available < n_samples
-        @warn "[INSTRUMENT] External data exhausted at row $(max(first_row, length(source.samples) + 1)) of " *
-              "$(length(source.samples)): padding with zeros from here on. " *
+        @warn "[INSTRUMENT] External data exhausted at row $(max(first_row, n_rows + 1)) of " *
+              "$(n_rows): padding with zeros from here on. " *
               "Provide a longer series or shorten the mission." maxlog = 1
     end
     n_copied = clamp(available, 0, n_samples)
-    copyto!(data, 1, source.samples, first_row, n_copied)
+    if n_copied > 0
+        data[1:n_copied, :] .= @view source.samples[first_row:(first_row+n_copied-1), :]
+    end
     return data
 end
 
@@ -291,6 +348,7 @@ function resumed(vi::InstrumentState, t::DateTime)
         vi.sample_rate,
         vi.segment_duration_sec,
         vi.source,
+        vi.columns,
     )
 end
 
@@ -311,7 +369,7 @@ function next_segment!(vi::InstrumentState)
         payload_row(vi, id),
         n_samples,
     )
-    segment = TelemetryCore.DataSegment(id, vi.last_t, data)
+    segment = TelemetryCore.DataSegment(id, vi.last_t, data, vi.columns)
     vi.last_t += period
     return segment
 end

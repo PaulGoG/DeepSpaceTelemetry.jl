@@ -181,6 +181,18 @@ function load_config(path::String = "")
 end
 
 """
+    csv_header(path::AbstractString) -> Vector{String}
+
+The column names of a CSV file from its first line: split on commas,
+surrounding whitespace and double quotes removed. Empty for an empty file.
+"""
+function csv_header(path::AbstractString)
+    line = readline(path)
+    isempty(line) && return String[]
+    return [String(strip(strip(strip(field), '"'))) for field in split(line, ',')]
+end
+
+"""
     load_run_config_with_source(run_dir::String) -> Tuple{Dict{String,Any},String}
 
 The configuration that produced a run and where it came from: the run's own
@@ -481,6 +493,7 @@ const KNOWN_CONFIG_KEYS = Dict(
     "physics" => [
         "data_source",
         "external_data_path",
+        "external_data_columns",
         "sample_rate",
         "segment_duration_sec",
         "batch_size",
@@ -1026,7 +1039,10 @@ end
 
 Validated `[physics]` parameters: `data_source` (`"synthetic"` or
 `"external"`), `external_data_path` (as configured; consumers resolve it
-against the package root), `sample_rate > 0`, `segment_duration_sec > 0`
+against the package root), `external_data_columns` (the columns of the
+external file to ingest, in that order; empty for `Amplitude`, or else the
+first column, written as `Amplitude`; a list of unique, non-empty names,
+rejected with the synthetic source), `sample_rate > 0`, `segment_duration_sec > 0`
 and a whole number of milliseconds (the resolution of the content clock),
 and `batch_size ≥ 1`, with at least one sample per segment. The four core
 keys are required. The retired `signal_injection_probability` is rejected
@@ -1067,10 +1083,30 @@ function physics_settings(cfg::AbstractDict)
     )
     external_data_path =
         checked_string(get(phy, "external_data_path", ""), "physics.external_data_path")
+    raw_columns = get(phy, "external_data_columns", Any[])
+    raw_columns isa AbstractVector || config_error(
+        "[CONFIG] physics.external_data_columns must be a list of column names.",
+    )
+    external_data_columns = String[]
+    for (i, value) in enumerate(raw_columns)
+        column = checked_string(value, "physics.external_data_columns[$i]")
+        isempty(column) &&
+            config_error("[CONFIG] physics.external_data_columns[$i] must not be empty.")
+        push!(external_data_columns, column)
+    end
+    allunique(external_data_columns) || config_error(
+        "[CONFIG] physics.external_data_columns must be unique (got $external_data_columns).",
+    )
+    data_source == "synthetic" &&
+        !isempty(external_data_columns) &&
+        config_error(
+            "[CONFIG] physics.external_data_columns applies to data_source = \"external\" only.",
+        )
     reject_removed_key(phy, "physics", "signal_injection_probability")
     return (
         data_source = data_source,
         external_data_path = external_data_path,
+        external_data_columns = external_data_columns,
         sample_rate = sample_rate,
         segment_duration_sec = segment_duration,
         batch_size = batch_size,
@@ -1451,7 +1487,9 @@ Writes `<run_dir>/descriptor.toml`, the run's identity for a downstream
 collection to copy verbatim: `schema`, `run_id`, the producer's
 `package_version`, `git_commit`, `git_dirty`, the configuration hash
 `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`,
-`payload_origin`, `rng_seed`, the payload geometry, the external record's
+`payload_origin`, `rng_seed`, the payload geometry, `payload_columns` (the
+names of the payload columns of the segment files: those stamped into the
+provenance of an external run, else `["Amplitude"]`), the external record's
 `external_data_sha256` and `external_data_rows` when present, and under
 `[products]` the size and SHA-256 of every table of
 [`DESCRIPTOR_PRODUCTS`](@ref) present. Written last among the
@@ -1487,6 +1525,11 @@ function write_run_descriptor(run_dir::String)
     for key in ("external_data_sha256", "external_data_rows")
         haskey(provenance, key) && (descriptor[key] = provenance[key])
     end
+    columns =
+        physics.data_source == "external" ?
+        Vector{String}(get(provenance, "external_data_columns", [PAYLOAD_COLUMN_DEFAULT])) :
+        [PAYLOAD_COLUMN_DEFAULT]
+    descriptor["payload_columns"] = columns
     products = Dict{String,Any}()
     for rel in DESCRIPTOR_PRODUCTS
         path = joinpath(run_dir, split(rel, '/')...)
@@ -2043,6 +2086,9 @@ Hard errors (would break the pipeline):
   - less than one sample per segment, or a `segment_duration_sec` that is
     not a whole number of milliseconds (the content clock's resolution)
   - unknown `data_source`; `data_source = "external"` with a missing file
+  - `external_data_columns` that is not a list of unique, non-empty names,
+    that is set with `data_source = "synthetic"`, or that names a column
+    absent from the header of the external file
   - unknown `bandwidth_profile`
   - packet-loss probabilities outside `[0, 1]`, unknown loss `model` or
     `on_loss` policy, negative `max_retries`
@@ -2230,6 +2276,13 @@ function validate_config(cfg::AbstractDict)
         isfile(ext_path) || config_error(
             "[CONFIG] physics.data_source = \"external\" but external_data_path not found: $ext_path",
         )
+        if !isempty(physics.external_data_columns)
+            header = csv_header(ext_path)
+            missing_columns = setdiff(physics.external_data_columns, header)
+            isempty(missing_columns) || config_error(
+                "[CONFIG] physics.external_data_columns not found in $ext_path: $(join(missing_columns, ", ")) (header: $(join(header, ", "))).",
+            )
+        end
     end
 
     # -- [telemetry] --
@@ -2624,8 +2677,10 @@ post-processing replay RAM (gated against `storage.max_ram_gb`).
 time, and is gated against the same budget. Calibration constants default to measured values and are overridable
 key-by-key in `[storage]`.
 
-Returns counts (`n_segments`, `n_batches`, `n_points`, `mission_days`,
-`metrics_rows`), per-class byte fields, `total_bytes`, `file_count`, and the
+Returns counts (`n_segments`, `n_batches`, `n_points`, `n_columns` — the
+payload columns of each segment file, one for a synthetic run and the length
+of `physics.external_data_columns` otherwise, at least one —
+`mission_days`, `metrics_rows`), per-class byte fields, `total_bytes`, `file_count`, and the
 retention-prunable subset (`prunable_bytes`, `prunable_files`): the payload
 scaled by the expected *delivered* fraction under the configured loss model —
 terminally lost batches land in `lost/`, and metadata, event logs, metrics,
@@ -2670,10 +2725,16 @@ function estimate_artifacts(cfg::AbstractDict)
         4 * n_batches +
         2 * round(Int, 100.0 / METRICS_BANDWIDTH_HYSTERESIS_PCT) * max(mission_days, 1)
 
+    # Each segment file holds one full column of samples per payload column.
+    n_columns =
+        get(phy, "data_source", "external") == "synthetic" ? 1 :
+        max(1, length(get(phy, "external_data_columns", Any[])))
     # The flag series writes 0.0/1.0; anything else, an undeclared source
     # included, is sized as a full Float32 value, the upper bound.
     payload_bytes =
-        n_points * cal(
+        n_points *
+        n_columns *
+        cal(
             get(phy, "data_source", "external") == "synthetic" ? "bytes_per_flag_sample" :
             "bytes_per_sample",
         )
@@ -2784,6 +2845,7 @@ function estimate_artifacts(cfg::AbstractDict)
         n_segments = n_segments,
         n_batches = n_batches,
         n_points = n_points,
+        n_columns = n_columns,
         mission_days = mission_days,
         metrics_rows = metrics_rows,
         payload_bytes = payload_bytes,
@@ -2846,7 +2908,7 @@ function check_storage_limits(cfg::AbstractDict)
     to_gb = b -> round(b / 1024^3, digits = 4)
 
     @info "[STORAGE] Pre-run artifact estimate ($(est.n_segments) segments, $(est.n_batches) batches, $(est.mission_days) mission days):"
-    @info "  -> Payload segment CSVs: $(to_gb(est.payload_bytes)) GB ($(est.n_points) samples)"
+    @info "  -> Payload segment CSVs: $(to_gb(est.payload_bytes)) GB ($(est.n_points) samples × $(est.n_columns) columns)"
     @info "  -> Batch metadata:       $(to_gb(est.batch_meta_bytes)) GB"
     @info "  -> Event logs:           $(to_gb(est.event_bytes)) GB"
     @info "  -> Metrics profile:      $(to_gb(est.metrics_bytes)) GB (≤ $(est.metrics_rows) rows)"
@@ -3336,19 +3398,73 @@ end
 
 # --- Data Structures ---
 """
-    DataSegment(id::Int, timestamp::DateTime, data::Vector{Float32})
+    PAYLOAD_COLUMN_DEFAULT
+
+The name of the one payload column of a synthetic run and of an external
+run without `physics.external_data_columns`: `Amplitude`.
+"""
+const PAYLOAD_COLUMN_DEFAULT = "Amplitude"
+
+"""
+    DataSegment(id::Int, timestamp::DateTime, data::Matrix{Float32}, columns::Vector{String})
+    DataSegment(id::Integer, timestamp::DateTime, data::AbstractVector{<:Real})
 
 One contiguous segment of the observed time series: the `Float32` samples
-`data` of one `segment_duration_sec` span whose first sample lies at the
-mission instant `timestamp`; `id` is the segment's position on the payload
-grid, `(timestamp − origin) / segment_duration_sec + 1`
-([`DeepSpaceTelemetry.VirtualInstrument.segment_id`](@ref)), unique within a
-run.
+`data`, one row per sample and one column per payload column named in
+`columns`, of one `segment_duration_sec` span whose first sample lies at
+the mission instant `timestamp`; `id` is the segment's position on the
+payload grid, `(timestamp − origin) / segment_duration_sec + 1`
+([`DeepSpaceTelemetry.VirtualInstrument.segment_id`](@ref)), unique within
+a run. The vector form builds a one-column segment named
+[`PAYLOAD_COLUMN_DEFAULT`](@ref). A `DimensionMismatch` when `data` has
+other than `length(columns)` columns; an `ArgumentError` without a column.
 """
 struct DataSegment
     id::Int
     timestamp::DateTime
-    data::Vector{Float32}
+    data::Matrix{Float32}
+    columns::Vector{String}
+    function DataSegment(
+        id::Int,
+        timestamp::DateTime,
+        data::Matrix{Float32},
+        columns::Vector{String},
+    )
+        isempty(columns) &&
+            throw(ArgumentError("A segment needs at least one payload column."))
+        size(data, 2) == length(columns) || throw(
+            DimensionMismatch(
+                "segment $id holds $(size(data, 2)) columns for $(length(columns)) names.",
+            ),
+        )
+        return new(id, timestamp, data, columns)
+    end
+end
+DataSegment(id::Integer, timestamp::DateTime, data::AbstractVector{<:Real}) = DataSegment(
+    Int(id),
+    timestamp,
+    reshape(Vector{Float32}(data), :, 1),
+    [PAYLOAD_COLUMN_DEFAULT],
+)
+
+"""
+    segment_column(seg::DataSegment, column::Union{Integer,AbstractString}) -> Vector{Float32}
+
+The samples of one payload column of `seg`, by index or by name; an
+`ArgumentError` names the columns when `column` is not one of them.
+"""
+function segment_column(seg::DataSegment, column::Union{Integer,AbstractString})
+    j = if column isa AbstractString
+        findfirst(==(column), seg.columns)
+    else
+        1 <= column <= length(seg.columns) ? Int(column) : nothing
+    end
+    j === nothing && throw(
+        ArgumentError(
+            "Segment $(seg.id) has no payload column $(repr(column)) (columns: $(join(seg.columns, ", "))).",
+        ),
+    )
+    return seg.data[:, j]
 end
 
 """
@@ -3978,7 +4094,8 @@ time at which the batch was finalized and became transmittable),
 the physical epoch the segment data belong to), and, when given,
 `payload_row` — the 1-based row of the first sample in the payload series
 that starts at the payload origin — and `markers` — the labels of the event
-markers whose instant lies in the payload.
+markers whose instant lies in the payload. Each segment is written to
+`seg_<id>.csv` ([`save_segment`](@ref)), one column per payload column.
 """
 function save_batch(
     path::String,
@@ -4086,21 +4203,27 @@ end
 """
     save_segment(path::String, seg::DataSegment)
 
-Saves a 1D `DataSegment` array to a raw CSV format for downstream pipeline usage.
+Writes the samples of `seg` to the CSV at `path`, one column per payload
+column under its name; a one-column segment writes the `Amplitude` column of
+earlier releases.
 """
 function save_segment(path::String, seg::DataSegment)
-    df = DataFrame(Amplitude = seg.data)
+    df = DataFrame([seg.data[:, j] for j in 1:length(seg.columns)], seg.columns)
     write_table(path, df)
 end
 
 """
-    load_segment(path::String; timestamp::DateTime = DateTime(0))
+    load_segment(path::String; timestamp::DateTime = DateTime(0)) -> DataSegment
 
-Loads a 1D CSV time series back into a `DataSegment`. Segment CSVs persist
-only amplitudes, so the mission timestamp cannot be recovered from the file:
-callers that know the epoch (e.g. from `metadata.json`'s `created_at`) pass
-it via `timestamp`; otherwise the `DateTime(0)` sentinel marks it unknown —
-never a fabricated wall-clock time.
+Reads a segment CSV written by [`save_segment`](@ref) back into a
+[`DataSegment`](@ref), one payload column per file column under its header
+name; the identifier comes from the file name `seg_<id>.csv` (0 when it does
+not conform). A column that is not numeric is an `ArgumentError` naming the
+file and the column. Segment CSVs persist only samples, so the mission
+timestamp cannot be recovered from the file: callers that know the epoch
+(the batch's `content_epoch` in `metadata.json` is that of its first
+segment) pass it via `timestamp`; otherwise the `DateTime(0)` sentinel marks
+it unknown — never a fabricated wall-clock time.
 """
 function load_segment(path::String; timestamp::DateTime = DateTime(0))
     df = read_table(path)
@@ -4108,7 +4231,18 @@ function load_segment(path::String; timestamp::DateTime = DateTime(0))
     # The capture is a Union{Nothing, SubString}: guard the full chain so a
     # nonconforming filename degrades to id 0 instead of throwing.
     id = id_match !== nothing ? something(tryparse(Int, something(id_match[1], "")), 0) : 0
-    return DataSegment(id, timestamp, Vector{Float32}(df.Amplitude))
+    columns = String.(names(df))
+    data = Matrix{Float32}(undef, DataFrames.nrow(df), length(columns))
+    for j in eachindex(columns)
+        column = df[!, j]
+        eltype(column) <: Real || throw(
+            ArgumentError(
+                "Segment file $path: column $(columns[j]) is not numeric (eltype $(eltype(column))).",
+            ),
+        )
+        data[:, j] = Vector{Float32}(column)
+    end
+    return DataSegment(id, timestamp, data, columns)
 end
 
 # --- Contact windows, visibility & bandwidth ---

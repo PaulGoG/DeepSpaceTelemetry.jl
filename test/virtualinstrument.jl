@@ -81,7 +81,7 @@ end
             "external",
             rel_name,
         )
-        @test vi_rel.source.samples == Float32[1.0, 2.0, 3.0, 4.0]
+        @test vec(vi_rel.source.samples) == Float32[1.0, 2.0, 3.0, 4.0]
     finally
         rm(fixture_dir; recursive = true, force = true)
     end
@@ -120,7 +120,7 @@ end
         )
         VirtualInstrument.next_segment!(vi_s)                     # samples 1–4: silent
         seg_pad = @test_logs (:warn,) match_mode=:any VirtualInstrument.next_segment!(vi_s)
-        @test seg_pad.data == Float32[5.0, 6.0, 0.0, 0.0]         # 5–6 + zero padding
+        @test vec(seg_pad.data) == Float32[5.0, 6.0, 0.0, 0.0]         # 5–6 + zero padding
     end
 
     mktempdir() do tmp
@@ -134,12 +134,12 @@ end
         seg1 = VirtualInstrument.next_segment!(vi)
         # Needs 4 samples (2.0 * 2.0). 0.1, 0.2, 0.3, 0.4
         @test length(seg1.data) == 4
-        @test seg1.data == Float32[0.1, 0.2, 0.3, 0.4]
+        @test vec(seg1.data) == Float32[0.1, 0.2, 0.3, 0.4]
 
         seg2 = VirtualInstrument.next_segment!(vi)
         # Needs 4 samples. 0.5, then 0.0, 0.0, 0.0
         @test length(seg2.data) == 4
-        @test seg2.data == Float32[0.5, 0.0, 0.0, 0.0]
+        @test vec(seg2.data) == Float32[0.5, 0.0, 0.0, 0.0]
     end
 end
 
@@ -159,12 +159,12 @@ end
         @test vi.source === first_start.source
         seg = VirtualInstrument.next_segment!(vi)
         @test seg.id == 5 && seg.timestamp == origin + Second(8)
-        @test seg.data == Float32.(17:20)
+        @test vec(seg.data) == Float32.(17:20)
         # A generation gap ending at +15 s resumes at +16 s: segment 9, rows 33–36.
         @test VirtualInstrument.advance_to!(vi, origin + Second(15)) == origin + Second(16)
         @test VirtualInstrument.advance_to!(vi, origin + Second(3)) == origin + Second(16)
         seg = VirtualInstrument.next_segment!(vi)
-        @test seg.id == 9 && seg.data == Float32.(33:36)
+        @test seg.id == 9 && vec(seg.data) == Float32.(33:36)
         # Row and identifier follow from the epoch alone.
         for k in 1:30
             epoch = origin + Second(2 * (k - 1))

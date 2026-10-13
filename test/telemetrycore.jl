@@ -504,7 +504,8 @@ end
 
         loaded_seg = TelemetryCore.load_segment(joinpath(batch_dir, "seg_1.csv"))
         @test loaded_seg.id == 1
-        @test loaded_seg.data == Float32[1.0, 2.0, 3.0]
+        @test vec(loaded_seg.data) == Float32[1.0, 2.0, 3.0] &&
+              loaded_seg.columns == ["Amplitude"]
     end
 end
 

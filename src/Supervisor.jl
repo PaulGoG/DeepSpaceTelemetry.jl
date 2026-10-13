@@ -182,7 +182,9 @@ of the input file are computed up front — before any directory exists — so
 exhaustion is predicted at startup rather than discovered mid-mission, and
 the run snapshot pins the exact input consumed (no sidecar or generator
 metadata is assumed). Adds `external_data_path`, `external_data_rows`,
-`external_data_sha256`, and `declared_sample_rate` to `cfg["provenance"]`.
+`external_data_sha256`, `declared_sample_rate`, and `external_data_columns`
+(the names of the payload columns, `["Amplitude"]` when
+`physics.external_data_columns` is empty) to `cfg["provenance"]`.
 """
 function stamp_external_provenance!(
     cfg::AbstractDict,
@@ -206,6 +208,11 @@ function stamp_external_provenance!(
             "external_data_rows" => rows,
             "external_data_sha256" => digest,
             "declared_sample_rate" => physics.sample_rate,
+            "external_data_columns" => (
+                isempty(physics.external_data_columns) ?
+                [TelemetryCore.PAYLOAD_COLUMN_DEFAULT] :
+                copy(physics.external_data_columns)
+            ),
         ),
     )
     return cfg
@@ -532,6 +539,7 @@ function build_instrument(
         physics.data_source,
         physics.external_data_path;
         markers = markers,
+        columns = physics.external_data_columns,
     )
 end
 
@@ -623,8 +631,10 @@ function component_spawners(
             latest[].last_t;
             origin = plan.payload_origin,
             sample_rate = physics.sample_rate,
-            points_per_batch = round(Int, physics.sample_rate * physics.segment_duration_sec) *
-                               physics.batch_size,
+            points_per_batch = round(
+                Int,
+                physics.sample_rate * physics.segment_duration_sec,
+            ) * physics.batch_size,
             hole_feed = hole_feed,
         )
         return spawn(

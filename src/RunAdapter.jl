@@ -44,7 +44,10 @@ The geometry of a run as a consumer needs it: `sample_rate` [Hz],
 `points_per_batch`, the mission epoch `start_sim_time`, the
 `payload_origin` (the instant of payload row 1), `payload_rows` (the length
 of an external record, `nothing` for a synthetic payload), the producer's
-`package_version`, and the clock `mode` (`"wall"` or `"tick"`).
+`package_version`, the clock `mode` (`"wall"` or `"tick"`), and the names
+`columns` of the payload columns, from `provenance.external_data_columns` of
+the configuration snapshot when present, else the one column
+[`TelemetryCore.PAYLOAD_COLUMN_DEFAULT`](@ref).
 """
 struct RunGeometry
     sample_rate::Float64
@@ -56,6 +59,7 @@ struct RunGeometry
     payload_rows::Union{Int,Nothing}
     package_version::String
     mode::String
+    columns::Vector{String}
 end
 
 """
@@ -160,6 +164,13 @@ function open_run(
         rows isa Integer ? Int(rows) : nothing,
         version_text,
         TelemetryCore.simulation_mode(cfg),
+        Vector{String}(
+            get(
+                provenance,
+                "external_data_columns",
+                [TelemetryCore.PAYLOAD_COLUMN_DEFAULT],
+            ),
+        ),
     )
     return RunHandle(run_dir, cfg, geometry)
 end
@@ -268,13 +279,14 @@ function list_batches(run::RunHandle)
 end
 
 """
-    read_batch(run::RunHandle, name::AbstractString) -> Vector{Float32}
+    segment_files(run::RunHandle, name::AbstractString) -> Tuple{String,Vector{String}}
 
-The third question: the samples of one batch, its segments concatenated in
-ascending segment identifier, from `ground/` or, for a lost batch, from
-`lost/`. Throws an `ArgumentError` for a batch that is absent or pruned.
+The directory of the batch `name`, under `ground/` or, for a lost batch,
+under `lost/`, and its segment file names in ascending segment identifier.
+Throws an `ArgumentError` for a batch that is absent, pruned, or holds no
+segment file.
 """
-function read_batch(run::RunHandle, name::AbstractString)
+function segment_files(run::RunHandle, name::AbstractString)
     for stage in ("ground", "lost")
         dir = joinpath(run.run_dir, stage, String(name))
         isdir(dir) || continue
@@ -287,14 +299,67 @@ function read_batch(run::RunHandle, name::AbstractString)
         isempty(files) &&
             throw(ArgumentError("[ADAPTER] $name holds no segment files in $dir."))
         sort!(files; by = f -> parse(Int, match(r"\d+", f).match))
-        return reduce(
-            vcat,
-            (TelemetryCore.load_segment(joinpath(dir, f)).data for f in files),
-        )
+        return dir, files
     end
     throw(
         ArgumentError("[ADAPTER] No batch $name under ground/ or lost/ of $(run.run_dir)."),
     )
+end
+
+"""
+    read_batch_matrix(run::RunHandle, name::AbstractString) -> Matrix{Float32}
+
+The samples of one batch, one row per sample and one column per payload
+column of `run.geometry.columns`, its segments concatenated in ascending
+segment identifier, from `ground/` or, for a lost batch, from `lost/`.
+Throws an `ArgumentError` for a batch that is absent or pruned, and for a
+segment whose columns differ from those of the geometry.
+"""
+function read_batch_matrix(run::RunHandle, name::AbstractString)
+    dir, files = segment_files(run, name)
+    expected = run.geometry.columns
+    blocks = Matrix{Float32}[]
+    for f in files
+        seg = TelemetryCore.load_segment(joinpath(dir, f))
+        seg.columns == expected || throw(
+            ArgumentError(
+                "[ADAPTER] $f of $name holds the columns $(join(seg.columns, ", ")); the run declares $(join(expected, ", ")).",
+            ),
+        )
+        push!(blocks, seg.data)
+    end
+    return reduce(vcat, blocks)
+end
+
+"""
+    read_batch(run::RunHandle, name::AbstractString;
+               column::Union{Integer,AbstractString} = 1) -> Vector{Float32}
+
+The third question: the samples of one payload column of one batch, by
+index or by name, its segments concatenated in ascending segment
+identifier, from `ground/` or, for a lost batch, from `lost/`
+([`read_batch_matrix`](@ref) holds every column). For a one-column run the
+default is the whole payload. Throws an `ArgumentError` for a batch that is
+absent or pruned, and for a `column` that is not one of
+`run.geometry.columns`.
+"""
+function read_batch(
+    run::RunHandle,
+    name::AbstractString;
+    column::Union{Integer,AbstractString} = 1,
+)
+    columns = run.geometry.columns
+    j = if column isa AbstractString
+        findfirst(==(column), columns)
+    else
+        1 <= column <= length(columns) ? Int(column) : nothing
+    end
+    j === nothing && throw(
+        ArgumentError(
+            "[ADAPTER] No payload column $(repr(column)) in $(run.run_dir) (columns: $(join(columns, ", "))).",
+        ),
+    )
+    return read_batch_matrix(run, name)[:, j]
 end
 
 """
