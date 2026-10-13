@@ -146,21 +146,21 @@ source = "data/runs/TICK_STRESS_8H_BURSTY/plots/telemetry_animation_web.gif"
 [render]
 code_dirty = false
 command = "julia docs/render_assets.jl TICK"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+date = "2026-10-13"
 gif_transform = "none; the --web rendering profile writes the published size directly"
 image_tool = "ImageMagick 7.1.2-32"
 png_transform = "magick <source> -resize 1400x -strip -define png:compression-level=9 <target>"
 
 [runs.TICK_ABSTRACTION_GAUSSIAN_PEAK]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_ABSTRACTION_GAUSSIAN_PEAK scenarios/abstraction_gaussian_peak.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "3bee6e7e5c0d94f34c44aca080d141c5ca9666b1702372310e8c428771f052b3"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "9a39be67aefb3937a2c06ef76a443d29e0b560f2e1f451d8697edbd4ae81b200"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 7.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/abstraction_gaussian_peak.toml"
 
     [runs.TICK_ABSTRACTION_GAUSSIAN_PEAK.platform]
@@ -186,13 +186,13 @@ scenario = "scenarios/abstraction_gaussian_peak.toml"
 
 [runs.TICK_BACKLOG_RECOVERY_SINE]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_BACKLOG_RECOVERY_SINE scenarios/backlog_recovery_sine.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "f34b6b0b5c9ff96c2ee0193cc57a43281570d0cbade2fd08881afca158a9beac"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "2c9d728bbacc0a4189a0281d7cebc88fe19cc11dd6ee1db3243ec5a4f1c18f07"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 7.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/backlog_recovery_sine.toml"
 
     [runs.TICK_BACKLOG_RECOVERY_SINE.platform]
@@ -218,13 +218,13 @@ scenario = "scenarios/backlog_recovery_sine.toml"
 
 [runs.TICK_DROP_POLICY]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_DROP_POLICY scenarios/drop_policy.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "df8e09bf7dc15b05f048e9d09dc6b87a9222bc0988f91bee4aea1d748ac98b5a"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "b8e9871f846c9a7aa52a1279cdb5eb64c3800aafc9d0b2103e44de44ce18e6da"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 3.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/drop_policy.toml"
 
     [runs.TICK_DROP_POLICY.platform]
@@ -250,13 +250,13 @@ scenario = "scenarios/drop_policy.toml"
 
 [runs.TICK_EXPLICIT_SCHEDULE]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_EXPLICIT_SCHEDULE scenarios/explicit_schedule.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "e8bc3e89a6000f6f2b40ba3e59ee51d92eb6db02e181f4287e5dd4e563ad194e"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "2ea23183d2b7d4c9ece059f224d13acac286a732ae67781ef621ada48083601d"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 7.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/explicit_schedule.toml"
 
     [runs.TICK_EXPLICIT_SCHEDULE.platform]
@@ -282,13 +282,13 @@ scenario = "scenarios/explicit_schedule.toml"
 
 [runs.TICK_EXTERNAL_INGEST]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_EXTERNAL_INGEST scenarios/external_ingest.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "099ad81f64d0c83dbf42cbd5da4673caf1a84d85eed1ca5237c759e129974cc4"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "4cceec8db4dd6faab3b029cea862cea6741fda2c95d5f6437e23f68ea31d35f0"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 2.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/external_ingest.toml"
 
     [runs.TICK_EXTERNAL_INGEST.platform]
@@ -314,13 +314,13 @@ scenario = "scenarios/external_ingest.toml"
 
 [runs.TICK_LONG_30D_SEASONAL]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_LONG_30D_SEASONAL scenarios/long_30d_seasonal.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "92cd367fb7ef8ee487dd28314e6368d5bb1f9fa4e38430f5d2d119a1be5d098b"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "d8374e2c28c2440100662068f9852a7bb3598ad6eab6ab30a5a9138d098d65f3"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 30.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/long_30d_seasonal.toml"
 
     [runs.TICK_LONG_30D_SEASONAL.platform]
@@ -346,13 +346,13 @@ scenario = "scenarios/long_30d_seasonal.toml"
 
 [runs.TICK_LONG_SEGMENTS_2400S]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_LONG_SEGMENTS_2400S scenarios/long_segments_2400s.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "f8224201d20e583e6ba618afbdf868e732b6b7a97ed3950c68541710a1f8fe1b"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "0eb2abbc58f4a191f55e7e10c20f103c147522eef295f44f225403f607cc1933"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 7.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/long_segments_2400s.toml"
 
     [runs.TICK_LONG_SEGMENTS_2400S.platform]
@@ -378,13 +378,13 @@ scenario = "scenarios/long_segments_2400s.toml"
 
 [runs.TICK_NOMINAL_8H]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_NOMINAL_8H scenarios/nominal_8h.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "37a067c5afea0d4de181131fb442477ff94c372474cfe109bc9793373b26dab4"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "bb4c2d1abc9e70b36d678495a0eee42282d63d7366713c7cc8237843a109d2f6"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 7.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/nominal_8h.toml"
 
     [runs.TICK_NOMINAL_8H.platform]
@@ -410,13 +410,13 @@ scenario = "scenarios/nominal_8h.toml"
 
 [runs.TICK_RECOVERY_12H_SEASONAL]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_RECOVERY_12H_SEASONAL scenarios/recovery_12h_seasonal.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "79f9f716ae0e65199aa25b4c80de35d488a5b5415adf56a68ad761cda36a4a59"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "d28392752f3d0efb2a2aa432ef2ce5be610d553e9cf07cebe908c177f395de41"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 7.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/recovery_12h_seasonal.toml"
 
     [runs.TICK_RECOVERY_12H_SEASONAL.platform]
@@ -442,13 +442,13 @@ scenario = "scenarios/recovery_12h_seasonal.toml"
 
 [runs.TICK_STRESS_8H_BURSTY]
 command = "julia --threads=3 scripts/run_full_sim.jl --tick TICK_STRESS_8H_BURSTY scenarios/stress_8h_bursty.toml"
-commit = "a130317452c5614cc42b02a11c104d4b95d48094"
-config_sha256 = "e946cd2f8c0e38904f59616041f30c16279bca99de5ecc51730c19666e96737b"
-date = "2026-10-12"
+commit = "6a54c9d39338634eb37a10d401d0664380b7b9fd"
+config_sha256 = "d259f8ac43141bfc3e3fa212ebe31251254ee5edc5b7ac6df9a141bcf1d5cac3"
+date = "2026-10-13"
 git_dirty = false
 julia_version = "1.13.1"
 mission_days = 7.0
-package_version = "2.4.0"
+package_version = "2.5.0"
 scenario = "scenarios/stress_8h_bursty.toml"
 
     [runs.TICK_STRESS_8H_BURSTY.platform]
