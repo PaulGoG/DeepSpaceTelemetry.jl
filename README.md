@@ -229,7 +229,7 @@ batch never becomes available on the ground.
 | `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
 | `Supervisor` | mission plan, supervised tasks on the wall clock, the tick driver, sentinels, banner | stable; restart, policy, and reproducibility tests |
-| `RunAdapter` | the reference consumer: the six questions (geometry, batches, payload, arrivals, state, labeled intervals) answered from the file contract, the gap tracker, the marker rows, the producer-version check | new in 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
+| `RunAdapter` | the reference consumer: the six questions (geometry, batches, payload, arrivals, state, labeled intervals) answered from the file contract, the gap tracker, the hole feed reader, the marker rows, the producer-version check | new in 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
 | `Sweeps` | ensembles and parameter sweeps on the tick clock, serial or over worker processes, with a summary table and provenance | new in 2.5.0; serial two-seed sweep in the suite, the worker path verified manually |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
 | Scenario library | twelve configurations under `scenarios/` | every file validated, the smoke scenario run, and the deterministic scenario run twice by the suite |
@@ -317,8 +317,8 @@ DeepSpaceTelemetry/
 │   └── runs/                    # Ephemeral run directories (gitignored)
 │       ├── .gitkeep             # Keeps the directory in git
 │       └── <RUN_ID>/            # onboard/ link/ ground/ lost/ plots/ masks/
-│                                # + mission_profile.csv, events_tx.csv, events_rx.csv, markers.csv, label_spans.csv,
-│                                #   component_events.csv, config_snapshot.toml, manifest_snapshot.toml,
+│                                # + mission_profile.csv, events_tx.csv, events_rx.csv, holes.csv, markers.csv,
+│                                #   label_spans.csv, component_events.csv, config_snapshot.toml, manifest_snapshot.toml,
 │                                #   clock_anchor.toml, descriptor.toml, alert_latency.csv, alert_latency_markers.csv,
 │                                #   delivery_delay.csv, emitter.log, receiver.log, supervisor.log,
 │                                #   heartbeats, RUN_ACTIVE/RUN_POSTPROCESSING/RUN_COMPLETE/RUN_ABORTED sentinels, and,
@@ -445,6 +445,8 @@ freely — for example `[-1, "10:20", 45]`. The
   of the delivered record as a payload-row interval with its cause (lost,
   pruned, undelivered, a generation gap by type, an unreached record); the
   label-span table, every labeled interval of the scenario on the same grid;
+  the declared-hole feed, the same holes appended during the run as the
+  producer declares them, settled with the end-of-run holes;
   the metrics profile; the
   batch-state raster, which shows the LIFO backfill advancing backward in
   batch identifier; an HDF5 export of every product carrying the

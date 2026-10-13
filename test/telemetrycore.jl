@@ -981,3 +981,81 @@ end
         @test TelemetryCore.timestamp_text(missing) === missing
     end
 end
+
+@testset "Declared-hole feed writer" begin
+    mktempdir() do dir
+        origin = DateTime(2035, 1, 1, 4, 48)
+        feed = TelemetryCore.HoleFeed(dir, origin, 4.0, 2400)
+        t = DateTime(2035, 1, 1, 9)
+        # Rows given directly; an empty range writes nothing.
+        @test TelemetryCore.declare_hole!(feed, t, "lost", "LIVE_batch_3", 4801:7200)
+        @test !TelemetryCore.declare_hole!(feed, t, "lost", "LIVE_batch_4", 10:9)
+        @test countlines(joinpath(dir, "holes.csv")) == 2
+        # A generation gap on the payload grid; an empty gap writes nothing.
+        @test TelemetryCore.declare_gap_hole!(
+            feed,
+            t,
+            "scheduled",
+            DateTime(2035, 1, 1, 6),
+            DateTime(2035, 1, 1, 6, 10),
+        )
+        @test !TelemetryCore.declare_gap_hole!(
+            feed,
+            t,
+            "scheduled",
+            DateTime(2035, 1, 1, 6),
+            DateTime(2035, 1, 1, 6),
+        )
+        # A batch: rows from its payload_row stamp, or from its index without metadata.
+        stamped = joinpath(dir, "ground", "LIVE_batch_5")
+        mkpath(stamped)
+        write(
+            joinpath(stamped, "metadata.json"),
+            """{"batch_id":5,"payload_row":7201,"segment_count":1,""" *
+            """"content_epoch":"2035-01-01T05:18:00","created_at":"2035-01-01T05:19:00"}""",
+        )
+        @test TelemetryCore.declare_batch_hole!(feed, t, "pruned", stamped)
+        unstamped = joinpath(dir, "ground", "ARCH_batch_2")
+        mkpath(unstamped)
+        @test TelemetryCore.declare_batch_hole!(feed, t, "pruned", unstamped)
+
+        held = TelemetryCore.read_hole_feed(dir)
+        @test nrow(held) == 4
+        @test names(held) == [
+            "DeclaredAt",
+            "Cause",
+            "Batch",
+            "RowFirst",
+            "RowLast",
+            "ContentStart",
+            "ContentEnd",
+        ]
+        @test eltype(held.DeclaredAt) == DateTime
+        @test held.Cause == ["lost", "scheduled", "pruned", "pruned"]
+        @test ismissing(held.Batch[2])
+        @test held.RowFirst[2] == 17281 && held.RowLast[2] == 19680
+        @test held.ContentStart[2] == DateTime(2035, 1, 1, 6) &&
+              held.ContentEnd[2] == DateTime(2035, 1, 1, 6, 10)
+        @test held.ContentStart[1] == TelemetryCore.payload_row_time(origin, 4.0, 4801)
+        @test held.RowFirst[3] == 7201 && held.RowLast[3] == 9600
+        @test held.RowFirst[4] == 2401 && held.RowLast[4] == 4800
+        # The cursor: rows beyond the first `after`; an absent feed is an empty table.
+        @test nrow(TelemetryCore.read_hole_feed(dir; after = 3)) == 1
+        @test nrow(TelemetryCore.read_hole_feed(dir; after = 9)) == 0
+        absent = TelemetryCore.read_hole_feed(joinpath(dir, "none"))
+        @test nrow(absent) == 0 && names(absent) == names(held)
+
+        # The start of an open recorder gap, nothing once it has closed.
+        rec = joinpath(dir, "rec")
+        mkpath(rec)
+        TelemetryCore.log_tx_event(rec, DateTime(2035, 1, 1, 5), "RECORDER", "gap_start")
+        @test TelemetryCore.open_recorder_gap_start(rec) == DateTime(2035, 1, 1, 5)
+        @test TelemetryCore.open_recorder_gap(rec)
+        TelemetryCore.log_tx_event(rec, DateTime(2035, 1, 1, 6), "RECORDER", "gap_end")
+        @test TelemetryCore.open_recorder_gap_start(rec) === nothing
+        @test !TelemetryCore.open_recorder_gap(rec)
+        empty_dir = joinpath(dir, "empty")
+        mkpath(empty_dir)
+        @test TelemetryCore.open_recorder_gap_start(empty_dir) === nothing
+    end
+end

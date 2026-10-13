@@ -246,6 +246,19 @@ end
                 declared[r.RowFirst:r.RowLast] .= true
             end
             @test declared == .!covered
+            # The declared-hole feed holds the holes of the gap table; the end-of-run tail carries the nominal mission end.
+            holes = TelemetryCore.read_hole_feed(run_dir)
+            key(t) = Set(
+                (String(r.Cause), coalesce(r.Batch, ""), r.RowFirst, r.RowLast) for
+                r in eachrow(t)
+            )
+            @test key(holes) == key(gaps)
+            sched_hole = holes[holes.Cause .== "scheduled", :]
+            @test nrow(sched_hole) == 1 &&
+                  sched_hole.ContentStart[1] <= sched_hole.DeclaredAt[1]
+            t_end = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
+            @test all(holes.DeclaredAt[holes.Cause .== "not_generated"] .== t_end)
+            n_feed = nrow(holes)
             @test isfile(joinpath(run_dir, "alert_latency.csv"))
             @test isfile(joinpath(run_dir, "plots", "alert_latency.png"))
             # A stranded run: the sentinels of a supervisor killed during
@@ -291,6 +304,8 @@ end
             @test isfile(joinpath(run_dir, "RUN_ABORTED")) &&
                   !isfile(joinpath(run_dir, "RUN_ACTIVE")) &&
                   !isfile(joinpath(run_dir, "RUN_COMPLETE"))
+            # Settlement is idempotent across the re-runs of post-processing.
+            @test nrow(TelemetryCore.read_hole_feed(run_dir)) == n_feed
         finally
             rm(run_dir; recursive = true, force = true)
         end
@@ -327,6 +342,7 @@ end
             Supervisor.mission_plan(cfg; run_id = "TEST_RUN_restart_pid$(getpid())")
         end
         run_dir = TelemetryCore.setup_run_dir(plan.run_id; cfg = plan.cfg)
+        feed = TelemetryCore.HoleFeed(run_dir, plan.payload_origin, 0.2, 100)
         try
             instrument, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
@@ -360,7 +376,8 @@ end
                 instrument,
                 pending,
                 loggers...,
-                devnull,
+                devnull;
+                hole_feed = feed,
             )
             first_launch = spawners_until(now() + Second(2))
             launches = spawners_until(now() + Second(5))
@@ -405,6 +422,35 @@ end
             alignment = ramp_alignment(run_dir, origin, 0.2)
             @test alignment.checked == count(==("gen"), tx.Event)
             @test isempty(alignment.misaligned) && isempty(alignment.repeated)
+            # The STREAM gap opens at the content end of the last batch finalized before the outage, so the gap table covers every row no delivered batch does.
+            gap_start = DateTime(stream.SimTime[1])
+            @test gap_start == maximum(e + Second(500) for e in epochs if e < resume)
+            @test (gap_start - origin).value % 5_000 == 0
+            gaps = Masks.gap_table(run_dir)
+            stream_gap = gaps[gaps.Cause .== "stream", :]
+            @test nrow(stream_gap) == 1 &&
+                  stream_gap.ContentStart[1] == gap_start &&
+                  stream_gap.ContentEnd[1] == resume
+            rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
+            delivered = Set(String.(rx.Batch[rx.Event .== "ingested"]))
+            first_row = TelemetryCore.batch_payload_rows(run_dir)
+            covered = falses(100_000)
+            for name in delivered
+                covered[first_row[name]:(first_row[name]+99)] .= true
+            end
+            declared = falses(100_000)
+            for r in eachrow(gaps)
+                declared[r.RowFirst:r.RowLast] .= true
+            end
+            @test declared == .!covered
+            holes = TelemetryCore.read_hole_feed(run_dir)
+            stream_hole = holes[holes.Cause .== "stream", :]
+            @test nrow(stream_hole) == 1 &&
+                  stream_hole.RowFirst[1] == stream_gap.RowFirst[1] &&
+                  stream_hole.RowLast[1] == stream_gap.RowLast[1]
+            @test stream_hole.ContentStart[1] <=
+                  stream_hole.DeclaredAt[1] <=
+                  stream_hole.ContentEnd[1]
         finally
             rm(run_dir; recursive = true, force = true)
         end

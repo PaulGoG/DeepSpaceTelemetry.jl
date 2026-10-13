@@ -297,7 +297,14 @@ end
                 vi,
                 TelemetryCore.get_current_sim_time(restored.clock),
             )
-            Supervisor.record_generation_gap!(ra_dir, restored.clock, resumed.last_t)
+            Supervisor.record_generation_gap!(
+                ra_dir,
+                restored.clock,
+                resumed.last_t;
+                origin = vi.origin,
+                sample_rate = 4.0,
+                points_per_batch = 720,
+            )
             # Reconciliation seed: a batch delivered to ground/ whose
             # ingested record was lost to a crash window — the phase-2
             # receiver must synthesize the missing record at re-attach.
@@ -566,6 +573,12 @@ end
                 0.0,
                 64.0 * 1024^2,
             )
+            feed = TelemetryCore.HoleFeed(
+                run_dir,
+                Emitter.instrument_epoch(start_sim, 0.02),
+                4.0,
+                720,
+            )
             em = Threads.@spawn with_logger(NullLogger()) do
                 Emitter.run_emitter(
                     clock,
@@ -586,6 +599,7 @@ end
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                     retention = retention,
+                    hole_feed = feed,
                 )
             end
             wait(em)
@@ -613,6 +627,18 @@ end
             for r in eachrow(rx_events)
                 r.Event == "pruned" || continue
                 @test (r.SimTime - ingest_times[r.Batch]).value >= 0.25 * 3.6e6
+            end
+            # The declared-hole feed carries every pruned batch at the instant of its pruned row.
+            holes = TelemetryCore.read_hole_feed(run_dir)
+            @test Set(skipmissing(holes.Batch)) == Set(pruned)
+            @test all(==("pruned"), holes.Cause)
+            @test all(holes.RowLast .- holes.RowFirst .+ 1 .== 720)
+            for r in eachrow(rx_events)
+                r.Event == "pruned" || continue
+                @test any(
+                    (coalesce.(holes.Batch, "") .== r.Batch) .&
+                    (holes.DeclaredAt .== r.SimTime),
+                )
             end
 
             # Science products unaffected: pruning never regresses mask state 3
@@ -682,6 +708,12 @@ end
             end
 
             clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
+            feed = TelemetryCore.HoleFeed(
+                run_dir,
+                Emitter.instrument_epoch(start_sim, 0.02),
+                4.0,
+                720,
+            )
             em = Threads.@spawn with_logger(NullLogger()) do
                 Emitter.run_emitter(
                     clock,
@@ -703,6 +735,7 @@ end
                     batch_transfer_sec = 2.0,
                     loss_model = loss,
                     max_retries = 2,
+                    hole_feed = feed,
                 )
             end
             wait(em)
@@ -727,6 +760,17 @@ end
                 retries = filter(r -> r.Event == "retry" && r.Batch == b, rx_events)
                 @test nrow(retries) == 2
                 @test sort(retries.Attempt) == [1, 2]
+            end
+            # The declared-hole feed carries every lost batch at the instant of its lost row, on its stamped rows.
+            holes = TelemetryCore.read_hole_feed(run_dir)
+            @test Set(skipmissing(holes.Batch)) == Set(lost)
+            @test all(==("lost"), holes.Cause)
+            for r in eachrow(lost_rows)
+                row = findfirst(==(r.Batch), coalesce.(holes.Batch, ""))
+                @test row !== nothing && holes.DeclaredAt[row] == r.SimTime
+                meta = TelemetryCore.read_batch_metadata(joinpath(run_dir, "lost", r.Batch))
+                @test holes.RowFirst[row] == meta["payload_row"] &&
+                      holes.RowLast[row] == meta["payload_row"] + 719
             end
 
             # Lost batch directories preserve their data (never deleted)
@@ -1050,6 +1094,12 @@ end
                 gap_id;
                 batch_size = 3,
                 generation_gaps = [gap],
+                hole_feed = TelemetryCore.HoleFeed(
+                    gap_dir,
+                    Emitter.instrument_epoch(start, 0.01),
+                    4.0,
+                    720,
+                ),
             )
         end
         tx = TelemetryCore.read_table(joinpath(gap_dir, "events_tx.csv"))
@@ -1063,6 +1113,12 @@ end
         @test TelemetryCore.max_logged_batch_id(gap_dir) == 3
         @test TelemetryCore.batch_content_epochs(gap_dir)["ARCH_batch_2"] ==
               start - Minute(5) - Second(24)
+        # A scheduled gap inside the blind spot is declared at the mission epoch.
+        holes = TelemetryCore.read_hole_feed(gap_dir)
+        @test nrow(holes) == 1 && holes.Cause[1] == "scheduled" && ismissing(holes.Batch[1])
+        @test holes.DeclaredAt[1] == start
+        @test holes.ContentStart[1] == DateTime(gap_rows.SimTime[1]) &&
+              holes.ContentEnd[1] == DateTime(gap_rows.SimTime[2])
     finally
         rm(gap_dir; recursive = true, force = true)
     end
@@ -1085,6 +1141,12 @@ end
                 rec_id;
                 batch_size = 3,
                 onboard_capacity_batches = 2,
+                hole_feed = TelemetryCore.HoleFeed(
+                    rec_dir,
+                    Emitter.instrument_epoch(start, 0.01),
+                    4.0,
+                    720,
+                ),
             )
         end
         @test TelemetryCore.max_logged_batch_id(rec_dir) == 2
@@ -1093,6 +1155,10 @@ end
         @test String.(rec_rows.Event) == ["gap_start"]
         @test DateTime(rec_rows.SimTime[1]) == start - Minute(8) - Second(24)
         @test TelemetryCore.open_recorder_gap(rec_dir)
+        # An open recorder gap is not yet a declared hole.
+        @test !isfile(joinpath(rec_dir, "holes.csv"))
+        @test TelemetryCore.open_recorder_gap_start(rec_dir) ==
+              start - Minute(8) - Second(24)
         @test MissionFigures.generation_gap_spans(
             rec_dir,
             start - Hour(1),
@@ -1246,6 +1312,7 @@ end
                     deadline = now() + Second(3),
                     batch_size = 10,
                     onboard_capacity_batches = 2,
+                    hole_feed = TelemetryCore.HoleFeed(rec_dir, start, fs, 100),
                 )
             end
             tx = TelemetryCore.read_table(joinpath(rec_dir, "events_tx.csv"))
@@ -1263,6 +1330,18 @@ end
                 @warn "[TEST] Host did not keep pace with the accelerated clock; " *
                       "the recorder-gap closing assertion is skipped."
             kept_pace && @test "gap_end" in String.(recorder.Event)
+            # The closed recorder gap is declared once, at or after its content end.
+            if kept_pace && "gap_end" in String.(recorder.Event)
+                opened =
+                    DateTime(recorder.SimTime[findfirst(==("gap_start"), recorder.Event)])
+                closed =
+                    DateTime(recorder.SimTime[findfirst(==("gap_end"), recorder.Event)])
+                holes = TelemetryCore.read_hole_feed(rec_dir)
+                rec_hole = holes[holes.Cause .== "recorder", :]
+                @test nrow(rec_hole) == 1
+                @test rec_hole.ContentStart[1] == opened && rec_hole.ContentEnd[1] == closed
+                @test rec_hole.DeclaredAt[1] >= rec_hole.ContentEnd[1]
+            end
             alignment = ramp_alignment(rec_dir, start, fs)
             @test alignment.checked == count(==("gen"), tx.Event) > 2
             @test isempty(alignment.misaligned) && isempty(alignment.repeated)

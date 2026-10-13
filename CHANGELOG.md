@@ -20,12 +20,34 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `label_end_index`, inclusive payload rows), validated on load, and the
   free-form `[payload]` section for the provenance a payload exporter
   records, accepted like `[provenance]`.
+- `holes.csv`, the declared-hole feed: an append-only table at the run
+  root with the columns of the gap table behind `DeclaredAt`, the mission
+  instant of the declaration. The receiver appends a lost or pruned batch
+  as it declares it, the emitter a scheduled gap when it skips it and a
+  recorder gap when the buffer has room again, the supervisor an emitter
+  outage before the replacement starts; post-processing settles the feed
+  from the gap table, so a finished run's feed and `masks/gaps.csv` hold
+  the same holes. A consumer in any language tails one file;
+  `RunAdapter.declared_holes` reads it with a cursor and `Hole` carries
+  `declared_at`. Registered in the descriptor and the HDF5 export.
+- `TelemetryCore.open_recorder_gap_start`, the instant of an open
+  recorder gap.
 
 ### Changed
 - The instant-to-row conversion of the gap table, the markers, and the
   adapter is single-sourced in `TelemetryCore` (`payload_row_time`,
   `payload_time_row`, `payload_origin`, `mission_epoch`, `mission_end`);
   every result is unchanged.
+- The storage estimate counts one declared-hole row per batch.
+
+### Fixed
+- The `STREAM` gap of an emitter restart opened at the largest `SimTime`
+  of `events_tx.csv`, a finalization or transmission instant, which left
+  the rows of the failed emitter's partial batch in no batch and no gap.
+  It opens at the content end of the last finalized batch, from the
+  `payload_row` stamps, or at the payload origin when no batch exists;
+  the gap table of a restarted run covers every row no delivered batch
+  does, which the suite now asserts.
 
 ## [2.5.0] - 2026-10-12
 

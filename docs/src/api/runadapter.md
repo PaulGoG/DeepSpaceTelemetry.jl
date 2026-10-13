@@ -24,4 +24,5 @@ DeepSpaceTelemetry.RunAdapter.Hole
 DeepSpaceTelemetry.RunAdapter.GapTracker
 DeepSpaceTelemetry.RunAdapter.declare!
 DeepSpaceTelemetry.RunAdapter.open_gaps
+DeepSpaceTelemetry.RunAdapter.declared_holes
 ```

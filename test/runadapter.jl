@@ -1,8 +1,8 @@
 # The reference run adapter: the six questions answered from the file
 # contract of a lossy tick run with a marker, a scheduled generation gap, and
-# declared label spans, the gap tracker against the gap table, the marker
-# rows, the label-span table and its regeneration, the descriptor, and the
-# version check.
+# declared label spans, the gap tracker and the declared-hole feed against
+# the gap table, the marker rows, the label-span table and its regeneration,
+# the descriptor, and the version check.
 
 @testset "Run adapter" begin
     cfg = TelemetryCore.load_config(
@@ -133,6 +133,22 @@
         )
         @test any(h -> h.cause === :scheduled && ismissing(h.batch), holes)
         @test all(h -> h.content_end > h.content_start, holes)
+        # The producer's own feed holds every hole of the gap table, each with its declaration instant; the tracker's holes carry none.
+        declared = RunAdapter.declared_holes(run)
+        @test Set(
+            (h.cause, coalesce(h.batch, ""), first(h.rows), last(h.rows)) for h in declared
+        ) == Set(
+            (Symbol(r.Cause), coalesce(r.Batch, ""), r.RowFirst, r.RowLast) for
+            r in eachrow(table)
+        )
+        @test all(h.declared_at isa DateTime for h in declared)
+        @test all(h.declared_at === missing for h in holes)
+        for r in eachrow(rx[rx.Event .== "lost", :])
+            hole = only(d for d in declared if d.cause === :lost && d.batch == r.Batch)
+            @test hole.declared_at == r.SimTime
+        end
+        @test length(RunAdapter.declared_holes(run; after = length(declared) - 2)) == 2
+        @test isempty(RunAdapter.declared_holes(run; after = length(declared)))
         # The descriptor names the run, the producer, and the products with
         # their hashes.
         descriptor = TOML.parsefile(joinpath(run_dir, "descriptor.toml"))
@@ -142,6 +158,7 @@
         @test haskey(descriptor["products"], "events_rx.csv") &&
               haskey(descriptor["products"], "masks/gaps.csv")
         @test haskey(descriptor["products"], "label_spans.csv")
+        @test haskey(descriptor["products"], "holes.csv")
         @test descriptor["products"]["events_rx.csv"]["sha256"] ==
               bytes2hex(open(TelemetryCore.sha256, joinpath(run_dir, "events_rx.csv")))
         # A run of a producer before the payload-row stamps is refused; one

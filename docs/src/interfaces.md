@@ -77,6 +77,7 @@ the file contract is the same, read at different moments.
 | `ground/<BATCH>/` | receiver | **Read/copy.** The delivery surface (see below). |
 | `lost/<BATCH>/` | receiver | Read/copy. Retry-exhausted batches, preserved but never ground-available. |
 | `events_rx.csv` | receiver (single writer) | **Tail/read.** The authoritative arrival feed. |
+| `holes.csv` | receiver, emitter, and supervisor through one shared writer; post-processing settles it | **Tail/read.** The declared-hole feed (since 2.6.0): one row per hole of the delivered record, appended the moment the producer declares it, columns `DeclaredAt, Cause, Batch, RowFirst, RowLast, ContentStart, ContentEnd` — `DeclaredAt` the mission instant of the declaration, the rest the columns of `masks/gaps.csv`. A lost or pruned batch by the receiver at its `lost` or `pruned` row; a scheduled gap by the emitter when it skips it and a recorder gap when the buffer has room again; an emitter outage by the supervisor before the replacement starts; and, after the mission phase, the end-of-run holes (undelivered, not generated, a recorder gap still open) with the nominal mission end as `DeclaredAt`, so that on a finished run the feed and the gap table hold the same holes. The file form of the adapter's gap tracker, for a consumer in any language. |
 | `events_tx.csv` | emitter; the supervisor appends the `STREAM` gap pair while the emitter is down (one live writer at a time) | Tail/read. Generation and transmission milestones. |
 | `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics at a change-driven cadence, columns `SimTime, WallTime, Mission_Day, Hours_Elapsed, Bandwidth_Pct, Onboard_Buffer, Link_Buffer, Ground_Total, Ground_Live, Ground_Arch, Nominal_Bandwidth_Pct, Lost_Count, Retry_Count, Disruption_Active` (a pre-rename `Ground_Archive` column is normalized to `Ground_Total` on read). |
 | `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
@@ -208,8 +209,11 @@ genuine generation gap**: the restarted instrument resumes at the first
 segment boundary at or after the *current* mission time, on the sampling
 grid of the payload origin, and the dead window is bounded by
 `gap_start`/`gap_end` rows (Batch = `STREAM`) in `events_tx.csv`: `gap_start`
-is the last event-log instant before the outage (the partial batch the
-failed emitter held is lost with it), `gap_end` the resumption instant. The
+is the content end of the last batch finalized before the outage — the
+instant of row `payload_row + points_per_batch` of the highest `payload_row`
+stamp, or the payload origin when no batch exists — so the rows of the
+partial batch the failed emitter held, lost with it, fall inside the gap;
+`gap_end` is the resumption instant. The
 same row pair bounds a **scheduled
 generation gap** (a disruption event with `affects = "generation"`; Batch =
 `SCHEDULED`), whose `gap_start` is the first discarded content instant and
@@ -251,6 +255,14 @@ finalized onboard), `tx` (batch placed on the downlink), `marker`
 appended when that batch is finalized; state-preserving), and the
 `gap_start` / `gap_end` pair bounding a generation gap (`Batch` = `STREAM`,
 `SCHEDULED`, or `RECORDER`, see above; state-preserving).
+
+`holes.csv` — columns `DeclaredAt, Cause, Batch, RowFirst, RowLast,
+ContentStart, ContentEnd`; append-only, rows in declaration order
+(`DeclaredAt` is not monotone across the writers by up to one transfer
+slot). `Cause` is one of the gap table's (`lost`, `pruned`, `scheduled`,
+`recorder`, `stream` during the run; `undelivered` and `not_generated` after
+it). A row is appended after the event row that announces the same hole, so
+a consumer that reads the feed alone is never ahead of the event logs.
 
 ## Batch Identity → Sample Interval
 
@@ -362,7 +374,10 @@ the feed and the transmission log tell them apart:
   `events_tx.csv` (`Batch` = `STREAM` for an emitter outage, `SCHEDULED`
   for a scheduled gap, `RECORDER` for an overflow of the on-board recorder).
   Read those rows as they appear and declare the hole at once, rather than
-  discovering it later from the spacing of the content epochs.
+  discovering it later from the spacing of the content epochs. `holes.csv`
+  carries every permanent hole as one row the moment it is declared, so a
+  consumer tails it instead of pairing the `gap_start` / `gap_end` rows
+  itself; the pending state is still read from the transmission log.
 * *Unknown*: no `gen` row yet, because mission time has not reached the
   rows. Beyond the current mission instant nothing is pending.
 
@@ -378,7 +393,9 @@ written. `RUN_COMPLETE` or `RUN_ABORTED` replaces `RUN_ACTIVE` when the
 lifecycle ends; either is the signal to finish as a stationary consumer.
 A run whose deadline has passed, whose heartbeats are stale, and which still
 shows `RUN_ACTIVE` is stranded, not live; `complete_run.jl` settles it
-(Availability Window above).
+(Availability Window above). The settled rows of `holes.csv` — the
+end-of-run holes — land during post-processing; read the feed once more
+after the terminal sentinel.
 
 A minimal consumer in Julia, with the package as a reader (consumers in
 other languages read the same files):
@@ -448,6 +465,7 @@ RunAdapter.arrival_events(run; after = n)    # the feed beyond the n rows alread
 RunAdapter.run_state(run)                    # :active | :complete | :aborted, from the sentinels
 RunAdapter.markers(run)                      # the event markers with their payload row
 RunAdapter.label_spans(run)                  # the labeled intervals of the scenario, with their rows
+RunAdapter.declared_holes(run; after = n)    # the producer's hole feed beyond n rows, each with its declaration instant
 ```
 
 `open_run` refuses a run of a producer older than 2.1.0, the first with
@@ -458,7 +476,10 @@ a `lost` or `pruned` batch as its rows, a closed `gap_start` / `gap_end`
 pair as the rows between — so a streaming consumer declares a permanent
 hole the moment the producer does; `open_gaps` lists the generation gaps
 not yet closed. On a finished run one call returns the holes of
-`masks/gaps.csv` for those causes.
+`masks/gaps.csv` for those causes. `declared_holes` reads the producer's
+own feed, `holes.csv`, instead of deriving the holes from the event logs;
+on a finished run it holds the holes of the gap table, the end-of-run
+causes included.
 
 **Consumer archetypes.** The loop above is what a *streaming engine* does
 generically — a coverage set, a window scheduler that emits each window
@@ -497,6 +518,11 @@ declares each:
 | undelivered at run end | a `gen` row in `events_tx.csv` with no `ingested` or `lost` row; the batch directory under `onboard/` or `link/` | its `payload_row … + points_per_batch − 1` |
 | not generated by run end | no `gen` row: the mission ended before the payload was exhausted | the rows past the last generated batch, up to `external_data_rows` |
 | beyond the record | `external_data_rows` in `[provenance]` (external payload) | every row past it holds the producer's zero padding |
+
+`holes.csv` holds the same rows on a finished run, each with the instant it
+was declared at — the nominal mission end for the end-of-run causes — so a
+stationary consumer that wants the declaration history reads the feed, and
+one that wants the table reads `masks/gaps.csv`.
 
 A gap-aware statistic takes the holes as declared intervals rather than
 inferring them from the spacing of the delivered samples: the spacing cannot
@@ -620,7 +646,7 @@ derived view of them and can be regenerated at any time.
 | Group | Content |
 |---|---|
 | root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `julia_version`, …), `config_snapshot` — the run's configuration as TOML text — and `config_source` (`snapshot` or `fallback`, the latter when the project `config.toml` stood in for a missing or corrupt snapshot) |
-| `events/tx`, `events/rx` | the event logs, one dataset per column |
+| `events/tx`, `events/rx`, `holes` | the event logs and the declared-hole feed, one dataset per column |
 | `metrics/mission_profile` | the metrics profile, one dataset per column |
 | `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants (`SimTime`, `SimTime_iso`), and the attributes `state_codes` and `layout` |
 | `masks/batch_epochs` | the batch → epoch map, `PayloadRow` included |
