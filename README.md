@@ -229,7 +229,7 @@ batch never becomes available on the ground.
 | `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
 | `Supervisor` | mission plan, supervised tasks on the wall clock, the tick driver, sentinels, banner | stable; restart, policy, and reproducibility tests |
-| `RunAdapter` | the reference consumer: the five questions (geometry, batches, payload, arrivals, state) answered from the file contract, the gap tracker, the marker rows, the producer-version check | new in 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
+| `RunAdapter` | the reference consumer: the six questions (geometry, batches, payload, arrivals, state, labeled intervals) answered from the file contract, the gap tracker, the marker rows, the producer-version check | new in 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
 | `Sweeps` | ensembles and parameter sweeps on the tick clock, serial or over worker processes, with a summary table and provenance | new in 2.5.0; serial two-seed sweep in the suite, the worker path verified manually |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
 | Scenario library | twelve configurations under `scenarios/` | every file validated, the smoke scenario run, and the deterministic scenario run twice by the suite |
@@ -256,7 +256,7 @@ DeepSpaceTelemetry/
 │   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
 │   ├── Publication.jl           # Publication figure export at a declared printed width
 │   ├── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
-│   ├── RunAdapter.jl            # The reference consumer: five questions, gap tracker, markers
+│   ├── RunAdapter.jl            # The reference consumer: six questions, gap tracker, markers, label spans
 │   └── Sweeps.jl                # Ensembles and sweeps on the tick clock
 ├── scripts/
 │   ├── Project.toml             # Script environment (terminal UI and logging dependencies; package consumed by path ([sources]))
@@ -317,7 +317,7 @@ DeepSpaceTelemetry/
 │   └── runs/                    # Ephemeral run directories (gitignored)
 │       ├── .gitkeep             # Keeps the directory in git
 │       └── <RUN_ID>/            # onboard/ link/ ground/ lost/ plots/ masks/
-│                                # + mission_profile.csv, events_tx.csv, events_rx.csv, markers.csv,
+│                                # + mission_profile.csv, events_tx.csv, events_rx.csv, markers.csv, label_spans.csv,
 │                                #   component_events.csv, config_snapshot.toml, manifest_snapshot.toml,
 │                                #   clock_anchor.toml, descriptor.toml, alert_latency.csv, alert_latency_markers.csv,
 │                                #   delivery_delay.csv, emitter.log, receiver.log, supervisor.log,
@@ -431,9 +431,9 @@ freely — for example `[-1, "10:20", 45]`. The
   completions; and the measurement-to-ground delivery delay of every batch
   against a requirement (24 h for LISA). Declared event markers are stamped
   into the batch metadata and evaluated by both metrics.
-- **Consumers and ensembles** — the reference run adapter answers the five
+- **Consumers and ensembles** — the reference run adapter answers the six
   questions a consumer asks of a run (geometry, batches, payload, arrivals,
-  state) from the file contract, declares the holes as the feeds announce
+  state, labeled intervals) from the file contract, declares the holes as the feeds announce
   them, and checks the producer's version; a sweep runs a configuration on
   the tick clock once per seed, with overrides, over worker processes, and
   gathers the totals of every reproducible run into one table with its
@@ -444,7 +444,8 @@ freely — for example `[-1, "10:20", 45]`. The
   timeline and point-wise 0/1 availability masks; the gap table, every hole
   of the delivered record as a payload-row interval with its cause (lost,
   pruned, undelivered, a generation gap by type, an unreached record); the
-  metrics profile; the
+  label-span table, every labeled interval of the scenario on the same grid;
+  the metrics profile; the
   batch-state raster, which shows the LIFO backfill advancing backward in
   batch identifier; an HDF5 export of every product carrying the
   run's provenance as attributes; publication figures at a declared printed

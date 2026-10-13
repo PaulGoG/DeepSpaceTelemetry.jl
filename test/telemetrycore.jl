@@ -162,6 +162,27 @@ end
         Second(8 * 3600),
         "trapezoid",
     )
+
+    # [[labels]] corner cases: rows below 1, a missing bound, an entry that is
+    # not a table, a non-integer row
+    for labels in (
+        Any[Dict{String,Any}(
+            "label" => "x",
+            "label_start_index" => 0,
+            "label_end_index" => 3,
+        )],
+        Any[Dict{String,Any}("label" => "x", "label_start_index" => 1)],
+        Any["not a table"],
+        Any[Dict{String,Any}(
+            "label" => "x",
+            "label_start_index" => 2.5,
+            "label_end_index" => 3,
+        )],
+    )
+        cfg = valid_test_cfg()
+        cfg["labels"] = labels
+        @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+    end
 end
 
 @testset "Config validation: warnings" begin
@@ -206,6 +227,22 @@ end
     ) # typo'd event key
     @test_logs (:warn, r"Unrecognized key disruption\.events\[1\]\.duration_hurs") match_mode =
         :any TelemetryCore.validate_config(cfg)
+    cfg = valid_test_cfg()
+    cfg["labels"] = Any[Dict{String,Any}(
+        "label" => "x",
+        "label_start_index" => 1,
+        "label_end_index" => 2,
+        "colour" => 1,
+    )] # unknown label key
+    @test_logs (:warn, r"Unrecognized key labels\[1\]\.colour") match_mode = :any TelemetryCore.validate_config(
+        cfg,
+    )
+    # The [payload] section is free-form, like [provenance]: no warning.
+    cfg = valid_test_cfg()
+    cfg["payload"] = Dict{String,Any}("source" => "exporter", "n_rows" => 10)
+    logs, _ = Test.collect_test_logs(() -> TelemetryCore.validate_config(cfg))
+    @test !any(l -> occursin("Unrecognized section", string(l.message)), logs)
+    @test !any(l -> occursin("payload", string(l.message)), logs)
 
     # Never-fires boundary is inclusive: an event at the exact final instant warns
     cfg = valid_test_cfg() # 10 s × 3600 → 10 mission hours
@@ -738,6 +775,47 @@ end
     @test_throws ArgumentError TelemetryCore.supervision_settings(
         Dict{String,Any}("supervision" => Dict{String,Any}("watchdog_sec" => 0.0)),
     )
+end
+
+@testset "Configuration accessors: label spans and the payload grid" begin
+    # [[labels]] entries come back in file order with a default label; an
+    # empty span (start > end) is returned as declared.
+    cfg = valid_test_cfg()
+    cfg["labels"] = Any[
+        Dict{String,Any}(
+            "label" => "mbhb_1",
+            "label_start_index" => 100,
+            "label_end_index" => 2500,
+        ),
+        Dict{String,Any}("label_start_index" => 50, "label_end_index" => 10),
+    ]
+    spans = TelemetryCore.label_settings(cfg)
+    @test spans isa Vector{TelemetryCore.LabelSpan} && length(spans) == 2
+    @test spans[1] == TelemetryCore.LabelSpan("mbhb_1", 100, 2500)
+    @test spans[2].label == "label 2"
+    @test spans[2].row_first > spans[2].row_last
+    @test isempty(TelemetryCore.label_settings(valid_test_cfg()))
+
+    # Row 1 sits at the origin; 4 Hz puts row 17281 at origin + 4320 s.
+    origin = DateTime(2035, 1, 1, 4, 48)
+    fs = 4.0
+    @test TelemetryCore.payload_row_time(origin, fs, 1) == origin
+    @test TelemetryCore.payload_row_time(origin, fs, 17281) == DateTime(2035, 1, 1, 6)
+    @test TelemetryCore.payload_time_row(origin, fs, DateTime(2035, 1, 1, 6)) == 17281
+    @test TelemetryCore.payload_time_row(
+        origin,
+        fs,
+        TelemetryCore.payload_row_time(origin, fs, 4801),
+    ) == 4801
+    @test TelemetryCore.mission_epoch(valid_test_cfg()) == DateTime(2035, 1, 1, 6)
+    downtime = valid_test_cfg()
+    downtime["simulation"]["initial_downtime_days"] = 0.05
+    @test TelemetryCore.payload_origin(downtime) ==
+          DateTime(2035, 1, 1, 6) - Hour(1) - Minute(12)
+    downtime["provenance"] = Dict{String,Any}("payload_origin" => "2035-01-01T03:00:00")
+    @test TelemetryCore.payload_origin(downtime) == DateTime(2035, 1, 1, 3)
+    # 10 s × 3600 → 10 mission hours after the epoch
+    @test TelemetryCore.mission_end(valid_test_cfg()) == DateTime(2035, 1, 1, 16)
 end
 
 @testset "Configuration accessors: dashboard" begin

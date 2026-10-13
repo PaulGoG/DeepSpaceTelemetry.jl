@@ -176,6 +176,15 @@ low_latency_duration_hours = 3.0
 low_latency_capacity_fraction = 0.5
 ```
 
+### Label Spans
+`[[labels]]` entries declare labeled spans of payload rows: the samples of an injected event, as a payload exporter records them beside the series it writes. They travel into the run as `label_spans.csv` together with every other labeled interval of the scenario (disruption phases, generation gaps, contact passes, low-latency periods, the initial downtime), so a consumer reads the labels from the run directory rather than from the scenario file. A `[payload]` section, the provenance a payload exporter records with its scenario fragment, is carried into the snapshot unchecked.
+```toml
+[[labels]]
+label = "mbhb_1"
+label_start_index = 100   # payload rows, inclusive; start > end declares an empty span
+label_end_index = 2500
+```
+
 ### Synthetic Payload
 With `data_source = "synthetic"` the payload is a binary flag series: a segment is `1` throughout when its content span holds the instant of an `[[events.markers]]` entry and `0` throughout otherwise. `segment_duration_sec` must be a whole number of milliseconds and hold at least one sample at `sample_rate`.
 
@@ -253,7 +262,7 @@ After a run, the system outputs `masks/telemetry_mask_timeline.csv`. This 2D mat
 
 Post-processing always reads the run's own `config_snapshot.toml`, so analyzing an old run stays correct after `config.toml` edits.
 
-Before any figure, post-processing writes `masks/gaps.csv`, the gap table: every hole of the delivered record as a payload-row interval with its cause — a lost or pruned batch, a batch undelivered at run end, a generation gap by type (`stream`, `scheduled`, `recorder`), or the unreached tail of an external record — the declared input of a gap-aware analysis (Stationary Analysis in the Analysis Interfaces page). `Masks.gap_table(run_dir)` computes it for a run made before the product existed. After every other product, post-processing writes `descriptor.toml`, the run's identity for a downstream collection: producer version and commit, configuration hash, seed, clock mode, payload geometry, and the size and SHA-256 of every table present.
+Before any figure, post-processing writes `masks/gaps.csv`, the gap table: every hole of the delivered record as a payload-row interval with its cause — a lost or pruned batch, a batch undelivered at run end, a generation gap by type (`stream`, `scheduled`, `recorder`), or the unreached tail of an external record — the declared input of a gap-aware analysis (Stationary Analysis in the Analysis Interfaces page). `Masks.gap_table(run_dir)` computes it for a run made before the product existed. The label-span table `label_spans.csv` is written at mission start and regenerated here only when a run lacks it. After every other product, post-processing writes `descriptor.toml`, the run's identity for a downstream collection: producer version and commit, configuration hash, seed, clock mode, payload geometry, and the size and SHA-256 of every table present.
 
 One matrix row expands into a high-resolution point-wise 0/1 availability array (multiplied against the raw time series, it blanks out undelivered data):
 ```bash

@@ -87,6 +87,7 @@ the file contract is the same, read at different moments.
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` one of `down`, `restart`, `stalled`, `recovered`. |
 | `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs and deleted when it exits: absence means finished, a stale mtime means stalled. |
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run (`SimTime, Label, PayloadRow`, the last the payload row of the instant, since 2.5.0) — the instants the alert-latency metric is evaluated at (`alert_latency_markers.csv`). |
+| `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid (since 2.6.0), columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd` with the row convention of `masks/gaps.csv`: the `[[labels]]` spans a payload exporter declares in payload rows (`Class = label`), the blackout and recovery phases of the link disruptions (`Type` = the event type), the scheduled generation gaps as configured (`generation_gap`; the realized gap of the gap table may differ by the segment-grid snap), the contact passes (`contact`, `Type = pass`), the low-latency periods (`low_latency`, `Type = triggered` for a marker's period, `scheduled` otherwise), and the initial downtime. A consumer reads the labels of a scenario from the run directory, not from the scenario file. |
 | `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema`, `run_id`, the producer's `package_version`, `git_commit`, `git_dirty`, `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry, the external record's hash and length, and under `[products]` the size and SHA-256 of every table present. |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period); `plots/delivery_delay.png` renders the distribution against the requirement. |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine against the counterfactual FIFO drain — columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
@@ -117,7 +118,7 @@ the marker labels under the optional `markers` key. The order of the keys
 in `metadata.json` carries no meaning.
 
 Instants in the CSV tables (`SimTime`, `WallTime`, `GenSimTime`,
-`ContentEpoch`, `ContentEnd`, `AvailableAt`, `Marker`) are written as
+`ContentEpoch`, `ContentStart`, `ContentEnd`, `AvailableAt`, `Marker`) are written as
 `yyyy-mm-ddTHH:MM:SS.s`, the seconds with one to three decimals
 (`2035-01-04T12:00:36.0`, `2026-09-24T02:01:17.051`). The package states
 that form when it writes and the column types when it reads
@@ -313,6 +314,8 @@ payload, beyond which the producer pads with zeros. Read `clock_anchor.toml`
 if the consumer paces itself against mission time: `wall_epoch`,
 `start_sim_time`, and `speed_up` convert a wall instant to a mission
 instant, and `deadline_wall` is when the mission phase ends.
+`label_spans.csv` exists from mission start and is read once at attach:
+the labeled intervals of the scenario on the payload grid.
 
 **Follow the feed.** `events_rx.csv` is append-only with a single writer,
 and the payload of a batch is moved into `ground/` *before* its `ingested`
@@ -429,7 +432,7 @@ run has no gap rows either, and batch `k` then covers the rows
 `(k − 1) · points_per_batch + 1 … k · points_per_batch`.
 
 **The reference adapter.** The package ships the run adapter a consumer
-builds on, `RunAdapter`, answering the five questions from the files above
+builds on, `RunAdapter`, answering the six questions from the files above
 and nothing else, so that a consumer in Julia needs no reader of its own
 and a consumer in another language has a worked reference:
 
@@ -444,6 +447,7 @@ RunAdapter.read_batch(run, "LIVE_batch_7")   # the samples, Float32, segments in
 RunAdapter.arrival_events(run; after = n)    # the feed beyond the n rows already consumed, in mission-time order
 RunAdapter.run_state(run)                    # :active | :complete | :aborted, from the sentinels
 RunAdapter.markers(run)                      # the event markers with their payload row
+RunAdapter.label_spans(run)                  # the labeled intervals of the scenario, with their rows
 ```
 
 `open_run` refuses a run of a producer older than 2.1.0, the first with
@@ -569,7 +573,8 @@ views most analyses want and that need no replay of one's own:
   batch, `missing` for the undelivered; `alert_latency.csv` and
   `alert_latency_markers.csv` — the completion of the look-back window after
   a live event, realized against the FIFO counterfactual, and at every
-  marker; `markers.csv` — the event markers.
+  marker; `markers.csv` — the event markers; `label_spans.csv` — the
+  labeled intervals of the scenario, the `[[labels]]` spans included.
 * `products.h5` — all of the above in one file (HDF5 Product Export below).
 
 **Reproducibility.** `config_snapshot.toml` (the parameters, the commit,
@@ -622,7 +627,7 @@ derived view of them and can be regenerated at any time.
 | `masks/gaps` | the gap table, every hole of the delivered record with its cause |
 | `masks/pointwise/<stem>` | every point-wise expansion, `Ground_Available` as `Int8` per sample |
 | `metrology/alert_latency`, `metrology/alert_latency_markers`, `metrology/delivery_delay` | the metrology tables |
-| `markers`, `component_events` | the event markers and the component lifecycle record |
+| `markers`, `label_spans`, `component_events` | the event markers, the labeled intervals of the scenario, and the component lifecycle record |
 
 Column conventions: a `DateTime` column is stored as `Float64` seconds
 since `start_sim_time` (attribute `unit`) with an ISO-8601 twin `<name>_iso`;

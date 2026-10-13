@@ -19,6 +19,7 @@ DeepSpaceTelemetry.RunAdapter.list_batches
 DeepSpaceTelemetry.RunAdapter.read_batch
 DeepSpaceTelemetry.RunAdapter.arrival_events
 DeepSpaceTelemetry.RunAdapter.markers
+DeepSpaceTelemetry.RunAdapter.label_spans
 DeepSpaceTelemetry.RunAdapter.Hole
 DeepSpaceTelemetry.RunAdapter.GapTracker
 DeepSpaceTelemetry.RunAdapter.declare!

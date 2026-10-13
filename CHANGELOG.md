@@ -6,6 +6,27 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- `label_spans.csv`, written at mission start beside `markers.csv`: every
+  labeled interval of the scenario on the payload grid, columns `Class,
+  Type, Label, RowFirst, RowLast, ContentStart, ContentEnd` with the row
+  convention of the gap table — the `[[labels]]` spans a payload exporter
+  declares in payload rows, the blackout and recovery phases of the link
+  disruptions, the scheduled generation gaps as configured, the contact
+  passes, the low-latency periods, and the initial downtime. Post-processing
+  regenerates it only when a run lacks it. Registered in the descriptor
+  and the HDF5 export; `RunAdapter.label_spans` reads it.
+- The `[[labels]]` configuration section (`label`, `label_start_index`,
+  `label_end_index`, inclusive payload rows), validated on load, and the
+  free-form `[payload]` section for the provenance a payload exporter
+  records, accepted like `[provenance]`.
+
+### Changed
+- The instant-to-row conversion of the gap table, the markers, and the
+  adapter is single-sourced in `TelemetryCore` (`payload_row_time`,
+  `payload_time_row`, `payload_origin`, `mission_epoch`, `mission_end`);
+  every result is unchanged.
+
 ## [2.5.0] - 2026-10-12
 
 ### Added

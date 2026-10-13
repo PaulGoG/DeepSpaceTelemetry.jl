@@ -9,5 +9,8 @@ DeepSpaceTelemetry.Masks.generate_telemetry_masks
 DeepSpaceTelemetry.Masks.GAP_CAUSES
 DeepSpaceTelemetry.Masks.gap_table
 DeepSpaceTelemetry.Masks.write_gap_table
+DeepSpaceTelemetry.Masks.LABEL_SPAN_CLASSES
+DeepSpaceTelemetry.Masks.label_span_table
+DeepSpaceTelemetry.Masks.write_label_spans
 DeepSpaceTelemetry.Masks.expand_pointwise_mask
 ```
