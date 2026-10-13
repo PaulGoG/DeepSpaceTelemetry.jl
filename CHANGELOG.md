@@ -32,6 +32,15 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `declared_at`. Registered in the descriptor and the HDF5 export.
 - `TelemetryCore.open_recorder_gap_start`, the instant of an open
   recorder gap.
+- `physics.external_data_columns`: the columns of the external file to
+  ingest, in that order, as one payload under one link accounting — one
+  batch, one transfer, one loss draw for every column. Segment files carry
+  one column per payload column under its name; the resolved names are
+  `external_data_columns` in the provenance and `payload_columns` in the
+  descriptor; `RunGeometry.columns`, `read_batch(; column)` and
+  `read_batch_matrix` read them. A one-column run is byte-identical to
+  2.5.0 (`Amplitude`, or else the first column, written as `Amplitude`).
+  The storage estimate scales the payload with the column count.
 
 ### Changed
 - The instant-to-row conversion of the gap table, the markers, and the
@@ -39,6 +48,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `payload_time_row`, `payload_origin`, `mission_epoch`, `mission_end`);
   every result is unchanged.
 - The storage estimate counts one declared-hole row per batch.
+- `DataSegment` holds a samples × columns `Matrix{Float32}` and the column
+  names; the vector form remains as a one-column constructor, and
+  `load_segment(...).data` of a one-column file is an n × 1 matrix.
 
 ### Fixed
 - The `STREAM` gap of an emitter restart opened at the largest `SimTime`

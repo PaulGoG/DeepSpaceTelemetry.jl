@@ -30,7 +30,7 @@ cd DeepSpaceTelemetry.jl
 ```
 
 ## Capabilities
-* **Payload**: a binary flag series marking the segments that hold a declared event (`0` noise only, `1` flagged signal), or ingestion of an external continuous CSV time series.
+* **Payload**: a binary flag series marking the segments that hold a declared event (`0` noise only, `1` flagged signal), or ingestion of an external continuous CSV time series, one or several of its columns as one payload.
 * **Link capacity**: either the batches-per-hour abstraction or the physical rate pair `downlink_kbps` / `onboard_data_rate_kbps`, with the catch-up ratio and the capacity of one nominal pass against the daily production reported at start-up.
 * **Pass profiles**: `sine`, `sigmoid`, `gaussian`, or `flat` capacity over the pass; the validator states the profile mean when a shaped profile meets a physical rate.
 * **Contact schedule**: seasonal pass-duration modulation, per-date exceptions, explicit pass lists (TOML or CSV), and low-latency periods at a station-availability capacity fraction.

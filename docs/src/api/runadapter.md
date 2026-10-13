@@ -17,6 +17,8 @@ DeepSpaceTelemetry.RunAdapter.time_row
 DeepSpaceTelemetry.RunAdapter.batch_rows
 DeepSpaceTelemetry.RunAdapter.list_batches
 DeepSpaceTelemetry.RunAdapter.read_batch
+DeepSpaceTelemetry.RunAdapter.read_batch_matrix
+DeepSpaceTelemetry.RunAdapter.segment_files
 DeepSpaceTelemetry.RunAdapter.arrival_events
 DeepSpaceTelemetry.RunAdapter.markers
 DeepSpaceTelemetry.RunAdapter.label_spans

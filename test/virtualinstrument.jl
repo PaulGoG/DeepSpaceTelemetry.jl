@@ -121,6 +121,58 @@ end
         VirtualInstrument.next_segment!(vi_s)                     # samples 1–4: silent
         seg_pad = @test_logs (:warn,) match_mode=:any VirtualInstrument.next_segment!(vi_s)
         @test vec(seg_pad.data) == Float32[5.0, 6.0, 0.0, 0.0]         # 5–6 + zero padding
+
+        # Several columns, ingested in the configured order; an absent column is a [CONFIG] error.
+        wide_csv = joinpath(tmp, "wide.csv")
+        CSV.write(
+            wide_csv,
+            DataFrame(
+                A = Float32[1, 2, 3, 4, 5],
+                E = Float32[10, 20, 30, 40, 50],
+                T = Float32[-1, -2, -3, -4, -5],
+            ),
+        )
+        vi_w = VirtualInstrument.InstrumentState(
+            DateTime(2030, 1, 1),
+            2.0,
+            2.0,
+            "external",
+            wide_csv;
+            columns = ["T", "A"],
+        )
+        @test vi_w.columns == ["T", "A"] && size(vi_w.source.samples) == (5, 2)
+        seg_w = VirtualInstrument.next_segment!(vi_w)
+        @test seg_w.columns == ["T", "A"] && seg_w.data == Float32[-1 1; -2 2; -3 3; -4 4]
+        seg_w2 = @test_logs (:warn,) match_mode = :any VirtualInstrument.next_segment!(vi_w)
+        @test seg_w2.data == Float32[-5 5; 0 0; 0 0; 0 0]
+        @test_throws ArgumentError VirtualInstrument.InstrumentState(
+            DateTime(2030, 1, 1),
+            2.0,
+            2.0,
+            "external",
+            wide_csv;
+            columns = ["A", "Q"],
+        )
+        @test_throws ArgumentError VirtualInstrument.InstrumentState(
+            DateTime(2030, 1, 1),
+            2.0,
+            2.0,
+            "synthetic",
+            "";
+            columns = ["A"],
+        )
+        # Without a list the Amplitude column, or else the first column, is ingested under the name Amplitude.
+        vi_first = VirtualInstrument.InstrumentState(
+            DateTime(2030, 1, 1),
+            2.0,
+            2.0,
+            "external",
+            wide_csv,
+        )
+        @test vi_first.columns == ["Amplitude"] &&
+              vec(vi_first.source.samples) == Float32[1, 2, 3, 4, 5]
+        @test VirtualInstrument.resumed(vi_w, DateTime(2030, 1, 1) + Second(3)).columns ==
+              ["T", "A"]
     end
 
     mktempdir() do tmp

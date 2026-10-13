@@ -51,7 +51,10 @@
         run = RunAdapter.open_run(run_id)          # by identifier
         @test RunAdapter.open_run(run_dir).run_dir == run.run_dir   # by path
         g = RunAdapter.run_geometry(run)
-        @test g.points_per_batch == 2400 && g.mode == "tick" && g.payload_rows === nothing
+        @test g.points_per_batch == 2400 &&
+              g.mode == "tick" &&
+              g.payload_rows === nothing &&
+              g.columns == ["Amplitude"]
         @test g.payload_origin == DateTime(2035, 1, 1, 6) - Hour(1) - Minute(12)
         @test RunAdapter.run_state(run) === :complete && RunAdapter.record_final(run)
         @test RunAdapter.time_row(g, RunAdapter.row_time(g, 4801)) == 4801
@@ -155,6 +158,8 @@
         @test descriptor["run_id"] == run_id && descriptor["mode"] == "tick"
         @test descriptor["schema"] == "deepspacetelemetry-run/1"
         @test descriptor["points_per_batch"] == 2400 && descriptor["rng_seed"] == 1
+        @test TOML.parsefile(joinpath(run_dir, "descriptor.toml"))["payload_columns"] ==
+              ["Amplitude"]
         @test haskey(descriptor["products"], "events_rx.csv") &&
               haskey(descriptor["products"], "masks/gaps.csv")
         @test haskey(descriptor["products"], "label_spans.csv")
@@ -183,5 +188,76 @@
         )
     finally
         rm(run_dir; recursive = true, force = true)
+    end
+end
+
+@testset "Run adapter: payload columns" begin
+    mktempdir() do tmp
+        ramp = joinpath(tmp, "ramp3.csv")
+        n = 40_000
+        CSV.write(
+            ramp,
+            DataFrame(
+                A = Float32.(1:n),
+                E = Float32.(2 .* (1:n)),
+                T = Float32.(3 .* (1:n)),
+            ),
+        )
+        cfg = TelemetryCore.load_config(
+            joinpath(TelemetryCore.PROJECT_ROOT, "scenarios", "deterministic_1d.toml"),
+        )
+        cfg["simulation"]["mission_days"] = 0.1
+        cfg["simulation"]["initial_downtime_days"] = 0.02
+        cfg["physics"]["data_source"] = "external"
+        cfg["physics"]["external_data_path"] = ramp
+        cfg["physics"]["external_data_columns"] = ["T", "A"]
+        for key in (
+            "session_figures",
+            "state_raster",
+            "alert_latency",
+            "delivery_delay",
+            "generate_mask_timeline",
+            "expand_to_pointwise_masks",
+        )
+            cfg["post_processing"][key] = false
+        end
+        run_id = "TEST_RUN_columns_pid$(getpid())"
+        run_dir = with_logger(NullLogger()) do
+            Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull)
+        end
+        try
+            snapshot = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
+            @test snapshot["provenance"]["external_data_columns"] == ["T", "A"]
+            @test TOML.parsefile(joinpath(run_dir, "descriptor.toml"))["payload_columns"] ==
+                  ["T", "A"]
+            run = RunAdapter.open_run(run_dir)
+            g = RunAdapter.run_geometry(run)
+            @test g.columns == ["T", "A"]
+            batches = RunAdapter.list_batches(run)
+            name = first(b.name for b in batches if b.state === :ground)
+            rows = only(b.rows for b in batches if b.name == name)
+            matrix = RunAdapter.read_batch_matrix(run, name)
+            @test size(matrix) == (g.points_per_batch, 2)
+            @test matrix[:, 1] == Float32.(3 .* rows) && matrix[:, 2] == Float32.(rows)
+            @test RunAdapter.read_batch(run, name) == Float32.(3 .* rows)
+            @test RunAdapter.read_batch(run, name; column = "A") == Float32.(rows)
+            @test RunAdapter.read_batch(run, name; column = 2) == Float32.(rows)
+            @test_throws ArgumentError RunAdapter.read_batch(run, name; column = "E")
+            @test_throws ArgumentError RunAdapter.read_batch(run, name; column = 3)
+            segment = first(
+                filter(
+                    f -> startswith(f, "seg_"),
+                    readdir(joinpath(run_dir, "ground", name)),
+                ),
+            )
+            @test readline(joinpath(run_dir, "ground", name, segment)) == "T,A"
+            # A segment whose columns differ from the run's is refused.
+            path = joinpath(run_dir, "ground", name, segment)
+            text = read(path, String)
+            write(path, replace(text, "T,A" => "T,E"; count = 1))
+            @test_throws ArgumentError RunAdapter.read_batch_matrix(run, name)
+        finally
+            rm(run_dir; recursive = true, force = true)
+        end
     end
 end

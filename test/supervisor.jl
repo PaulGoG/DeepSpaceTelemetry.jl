@@ -207,6 +207,7 @@ end
             snapshot = TOML.parsefile(joinpath(run_dir, "config_snapshot.toml"))
             @test haskey(snapshot["provenance"], "external_data_sha256")
             @test snapshot["provenance"]["external_data_rows"] == 200_000
+            @test snapshot["provenance"]["external_data_columns"] == ["Amplitude"]
             origin = DateTime(snapshot["provenance"]["payload_origin"])
             @test origin == DateTime(2035, 1, 1, 5, 45, 36) == plan.payload_origin
             @test !isfile(joinpath(run_dir, "component_events.csv"))

@@ -81,7 +81,7 @@ the file contract is the same, read at different moments.
 | `events_tx.csv` | emitter; the supervisor appends the `STREAM` gap pair while the emitter is down (one live writer at a time) | Tail/read. Generation and transmission milestones. |
 | `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics at a change-driven cadence, columns `SimTime, WallTime, Mission_Day, Hours_Elapsed, Bandwidth_Pct, Onboard_Buffer, Link_Buffer, Ground_Total, Ground_Live, Ground_Arch, Nominal_Bandwidth_Pct, Lost_Count, Retry_Count, Disruption_Active` (a pre-rename `Ground_Archive` column is normalized to `Ground_Total` on read). |
 | `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
-| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `git_dirty` (uncommitted changes in the checkout), `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `versioninfo`, `julia_threads`, `blas_threads` — the parameter hash `config_sha256` at `[provenance]` (the SHA-256 of the configuration as sorted TOML without that section; its first eight hex digits open the run identifier `RUN_cfg=<hash>_pid=<pid>_t=<yyyymmdd_HHMMSS>`), the payload origin `payload_origin` at `[provenance]` (the content instant of payload row 1, `start_sim_time` less `initial_downtime_days`, as an ISO-8601 string; see Batch Identity below), and, for external data, the input identity there (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`). |
+| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `git_dirty` (uncommitted changes in the checkout), `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `versioninfo`, `julia_threads`, `blas_threads` — the parameter hash `config_sha256` at `[provenance]` (the SHA-256 of the configuration as sorted TOML without that section; its first eight hex digits open the run identifier `RUN_cfg=<hash>_pid=<pid>_t=<yyyymmdd_HHMMSS>`), the payload origin `payload_origin` at `[provenance]` (the content instant of payload row 1, `start_sim_time` less `initial_downtime_days`, as an ISO-8601 string; see Batch Identity below), and, for external data, the input identity there (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`, `external_data_columns`). |
 | `manifest_snapshot.toml` | pipeline (at startup) | Read. The manifest of the environment the run was resolved on: the exact version of every dependency. Manifests are not tracked in the repository, so this file and the commit in `config_snapshot.toml` together fix the code state. |
 | `RUN_ACTIVE` / `RUN_POSTPROCESSING` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor and absolute deadline (`wall_epoch`, `start_sim_time`, `speed_up`, `deadline_wall`); re-attaching components reconstruct the identical clock from it. |
@@ -89,7 +89,7 @@ the file contract is the same, read at different moments.
 | `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs and deleted when it exits: absence means finished, a stale mtime means stalled. |
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run (`SimTime, Label, PayloadRow`, the last the payload row of the instant, since 2.5.0) — the instants the alert-latency metric is evaluated at (`alert_latency_markers.csv`). |
 | `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid (since 2.6.0), columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd` with the row convention of `masks/gaps.csv`: the `[[labels]]` spans a payload exporter declares in payload rows (`Class = label`), the blackout and recovery phases of the link disruptions (`Type` = the event type), the scheduled generation gaps as configured (`generation_gap`; the realized gap of the gap table may differ by the segment-grid snap), the contact passes (`contact`, `Type = pass`), the low-latency periods (`low_latency`, `Type = triggered` for a marker's period, `scheduled` otherwise), and the initial downtime. A consumer reads the labels of a scenario from the run directory, not from the scenario file. |
-| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema`, `run_id`, the producer's `package_version`, `git_commit`, `git_dirty`, `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry, the external record's hash and length, and under `[products]` the size and SHA-256 of every table present. |
+| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema`, `run_id`, the producer's `package_version`, `git_commit`, `git_dirty`, `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry, `payload_columns`, the external record's hash and length, and under `[products]` the size and SHA-256 of every table present. |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period); `plots/delivery_delay.png` renders the distribution against the requirement. |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine against the counterfactual FIFO drain — columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
 | `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
@@ -104,8 +104,11 @@ the file contract is the same, read at different moments.
 | `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; the emitter counts in-flight batches from the `link/` listing, so a slot frees when the receiver moves a batch out. |
 
 A batch directory contains `metadata.json` and one `seg_<id>.csv` per segment
-(single `Amplitude` column; a synthetic run writes the flag values `0.0` and
-`1.0` there, an external run the ingested samples). The metadata keys are `batch_id`,
+(one column per payload column under its name — the one `Amplitude` column
+of a synthetic run or of an external run without
+`physics.external_data_columns`, the listed columns of the external file
+otherwise, since 2.6.0; a synthetic run writes the flag values `0.0` and
+`1.0`, an external run the ingested samples). The metadata keys are `batch_id`,
 `segment_count`, `content_epoch` — the mission timestamp of the payload's
 first sample, i.e. the physical epoch the data belong to — `payload_row` —
 the payload row of that first sample (Batch Identity below) — and
@@ -116,7 +119,10 @@ Segment files carry no timestamps; sample `k` of a batch lies at
 `content_epoch + (k − 1) / sample_rate` and is payload row
 `payload_row + k − 1`. A batch whose payload holds an event marker carries
 the marker labels under the optional `markers` key. The order of the keys
-in `metadata.json` carries no meaning.
+in `metadata.json` carries no meaning. The column names of a run are
+`external_data_columns` under `[provenance]` of the snapshot and
+`payload_columns` of `descriptor.toml`; every column shares the payload
+grid, the batches, and the link, so one hole table covers all of them.
 
 Instants in the CSV tables (`SimTime`, `WallTime`, `GenSimTime`,
 `ContentEpoch`, `ContentStart`, `ContentEnd`, `AvailableAt`, `Marker`) are written as
@@ -275,7 +281,9 @@ The payload is sampled on one grid for the whole run, anchored at the
 payload origin `t₀` (`[provenance] payload_origin` in
 `config_snapshot.toml`): payload row `r` is the sample at
 `t₀ + (r − 1) / sample_rate`. In external mode row `r` is data row `r` of the
-input CSV (header excluded); rows past its end are zeros. A batch with
+input CSV (header excluded); rows past its end are zeros. With several
+payload columns, row `r` holds one sample per column, all at the same
+instant. A batch with
 content epoch `e` starts at the row
 
 ```
@@ -413,7 +421,7 @@ segment_files(dir) = sort(
     filter(f -> occursin(r"^seg_\d+\.csv$", f), readdir(dir));
     by = f -> parse(Int, match(r"\d+", f).match),
 )
-read_payload(dir) = reduce(vcat, (TelemetryCore.load_segment(joinpath(dir, f)).data for f in segment_files(dir)))
+read_payload(dir) = reduce(vcat, (TelemetryCore.load_segment(joinpath(dir, f)).data for f in segment_files(dir)))  # samples × columns
 
 covered = UnitRange{Int}[]          # delivered payload rows
 holes = Pair{UnitRange{Int},Symbol}[] # permanent holes with their cause
@@ -460,7 +468,7 @@ run = RunAdapter.open_run("RUN_ID")           # a path or an identifier; checks 
 RunAdapter.run_geometry(run)                 # sample rate, segment length, batch size, payload origin, record length, clock mode
 RunAdapter.list_batches(run)                 # per batch: name, index, live?, payload rows, content epoch,
                                              #            state ∈ :ground | :lost | :pruned
-RunAdapter.read_batch(run, "LIVE_batch_7")   # the samples, Float32, segments in ascending id
+RunAdapter.read_batch(run, "LIVE_batch_7"; column = 1)   # one payload column, Float32, segments in ascending id (read_batch_matrix: all columns)
 RunAdapter.arrival_events(run; after = n)    # the feed beyond the n rows already consumed, in mission-time order
 RunAdapter.run_state(run)                    # :active | :complete | :aborted, from the sentinels
 RunAdapter.markers(run)                      # the event markers with their payload row
@@ -547,9 +555,10 @@ n_rows = max(
     maximum(holes.RowLast; init = 0),
     maximum(first_row[name] + points_per_batch - 1 for name in delivered),
 )
+# one column; a multi-column run fills a samples × columns matrix from load_segment(...).data
 series = Vector{Union{Missing,Float32}}(missing, n_rows)
 for name in delivered
-    payload = read_payload(joinpath(run_dir, "ground", name))   # as in the streaming example
+    payload = vec(read_payload(joinpath(run_dir, "ground", name)))   # as in the streaming example
     r = first_row[name]
     series[r:(r + length(payload) - 1)] .= payload
 end

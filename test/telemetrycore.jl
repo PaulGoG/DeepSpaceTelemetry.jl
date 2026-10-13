@@ -183,6 +183,30 @@ end
         cfg["labels"] = labels
         @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
+
+    # external_data_columns: external source only; a list of unique, non-empty
+    # names, each present in the file's header.
+    cfg = valid_test_cfg()
+    cfg["physics"]["external_data_columns"] = ["A"]
+    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+    mktempdir() do tmp
+        path = joinpath(tmp, "two_columns.csv")
+        CSV.write(path, DataFrame(A = Float32[1, 2], E = Float32[3, 4]))
+        for columns in (["A", "Q"], ["A", "A"], ["A", ""], "A", [1])
+            cfg = valid_test_cfg()
+            cfg["physics"]["data_source"] = "external"
+            cfg["physics"]["external_data_path"] = path
+            cfg["physics"]["external_data_columns"] = columns
+            @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+        end
+        cfg = valid_test_cfg()
+        cfg["physics"]["data_source"] = "external"
+        cfg["physics"]["external_data_path"] = path
+        cfg["physics"]["external_data_columns"] = ["E", "A"]
+        @test (TelemetryCore.validate_config(cfg); true)
+        @test TelemetryCore.physics_settings(cfg).external_data_columns == ["E", "A"]
+        @test TelemetryCore.csv_header(path) == ["A", "E"]
+    end
 end
 
 @testset "Config validation: warnings" begin
@@ -342,6 +366,13 @@ end
     @test est.n_batches == 2                   # 10 segments / 5 per batch
     @test est.n_points == 200                  # 10 × 10 s × 2 Hz
     @test est.payload_bytes ≈ 200 * 15.0 rtol = 1e-12
+    # Each payload column adds one full column of samples.
+    base["physics"]["external_data_columns"] = ["A", "E", "T"]
+    est3 = TelemetryCore.estimate_artifacts(base)
+    @test est3.n_columns == 3
+    @test est3.payload_bytes ≈ 3 * 200 * 15.0 rtol = 1e-12
+    delete!(base["physics"], "external_data_columns")
+    @test TelemetryCore.estimate_artifacts(base).n_columns == 1
     @test est.prunable_bytes == est.payload_bytes
     @test est.mask_bytes == 0.0
     @test est.pointwise_bytes == 0.0
@@ -506,6 +537,49 @@ end
         @test loaded_seg.id == 1
         @test vec(loaded_seg.data) == Float32[1.0, 2.0, 3.0] &&
               loaded_seg.columns == ["Amplitude"]
+
+        # Several payload columns: one file column per payload column under its name; the vector form is one Amplitude column.
+        wide = TelemetryCore.DataSegment(
+            3,
+            DateTime(2030, 1, 1, 0, 2),
+            Float32[1 10; 2 20; 3 30],
+            ["A", "E"],
+        )
+        @test wide.columns == ["A", "E"] && size(wide.data) == (3, 2)
+        @test TelemetryCore.segment_column(wide, "E") == Float32[10, 20, 30]
+        @test TelemetryCore.segment_column(wide, 1) == Float32[1, 2, 3]
+        @test_throws ArgumentError TelemetryCore.segment_column(wide, "T")
+        @test_throws ArgumentError TelemetryCore.segment_column(wide, 3)
+        @test_throws DimensionMismatch TelemetryCore.DataSegment(
+            4,
+            DateTime(2030),
+            Float32[1 2; 3 4],
+            ["A"],
+        )
+        @test_throws ArgumentError TelemetryCore.DataSegment(
+            4,
+            DateTime(2030),
+            Matrix{Float32}(undef, 2, 0),
+            String[],
+        )
+        wide_path = joinpath(tmp, "seg_3.csv")
+        TelemetryCore.save_segment(wide_path, wide)
+        @test readline(wide_path) == "A,E"
+        back = TelemetryCore.load_segment(wide_path)
+        @test back.id == 3 && back.columns == ["A", "E"] && back.data == wide.data
+        @test seg1.columns == ["Amplitude"] && size(seg1.data) == (3, 1)
+        @test readline(joinpath(batch_dir, "seg_1.csv")) == "Amplitude"
+        # A one-column file of an earlier release reads and rewrites byte for byte.
+        legacy = joinpath(tmp, "seg_9.csv")
+        write(legacy, "Amplitude\n0.0\n1.0\n8.2780985e-5\n")
+        TelemetryCore.save_segment(
+            joinpath(tmp, "seg_9_copy.csv"),
+            TelemetryCore.load_segment(legacy),
+        )
+        @test read(legacy) == read(joinpath(tmp, "seg_9_copy.csv"))
+        text_path = joinpath(tmp, "seg_8.csv")
+        write(text_path, "A,B\n1.0,x\n")
+        @test_throws ArgumentError TelemetryCore.load_segment(text_path)
     end
 end
 

@@ -194,11 +194,14 @@ An external high-frequency CSV time series replaces the synthetic payload with:
 [physics]
 data_source = "external"
 external_data_path = "path/to/data.csv"
+external_data_columns = []    # or ["A", "E"]: the file's columns to ingest, in order
 sample_rate = 1024.0
 segment_duration_sec = 60.0
 batch_size = 15
 ```
 Row `r` of the series is the sample at `start_sim_time − initial_downtime_days + (r − 1) / sample_rate`: the first rows fill the pre-existing blind-spot backlog, a generation gap skips the rows of its interval, and past the last row the payload is zero. Each batch records the row of its first sample (`payload_row`, see the analysis interfaces).
+
+A file may carry several columns. `external_data_columns` names those to ingest, in that order; left empty, the `Amplitude` column is taken, or else the first column, under the name `Amplitude`. Every ingested column is delivered as one payload — one batch, one transfer, one loss draw — and each segment file carries one column per payload column under its name; the names are stamped into the run's provenance and descriptor, and the adapter reads one column (`read_batch`) or all (`read_batch_matrix`). A listed column absent from the file's header is rejected at validation.
 
 ## Running the Simulation
 In wall mode the emitter, the receiver, and the supervisor are three

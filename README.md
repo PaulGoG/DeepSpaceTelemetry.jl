@@ -423,7 +423,8 @@ freely — for example `[-1, "10:20", 45]`. The
 - **Payload** — a binary flag series, `1` on the segments that hold a
   declared event marker and `0` elsewhere, so a delivery mask applied to it
   states which samples of an event have reached the ground; or ingestion of
-  an external continuous CSV series. The packet-loss channel, the run's only
+  an external continuous CSV series, one or several of its columns as one
+  payload under one link accounting. The packet-loss channel, the run's only
   random stream, is seeded from `simulation.rng_seed`.
 - **Metrology** — the alert-latency curve, giving the time after a live event
   at which the look-back window δ is complete on the ground under the
