@@ -449,9 +449,16 @@ end
             @test nrow(stream_hole) == 1 &&
                   stream_hole.RowFirst[1] == stream_gap.RowFirst[1] &&
                   stream_hole.RowLast[1] == stream_gap.RowLast[1]
+            # Declared after the gap opened and before the replacement produced
+            # anything: the resumption instant itself is not an upper bound on a
+            # wall clock, where the metadata scan before the stamp elapses as
+            # mission time.
+            first_gen_after = minimum(
+                r.SimTime for r in eachrow(tx) if r.Event == "gen" && r.SimTime >= resume
+            )
             @test stream_hole.ContentStart[1] <=
                   stream_hole.DeclaredAt[1] <=
-                  stream_hole.ContentEnd[1]
+                  first_gen_after
         finally
             rm(run_dir; recursive = true, force = true)
         end
