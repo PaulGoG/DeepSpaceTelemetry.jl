@@ -1,10 +1,11 @@
 """
     RunAdapter
 
-The reference run adapter: the five questions a consumer asks of a run
-directory — geometry, batches, payload, arrivals, state — answered from the
-file contract alone (the configuration snapshot, the batch directories,
-`events_rx.csv`, the lifecycle sentinels), the same way for an active run
+The reference run adapter: the six questions a consumer asks of a run
+directory — geometry, batches, payload, arrivals, state, and the labeled
+intervals of the scenario — answered from the file contract alone (the
+configuration snapshot, the batch directories, `events_rx.csv`,
+`label_spans.csv`, the lifecycle sentinels), the same way for an active run
 followed through its arrival feed and for a finished one replayed from it.
 [`open_run`](@ref) checks the producer's version against
 [`MINIMUM_PRODUCER_VERSION`](@ref); [`GapTracker`](@ref) declares the holes
@@ -16,7 +17,7 @@ module RunAdapter
 
 using ..TelemetryCore
 using DataFrames: nrow
-using Dates: DateTime, Millisecond, Dates
+using Dates: DateTime
 
 """
     MINIMUM_PRODUCER_VERSION
@@ -146,14 +147,7 @@ function open_run(
         )
     end
     start_sim = DateTime(sim["start_sim_time"])
-    origin =
-        haskey(provenance, "payload_origin") ? DateTime(provenance["payload_origin"]) :
-        start_sim - Millisecond(
-            round(
-                Int,
-                Float64(get(sim, "initial_downtime_days", 0.0)) * TelemetryCore.MS_PER_DAY,
-            ),
-        )
+    origin = TelemetryCore.payload_origin(cfg)
     rows = get(provenance, "external_data_rows", nothing)
     geometry = RunGeometry(
         physics.sample_rate,
@@ -205,7 +199,7 @@ The mission instant of payload row `row`: `payload_origin + (row − 1) /
 sample_rate`, on the millisecond grid.
 """
 row_time(g::RunGeometry, row::Integer) =
-    g.payload_origin + Millisecond(round(Int, 1000 * (row - 1) / g.sample_rate))
+    TelemetryCore.payload_row_time(g.payload_origin, g.sample_rate, row)
 
 """
     time_row(geometry::RunGeometry, t::DateTime) -> Int
@@ -214,7 +208,7 @@ The payload row at the mission instant `t`, the inverse of
 [`row_time`](@ref).
 """
 time_row(g::RunGeometry, t::DateTime) =
-    round(Int, Dates.value(t - g.payload_origin) * g.sample_rate / 1000) + 1
+    TelemetryCore.payload_time_row(g.payload_origin, g.sample_rate, t)
 
 """
     batch_rows(run::RunHandle, stage::AbstractString, name::AbstractString) -> UnitRange{Int}
@@ -343,6 +337,37 @@ function markers(run::RunHandle)
             label = String(r.Label),
             time = DateTime(r.SimTime),
             row = stamped ? Int(r.PayloadRow) : time_row(run.geometry, DateTime(r.SimTime)),
+        ) for r in eachrow(table)
+    ]
+end
+
+"""
+    label_spans(run::RunHandle) -> Vector{NamedTuple}
+
+The labeled intervals of the run's scenario from `label_spans.csv`
+(2.6.0 and later), `(class, type, label, rows, content_start,
+content_end)` with `rows` a `UnitRange{Int}` of payload rows: the
+scenario's `[[labels]]` spans, the blackout and recovery phases of the
+link disruptions, the scheduled generation gaps as configured, the
+contact passes and low-latency periods, and the initial downtime. Empty
+when the producer wrote no table.
+"""
+function label_spans(run::RunHandle)
+    path = joinpath(run.run_dir, "label_spans.csv")
+    isfile(path) || return NamedTuple{
+        (:class, :type, :label, :rows, :content_start, :content_end),
+        Tuple{String,String,String,UnitRange{Int},DateTime,DateTime},
+    }[]
+    text(x) = ismissing(x) ? "" : String(x)
+    table = TelemetryCore.read_table(path)
+    return [
+        (
+            class = String(r.Class),
+            type = text(r.Type),
+            label = text(r.Label),
+            rows = Int(r.RowFirst):Int(r.RowLast),
+            content_start = DateTime(r.ContentStart),
+            content_end = DateTime(r.ContentEnd),
         ) for r in eachrow(table)
     ]
 end

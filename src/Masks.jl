@@ -3,14 +3,16 @@
 
 The batch-state products of a run: the replay of every batch's state
 (future, onboard, link, ground, lost) from the event logs, the 2D mask
-timeline it writes, the batch epoch map, and the point-wise 0/1
-availability expansion of one timeline row.
+timeline it writes, the batch epoch map, the gap table of the delivered
+record, the label-span table of the scenario's labeled intervals, and the
+point-wise 0/1 availability expansion of one timeline row.
 """
 module Masks
 
 using ..TelemetryCore
+using ..ChannelEffects
 using DataFrames: DataFrame, nrow
-using Dates: DateTime, Dates, Millisecond
+using Dates: DateTime, Millisecond
 
 """
     BatchStates
@@ -311,21 +313,13 @@ no delivered batch covers are the same set.
 function gap_table(run_dir::String)
     cfg = TelemetryCore.load_run_config(run_dir)
     physics = TelemetryCore.physics_settings(cfg)
-    sim = get(cfg, "simulation", Dict{String,Any}())
     provenance = get(cfg, "provenance", Dict{String,Any}())
     fs = physics.sample_rate
     points_per_batch = round(Int, fs * physics.segment_duration_sec) * physics.batch_size
-    start_sim = DateTime(sim["start_sim_time"])
-    downtime = Float64(get(sim, "initial_downtime_days", 0.0))
-    origin =
-        haskey(provenance, "payload_origin") ? DateTime(provenance["payload_origin"]) :
-        start_sim - Millisecond(round(Int, downtime * TelemetryCore.MS_PER_DAY))
-    t_end =
-        start_sim + Millisecond(
-            round(Int, TelemetryCore.mission_span_days(cfg) * TelemetryCore.MS_PER_DAY),
-        )
-    row_of(t::DateTime) = round(Int, Dates.value(t - origin) * fs / 1000) + 1
-    time_of(r::Integer) = origin + Millisecond(round(Int, 1000 * (r - 1) / fs))
+    origin = TelemetryCore.payload_origin(cfg)
+    t_end = TelemetryCore.mission_end(cfg)
+    row_of(t::DateTime) = TelemetryCore.payload_time_row(origin, fs, t)
+    time_of(r::Integer) = TelemetryCore.payload_row_time(origin, fs, r)
 
     stamped = TelemetryCore.batch_payload_rows(run_dir)
     first_row(name) =
@@ -405,6 +399,122 @@ function write_gap_table(run_dir::String)
     table = gap_table(run_dir)
     TelemetryCore.safe_csv_write(path, table)
     @info "[POST] Gap table saved: $(relpath(path, run_dir)) ($(nrow(table)) holes)."
+    return path
+end
+
+"""
+    LABEL_SPAN_CLASSES
+
+The values of the `Class` column of [`label_span_table`](@ref):
+`initial_downtime` (the blind spot before the mission epoch), `label` (a
+`[[labels]]` span of the scenario), `blackout` and `recovery` (the two
+phases of a link disruption), `generation_gap` (a scheduled generation
+gap as configured), `contact` (a scheduled contact pass), and
+`low_latency` (a low-latency period, scheduled or triggered by a marker).
+"""
+const LABEL_SPAN_CLASSES = (
+    "initial_downtime",
+    "label",
+    "blackout",
+    "recovery",
+    "generation_gap",
+    "contact",
+    "low_latency",
+)
+
+"""
+    label_span_table(run_dir::String) -> DataFrame
+
+Every labeled interval the scenario of a run declares, on the payload grid
+of [`gap_table`](@ref): columns `Class` ([`LABEL_SPAN_CLASSES`](@ref)),
+`Type`, `Label`, `RowFirst`, `RowLast` (payload rows, inclusive),
+`ContentStart`, `ContentEnd` (the interval `[ContentStart, ContentEnd)`),
+sorted by `RowFirst`, `RowLast`, `Class`, `Label`. The table is derived
+from the run's configuration snapshot alone. Time intervals are taken as
+half-open and clipped to the mission record, rows `1` to the row before
+the mission end; `[[labels]]` spans keep their configured rows verbatim.
+`Type` is the disruption `type` for `blackout`, `recovery`, and
+`generation_gap`, `pass` for a contact, `triggered` or `scheduled` for a
+low-latency period, and empty otherwise; `Label` is the configured label.
+A generation gap is the configured span from `start_day` over
+`duration_hours`; the realized gap of `masks/gaps.csv` may differ from it
+by the snap of the emitter to the segment grid. Intervals that cover no
+payload row are omitted.
+"""
+function label_span_table(run_dir::String)
+    cfg = TelemetryCore.load_run_config(run_dir)
+    physics = TelemetryCore.physics_settings(cfg)
+    fs = physics.sample_rate
+    origin = TelemetryCore.payload_origin(cfg)
+    start_sim = TelemetryCore.mission_epoch(cfg)
+    t_end = TelemetryCore.mission_end(cfg)
+    row_of(t::DateTime) = TelemetryCore.payload_time_row(origin, fs, t)
+    time_of(r::Integer) = TelemetryCore.payload_row_time(origin, fs, r)
+    row_end = row_of(t_end) - 1
+
+    classes, types, labels, firsts, lasts = String[], String[], String[], Int[], Int[]
+    function span!(class, type, label, r1, r2)
+        r2 >= r1 || return nothing
+        push!(classes, class)
+        push!(types, type)
+        push!(labels, label)
+        push!(firsts, r1)
+        push!(lasts, r2)
+        return nothing
+    end
+    time_span!(class, type, label, start::DateTime, stop::DateTime) =
+        span!(class, type, label, max(row_of(start), 1), min(row_of(stop) - 1, row_end))
+
+    time_span!("initial_downtime", "", "", origin, start_sim)
+    for s in TelemetryCore.label_settings(cfg)
+        span!("label", "", s.label, s.row_first, s.row_last)
+    end
+    for ev in ChannelEffects.build_disruption_timeline(cfg, start_sim).events
+        time_span!("blackout", ev.type, ev.label, ev.start_time, ev.blackout_end)
+        ev.recovery_end > ev.blackout_end &&
+            time_span!("recovery", ev.type, ev.label, ev.blackout_end, ev.recovery_end)
+    end
+    for ev in TelemetryCore.disruption_event_settings(cfg)
+        ev.affects == "generation" || continue
+        t0 = start_sim + Millisecond(round(Int, ev.start_day * TelemetryCore.MS_PER_DAY))
+        t1 = t0 + Millisecond(round(Int, ev.duration_hours * TelemetryCore.MS_PER_HOUR))
+        time_span!("generation_gap", ev.type, ev.label, t0, t1)
+    end
+    marker_labels = Set{String}(m.label for m in TelemetryCore.event_marker_settings(cfg))
+    for w in
+        TelemetryCore.contact_windows(TelemetryCore.visibility_model(cfg), origin, t_end)
+        if w.low_latency
+            type = w.label in marker_labels ? "triggered" : "scheduled"
+            time_span!("low_latency", type, w.label, w.start, w.stop)
+        else
+            time_span!("contact", "pass", w.label, w.start, w.stop)
+        end
+    end
+    table = DataFrame(
+        Class = classes,
+        Type = types,
+        Label = labels,
+        RowFirst = firsts,
+        RowLast = lasts,
+        ContentStart = DateTime[time_of(r) for r in firsts],
+        ContentEnd = DateTime[time_of(r + 1) for r in lasts],
+    )
+    sort!(table, [:RowFirst, :RowLast, :Class, :Label])
+    return table
+end
+
+"""
+    write_label_spans(run_dir::String) -> String
+
+Writes [`label_span_table`](@ref) of a run to `<run_dir>/label_spans.csv`
+(rotated, never overwritten) and returns the path. The file is written
+even when the table is empty, as a header without rows.
+"""
+function write_label_spans(run_dir::String)
+    path = joinpath(run_dir, "label_spans.csv")
+    table = label_span_table(run_dir)
+    TelemetryCore.safe_csv_write(path, table)
+    @info "[POST] Label spans saved: label_spans.csv ($(nrow(table)) spans)."
     return path
 end
 

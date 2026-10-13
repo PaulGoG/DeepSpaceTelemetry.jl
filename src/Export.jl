@@ -42,6 +42,7 @@ const TABLE_PRODUCTS = (
     ("metrology/alert_latency_markers", "alert_latency_markers.csv"),
     ("metrology/delivery_delay", "delivery_delay.csv"),
     ("markers", "markers.csv"),
+    ("label_spans", "label_spans.csv"),
     ("component_events", "component_events.csv"),
 )
 

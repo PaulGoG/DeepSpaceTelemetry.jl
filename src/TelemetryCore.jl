@@ -449,6 +449,7 @@ live in the modules that own the figures, `Metrology` and `Receiver`.
 """
 function render_figure_product end
 
+const KNOWN_LABEL_KEYS = ["label", "label_start_index", "label_end_index"]
 const KNOWN_CONFIG_KEYS = Dict(
     "simulation" => [
         "mode",
@@ -530,8 +531,11 @@ const KNOWN_CONFIG_KEYS = Dict(
         "low_latency_periods",
     ],
     "provenance" => String[], # pipeline-generated; free-form by design
+    "payload" => String[], # payload-exporter provenance; free-form by design
+    "labels" => KNOWN_LABEL_KEYS,
     "supervision" => ["on_component_failure", "max_restarts", "watchdog_sec"],
 )
+const FREE_FORM_SECTIONS = ("provenance", "payload")
 const KNOWN_EVENT_KEYS = [
     "type",
     "label",
@@ -1142,6 +1146,45 @@ function event_marker_settings(cfg::AbstractDict)
 end
 
 """
+    LabelSpan
+
+A labeled span of payload rows declared by the scenario (`[[labels]]`):
+its `label` and the inclusive payload rows `row_first … row_last`. A span
+with `row_first > row_last` is empty (an event without labeled samples)
+and is dropped from the label-span table.
+"""
+struct LabelSpan
+    label::String
+    row_first::Int
+    row_last::Int
+end
+
+"""
+    label_settings(cfg::AbstractDict) -> Vector{LabelSpan}
+
+Validated `[[labels]]` entries in file order: `label` (default
+`label <i>`), `label_start_index` and `label_end_index` (integers ≥ 1,
+both required). A malformed entry raises a `[CONFIG]` error.
+"""
+function label_settings(cfg::AbstractDict)
+    spans = LabelSpan[]
+    for (i, e) in enumerate(get(cfg, "labels", Any[]))
+        e isa AbstractDict ||
+            config_error("[CONFIG] labels[$i] must be a table of label keys.")
+        label = checked_string(get(e, "label", "label $i"), "labels[$i].label")
+        rows = Int[]
+        for key in ("label_start_index", "label_end_index")
+            haskey(e, key) || config_error("[CONFIG] labels[$i].$key is required.")
+            v = checked_integer(e[key], "labels[$i].$key")
+            v >= 1 || config_error("[CONFIG] labels[$i].$key must be ≥ 1 (got $v).")
+            push!(rows, v)
+        end
+        push!(spans, LabelSpan(label, rows[1], rows[2]))
+    end
+    return spans
+end
+
+"""
     ground_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[ground]` section: `processing_latency_hours ≥ 0` (default 1,
@@ -1287,6 +1330,65 @@ function dashboard_settings(cfg::AbstractDict)
     )
 end
 
+# --- Payload grid ---
+"""
+    payload_row_time(origin::DateTime, sample_rate::Real, row::Integer) -> DateTime
+
+The mission instant of payload row `row`: `origin + (row − 1) / sample_rate`
+on the millisecond grid.
+"""
+payload_row_time(origin::DateTime, sample_rate::Real, row::Integer) =
+    origin + Millisecond(round(Int, 1000 * (row - 1) / sample_rate))
+
+"""
+    payload_time_row(origin::DateTime, sample_rate::Real, t::DateTime) -> Int
+
+The payload row at the mission instant `t`, the inverse of
+[`payload_row_time`](@ref).
+"""
+payload_time_row(origin::DateTime, sample_rate::Real, t::DateTime) =
+    round(Int, Dates.value(t - origin) * sample_rate / 1000) + 1
+
+"""
+    mission_epoch(cfg::AbstractDict) -> DateTime
+
+The mission epoch `simulation.start_sim_time` of a configuration.
+"""
+mission_epoch(cfg::AbstractDict) = parsed_datetime(
+    required_value(
+        get(cfg, "simulation", Dict{String,Any}()),
+        "simulation",
+        "start_sim_time",
+    ),
+    "simulation.start_sim_time",
+)
+
+"""
+    mission_end(cfg::AbstractDict) -> DateTime
+
+The nominal end of the mission, `mission_epoch(cfg)` plus
+[`mission_span_days`](@ref) in milliseconds (the instant the gap table
+closes an open generation gap at).
+"""
+mission_end(cfg::AbstractDict) =
+    mission_epoch(cfg) + Millisecond(round(Int, mission_span_days(cfg) * MS_PER_DAY))
+
+"""
+    payload_origin(cfg::AbstractDict) -> DateTime
+
+The content instant of payload row 1: `provenance.payload_origin` of a run
+snapshot when present, otherwise `mission_epoch(cfg)` less
+`simulation.initial_downtime_days` (clamped at zero days), the rule of
+`Emitter.instrument_epoch`.
+"""
+function payload_origin(cfg::AbstractDict)
+    provenance = get(cfg, "provenance", Dict{String,Any}())
+    haskey(provenance, "payload_origin") && return DateTime(provenance["payload_origin"])
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    downtime = Float64(get(sim, "initial_downtime_days", 0.0))
+    return mission_epoch(cfg) - Millisecond(max(0, round(Int, downtime * MS_PER_DAY)))
+end
+
 """
     batch_markers(markers::Vector{EventMarker}, epoch::DateTime, stop::DateTime) -> Vector{EventMarker}
 
@@ -1300,9 +1402,10 @@ end
 """
     save_markers(run_dir::String, markers::Vector{EventMarker})
 
-Writes `<run_dir>/markers.csv` (`SimTime, Label`) — the run's event
-instants for consumers and post-processing; nothing is written when there
-are no markers.
+Writes `<run_dir>/markers.csv` (`SimTime, Label, PayloadRow`) — the run's
+event instants for consumers and post-processing; `PayloadRow`, the payload
+row of the marker's instant, is written when `origin` is given and
+`sample_rate > 0`. Nothing is written when there are no markers.
 """
 function save_markers(
     run_dir::String,
@@ -1313,10 +1416,7 @@ function save_markers(
     isempty(markers) && return nothing
     df = DataFrame(SimTime = [m.time for m in markers], Label = [m.label for m in markers])
     if origin !== nothing && sample_rate > 0
-        df.PayloadRow = [
-            round(Int, Dates.value(m.time - origin) * sample_rate / 1000) + 1 for
-            m in markers
-        ]
+        df.PayloadRow = [payload_time_row(origin, sample_rate, m.time) for m in markers]
     end
     safe_csv_write(joinpath(run_dir, "markers.csv"), df)
     return nothing
@@ -1333,6 +1433,7 @@ const DESCRIPTOR_PRODUCTS = (
     "events_rx.csv",
     "mission_profile.csv",
     "markers.csv",
+    "label_spans.csv",
     "component_events.csv",
     "delivery_delay.csv",
     "alert_latency.csv",
@@ -1928,6 +2029,8 @@ Hard errors (would break the pipeline):
     `on_loss` policy, negative `max_retries`
   - disruption events with negative `start_day`, non-positive `duration_hours`,
     negative `recovery_hours`, or `severity` outside `[0, 1]`
+  - `[[labels]]` entries that are not tables, or whose `label_start_index`
+    or `label_end_index` is missing, not an integer, or below 1
   - type-mismatched values anywhere (a quoted `"3600"` where a number is
     expected, a float where an integer is expected) — reported as a precise
     `[CONFIG]` message instead of a raw conversion stacktrace
@@ -1974,7 +2077,7 @@ function validate_config(cfg::AbstractDict)
     for (section, content) in cfg
         if !haskey(KNOWN_CONFIG_KEYS, section)
             @warn "[CONFIG] Unrecognized section [$section] — its keys are ignored."
-        elseif section != "provenance" && content isa AbstractDict
+        elseif !(section in FREE_FORM_SECTIONS) && content isa AbstractDict
             for key in keys(content)
                 key in KNOWN_CONFIG_KEYS[section] ||
                     @warn "[CONFIG] Unrecognized key $section.$key — ignored."
@@ -1994,6 +2097,13 @@ function validate_config(cfg::AbstractDict)
         for key in keys(e)
             key in KNOWN_MARKER_KEYS ||
                 @warn "[CONFIG] Unrecognized key events.markers[$i].$key — ignored."
+        end
+    end
+    for (i, e) in enumerate(get(cfg, "labels", Any[]))
+        e isa AbstractDict || continue
+        for key in keys(e)
+            key in KNOWN_LABEL_KEYS ||
+                @warn "[CONFIG] Unrecognized key labels[$i].$key — ignored."
         end
     end
     contacts_section = get(cfg, "contacts", Dict{String,Any}())
@@ -2137,8 +2247,9 @@ function validate_config(cfg::AbstractDict)
                   "the effective downlink rate. Decrease speed_up or the link capacity."
         end
     end
-    # -- [contacts], [[events.markers]], [ground], [post_processing.publication] --
+    # -- [contacts], [[events.markers]], [[labels]], [ground], [post_processing.publication] --
     contacts_settings(cfg)
+    label_settings(cfg)
     ground_settings(cfg)
     publication_settings(cfg)
 
