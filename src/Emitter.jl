@@ -49,6 +49,10 @@ completes the partial batch in the mission phase.
   - `generation_gaps`: scheduled `(start, stop)` intervals without data
     production ([`skip_generation_gaps!`](@ref)).
   - `onboard_capacity_batches`: recorder ceiling; data beyond it is discarded.
+  - `hole_feed`: the declared-hole feed the emitter appends its scheduled
+    and recorder gaps to, `nothing` for none. A scheduled gap inside the
+    blind spot is declared at `start_sim_time`; a recorder gap opened here
+    is declared by [`run_emitter`](@ref) when it closes.
 """
 function pre_populate(
     instrument::VirtualInstrument.InstrumentState,
@@ -58,6 +62,7 @@ function pre_populate(
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
+    hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
 )
     vi = instrument
     downtime_start = vi.last_t
@@ -83,7 +88,14 @@ function pre_populate(
         if vi.last_t >= start_sim_time
             break
         end
-        skip_generation_gaps!(vi, pending, generation_gaps, run_dir) && continue
+        skip_generation_gaps!(
+            vi,
+            pending,
+            generation_gaps,
+            run_dir;
+            hole_feed = hole_feed,
+            declared_at = start_sim_time,
+        ) && continue
         seg = VirtualInstrument.next_segment!(vi)
         push!(pending, seg)
 
@@ -132,7 +144,7 @@ function pre_populate(
 end
 
 """
-    skip_generation_gaps!(vi, pending, gaps, run_dir) -> Bool
+    skip_generation_gaps!(vi, pending, gaps, run_dir; hole_feed = nothing, declared_at = nothing) -> Bool
 
 Scheduled generation gap: when the instrument's next content instant lies
 inside one of `gaps` (`(start, stop)` intervals), the segments of the
@@ -144,13 +156,17 @@ payload rows continue on the same grid. The gap is bounded in
 `events_tx.csv` (Batch = `SCHEDULED`) by `gap_start` at the first discarded
 epoch (or the content end when nothing was pending) and `gap_end` at the
 resumption instant, so `[gap_start, gap_end)` is exactly the content not
-recorded. Returns `true` when a gap was skipped.
+recorded. With a `hole_feed`, the same interval is appended to the
+declared-hole feed as a `scheduled` hole declared at `declared_at` (the
+resumption instant when `nothing`). Returns `true` when a gap was skipped.
 """
 function skip_generation_gaps!(
     vi::VirtualInstrument.InstrumentState,
     pending::Vector{TelemetryCore.DataSegment},
     gaps::Vector{Tuple{DateTime,DateTime}},
-    run_dir::String,
+    run_dir::String;
+    hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
+    declared_at::Union{DateTime,Nothing} = nothing,
 )
     for (g0, g1) in gaps
         g0 <= vi.last_t < g1 || continue
@@ -158,6 +174,13 @@ function skip_generation_gaps!(
         resume = VirtualInstrument.advance_to!(vi, g1)
         TelemetryCore.log_tx_event(run_dir, gap_start, "SCHEDULED", "gap_start")
         TelemetryCore.log_tx_event(run_dir, resume, "SCHEDULED", "gap_end")
+        hole_feed === nothing || TelemetryCore.declare_gap_hole!(
+            hole_feed,
+            something(declared_at, resume),
+            "scheduled",
+            gap_start,
+            resume,
+        )
         @info "[EMITTER] Scheduled generation gap: no data from $gap_start until $resume."
         empty!(pending)
         return true
@@ -294,6 +317,10 @@ persists above one period for longer than
     production ([`skip_generation_gaps!`](@ref)).
   - `onboard_capacity_batches`: recorder ceiling; new data is discarded
     while the buffer holds that many batches.
+  - `hole_feed`: the declared-hole feed the emitter appends its scheduled
+    and recorder gaps to, `nothing` for none. A scheduled gap is declared
+    at the mission instant it is skipped at, a recorder gap at the
+    finalization that closes it.
 """
 function run_emitter(
     clock::TelemetryCore.MissionClock,
@@ -309,6 +336,7 @@ function run_emitter(
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
+    hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
 )
     vi = instrument
     run_dir = TelemetryCore.run_directory(run_id)
@@ -343,8 +371,11 @@ function run_emitter(
     halt_path = joinpath(run_dir, "HALT")
     last_heartbeat = now() - Second(2)
     # Recorder-overflow gap left open by the pre-population or a previous
-    # emitter: closed at the first finalization that finds room.
-    recorder_full = TelemetryCore.open_recorder_gap(run_dir)
+    # emitter: closed at the first finalization that finds room. Its start
+    # is kept for the declared-hole feed.
+    recorder_gap_start::Union{DateTime,Nothing} =
+        TelemetryCore.open_recorder_gap_start(run_dir)
+    recorder_full = recorder_gap_start !== nothing
 
     @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $run_id"
 
@@ -390,7 +421,14 @@ function run_emitter(
             #    capped so the checks above stay responsive; on the catch-up
             #    path yield so a partner task on the same thread is never
             #    starved.
-            skip_generation_gaps!(vi, pending, generation_gaps, run_dir) && continue
+            skip_generation_gaps!(
+                vi,
+                pending,
+                generation_gaps,
+                run_dir;
+                hole_feed = hole_feed,
+                declared_at = TelemetryCore.get_current_sim_time(clock),
+            ) && continue
             sim_t = TelemetryCore.get_current_sim_time(clock)
             content_end = vi.last_t + seg_period
             if content_end > sim_t
@@ -437,6 +475,7 @@ function run_emitter(
                     "RECORDER",
                     "gap_start",
                 )
+                recorder_full || (recorder_gap_start = pending[1].timestamp)
                 recorder_full ||
                     @warn "[EMITTER] On-board recorder full ($onboard_capacity_batches batches): new data is discarded until the buffer drains."
                 recorder_full = true
@@ -449,6 +488,16 @@ function run_emitter(
                         "RECORDER",
                         "gap_end",
                     )
+                    hole_feed === nothing ||
+                        recorder_gap_start === nothing ||
+                        TelemetryCore.declare_gap_hole!(
+                            hole_feed,
+                            sim_t,
+                            "recorder",
+                            recorder_gap_start,
+                            pending[1].timestamp,
+                        )
+                    recorder_gap_start = nothing
                     @info "[EMITTER] On-board recorder has room again: recording resumes at $(pending[1].timestamp)."
                     recorder_full = false
                 end

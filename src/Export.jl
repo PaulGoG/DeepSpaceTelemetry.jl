@@ -35,6 +35,7 @@ skipped.
 const TABLE_PRODUCTS = (
     ("events/tx", "events_tx.csv"),
     ("events/rx", "events_rx.csv"),
+    ("holes", "holes.csv"),
     ("metrics/mission_profile", "mission_profile.csv"),
     ("masks/batch_epochs", joinpath("masks", "batch_epochs.csv")),
     ("masks/gaps", joinpath("masks", "gaps.csv")),

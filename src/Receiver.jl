@@ -171,6 +171,8 @@ materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
   - `min_link_factor`: capacity floor below which no transfer is attempted.
   - `round_trip_light_time_sec`: earliest retransmission delay after a
     detected loss [mission s]; `0.0` retries immediately.
+  - `hole_feed`: the declared-hole feed the receiver appends its lost and
+    pruned batches to, `nothing` for none.
 """
 function run_receiver(
     clock::TelemetryCore.MissionClock,
@@ -189,6 +191,7 @@ function run_receiver(
     heartbeat_path::Union{String,Nothing} = nothing,
     min_link_factor::Float64 = 0.05,
     round_trip_light_time_sec::Float64 = 0.0,
+    hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
 )
     run_dir = TelemetryCore.run_directory(run_id)
     link_path = joinpath(run_dir, "link")
@@ -371,6 +374,12 @@ function run_receiver(
                         end
                         touch(joinpath(batch_dir, "PRUNED"))
                         TelemetryCore.log_rx_event(run_dir, sim_t, pruned_name, "pruned", 0)
+                        hole_feed === nothing || TelemetryCore.declare_batch_hole!(
+                            hole_feed,
+                            sim_t,
+                            "pruned",
+                            batch_dir,
+                        )
                         @info "[RECEIVER] Retention: pruned payload of $pruned_name (ingested $ingest_t)"
                         # Decrement only on success: after a failed prune the
                         # files are still on disk and the tally must stay
@@ -466,6 +475,12 @@ function run_receiver(
                             batch_name,
                             "lost",
                             attempts,
+                        )
+                        hole_feed === nothing || TelemetryCore.declare_batch_hole!(
+                            hole_feed,
+                            sim_t,
+                            "lost",
+                            joinpath(lost_path, batch_name),
                         )
                         @warn "[RECEIVER] LOST: $batch_name after $attempts failed transfers @ SimTime: $sim_t"
                     else

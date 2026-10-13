@@ -308,7 +308,9 @@ metadata, or from the batch index when the stamp is absent (runs before
 `gap_start` / `gap_end` pairs of `events_tx.csv`, a gap left open at run
 end closed at the mission's end; the unreached tail from
 `external_data_rows` of the snapshot. The rows of the table and the rows
-no delivered batch covers are the same set.
+no delivered batch covers are the same set. On a finished run the
+declared-hole feed `holes.csv`, settled by [`settle_hole_feed!`](@ref),
+holds the same holes with the instant each was declared at.
 """
 function gap_table(run_dir::String)
     cfg = TelemetryCore.load_run_config(run_dir)
@@ -400,6 +402,42 @@ function write_gap_table(run_dir::String)
     TelemetryCore.safe_csv_write(path, table)
     @info "[POST] Gap table saved: $(relpath(path, run_dir)) ($(nrow(table)) holes)."
     return path
+end
+
+"""
+    settle_hole_feed!(run_dir::String) -> Int
+
+Appends to `holes.csv`, the declared-hole feed, every row of
+[`gap_table`](@ref) it does not yet hold — the end-of-run causes a feed
+cannot announce during the run (`undelivered`, `not_generated`) and a
+recorder gap still open at the mission's end — with the nominal mission
+end (`TelemetryCore.mission_end`) as `DeclaredAt`, so that on a finished
+run the feed and `masks/gaps.csv` hold the same holes. Idempotent: a
+second call appends nothing. Returns the number of rows appended.
+"""
+function settle_hole_feed!(run_dir::String)
+    table = gap_table(run_dir)
+    feed = TelemetryCore.hole_feed(run_dir)
+    held = TelemetryCore.read_hole_feed(run_dir)
+    key(cause, batch, r1, r2) =
+        (String(cause), ismissing(batch) ? "" : String(batch), Int(r1), Int(r2))
+    present = Set{Tuple{String,String,Int,Int}}(
+        key(r.Cause, r.Batch, r.RowFirst, r.RowLast) for r in eachrow(held)
+    )
+    declared_at = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
+    n = 0
+    for r in eachrow(table)
+        key(r.Cause, r.Batch, r.RowFirst, r.RowLast) in present && continue
+        TelemetryCore.declare_hole!(
+            feed,
+            declared_at,
+            r.Cause,
+            r.Batch,
+            Int(r.RowFirst):Int(r.RowLast),
+        ) && (n += 1)
+    end
+    @info "[POST] Hole feed settled: $n rows appended."
+    return n
 end
 
 """

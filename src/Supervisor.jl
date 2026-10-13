@@ -280,28 +280,49 @@ end
 # --- Supervision ---
 
 """
-    record_generation_gap!(run_dir, clock, resume)
+    record_generation_gap!(run_dir, clock, resume; origin, sample_rate,
+                           points_per_batch, hole_feed = nothing)
 
-Bounds an emitter outage in `events_tx.csv`: a `gap_start` row at the last
-recorded generation instant and a `gap_end` row at `resume`, the content
-instant at which the replacement instrument resumes (Batch = `STREAM`).
-Called before a replacement emitter is spawned — no live `events_tx` writer
-exists at that instant.
+Bounds an emitter outage in `events_tx.csv` (Batch = `STREAM`): a
+`gap_start` row at the content end of the last finalized batch — the
+instant of row `payload_row + points_per_batch` of the highest
+`payload_row` stamp, on the payload grid of `origin` and `sample_rate`, or
+`origin` when no batch has been finalized — and a `gap_end` row at
+`resume`, the content instant at which the replacement instrument resumes.
+The start is a content instant, not the finalization or transmission
+instant of a logged event, so the rows of the partial batch the failed
+emitter held, which no batch carries, fall inside the gap. With a
+`hole_feed`, the same interval is appended to the declared-hole feed as a
+`stream` hole declared at the current mission time. Called before a
+replacement emitter is spawned — no live `events_tx` writer exists at that
+instant.
 """
 function record_generation_gap!(
     run_dir::String,
     clock::TelemetryCore.MissionClock,
-    resume::DateTime,
+    resume::DateTime;
+    origin::DateTime,
+    sample_rate::Float64,
+    points_per_batch::Int,
+    hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
 )
-    tx_log_path = joinpath(run_dir, "events_tx.csv")
+    stamped = TelemetryCore.batch_payload_rows(run_dir)
     last_gen =
-        isfile(tx_log_path) ?
-        maximum(
-            TelemetryCore.read_table(tx_log_path).SimTime;
-            init = clock.start_sim_time,
-        ) : clock.start_sim_time
+        isempty(stamped) ? origin :
+        TelemetryCore.payload_row_time(
+            origin,
+            sample_rate,
+            maximum(values(stamped)) + points_per_batch,
+        )
     TelemetryCore.log_tx_event(run_dir, last_gen, "STREAM", "gap_start")
     TelemetryCore.log_tx_event(run_dir, resume, "STREAM", "gap_end")
+    hole_feed === nothing || TelemetryCore.declare_gap_hole!(
+        hole_feed,
+        TelemetryCore.get_current_sim_time(clock),
+        "stream",
+        last_gen,
+        resume,
+    )
     return nothing
 end
 
@@ -518,7 +539,8 @@ end
     component_spawners(plan, run_dir, clock, deadline, stop_flag, heartbeats,
                        instrument, pending_segments, emitter_logger,
                        receiver_logger, orig_stdout;
-                       spawn = (name, f) -> Threads.@spawn(f())) -> Dict{Symbol,Function}
+                       spawn = (name, f) -> Threads.@spawn(f()),
+                       hole_feed = nothing) -> Dict{Symbol,Function}
 
 The emitter and receiver launchers consumed by [`supervise!`](@ref) and
 [`supervise_ticks!`](@ref); `spawn(name, f)` turns a component body into
@@ -530,7 +552,9 @@ restarted emitter (attempt ≥ 1) takes no carried-over partial batch and the
 instrument [`VirtualInstrument.resumed`](@ref) from its predecessor at the
 current mission time — a genuine generation gap, bounded in `events_tx.csv`
 by [`record_generation_gap!`](@ref) at the resumption instant before the
-replacement task starts.
+replacement task starts. `hole_feed` is the run's declared-hole feed
+([`TelemetryCore.HoleFeed`](@ref)), shared by the emitter, the receiver,
+and the outage record; `nothing` writes no feed.
 """
 function component_spawners(
     plan::MissionPlan,
@@ -545,6 +569,7 @@ function component_spawners(
     receiver_logger::CleanFileLogger,
     orig_stdout::IO;
     spawn::Function = (name, f) -> Threads.@spawn(f()),
+    hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
 )
     physics = plan.physics
     telemetry = plan.telemetry
@@ -564,6 +589,7 @@ function component_spawners(
             deadline = deadline,
             stop = stop_flag,
             heartbeat_path = heartbeats[:emitter],
+            hole_feed = hole_feed,
         )
     end
     run_receiver_logged(attempt::Int) = with_logger(receiver_logger) do
@@ -582,6 +608,7 @@ function component_spawners(
             deadline = deadline,
             stop = stop_flag,
             heartbeat_path = heartbeats[:receiver],
+            hole_feed = hole_feed,
         )
     end
     latest = Ref(instrument)
@@ -590,7 +617,16 @@ function component_spawners(
             return spawn(:emitter, () -> run_emitter_logged(instrument, pending_segments))
         latest[] =
             VirtualInstrument.resumed(latest[], TelemetryCore.get_current_sim_time(clock))
-        record_generation_gap!(run_dir, clock, latest[].last_t)
+        record_generation_gap!(
+            run_dir,
+            clock,
+            latest[].last_t;
+            origin = plan.payload_origin,
+            sample_rate = physics.sample_rate,
+            points_per_batch = round(Int, physics.sample_rate * physics.segment_duration_sec) *
+                               physics.batch_size,
+            hole_feed = hole_feed,
+        )
         return spawn(
             :emitter,
             () -> run_emitter_logged(latest[], TelemetryCore.DataSegment[]),
@@ -655,7 +691,11 @@ the point-wise 0/1 expansions (`expand_to_pointwise_masks`, rows from
 publication figure export (`[post_processing.publication]`). The gap table
 ([`Masks.write_gap_table`](@ref)) and the metrology tables are cheap and
 are written first so that they survive a failure of the mask replay or of
-the figure stage, which are the long ones. The label-span table
+the figure stage, which are the long ones. The declared-hole feed
+`holes.csv` is then settled from the gap table
+([`Masks.settle_hole_feed!`](@ref)): the end-of-run holes — undelivered,
+not generated, a recorder gap still open — are appended with the nominal
+mission end as `DeclaredAt`, so the feed and the table agree. The label-span table
 ([`Masks.write_label_spans`](@ref)) is written at mission start and is
 regenerated here only when absent, as for runs recorded before 2.6.0. Each
 stage
@@ -676,6 +716,12 @@ function post_process!(plan, run_dir::String; orig_stdout::IO = stdout)
         Masks.write_gap_table(run_dir)
     catch e
         @error "[POST] Gap table failed — run data is intact." exception =
+            (e, catch_backtrace())
+    end
+    try
+        Masks.settle_hole_feed!(run_dir)
+    catch e
+        @error "[POST] Hole feed settlement failed — run data is intact." exception =
             (e, catch_backtrace())
     end
     if !isfile(joinpath(run_dir, "label_spans.csv"))
@@ -1116,6 +1162,14 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
     emitter_logger = CleanFileLogger(emitter_log, rotate_bytes)
     receiver_logger = CleanFileLogger(receiver_log, rotate_bytes)
     physics = plan.physics
+    # The declared-hole feed, shared by the pre-population, both components,
+    # and the outage record.
+    hole_feed = TelemetryCore.HoleFeed(
+        run_dir,
+        plan.payload_origin,
+        physics.sample_rate,
+        round(Int, physics.sample_rate * physics.segment_duration_sec) * physics.batch_size,
+    )
 
     # Pre-populate the onboard buffer sequentially before the clock starts;
     # the returned instrument and partial batch continue into the main loop.
@@ -1132,6 +1186,7 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
             markers = plan.markers,
             generation_gaps = plan.generation_gaps,
             onboard_capacity_batches = plan.onboard_capacity_batches,
+            hole_feed = hole_feed,
         )
     end
 
@@ -1171,6 +1226,7 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
             receiver_logger,
             orig_stdout;
             spawn = (name, f) -> TelemetryCore.tick_spawn(clock, priority[name], f),
+            hole_feed = hole_feed,
         )
         supervise_ticks!(spawners, run_dir, clock, stop_flag, plan.supervision)
     else
@@ -1215,7 +1271,8 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
             pending_segments,
             emitter_logger,
             receiver_logger,
-            orig_stdout,
+            orig_stdout;
+            hole_feed = hole_feed,
         )
         supervise!(spawners, run_dir, clock, stop_flag, heartbeats, plan.supervision)
     end

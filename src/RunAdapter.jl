@@ -10,7 +10,8 @@ followed through its arrival feed and for a finished one replayed from it.
 [`open_run`](@ref) checks the producer's version against
 [`MINIMUM_PRODUCER_VERSION`](@ref); [`GapTracker`](@ref) declares the holes
 of the delivered record as the feeds announce them, with the rules of
-[`DeepSpaceTelemetry.Masks.gap_table`](@ref). A consumer in another language reads the same
+[`DeepSpaceTelemetry.Masks.gap_table`](@ref), and [`declared_holes`](@ref)
+reads the producer's own feed, `holes.csv`. A consumer in another language reads the same
 files; the manual's Analysis Interfaces chapter is the contract.
 """
 module RunAdapter
@@ -376,9 +377,14 @@ end
     Hole
 
 A declared hole of the delivered record: its `cause` (`:lost`, `:pruned`,
-`:stream`, `:scheduled`, `:recorder`), the `batch` for a batch-level
-hole (`missing` for a generation gap), its payload `rows`, and the content
-interval `[content_start, content_end)`.
+`:stream`, `:scheduled`, `:recorder`, and in the settled feed also
+`:undelivered`, `:not_generated`), the `batch` for a batch-level hole
+(`missing` for a generation gap or the unreached tail), its payload
+`rows`, the content interval `[content_start, content_end)`, and
+`declared_at`, the mission instant the producer declared the hole at
+(`missing` when the tracker derived it from the event logs).
+`Hole(cause, batch, rows, content_start, content_end)` builds a hole
+without a declaration instant.
 """
 struct Hole
     cause::Symbol
@@ -386,7 +392,15 @@ struct Hole
     rows::UnitRange{Int}
     content_start::DateTime
     content_end::DateTime
+    declared_at::Union{DateTime,Missing}
 end
+Hole(
+    cause::Symbol,
+    batch::Union{String,Missing},
+    rows::UnitRange{Int},
+    content_start::DateTime,
+    content_end::DateTime,
+) = Hole(cause, batch, rows, content_start, content_end, missing)
 
 """
     GapTracker(run::RunHandle)
@@ -474,5 +488,34 @@ The generation gaps announced by a `gap_start` row and not yet closed,
 label => start instant: rows from that instant on are not being produced.
 """
 open_gaps(tracker::GapTracker) = copy(tracker.open)
+
+"""
+    declared_holes(run::RunHandle; after::Integer = 0) -> Vector{Hole}
+
+The declared-hole feed `holes.csv` (2.6.0 and later) beyond its first
+`after` rows, each row a [`Hole`](@ref) with its `declared_at`: the
+file form of [`GapTracker`](@ref) for a consumer in any language, written
+by the producer as it declares each hole and settled with the end-of-run
+holes after the mission phase, so that on a finished run it holds the
+holes of `masks/gaps.csv`. Empty when the producer wrote no feed.
+"""
+function declared_holes(run::RunHandle; after::Integer = 0)
+    table = TelemetryCore.read_hole_feed(run.run_dir; after = after)
+    holes = Hole[]
+    for r in eachrow(table)
+        push!(
+            holes,
+            Hole(
+                Symbol(String(r.Cause)),
+                ismissing(r.Batch) ? missing : String(r.Batch),
+                Int(r.RowFirst):Int(r.RowLast),
+                DateTime(r.ContentStart),
+                DateTime(r.ContentEnd),
+                DateTime(r.DeclaredAt),
+            ),
+        )
+    end
+    return holes
+end
 
 end # module RunAdapter
