@@ -297,10 +297,19 @@ end
             @test isfile(joinpath(run_dir, "RUN_COMPLETE"))
             # A profile that stops well before the deadline is a mission that
             # did not end: the products are computed, the run is aborted.
+            # The profile is written on state and bandwidth changes, so a
+            # short mission holds few rows, and on a loaded host the first
+            # may fall within the tolerance of the deadline; the kept row is
+            # therefore stamped at the clock's start.
             strand!(false)
             profile = joinpath(run_dir, "mission_profile.csv")
             rows = readlines(profile)
-            write(profile, join(rows[1:max(2, length(rows)÷4)], "\n") * "\n")
+            column = findfirst(==("WallTime"), strip.(split(rows[1], ',')))
+            fields = split(rows[2], ',')
+            anchor = TelemetryCore.load_clock_anchor(run_dir)
+            fields[column] = string(anchor.clock.start_real_time)
+            write(profile, rows[1] * "\n" * join(fields, ',') * "\n")
+            @test !Supervisor.mission_ended(run_dir, anchor)
             complete(true)
             @test isfile(joinpath(run_dir, "RUN_ABORTED")) &&
                   !isfile(joinpath(run_dir, "RUN_ACTIVE")) &&
