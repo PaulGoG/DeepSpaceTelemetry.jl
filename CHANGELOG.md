@@ -6,6 +6,17 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- `RunAdapter` declares its names `public` (they are not exported):
+  `RunHandle`, `RunGeometry`, `BatchRecord`, `ArrivalEvent`, `Hole`,
+  `GapTracker`, `MINIMUM_PRODUCER_VERSION`, `open_run`, `run_geometry`,
+  `run_state`, `record_final`, `list_batches`, `batch_rows`, `read_batch`,
+  `read_batch_matrix`, `arrival_events`, `markers`, `label_spans`,
+  `declare!`, `open_gaps`, `declared_holes`, `row_time`, `time_row`. A
+  consumer's qualified access to the adapter now passes ExplicitImports'
+  `check_all_qualified_accesses_are_public` without an ignore list. The
+  module itself was already public through the package's export list.
+
 ## [2.6.1] - 2026-10-14
 
 ### Fixed

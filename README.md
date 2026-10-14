@@ -523,8 +523,10 @@ reads from a run directory, rejects a configuration that was accepted, or
 changes a script's arguments or products is a major release. The Julia
 modules and their functions are the implementation; they may move or change
 between minor releases, and the API reference documents them for
-contributors. The one exception is `RunAdapter`: its functions follow the
-file contract and are versioned with it.
+contributors. The one exception is `RunAdapter`: its types, its version
+floor and its functions follow the file contract and are versioned with it.
+They are declared `public` (not exported), so a consumer's qualified access
+passes ExplicitImports' `check_all_qualified_accesses_are_public`.
 
 ## How to cite
 

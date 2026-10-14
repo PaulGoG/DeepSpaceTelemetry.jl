@@ -265,3 +265,63 @@ end
         end
     end
 end
+
+# The adapter is the versioned interface: its names are public for qualified
+# use, and a consumer that runs ExplicitImports' public-access check over its
+# own source needs no ignore list for them.
+@testset "Run adapter: public surface" begin
+    surface = (
+        :RunHandle,
+        :RunGeometry,
+        :BatchRecord,
+        :ArrivalEvent,
+        :Hole,
+        :GapTracker,
+        :MINIMUM_PRODUCER_VERSION,
+        :open_run,
+        :run_geometry,
+        :run_state,
+        :record_final,
+        :list_batches,
+        :batch_rows,
+        :read_batch,
+        :read_batch_matrix,
+        :arrival_events,
+        :markers,
+        :label_spans,
+        :declare!,
+        :open_gaps,
+        :declared_holes,
+        :row_time,
+        :time_row,
+    )
+    @test Base.ispublic(DeepSpaceTelemetry, :RunAdapter)
+    @test all(name -> isdefined(RunAdapter, name), surface)
+    @test all(name -> Base.ispublic(RunAdapter, name), surface)
+    @test !any(name -> Base.isexported(RunAdapter, name), surface)
+    function consumer_module(names)
+        file = joinpath(mktempdir(), "RunAdapterConsumer.jl")
+        accesses = join(("DeepSpaceTelemetry.RunAdapter.$name" for name in names), ", ")
+        write(
+            file,
+            """
+            module RunAdapterConsumer
+            using DeepSpaceTelemetry: DeepSpaceTelemetry
+            surface() = ($accesses,)
+            end
+            """,
+        )
+        host = Module(:RunAdapterConsumerHost)
+        Base.include(host, file)
+        return host.RunAdapterConsumer, file
+    end
+    consumer, file = consumer_module(surface)
+    @test ExplicitImports.check_all_qualified_accesses_are_public(consumer, file) ===
+          nothing
+    # The check is not vacuous: an internal helper still fails it.
+    consumer, file = consumer_module((:segment_files,))
+    @test_throws ExplicitImports.NonPublicQualifiedAccessException ExplicitImports.check_all_qualified_accesses_are_public(
+        consumer,
+        file,
+    )
+end

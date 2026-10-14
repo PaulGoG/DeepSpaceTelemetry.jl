@@ -20,6 +20,32 @@ using ..TelemetryCore
 using DataFrames: nrow
 using Dates: DateTime
 
+# The adapter follows the run-directory contract and is versioned with it:
+# its names are public, for qualified use, and not exported.
+public RunHandle,
+    RunGeometry,
+    BatchRecord,
+    ArrivalEvent,
+    Hole,
+    GapTracker,
+    MINIMUM_PRODUCER_VERSION,
+    open_run,
+    run_geometry,
+    run_state,
+    record_final,
+    list_batches,
+    batch_rows,
+    read_batch,
+    read_batch_matrix,
+    arrival_events,
+    markers,
+    label_spans,
+    declare!,
+    open_gaps,
+    declared_holes,
+    row_time,
+    time_row
+
 """
     MINIMUM_PRODUCER_VERSION
 

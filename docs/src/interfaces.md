@@ -518,6 +518,14 @@ own feed, `holes.csv`, instead of deriving the holes from the event logs;
 on a finished run it holds the holes of the gap table, the end-of-run
 causes included.
 
+The adapter's types (`RunHandle`, `RunGeometry`, `BatchRecord`,
+`ArrivalEvent`, `Hole`, `GapTracker`), its version floor
+`MINIMUM_PRODUCER_VERSION`, and the functions above with `batch_rows`,
+`record_final`, `row_time` and `time_row` are declared `public` (since
+2.6.2) and are not exported: a consumer qualifies them, as in the example,
+and ExplicitImports' `check_all_qualified_accesses_are_public` passes
+without an ignore list. These names are versioned with the file contract.
+
 **Consumer archetypes.** The loop above is what a *streaming engine* does
 generically — a coverage set, a window scheduler that emits each window
 once, conditioning on the delivered stretch, a scorer, and an ordered commit
