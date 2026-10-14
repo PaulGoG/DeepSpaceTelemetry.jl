@@ -6,6 +6,30 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- A run made from a copy of the package installed by Pkg, the way a
+  downstream consumer obtains it (`[sources]` or `Pkg.add(url = …)`),
+  recorded an empty `git_commit` in `config_snapshot.toml` and
+  `descriptor.toml`: the installed tree has no `.git`. Every run now records
+  the identity of its source however the package was installed:
+  `git_tree_sha1`, the git tree hash of the source (`HEAD^{tree}` of a
+  checkout, the `git-tree-sha1` of the manifest entry of an installed copy,
+  or the hash of the directory), never empty; `git_commit` of an installed
+  copy from the manifest's `repo-rev` when that is a full commit hash;
+  `repo_url` and `repo_rev` of the manifest entry; and `identity_source`
+  (`work_tree`, `manifest` or `directory`). `git_dirty` also flags an
+  installed copy modified after installation. The interfaces page states
+  which fields are authoritative. The publication sidecar records
+  `git_tree_sha1` and `git_dirty`, and `sweep.toml` the full identity.
+- A package directory inside another git repository, such as an installed
+  copy under a version-controlled depot, was given that repository's
+  commit. Git is now consulted only for a directory that is itself the top
+  level of a work tree.
+- `manifest_snapshot.toml` is the manifest that Julia's code loading resolves
+  for the active project, including a workspace root's manifest, a
+  `manifest` key and `JuliaManifest.toml`; a run in a workspace member's
+  environment previously recorded no manifest.
+
 ## [2.6.0] - 2026-10-13
 
 ### Added

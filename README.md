@@ -172,7 +172,11 @@ The suite (equivalently `Pkg.test()`) runs the Aqua, ExplicitImports, and JET
 checks beside the unit and physics-validation testsets, four end-to-end
 integration missions — lossless, retention custodian, deterministic total
 loss, and a headless mission through the supervisor — and the tick missions
-of the reproducibility claim: the same seed twice, another seed once. The manual is published
+of the reproducibility claim: the same seed twice, another seed once. With
+`DEEPSPACETELEMETRY_TEST_INSTALLED=true` it also installs the package with
+Pkg into a temporary depot, pinned by commit as a downstream consumer pins
+it, and checks the source identity of a run made from that copy; the copy
+precompiles from scratch, so this adds several minutes. The manual is published
 at <https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/>, deployed by the
 CI docs job on every version tag. The build of the `main` branch is deployed
 alongside it on every push and reachable from the version selector at the top
@@ -279,7 +283,7 @@ DeepSpaceTelemetry/
 ├── test/
 │   ├── Project.toml             # Test environment (QA deps; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the test environment
-│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, channel, instrument, masks, integration, supervisor, tick mode, run adapter, sweeps, metrology, export, figures)
+│   └── runtests.jl              # Entry point; the suite lives in test/<subject>.jl (static QA, core, source identity, channel, instrument, masks, integration, supervisor, tick mode, run adapter, sweeps, metrology, export, figures; installed copy, opt-in)
 ├── bench/
 │   ├── Project.toml             # Benchmark environment (BenchmarkTools; package consumed by path ([sources]))
 │   ├── activate.jl              # Activates and instantiates the benchmark environment

@@ -81,21 +81,21 @@ the file contract is the same, read at different moments.
 | `events_tx.csv` | emitter; the supervisor appends the `STREAM` gap pair while the emitter is down (one live writer at a time) | Tail/read. Generation and transmission milestones. |
 | `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics at a change-driven cadence, columns `SimTime, WallTime, Mission_Day, Hours_Elapsed, Bandwidth_Pct, Onboard_Buffer, Link_Buffer, Ground_Total, Ground_Live, Ground_Arch, Nominal_Bandwidth_Pct, Lost_Count, Retry_Count, Disruption_Active` (a pre-rename `Ground_Archive` column is normalized to `Ground_Total` on read). |
 | `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
-| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, `git_commit`, `git_dirty` (uncommitted changes in the checkout), `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `versioninfo`, `julia_threads`, `blas_threads` — the parameter hash `config_sha256` at `[provenance]` (the SHA-256 of the configuration as sorted TOML without that section; its first eight hex digits open the run identifier `RUN_cfg=<hash>_pid=<pid>_t=<yyyymmdd_HHMMSS>`), the payload origin `payload_origin` at `[provenance]` (the content instant of payload row 1, `start_sim_time` less `initial_downtime_days`, as an ISO-8601 string; see Batch Identity below), and, for external data, the input identity there (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`, `external_data_columns`). |
-| `manifest_snapshot.toml` | pipeline (at startup) | Read. The manifest of the environment the run was resolved on: the exact version of every dependency. Manifests are not tracked in the repository, so this file and the commit in `config_snapshot.toml` together fix the code state. |
+| `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters plus `[provenance.platform]` — `package_version`, the source identity (`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`, `repo_rev`; Source identity below), `hostname`, `os`, `cpu_model`, `logical_cores`, `total_memory_gb`, `julia_version`, `versioninfo`, `julia_threads`, `blas_threads` — the parameter hash `config_sha256` at `[provenance]` (the SHA-256 of the configuration as sorted TOML without that section; its first eight hex digits open the run identifier `RUN_cfg=<hash>_pid=<pid>_t=<yyyymmdd_HHMMSS>`), the payload origin `payload_origin` at `[provenance]` (the content instant of payload row 1, `start_sim_time` less `initial_downtime_days`, as an ISO-8601 string; see Batch Identity below), and, for external data, the input identity there (`external_data_path`, `external_data_rows`, `external_data_sha256`, `declared_sample_rate`, `external_data_columns`). |
+| `manifest_snapshot.toml` | pipeline (at startup) | Read. The manifest of the environment the run was resolved on: the exact version of every dependency. Manifests are not tracked in the repository, so this file and the source identity in `config_snapshot.toml` together fix the code state. |
 | `RUN_ACTIVE` / `RUN_POSTPROCESSING` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
 | `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor and absolute deadline (`wall_epoch`, `start_sim_time`, `speed_up`, `deadline_wall`); re-attaching components reconstruct the identical clock from it. |
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` one of `down`, `restart`, `stalled`, `recovered`. |
 | `emitter_alive` / `receiver_alive` | components (heartbeats) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs and deleted when it exits: absence means finished, a stale mtime means stalled. |
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run (`SimTime, Label, PayloadRow`, the last the payload row of the instant, since 2.5.0) — the instants the alert-latency metric is evaluated at (`alert_latency_markers.csv`). |
 | `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid (since 2.6.0), columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd` with the row convention of `masks/gaps.csv`: the `[[labels]]` spans a payload exporter declares in payload rows (`Class = label`), the blackout and recovery phases of the link disruptions (`Type` = the event type), the scheduled generation gaps as configured (`generation_gap`; the realized gap of the gap table may differ by the segment-grid snap), the contact passes (`contact`, `Type = pass`), the low-latency periods (`low_latency`, `Type = triggered` for a marker's period, `scheduled` otherwise), and the initial downtime. A consumer reads the labels of a scenario from the run directory, not from the scenario file. |
-| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema`, `run_id`, the producer's `package_version`, `git_commit`, `git_dirty`, `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry, `payload_columns`, the external record's hash and length, and under `[products]` the size and SHA-256 of every table present. |
+| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema`, `run_id`, the producer's `package_version` and source identity (`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`, `repo_rev`, as in `config_snapshot.toml`), `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry, `payload_columns`, the external record's hash and length, and under `[products]` the size and SHA-256 of every table present. |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period); `plots/delivery_delay.png` renders the distribution against the requirement. |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine against the counterfactual FIFO drain — columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
 | `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
 | `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, the point-wise masks, and the provenance attributes in one HDF5 file (section below) — not the batch payloads, the clock anchor, the sentinels, or the logs; regenerable from the CSV products. |
 | `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact, `alert_latency`, `delivery_delay`, and `state_raster` (the batch-state timeline as a raster), each as `.png` and `.pdf`. |
-| `publication/` | post-processing (`[post_processing.publication]`) | Read/copy. Journal-width figure export, `<stem>__<run_id>.<format>`, with a `PROVENANCE.toml` sidecar (`[export]`: `run_id`, `run_directory`, `exported_at`, `column_width_mm`, `format`, `package_version`, `git_commit`, `config_snapshot_sha256`, `figures`). |
+| `publication/` | post-processing (`[post_processing.publication]`) | Read/copy. Journal-width figure export, `<stem>__<run_id>.<format>`, with a `PROVENANCE.toml` sidecar (`[export]`: `run_id`, `run_directory`, `exported_at`, `column_width_mm`, `format`, `package_version`, `git_commit`, `git_tree_sha1`, `git_dirty`, `config_snapshot_sha256`, `figures`). |
 | `masks/gaps.csv` | post-processing | Read. Every hole of the delivered record as a declared interval with its cause, columns `Cause, Batch, RowFirst, RowLast, ContentStart, ContentEnd` (Stationary Analysis below): the input of a gap-aware consumer, written first among the products. |
 | `masks/batch_epochs.csv` | post-processing | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch, PayloadRow`: the finalization instant from the event log, and the first-sample timestamp and payload row from the batch metadata (missing when the metadata lacks them, as in runs before 2.1.0); written when the run has `gen` rows, it re-anchors point-wise mask rows on the mission timeline and the payload when gap events are present. |
 | `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`. |
@@ -146,10 +146,39 @@ correspondence is one-to-one.
 | DrWatson | This package |
 |---|---|
 | `savename` — parameter-derived identifier | `TelemetryCore.generate_run_id` — `RUN_cfg=<8 hex of config_sha256>_pid=<pid>_t=<yyyymmdd_HHMMSS>`, key=value fields in `savename` order |
-| `tagsave` — the git commit stored with the result | `TelemetryCore.setup_run_dir` — `config_snapshot.toml` with `[provenance.platform]` (commit and dirty flag, hostname, hardware, Julia and package versions) beside `manifest_snapshot.toml` |
+| `tagsave` — the git commit stored with the result | `TelemetryCore.setup_run_dir` — `config_snapshot.toml` with `[provenance.platform]` (source identity, hostname, hardware, Julia and package versions) beside `manifest_snapshot.toml` |
 | `safesave` — `#k` backup rotation, never an overwrite | `TelemetryCore.backup_existing` and `backup_existing_dir` — the same `<name>#k` rotation for every result file and run directory |
 | `produce_or_load` — cached expensive stages | not provided: the mission runs in real time and cannot be replayed from a cache, and every post-processing product is regenerable from the run directory by the standalone scripts |
 | `datadir`, `projectdir` | `TelemetryCore.run_directory` — `<checkout>/data/runs/<RUN_ID>` |
+
+### Source identity
+
+Every run records the identity of the package source it was made from, in
+`[provenance.platform]` of `config_snapshot.toml` and again in
+`descriptor.toml`, whether the package runs from a git checkout or from a
+copy Pkg installed under `~/.julia/packages`, which has no `.git` (since
+2.6.1; `TelemetryCore.source_identity`).
+
+| Field | Content |
+|---|---|
+| `identity_source` | How the identity was determined: `work_tree` (the package directory is the top level of a git checkout), `manifest` (a copy installed by Pkg, matched by UUID to its entry in the manifest of the active environment), or `directory` (neither; the content of the directory alone). |
+| `git_tree_sha1` | The git tree hash of the source: `HEAD^{tree}` of the checkout, the `git-tree-sha1` of the manifest entry, or the hash of the package directory computed as git computes it (leaving out `.git` and a data root inside it). Never empty. |
+| `git_commit` | The checkout's `HEAD`; for an installed copy, the `repo-rev` of the manifest entry when it is a full 40-digit commit hash, as in a `[sources]` pin by commit. Empty for a copy pinned by branch or tag, one installed from a registry, and a bare directory. |
+| `git_dirty` | The code that ran differs from the recorded identity: uncommitted changes to tracked files of the checkout, or an installed directory whose tree hash differs from its manifest entry's (the run log carries a warning). |
+| `repo_url`, `repo_rev` | The `repo-url` and `repo-rev` of the manifest entry of a copy added by URL; empty otherwise. |
+
+`git_tree_sha1` is the authoritative identity of the code: with `git_dirty =
+false` it fixes the source exactly, however the package was obtained, and
+the same content always has the same value — it equals the `git-tree-sha1`
+Pkg writes into a manifest, and `git rev-parse <commit>^{tree}` gives it
+for any commit. `git_commit`, when not empty, is authoritative as well and
+its tree is `git_tree_sha1`; it adds the history. `repo_url` and `repo_rev`
+record where an installed copy came from and are informational only, since a
+branch or a tag moves. A downstream collection keys a run's producer by
+`git_tree_sha1` and `git_dirty`, and copies `git_commit` when present; a run
+with `git_dirty = true` cannot be reproduced from its recorded identity.
+Runs made before 2.6.1 record `git_commit` and `git_dirty` only, and an
+empty `git_commit` when they were made from an installed copy.
 
 ## Availability Window & Lifecycle Sentinels
 
@@ -654,7 +683,7 @@ derived view of them and can be regenerated at any time.
 
 | Group | Content |
 |---|---|
-| root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `julia_version`, …), `config_snapshot` — the run's configuration as TOML text — and `config_source` (`snapshot` or `fallback`, the latter when the project `config.toml` stood in for a missing or corrupt snapshot) |
+| root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `git_tree_sha1`, `julia_version`, …), `config_snapshot` — the run's configuration as TOML text — and `config_source` (`snapshot` or `fallback`, the latter when the project `config.toml` stood in for a missing or corrupt snapshot) |
 | `events/tx`, `events/rx`, `holes` | the event logs and the declared-hole feed, one dataset per column |
 | `metrics/mission_profile` | the metrics profile, one dataset per column |
 | `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants (`SimTime`, `SimTime_iso`), and the attributes `state_codes` and `layout` |

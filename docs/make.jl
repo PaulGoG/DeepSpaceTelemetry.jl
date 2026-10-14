@@ -21,9 +21,10 @@ makedocs(
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
         canonical = "https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/",
-        # The TelemetryCore API page renders at about 105 KiB; the default
-        # 100 KiB warning threshold is raised, the 200 KiB error stays.
+        # The TelemetryCore API page renders at about 200 KiB (2.6.1); both
+        # default thresholds (100 KiB warning, 200 KiB error) are raised.
         size_threshold_warn = 150 * 2^10,
+        size_threshold = 250 * 2^10,
     ),
     modules = [
         DeepSpaceTelemetry,
