@@ -158,6 +158,10 @@
         @test descriptor["run_id"] == run_id && descriptor["mode"] == "tick"
         @test descriptor["schema"] == "deepspacetelemetry-run/1"
         @test descriptor["points_per_batch"] == 2400 && descriptor["rng_seed"] == 1
+        # The source identity of the snapshot, never without a tree hash.
+        identity = TelemetryCore.source_identity()
+        @test all(descriptor[String(key)] == value for (key, value) in pairs(identity))
+        @test occursin(r"^[0-9a-f]{40}$", descriptor["git_tree_sha1"])
         @test TOML.parsefile(joinpath(run_dir, "descriptor.toml"))["payload_columns"] ==
               ["Amplitude"]
         @test haskey(descriptor["products"], "events_rx.csv") &&
