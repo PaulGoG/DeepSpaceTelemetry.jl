@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-10-14
+
 ### Fixed
 - A run made from a copy of the package installed by Pkg, the way a
   downstream consumer obtains it (`[sources]` or `Pkg.add(url = …)`),
@@ -729,6 +731,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[2.6.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.3.1...v2.4.0
