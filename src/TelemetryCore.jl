@@ -16,7 +16,7 @@ using Dates: Dates, Date, DateTime, Day, Millisecond, Second, Time, now
 using JSON: JSON
 using InteractiveUtils: InteractiveUtils
 using LinearAlgebra: LinearAlgebra
-using SHA: sha256
+using SHA: SHA, sha256
 using TOML: TOML
 
 # --- Constants ---
@@ -1485,7 +1485,10 @@ const DESCRIPTOR_PRODUCTS = (
 
 Writes `<run_dir>/descriptor.toml`, the run's identity for a downstream
 collection to copy verbatim: `schema`, `run_id`, the producer's
-`package_version`, `git_commit`, `git_dirty`, the configuration hash
+`package_version` and source identity (`identity_source`, `git_commit`,
+`git_tree_sha1`, `git_dirty`, `repo_url`, `repo_rev`; see
+[`source_identity`](@ref); the fields added in 2.6.1 are empty for an earlier
+run), the configuration hash
 `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`,
 `payload_origin`, `rng_seed`, the payload geometry, `payload_columns` (the
 names of the payload columns of the segment files: those stamped into the
@@ -1506,8 +1509,12 @@ function write_run_descriptor(run_dir::String)
         "schema" => "deepspacetelemetry-run/1",
         "run_id" => basename(run_dir),
         "package_version" => String(get(platform, "package_version", "")),
+        "identity_source" => String(get(platform, "identity_source", "")),
         "git_commit" => String(get(platform, "git_commit", "")),
+        "git_tree_sha1" => String(get(platform, "git_tree_sha1", "")),
         "git_dirty" => Bool(get(platform, "git_dirty", false)),
+        "repo_url" => String(get(platform, "repo_url", "")),
+        "repo_rev" => String(get(platform, "repo_rev", "")),
         "config_sha256" => String(get(provenance, "config_sha256", "")),
         "mode" => simulation_mode(cfg),
         "mission_days" => mission_span_days(cfg),
@@ -3940,21 +3947,19 @@ Hardware and runtime fingerprint stamped into every run's
 `config_snapshot.toml` under `[provenance.platform]`: hostname, OS kernel
 and architecture, CPU model and logical core count, total memory, Julia
 version and `versioninfo()` report, thread/BLAS-thread counts, the package
-version, and the git commit of the checkout with a flag for uncommitted
-changes ([`git_commit`](@ref), [`git_dirty`](@ref); empty and `false`
-outside a repository). Together with the configuration snapshot, the
-manifest snapshot ([`save_manifest_snapshot`](@ref)), and the recorded input
-identity, every result is attributable to config + commit + environment +
-platform. (No GPU
+version, and the identity of the package source ([`source_identity`](@ref):
+`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`,
+`repo_rev`), which holds for a git checkout and for a copy installed by Pkg
+alike. Together with the configuration snapshot, the manifest snapshot
+([`save_manifest_snapshot`](@ref)), and the recorded input identity, every
+result is attributable to config + source + environment + platform. (No GPU
 fields: the pipeline is I/O- and event-loop-bound and uses no GPU
 backend.)
 """
 function platform_provenance()
     cpu = Sys.cpu_info()
-    return Dict{String,Any}(
+    provenance = Dict{String,Any}(
         "package_version" => string(pkgversion(TelemetryCore)),
-        "git_commit" => git_commit(),
-        "git_dirty" => git_dirty(),
         "hostname" => Base.Libc.gethostname(),
         "os" => string(Sys.KERNEL, " ", Sys.MACHINE),
         "cpu_model" => isempty(cpu) ? "unknown" : cpu[1].model,
@@ -3965,39 +3970,277 @@ function platform_provenance()
         "julia_threads" => Threads.nthreads(),
         "blas_threads" => LinearAlgebra.BLAS.get_num_threads(),
     )
+    for (key, value) in pairs(source_identity())
+        provenance[String(key)] = value
+    end
+    return provenance
 end
 
 """
-    git_commit() -> String
+    source_identity(root = PROJECT_ROOT; manifest = active_manifest_path()) -> NamedTuple
 
-The HEAD commit of the package checkout (`git rev-parse HEAD` in the
-project root), or `""` when git or the repository is unavailable.
+The identity of the package source at `root`, stamped into
+`[provenance.platform]` and copied into `descriptor.toml`:
+
+- `identity_source` — how it was determined: `"work_tree"` when `root` is
+  the top level of a git work tree ([`git_work_tree`](@ref)); `"manifest"`
+  for an installed copy whose package UUID has an entry with a
+  `git-tree-sha1` in the manifest `manifest` (the active environment's by
+  default, [`active_manifest_path`](@ref)); `"directory"` otherwise.
+- `git_commit` — the `HEAD` commit of the work tree; for an installed copy
+  the entry's `repo-rev` when it is a full 40-digit commit hash, as in a
+  `[sources]` pin by commit; empty otherwise (a branch or tag, a registry
+  install, a bare directory).
+- `git_tree_sha1` — the git tree hash of the source: `HEAD^{tree}` of the
+  work tree, the entry's `git-tree-sha1`, or the hash of the directory
+  itself ([`git_tree_sha1`](@ref)). Never empty, and the same value for the
+  same content however the package was obtained.
+- `git_dirty` — whether the code at `root` differs from that identity:
+  uncommitted changes to tracked files of the work tree, or an installed
+  directory whose tree hash differs from the entry's (with a warning).
+  `false` for `"directory"`, whose identity is the content itself.
+- `repo_url`, `repo_rev` — the entry's `repo-url` and `repo-rev`; empty
+  unless `identity_source == "manifest"` and the copy was added by URL.
+
+The directory hash leaves out `.git` and the data root ([`DATA_ROOT`](@ref))
+when it lies inside `root`.
+
+# Example
+```julia
+id = TelemetryCore.source_identity()
+id.git_tree_sha1   # 40 hexadecimal digits, for a checkout and an installed copy alike
+```
 """
-function git_commit()
-    return something(git_output(`rev-parse HEAD`), "")
+function source_identity(
+    root::AbstractString = PROJECT_ROOT;
+    manifest::Union{AbstractString,Nothing} = active_manifest_path(),
+)
+    isdir(root) || throw(ArgumentError("[RUN] No package directory $root."))
+    if git_work_tree(root)
+        lines = split(something(git_output(`rev-parse HEAD 'HEAD^{tree}'`; root), ""), '\n')
+        length(lines) == 2 || throw(
+            ErrorException("[RUN] git rev-parse returned no commit and tree for $root."),
+        )
+        return (
+            identity_source = "work_tree",
+            git_commit = String(strip(lines[1])),
+            git_tree_sha1 = String(strip(lines[2])),
+            git_dirty = git_dirty(root),
+            repo_url = "",
+            repo_rev = "",
+        )
+    end
+    content = git_tree_sha1(root; exclude = [DATA_ROOT[]])
+    entry = manifest_entry(root, manifest)
+    if entry === nothing || isempty(string(get(entry, "git-tree-sha1", "")))
+        return (
+            identity_source = "directory",
+            git_commit = "",
+            git_tree_sha1 = content,
+            git_dirty = false,
+            repo_url = "",
+            repo_rev = "",
+        )
+    end
+    recorded = string(entry["git-tree-sha1"])
+    rev = string(get(entry, "repo-rev", ""))
+    dirty = content != recorded
+    dirty &&
+        @warn "[RUN] The package directory $root does not match its manifest entry (git-tree-sha1 $recorded, directory $content): recorded as git_dirty."
+    return (
+        identity_source = "manifest",
+        git_commit = occursin(r"^[0-9a-f]{40}$", rev) ? rev : "",
+        git_tree_sha1 = recorded,
+        git_dirty = dirty,
+        repo_url = string(get(entry, "repo-url", "")),
+        repo_rev = rev,
+    )
 end
 
 """
-    git_dirty() -> Bool
+    active_manifest_path(project = Base.active_project()) -> Union{String,Nothing}
 
-Whether the package checkout carries uncommitted changes to tracked files
-(`git status --porcelain --untracked-files=no`); `false` when git or the
-repository is unavailable. A run made from a dirty tree is not reproducible
-from its recorded commit alone.
+The manifest of the environment whose project file is `project`, resolved
+as Julia's code loading resolves it (a workspace root, a `manifest` key,
+the version-specific `Manifest-vX.Y.toml` before `Manifest.toml`), or
+`nothing` when there is no project or no manifest.
 """
-function git_dirty()
-    return !isempty(something(git_output(`status --porcelain --untracked-files=no`), ""))
+function active_manifest_path(
+    project::Union{AbstractString,Nothing} = Base.active_project(),
+)
+    project === nothing && return nothing
+    return Base.project_file_manifest_path(String(project))
 end
 
 """
-    git_output(arguments::Cmd) -> Union{String,Nothing}
+    manifest_entry(root, manifest) -> Union{Dict{String,Any},Nothing}
 
-Standard output of `git -C <project root> <arguments>`, stripped, or
-`nothing` when git is not installed or the command fails (no repository).
+The entry of the manifest file `manifest` for the package whose project file
+lies at `root`, matched by name and UUID, or `nothing` when either file or
+the entry is absent. Reads both the current manifest format (`[[deps.Name]]`)
+and the format before Julia 1.7 (`[[Name]]`).
 """
-function git_output(arguments::Cmd)
+function manifest_entry(root::AbstractString, manifest::Union{AbstractString,Nothing})
+    manifest === nothing && return nothing
+    projects = joinpath.(root, ("JuliaProject.toml", "Project.toml"))
+    found = findfirst(isfile, projects)
+    (found === nothing || !isfile(manifest)) && return nothing
+    project = TOML.parsefile(projects[found])
+    name = get(project, "name", nothing)
+    uuid = tryparse(Base.UUID, string(get(project, "uuid", "")))
+    (name isa String && uuid !== nothing) || return nothing
+    content = TOML.parsefile(manifest)
+    deps = haskey(content, "manifest_format") ? get(content, "deps", Dict()) : content
+    for entry in get(deps, name, Any[])
+        entry isa Dict{String,Any} || continue
+        tryparse(Base.UUID, string(get(entry, "uuid", ""))) == uuid && return entry
+    end
+    return nothing
+end
+
+"""
+    git_tree_sha1(dir::AbstractString; exclude = String[]) -> String
+
+The git tree hash (40 hexadecimal digits) of the directory `dir` as git
+would record it if every file under it were committed: entries in git's
+order, modes `100644`, `100755` (owner-executable), `120000` (symbolic link,
+hashed as its target) and `40000` (directory), empty directories and `.git`
+entries left out, as `git write-tree` and Pkg do. The hash of an unmodified
+installed copy therefore equals the `git-tree-sha1` of its manifest entry
+and `git rev-parse <commit>^{tree}` of the commit it was installed from.
+The paths in `exclude` are left out with everything under them.
+"""
+function git_tree_sha1(
+    dir::AbstractString;
+    exclude::AbstractVector{<:AbstractString} = String[],
+)
+    isdir(dir) || throw(ArgumentError("[RUN] No directory $dir to hash."))
+    excluded = Set{String}(normpath(abspath(p)) for p in exclude if !isempty(p))
+    entries = git_tree_entries(normpath(abspath(dir)), excluded)
+    return bytes2hex(git_tree_digest(entries))
+end
+
+"""
+    git_tree_entries(dir, excluded) -> Vector{Tuple{String,String,Vector{UInt8}}}
+
+The `(mode, name, object hash)` entries of the git tree of `dir`, in git's
+order (a directory sorts as its name followed by `/`).
+"""
+function git_tree_entries(dir::String, excluded::Set{String})
+    entries = Tuple{String,String,Vector{UInt8}}[]
+    for name in readdir(dir)
+        path = joinpath(dir, name)
+        (name == ".git" || path in excluded) && continue
+        if islink(path)
+            push!(entries, ("120000", name, git_blob_digest(codeunits(readlink(path)))))
+        elseif isdir(path)
+            children = git_tree_entries(path, excluded)
+            isempty(children) || push!(entries, ("40000", name, git_tree_digest(children)))
+        elseif isfile(path)
+            executable = @static if Sys.iswindows()
+                Sys.isexecutable(path)
+            else
+                !iszero(filemode(path) & 0o100)
+            end
+            push!(entries, (executable ? "100755" : "100644", name, git_blob_digest(path)))
+        end
+    end
+    sort!(entries; by = e -> e[1] == "40000" ? string(e[2], '/') : e[2])
+    return entries
+end
+
+"""
+    git_tree_digest(entries) -> Vector{UInt8}
+
+The SHA-1 of the git tree object made of `entries` ([`git_tree_entries`](@ref)).
+"""
+function git_tree_digest(entries::Vector{Tuple{String,String,Vector{UInt8}}})
+    body = IOBuffer()
+    for (mode, name, digest) in entries
+        write(body, mode, ' ', name, '\0', digest)
+    end
+    bytes = take!(body)
+    context = SHA.SHA1_CTX()
+    SHA.update!(context, codeunits(string("tree ", length(bytes), '\0')))
+    SHA.update!(context, bytes)
+    return SHA.digest!(context)
+end
+
+"""
+    git_blob_digest(source) -> Vector{UInt8}
+
+The SHA-1 of the git blob object holding `source`: the bytes of a file path,
+read in chunks, or a byte vector (the target of a symbolic link).
+"""
+function git_blob_digest(bytes::AbstractVector{UInt8})
+    context = SHA.SHA1_CTX()
+    SHA.update!(context, codeunits(string("blob ", length(bytes), '\0')))
+    SHA.update!(context, bytes)
+    return SHA.digest!(context)
+end
+
+function git_blob_digest(path::String)
+    context = SHA.SHA1_CTX()
+    SHA.update!(context, codeunits(string("blob ", filesize(path), '\0')))
+    buffer = Vector{UInt8}(undef, 1 << 16)
+    open(path) do io
+        while !eof(io)
+            n = readbytes!(io, buffer)
+            SHA.update!(context, buffer, n)
+        end
+    end
+    return SHA.digest!(context)
+end
+
+"""
+    git_work_tree(root = PROJECT_ROOT) -> Bool
+
+Whether `root` is the top level of a git work tree with a commit at `HEAD`.
+A directory inside another repository is not — an installed copy under a
+version-controlled depot would otherwise be given that repository's commit
+— and neither is a checkout when git is not installed.
+"""
+function git_work_tree(root::AbstractString = PROJECT_ROOT)
+    top = git_output(`rev-parse --show-toplevel`; root)
+    (top === nothing || isempty(top) || realpath(top) != realpath(root)) && return false
+    return git_output(`rev-parse --verify --quiet HEAD`; root) !== nothing
+end
+
+"""
+    git_commit(root = PROJECT_ROOT) -> String
+
+The `HEAD` commit of the git work tree at `root`, or `""` when `root` is not
+one ([`git_work_tree`](@ref)). [`source_identity`](@ref) covers installed
+copies as well.
+"""
+function git_commit(root::AbstractString = PROJECT_ROOT)
+    git_work_tree(root) || return ""
+    return something(git_output(`rev-parse HEAD`; root), "")
+end
+
+"""
+    git_dirty(root = PROJECT_ROOT) -> Bool
+
+Whether the git work tree at `root` carries uncommitted changes to tracked
+files (`git status --porcelain --untracked-files=no`); `false` when `root` is
+not a work tree ([`git_work_tree`](@ref)). A run made from a dirty tree is
+not reproducible from its recorded commit alone.
+"""
+function git_dirty(root::AbstractString = PROJECT_ROOT)
+    git_work_tree(root) || return false
+    status = git_output(`status --porcelain --untracked-files=no`; root)
+    return !isempty(something(status, ""))
+end
+
+"""
+    git_output(arguments::Cmd; root = PROJECT_ROOT) -> Union{String,Nothing}
+
+Standard output of `git -C <root> <arguments>`, stripped, or `nothing` when
+git is not installed or the command fails (no repository).
+"""
+function git_output(arguments::Cmd; root::AbstractString = PROJECT_ROOT)
     try
-        command = `git -C $PROJECT_ROOT $arguments`
+        command = `git -C $root $arguments`
         return String(strip(read(pipeline(command; stderr = devnull), String)))
     catch e
         e isa Union{Base.IOError,ProcessFailedException} || rethrow()
@@ -4008,25 +4251,21 @@ end
 """
     save_manifest_snapshot(run_dir::String) -> Union{String,Nothing}
 
-Copies the manifest of the active environment to
-`<run_dir>/manifest_snapshot.toml`, so the run records the dependency
+Copies the manifest of the active environment ([`active_manifest_path`](@ref))
+to `<run_dir>/manifest_snapshot.toml`, so the run records the dependency
 versions it was resolved on; manifests are not tracked in the repository.
 Returns the snapshot path, or `nothing` with a warning when the active
 environment has no manifest.
 """
 function save_manifest_snapshot(run_dir::String)
-    project = Base.active_project()
-    # Julia prefers a version-specific manifest over the plain one.
-    names = ("Manifest-v$(VERSION.major).$(VERSION.minor).toml", "Manifest.toml")
-    candidates = project === nothing ? String[] : joinpath.(dirname(project), names)
-    found = findfirst(isfile, candidates)
-    if found === nothing
+    manifest = active_manifest_path()
+    if manifest === nothing
         @warn "[RUN] The active environment has no manifest — dependency versions of this run are not recorded."
         return nothing
     end
     snapshot_path = joinpath(run_dir, "manifest_snapshot.toml")
     backup_existing(snapshot_path)
-    cp(candidates[found], snapshot_path)
+    cp(manifest, snapshot_path)
     return snapshot_path
 end
 

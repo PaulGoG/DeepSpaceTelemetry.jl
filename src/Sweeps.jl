@@ -212,7 +212,8 @@ active project when fewer exist), otherwise they run one after another in
 this process. Writes `<data_root>/sweeps/<prefix>/summary.csv`, one row per
 run ([`summarize_run`](@ref), with the seed first), and `sweep.toml`, the
 sweep's provenance: the base configuration's hash, the overrides, the
-seeds, the commit and version, the date. Returns `(summary, dir)`.
+seeds, the package version and source identity
+([`TelemetryCore.source_identity`](@ref)), the date. Returns `(summary, dir)`.
 """
 function run_sweep(
     cfg::AbstractDict;
@@ -267,11 +268,12 @@ function run_sweep(
         "mode" => "tick",
         "base_config_sha256" => TelemetryCore.config_sha256(cfg),
         "package_version" => string(pkgversion(parentmodule(@__MODULE__))),
-        "git_commit" => TelemetryCore.git_commit(),
-        "git_dirty" => TelemetryCore.git_dirty(),
         "runs" => [basename(d) for d in run_dirs],
         "written_at" => string(now()),
     )
+    for (key, value) in pairs(TelemetryCore.source_identity())
+        provenance[String(key)] = value
+    end
     path = joinpath(dir, "sweep.toml")
     TelemetryCore.backup_existing(path)
     open(path, "w") do io

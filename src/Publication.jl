@@ -86,9 +86,10 @@ end
 
 Writes `<dir>/PROVENANCE.toml` (an existing file is rotated): the run ID
 and directory, the export instant, width and format, the package version
-and git commit recorded in the run snapshot, the SHA-256 of the snapshot,
+and the source identity recorded in the run snapshot (`git_commit`,
+`git_tree_sha1`, `git_dirty`), the SHA-256 of the snapshot,
 and the exported file names — so every published panel traces back to a
-configuration and a commit.
+configuration and a source tree.
 """
 function write_provenance(
     dir::String,
@@ -112,6 +113,8 @@ function write_provenance(
                 get(platform, "package_version", string(pkgversion(Publication))),
             ),
             "git_commit" => string(get(platform, "git_commit", "")),
+            "git_tree_sha1" => string(get(platform, "git_tree_sha1", "")),
+            "git_dirty" => Bool(get(platform, "git_dirty", false)),
             "config_snapshot_sha256" =>
                 isfile(snapshot) ? bytes2hex(sha256(read(snapshot))) : "",
             "figures" => [basename(p) for p in paths],
