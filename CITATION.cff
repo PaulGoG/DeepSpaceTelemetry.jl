@@ -16,8 +16,8 @@ type: software
 authors:
   - family-names: "Gogîță"
     given-names: "Paul-Adrian"
-version: "2.6.2"
-date-released: "2026-10-14"
+version: "2.7.0"
+date-released: "2026-10-26"
 license: MIT
 repository-code: "https://github.com/PaulGoG/DeepSpaceTelemetry.jl"
 url: "https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/"
