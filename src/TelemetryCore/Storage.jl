@@ -76,8 +76,9 @@ timeline, point-wise expansions, the HDF5 export, plots (the session and
 summary figures and those of [`FIGURE_PRODUCTS`](@ref), each as PNG and
 PDF; the optional GIF is a manual product and is excluded), and text logs.
 The calibration constants are measured defaults
-([`STORAGE_CALIBRATION_DEFAULTS`](@ref)), overridable key-by-key in
-`[storage]`.
+([`STORAGE_CALIBRATION_DEFAULTS`](@ref)). Overriding them key-by-key from
+`[storage]` is deprecated since 2.7.0 and is removed in 3.0;
+[`validate_config`](@ref) warns when an override is present.
 
 Returns the counts `n_segments`, `n_batches`, `n_points`, `n_columns`
 (payload columns per segment file: one for a synthetic run, else the length

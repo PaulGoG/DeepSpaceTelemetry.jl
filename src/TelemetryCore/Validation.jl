@@ -106,6 +106,18 @@ function validate_config(cfg::AbstractDict)
             end
         end
     end
+    # Deprecated estimator-calibration overrides in [storage], one warning per call.
+    storage_section = get(cfg, "storage", Dict{String,Any}())
+    if storage_section isa AbstractDict
+        present = [
+            String(k) for k in keys(STORAGE_CALIBRATION_DEFAULTS) if
+            haskey(storage_section, String(k))
+        ]
+        if !isempty(present)
+            @warn "[CONFIG] The storage.bytes_* keys are deprecated since 2.7.0 and will be removed in 3.0: the artifact estimate is implementation calibration, not configuration. The values given are still applied." keys =
+                present
+        end
+    end
 
     sim = get(cfg, "simulation", Dict{String,Any}())
     tel = get(cfg, "telemetry", Dict{String,Any}())

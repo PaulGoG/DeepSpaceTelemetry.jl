@@ -439,6 +439,13 @@ end
     bad["storage"] = Dict{String,Any}("max_storage_gb" => 1.0)
     bad["retention"] = Dict{String,Any}("enabled" => true, "high_watermark_gb" => 2.0)
     @test_throws ArgumentError TelemetryCore.validate_config(bad)
+
+    # A calibration override is deprecated: still applied, with one warning
+    deprecated = valid_test_cfg()
+    deprecated["storage"]["bytes_per_sample"] = 20.0
+    @test_logs (:warn, r"deprecated since 2\.7\.0") match_mode = :any TelemetryCore.validate_config(
+        deprecated,
+    )
 end
 
 @testset "Config guardrails (malformed inputs)" begin

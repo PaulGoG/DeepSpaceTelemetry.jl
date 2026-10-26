@@ -26,10 +26,15 @@ DeepSpaceTelemetry.RunAdapter.arrival_events
 DeepSpaceTelemetry.RunAdapter.markers
 DeepSpaceTelemetry.RunAdapter.label_spans
 DeepSpaceTelemetry.RunAdapter.Hole
+DeepSpaceTelemetry.RunAdapter.declared_holes
+```
+
+## Deprecated
+
+```@docs
 DeepSpaceTelemetry.RunAdapter.GapTracker
 DeepSpaceTelemetry.RunAdapter.declare!
 DeepSpaceTelemetry.RunAdapter.open_gaps
-DeepSpaceTelemetry.RunAdapter.declared_holes
 ```
 
 ## Internals

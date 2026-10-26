@@ -153,6 +153,21 @@
         end
         @test length(RunAdapter.declared_holes(run; after = length(declared) - 2)) == 2
         @test isempty(RunAdapter.declared_holes(run; after = length(declared)))
+        # A run without the feed (producers before 2.6.0): declared_holes derives
+        # the tracker's holes, without declaration instants.
+        mktempdir() do tmp
+            bare_dir = joinpath(tmp, basename(run_dir))
+            cp(run_dir, bare_dir)
+            rm(joinpath(bare_dir, "holes.csv"))
+            bare = RunAdapter.open_run(bare_dir)
+            derived = RunAdapter.declared_holes(bare)
+            @test Set((h.cause, h.batch, h.rows) for h in derived) == Set(
+                (h.cause, h.batch, h.rows) for
+                h in RunAdapter.declare!(RunAdapter.GapTracker(bare))
+            )
+            @test !isempty(derived) && all(h.declared_at === missing for h in derived)
+            @test isempty(RunAdapter.declared_holes(bare; after = 1))
+        end
         # The descriptor names the run, the producer, and the products with
         # their hashes.
         descriptor = TOML.parsefile(joinpath(run_dir, "descriptor.toml"))

@@ -35,6 +35,19 @@
         # The dispatcher picks the exact reconstruction when logs exist
         vis = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "flat")
         @test Masks.batch_states(tmp, df) == states
+
+        # The streaming replay carries the same states as the records
+        last_codes = Int8[]
+        max_id = Masks.replay_batch_states(tmp, df) do i, codes, _
+            i == nrow(df) && append!(last_codes, codes)
+            return nothing
+        end
+        final = states[end]
+        @test all(last_codes[id] == 1 for id in [final.onboard_live; final.onboard_archive])
+        @test all(last_codes[id] == 2 for id in [final.link_live; final.link_archive])
+        @test all(last_codes[id] == 3 for id in [final.ground_live; final.ground_archive])
+        @test all(last_codes[id] == 4 for id in final.lost)
+        @test max_id == maximum(reduce(vcat, values(final)); init = 0)
     end
 end
 

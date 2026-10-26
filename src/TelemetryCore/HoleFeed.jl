@@ -104,11 +104,44 @@ function declare_hole!(
 end
 
 """
+    batch_hole_rows(first_row, name::AbstractString,
+                    points_per_batch::Integer) -> UnitRange{Int}
+
+The payload rows of a batch: from its `payload_row` stamp when `first_row`
+is an `Integer`, otherwise from its index, `(batch_id(name) − 1) ·
+points_per_batch + 1` (runs before 2.1.0 carry no stamp); `points_per_batch`
+rows either way. The one rule behind the hole feed, the gap table and the
+run adapter.
+"""
+function batch_hole_rows(first_row, name::AbstractString, points_per_batch::Integer)
+    r1 =
+        first_row isa Integer ? Int(first_row) : (batch_id(name) - 1) * points_per_batch + 1
+    return r1:(r1+points_per_batch-1)
+end
+
+"""
+    gap_hole_rows(origin::DateTime, sample_rate::Real,
+                  start::DateTime, stop::DateTime) -> UnitRange{Int}
+
+The payload rows of the generation gap `[start, stop)`:
+`payload_time_row(origin, sample_rate, start)` to
+`payload_time_row(origin, sample_rate, stop) − 1`, empty when the gap holds
+no row. The one rule behind the hole feed, the gap table and the run adapter.
+"""
+function gap_hole_rows(origin::DateTime, sample_rate::Real, start::DateTime, stop::DateTime)
+    return payload_time_row(origin, sample_rate, start):(payload_time_row(
+        origin,
+        sample_rate,
+        stop,
+    )-1)
+end
+
+"""
     declare_batch_hole!(feed::HoleFeed, declared_at::DateTime, cause::AbstractString, batch_dir::AbstractString) -> Bool
 
-The hole of the batch at `batch_dir` (its name is the batch): rows from
-the `payload_row` stamp of its metadata, or from its index when the stamp
-is absent, over `points_per_batch` rows; `cause` is `lost` or `pruned`.
+The hole of the batch at `batch_dir` (its name is the batch), its rows by
+[`batch_hole_rows`](@ref) from the `payload_row` stamp of its metadata;
+`cause` is `lost` or `pruned`.
 """
 function declare_batch_hole!(
     feed::HoleFeed,
@@ -118,23 +151,16 @@ function declare_batch_hole!(
 )
     name = basename(batch_dir)
     meta = read_batch_metadata(String(batch_dir))
-    first_row = get(meta, "payload_row", nothing)
-    first_row isa Integer || (first_row = (batch_id(name) - 1) * feed.points_per_batch + 1)
-    return declare_hole!(
-        feed,
-        declared_at,
-        cause,
-        name,
-        Int(first_row):(Int(first_row)+feed.points_per_batch-1),
-    )
+    rows = batch_hole_rows(get(meta, "payload_row", nothing), name, feed.points_per_batch)
+    return declare_hole!(feed, declared_at, cause, name, rows)
 end
 
 """
     declare_gap_hole!(feed::HoleFeed, declared_at::DateTime, cause::AbstractString, start::DateTime, stop::DateTime) -> Bool
 
-The hole of the generation gap `[start, stop)`: rows
-`payload_time_row(start) … payload_time_row(stop) − 1`; `cause` is
-`scheduled`, `recorder`, or `stream`. Nothing is written for an empty gap.
+The hole of the generation gap `[start, stop)`, its rows by
+[`gap_hole_rows`](@ref); `cause` is `scheduled`, `recorder`, or `stream`.
+Nothing is written for an empty gap.
 """
 function declare_gap_hole!(
     feed::HoleFeed,
@@ -143,12 +169,7 @@ function declare_gap_hole!(
     start::DateTime,
     stop::DateTime,
 )
-    rows =
-        payload_time_row(feed.origin, feed.sample_rate, start):(payload_time_row(
-            feed.origin,
-            feed.sample_rate,
-            stop,
-        )-1)
+    rows = gap_hole_rows(feed.origin, feed.sample_rate, start, stop)
     return declare_hole!(feed, declared_at, cause, missing, rows)
 end
 

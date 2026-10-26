@@ -7,6 +7,38 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Changed
+- `season_peak_day_of_year` is 89 in every scenario. The former 172 had no
+  source in the Definition Study Report; a constellation trailing Earth by
+  20 degrees sits about 80 degrees east of the Sun, its geocentric
+  declination peaks near day 89, and the daily pass of a northern 35 m
+  station (Cebreros) is longest there. The reference scenario
+  `recovery_12h_seasonal.toml` (and `config.toml`) starts on 30 March 2035
+  instead of 21 June, so its passes are still 12 hours; its marker moves
+  with it. The realized totals of the two seasonal scenarios change and
+  their gallery figures are regenerated.
+- The batch-state replay streams: `Masks.replay_batch_states` applies the
+  event logs row by row into one state vector per batch, and
+  `generate_telemetry_masks` writes `masks/telemetry_mask_timeline.csv` from
+  that stream, byte-identical to before, with memory proportional to the
+  batch count instead of rows times batches. `reconstruct_batch_states` and
+  `batch_states` take `rows` and return records for those rows only; the
+  animation requests its frame rows. Within a category the batch
+  identifiers are now sorted, which moves a few anti-aliased pixels of the
+  animation where markers overlap.
+- The row rules of a hole are defined once, `TelemetryCore.batch_hole_rows`
+  and `TelemetryCore.gap_hole_rows`, and used by the hole feed, the gap
+  table and the run adapter. `RunAdapter.declared_holes` derives the holes
+  from the event logs when a run has no `holes.csv` (producers before
+  2.6.0), with `declared_at` missing.
+
+### Deprecated
+- `RunAdapter.GapTracker`, `declare!` and `open_gaps`: `declared_holes`
+  serves both kinds of run; the tracker warns on construction and is
+  removed in 3.0.
+- The `storage.bytes_*` estimator-calibration overrides: still applied, with
+  one `[CONFIG]` warning; removed in 3.0, when `[storage]` keeps
+  `max_storage_gb`, `max_file_count`, `max_ram_gb` and
+  `onboard_capacity_days`. The configuration files no longer list them.
 - The metrology tables `alert_latency.csv`, `alert_latency_markers.csv` and
   `delivery_delay.csv` are written by their own post-processing stage,
   before any figure, whatever the figure flags say

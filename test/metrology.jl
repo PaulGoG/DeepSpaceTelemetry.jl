@@ -390,12 +390,12 @@ end
         @test_throws ArgumentError TelemetryCore.contacts_settings(both)
     end
     # The default configuration (the seasonal-peak reference scenario) carries
-    # one marker-triggered period on the evening of 25 June 2035.
+    # one marker-triggered period on the evening of 3 April 2035.
     shipped = TelemetryCore.load_config(joinpath(dirname(@__DIR__), "config.toml"))
     @test length(TelemetryCore.contacts_settings(shipped).low_latency_periods) == 1
     @test TelemetryCore.is_visible(
         TelemetryCore.visibility_model(shipped),
-        DateTime(2035, 6, 25, 21),
+        DateTime(2035, 4, 3, 21),
     )
 
     # Delivery-delay table: a batch ingested inside a low-latency period is

@@ -35,21 +35,21 @@ const BatchStates = NamedTuple{
 }
 
 """
-    reconstruct_batch_states(run_dir::String, df::DataFrame)
+    replay_batch_states(f, run_dir::String, df::DataFrame) -> Int
 
-Exact replay of every batch's location from the ground-truth event logs:
-the `gen`/`tx` milestones of `events_tx.csv` (emitter) and the
-`ingested`/`lost` milestones of `events_rx.csv` (receiver); the
-state-preserving `retry` and `pruned` rows are skipped. Returns one
-[`BatchStates`](@ref) record per `mission_profile.csv` row, evaluated at
-that row's `SimTime`. Each loss is attributed to its batch ID, which gives
-mask state `4 = Lost`. Emitter and receiver stamp milestones from separate
-clock reads, so recorded timestamps can invert within a batch at high
-speed-up; the replay enforces per-batch causal order (`gen` → `tx` →
-terminal) with later stages absorbing, keeping every batch's state sequence
-monotone.
+Streams the exact event-log replay over the metrics frame `df`. For every
+row `i`, once the events up to `df.SimTime[i]` are applied, `f(i, codes,
+live)` is called with `codes::Vector{Int8}`, the state of every batch
+identifier (`0` future, `1` onboard, `2` link, `3` ground, `4` lost), and
+`live::BitVector`, whether the batch is live; both are indexed by batch
+identifier up to the largest identifier among the events the replay applies
+(those not later than the last `SimTime` of `df`), which is returned, and
+both are reused between calls, so `f` copies what it keeps. Events of
+unparsable batch names (identifier `0`) are ignored. The event ordering and
+the per-batch causal rule are those described at
+[`reconstruct_batch_states`](@ref).
 """
-function reconstruct_batch_states(run_dir::String, df::DataFrame)
+function replay_batch_states(f, run_dir::String, df::DataFrame)
     tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
     rx_path = joinpath(run_dir, "events_rx.csv")
     rx =
@@ -85,112 +85,126 @@ function reconstruct_batch_states(run_dir::String, df::DataFrame)
     end
     sort!(events, by = e -> (e[1], e[2]))
 
-    # Category vectors plus a batch-ID → (category, index) position map:
-    # every event application is O(1) via swap-remove, so the replay stays
-    # linear in the event count over a mission. Order within a category is
-    # not part of the contract (masks index by batch ID; scatters are
-    # unordered).
-    category = Dict(
-        :onboard_live => Int[],
-        :onboard_archive => Int[],
-        :link_live => Int[],
-        :link_archive => Int[],
-        :ground_live => Int[],
-        :ground_archive => Int[],
-        :lost => Int[],
-    )
-    position = Dict{Int,Tuple{Symbol,Int}}()
-
-    # Swap-remove `id` from its current category (no-op for an unseen ID,
-    # e.g. a truncated log whose `gen` row is missing).
-    displace! = id -> begin
-        loc = get(position, id, nothing)
-        loc === nothing && return nothing
-        (cat, idx) = loc
-        v = category[cat]
-        moved = v[end]
-        v[idx] = moved
-        position[moved] = (cat, idx)
-        pop!(v)
-        delete!(position, id)
-        return nothing
+    # The replay applies a prefix of the sorted events, those not later than
+    # the last metrics row; the identifier range is taken over that prefix,
+    # which is the column range the mask timeline has always had.
+    n_applied = 0
+    if nrow(df) > 0
+        t_last = maximum(df.SimTime)
+        n_applied = count(e -> e[1] <= t_last, events)
     end
-    # Causal stage rank (see the docstring): a later-stage placement is
-    # absorbing, and an earlier-stage event arriving late is dropped.
-    stage_rank = Dict(
-        :onboard_live => 1,
-        :onboard_archive => 1,
-        :link_live => 2,
-        :link_archive => 2,
-        :ground_live => 3,
-        :ground_archive => 3,
-        :lost => 4,
-    )
-    # Move `id` into `cat`; self-cleaning, so a duplicated log row can
-    # never strand a stale copy in a previous category.
-    place! =
-        (id, cat) -> begin
-            loc = get(position, id, nothing)
-            loc !== nothing && stage_rank[loc[1]] >= stage_rank[cat] && return nothing
-            displace!(id)
-            v = category[cat]
-            push!(v, id)
-            position[id] = (cat, length(v))
-            return nothing
-        end
+    max_id = 0
+    for k in 1:n_applied
+        max_id = max(max_id, TelemetryCore.batch_id(events[k][3]))
+    end
 
-    states = Vector{BatchStates}(undef, 0)
-    sizehint!(states, nrow(df))
+    # Causal stage code (see `reconstruct_batch_states`): a later stage is
+    # absorbing, and an earlier-stage event arriving late is dropped.
+    stage_code =
+        Dict("gen" => Int8(1), "tx" => Int8(2), "ingested" => Int8(3), "lost" => Int8(4))
+    codes = zeros(Int8, max_id)
+    live = falses(max_id)
 
     ev_idx = 1
     for i in 1:nrow(df)
         t = df.SimTime[i]
         while ev_idx <= length(events) && events[ev_idx][1] <= t
             (_, _, name, kind) = events[ev_idx]
-            id = TelemetryCore.batch_id(name)
-            is_live = TelemetryCore.is_live_batch(name)
-            if kind == "gen"
-                place!(id, is_live ? :onboard_live : :onboard_archive)
-            elseif kind == "tx"
-                place!(id, is_live ? :link_live : :link_archive)
-            elseif kind == "ingested"
-                place!(id, is_live ? :ground_live : :ground_archive)
-            elseif kind == "lost"
-                place!(id, :lost)
-            end
             ev_idx += 1
+            id = TelemetryCore.batch_id(name)
+            1 <= id <= max_id || continue
+            # Set on every event, which is harmless: a batch keeps its name.
+            live[id] = TelemetryCore.is_live_batch(name)
+            target = stage_code[kind]
+            target > codes[id] && (codes[id] = target)
         end
-        push!(
-            states,
-            (
-                onboard_live = copy(category[:onboard_live]),
-                onboard_archive = copy(category[:onboard_archive]),
-                link_live = copy(category[:link_live]),
-                link_archive = copy(category[:link_archive]),
-                ground_live = copy(category[:ground_live]),
-                ground_archive = copy(category[:ground_archive]),
-                lost = copy(category[:lost]),
-            ),
-        )
+        f(i, codes, live)
+    end
+    return max_id
+end
+
+# Batch identifiers in state `code`, ascending, restricted to live
+# (`stream = true`) or archive (`false`) batches, or of either (`nothing`).
+stage_ids(codes, live, code, stream) = [
+    id for id in eachindex(codes) if
+    codes[id] == code && (stream === nothing || live[id] == stream)
+]
+
+"""
+    reconstruct_batch_states(run_dir::String, df::DataFrame; rows = 1:nrow(df))
+
+Exact replay of every batch's location from the ground-truth event logs:
+the `gen`/`tx` milestones of `events_tx.csv` (emitter) and the
+`ingested`/`lost` milestones of `events_rx.csv` (receiver); the
+state-preserving `retry` and `pruned` rows are skipped. Returns one
+[`BatchStates`](@ref) record per requested `mission_profile.csv` row, in the
+order of `rows`, evaluated at that row's `SimTime`; the identifiers of each
+bucket are sorted ascending (order within a bucket is not part of the
+contract). Each loss is attributed to its batch ID, which gives mask state
+`4 = Lost`. Emitter and receiver stamp milestones from separate clock reads,
+so recorded timestamps can invert within a batch at high speed-up; the
+replay enforces per-batch causal order (`gen` → `tx` → terminal) with later
+stages absorbing, keeping every batch's state sequence monotone. Events at
+the same instant are applied in causal order. The streaming form, which
+keeps no record per row, is [`replay_batch_states`](@ref).
+"""
+function reconstruct_batch_states(
+    run_dir::String,
+    df::DataFrame;
+    rows::AbstractVector{<:Integer} = 1:nrow(df),
+)
+    all(in(1:nrow(df)), rows) ||
+        throw(ArgumentError("[POST] Requested rows must lie within 1:$(nrow(df))."))
+    # Positions in the result of every requested row (a row may repeat).
+    slots = Dict{Int,Vector{Int}}()
+    for (k, i) in enumerate(rows)
+        push!(get!(Vector{Int}, slots, Int(i)), k)
+    end
+    states = Vector{BatchStates}(undef, length(rows))
+    replay_batch_states(run_dir, df) do i, codes, live
+        targets = get(slots, i, nothing)
+        targets === nothing && return nothing
+        for k in targets
+            states[k] = (
+                onboard_live = stage_ids(codes, live, 1, true),
+                onboard_archive = stage_ids(codes, live, 1, false),
+                link_live = stage_ids(codes, live, 2, true),
+                link_archive = stage_ids(codes, live, 2, false),
+                ground_live = stage_ids(codes, live, 3, true),
+                ground_archive = stage_ids(codes, live, 3, false),
+                lost = stage_ids(codes, live, 4, nothing),
+            )
+        end
+        return nothing
     end
     return states
 end
 
-"""
-    batch_states(run_dir::String, df::DataFrame) -> Vector{BatchStates}
-
-Batch-location history of a run: the exact event-log replay
-([`reconstruct_batch_states`](@ref)) over the metrics frame `df`. Runs
-without `events_tx.csv` (pre-0.9 layouts) are not supported and raise an
-`ArgumentError`.
-"""
-function batch_states(run_dir::String, df::DataFrame)
+# Runs without `events_tx.csv` (pre-0.9 layouts) cannot be replayed.
+function require_event_log(run_dir::String)
     isfile(joinpath(run_dir, "events_tx.csv")) || throw(
         ArgumentError(
             "[POST] events_tx.csv missing in $run_dir — the batch-state replay needs the ground-truth event log; runs without it are not supported.",
         ),
     )
-    return reconstruct_batch_states(run_dir, df)
+    return nothing
+end
+
+"""
+    batch_states(run_dir::String, df::DataFrame; rows = 1:nrow(df)) -> Vector{BatchStates}
+
+Batch-location history of a run: the exact event-log replay
+([`reconstruct_batch_states`](@ref)) over the metrics frame `df`, for the
+metrics rows `rows`. Runs without `events_tx.csv` (pre-0.9 layouts) are not
+supported and raise an `ArgumentError`.
+"""
+function batch_states(
+    run_dir::String,
+    df::DataFrame;
+    rows::AbstractVector{<:Integer} = 1:nrow(df),
+)
+    require_event_log(run_dir)
+    return reconstruct_batch_states(run_dir, df; rows = rows)
 end
 
 """
@@ -199,9 +213,10 @@ end
 Writes the replay of the LIFO/FIFO transmission state machine
 ([`batch_states`](@ref)) as the 2D matrix `telemetry_mask_timeline.csv`:
 rows are time steps, columns the `Batch_ID`s, entries the batch's location
-(0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost). Also writes the batch-epoch
-map `masks/batch_epochs.csv`; returns without output, with a warning, when
-`mission_profile.csv` is absent.
+(0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost). The rows are streamed from
+[`replay_batch_states`](@ref) to disk, so the matrix is never held in memory.
+Also writes the batch-epoch map `masks/batch_epochs.csv`; returns without
+output, with a warning, when `mission_profile.csv` is absent.
 """
 function generate_telemetry_masks(run_dir::String)
     log_path = joinpath(run_dir, "mission_profile.csv")
@@ -215,38 +230,49 @@ function generate_telemetry_masks(run_dir::String)
         return
     end
 
-    states = batch_states(run_dir, df)
-    # True maximum batch ID, not the batch count: the ID space may carry
-    # holes (truncated logs, hand-assembled or reconciled run directories),
-    # and a count-sized matrix would fault on the first such hole.
-    max_id_ever =
-        isempty(states) ? 0 : maximum(cat -> isempty(cat) ? 0 : maximum(cat), last(states))
+    require_event_log(run_dir)
+    mask_path = TelemetryCore.mask_timeline_path(run_dir)
+    # The header needs the largest batch ID, known only once the replay has
+    # run, so the rows go to a scratch file first. The text is the one the
+    # CSV writer produced for the former table: instants in the form of
+    # `timestamp_text`, the state codes as single digits, no quoting, `\n`
+    # line ends. Columns run over every ID up to the true maximum, not the
+    # batch count: the ID space may carry holes (truncated logs,
+    # hand-assembled or reconciled run directories).
+    mktempdir() do scratch
+        body_path = joinpath(scratch, "rows.csv")
+        max_id = open(body_path, "w") do body
+            line = UInt8[]
+            replay_batch_states(run_dir, df) do i, codes, _
+                print(body, coalesce(TelemetryCore.timestamp_text(df.SimTime[i]), ""))
+                resize!(line, 2 * length(codes) + 1)
+                for (k, c) in enumerate(codes)
+                    line[2k-1] = UInt8(',')
+                    line[2k] = UInt8('0') + UInt8(c)
+                end
+                line[end] = UInt8('\n')
+                write(body, line)
+                return nothing
+            end
+        end
 
-    # 0 = Future, 1 = Onboard, 2 = Link, 3 = Ground, 4 = Lost
-    mask_matrix = zeros(Int8, nrow(df), max_id_ever)
-
-    for (i, st) in enumerate(states),
-        (code, cats) in (
-            (Int8(1), (st.onboard_live, st.onboard_archive)),
-            (Int8(2), (st.link_live, st.link_archive)),
-            (Int8(3), (st.ground_live, st.ground_archive)),
-            (Int8(4), (st.lost,)),
-        )
-
-        for cat in cats, id in cat
-            # Unparsable batch names replay as ID 0 — excluded from the
-            # matrix rather than faulting the whole product.
-            1 <= id <= max_id_ever && (mask_matrix[i, id] = code)
+        backup = TelemetryCore.backup_existing(mask_path)
+        backup !== nothing && @info "[SAFESAVE] Existing file backed up to: $backup"
+        open(mask_path, "w") do out
+            print(out, "SimTime")
+            for id in 1:max_id
+                print(out, ",Batch_", id)
+            end
+            print(out, '\n')
+            chunk = Vector{UInt8}(undef, 1 << 16)
+            open(body_path) do body
+                while !eof(body)
+                    n = readbytes!(body, chunk)
+                    write(out, view(chunk, 1:n))
+                end
+            end
         end
     end
-
-    mask_df = DataFrame(SimTime = df.SimTime)
-    for id in 1:max_id_ever
-        mask_df[!, Symbol("Batch_$id")] = mask_matrix[:, id]
-    end
-
-    mask_path = TelemetryCore.mask_timeline_path(run_dir)
-    TelemetryCore.safe_csv_write(mask_path, mask_df)
     @info "[POST] Saved 2D telemetry data masks to: $(relpath(mask_path, run_dir))"
 
     # Batch → epoch sidecar: the point-wise mask's row-index contract assumes
@@ -316,12 +342,11 @@ function gap_table(run_dir::String)
     points_per_batch = TelemetryCore.points_per_batch(physics)
     origin = TelemetryCore.payload_origin(cfg)
     t_end = TelemetryCore.mission_end(cfg)
-    row_of(t::DateTime) = TelemetryCore.payload_time_row(origin, fs, t)
     time_of(r::Integer) = TelemetryCore.payload_row_time(origin, fs, r)
 
     stamped = TelemetryCore.batch_payload_rows(run_dir)
-    first_row(name) =
-        get(stamped, name, (TelemetryCore.batch_id(name) - 1) * points_per_batch + 1)
+    rows_of(name) =
+        TelemetryCore.batch_hole_rows(get(stamped, name, nothing), name, points_per_batch)
     tx_path = joinpath(run_dir, "events_tx.csv")
     rx_path = joinpath(run_dir, "events_rx.csv")
     empty_rx() =
@@ -340,8 +365,7 @@ function gap_table(run_dir::String)
         push!(lasts, r2)
         return nothing
     end
-    batch_hole!(cause, name) =
-        hole!(cause, name, first_row(name), first_row(name) + points_per_batch - 1)
+    batch_hole!(cause, name) = hole!(cause, name, first(rows_of(name)), last(rows_of(name)))
     generated = Set(String.(tx.Batch[tx.Event .== "gen"]))
     delivered = Set(String.(rx.Batch[rx.Event .== "ingested"]))
     lost = Set(String.(rx.Batch[rx.Event .== "lost"]))
@@ -359,17 +383,19 @@ function gap_table(run_dir::String)
             if r.Event == "gap_start"
                 open_at === nothing && (open_at = r.SimTime)
             elseif r.Event == "gap_end" && open_at !== nothing
-                hole!(lowercase(label), missing, row_of(open_at), row_of(r.SimTime) - 1)
+                gap = TelemetryCore.gap_hole_rows(origin, fs, open_at, r.SimTime)
+                hole!(lowercase(label), missing, first(gap), last(gap))
                 open_at = nothing
             end
         end
-        open_at === nothing ||
-            hole!(lowercase(label), missing, row_of(open_at), row_of(t_end) - 1)
+        if open_at !== nothing
+            gap = TelemetryCore.gap_hole_rows(origin, fs, open_at, t_end)
+            hole!(lowercase(label), missing, first(gap), last(gap))
+        end
     end
     external_rows = get(provenance, "external_data_rows", nothing)
     if external_rows isa Integer && !isempty(generated)
-        last_generated =
-            maximum(first_row(name) + points_per_batch - 1 for name in generated)
+        last_generated = maximum(last(rows_of(name)) for name in generated)
         last_generated < external_rows &&
             hole!("not_generated", missing, last_generated + 1, Int(external_rows))
     end
@@ -482,8 +508,8 @@ function label_span_table(run_dir::String)
     origin = TelemetryCore.payload_origin(cfg)
     start_sim = TelemetryCore.mission_epoch(cfg)
     t_end = TelemetryCore.mission_end(cfg)
-    row_of(t::DateTime) = TelemetryCore.payload_time_row(origin, fs, t)
     time_of(r::Integer) = TelemetryCore.payload_row_time(origin, fs, r)
+    row_of(t::DateTime) = TelemetryCore.payload_time_row(origin, fs, t)
     row_end = row_of(t_end) - 1
 
     classes, types, labels, firsts, lasts = String[], String[], String[], Int[], Int[]

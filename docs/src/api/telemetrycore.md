@@ -151,6 +151,8 @@ DeepSpaceTelemetry.TelemetryCore.HOLE_FEED_COLUMNS
 DeepSpaceTelemetry.TelemetryCore.HoleFeed
 DeepSpaceTelemetry.TelemetryCore.hole_feed
 DeepSpaceTelemetry.TelemetryCore.declare_hole!
+DeepSpaceTelemetry.TelemetryCore.batch_hole_rows
+DeepSpaceTelemetry.TelemetryCore.gap_hole_rows
 DeepSpaceTelemetry.TelemetryCore.declare_batch_hole!
 DeepSpaceTelemetry.TelemetryCore.declare_gap_hole!
 DeepSpaceTelemetry.TelemetryCore.read_hole_feed

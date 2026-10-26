@@ -55,9 +55,15 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
     println("Generating the batch-routing animation for run $run_id ($profile profile)...")
     println("Rendering time scales with the mission length.")
 
+    # `ceil`, not `floor`: the frame count must not exceed `max_frames`.
+    step_size = max(1, ceil(Int, nrow(df) / budget.max_frames))
+    frame_rows = collect(1:step_size:nrow(df))
+
     # Shared state-machine replay: the exact event-log reconstruction (a run
-    # without events_tx.csv / events_rx.csv is rejected).
-    row_states = DeepSpaceTelemetry.Masks.batch_states(run_dir, df)
+    # without events_tx.csv / events_rx.csv is rejected), evaluated at the
+    # frame rows and at the last row, which decides the Lost legend entry.
+    row_states =
+        DeepSpaceTelemetry.Masks.batch_states(run_dir, df; rows = [frame_rows; nrow(df)])
     run_cfg = DeepSpaceTelemetry.TelemetryCore.load_run_config(run_dir)
     floor_pct =
         100 * DeepSpaceTelemetry.TelemetryCore.telemetry_settings(run_cfg).min_link_factor
@@ -66,8 +72,6 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
     has_loss_col = hasproperty(df, :Lost_Count)
     has_disruption_col = hasproperty(df, :Disruption_Active)
 
-    # `ceil`, not `floor`: the frame count must not exceed `max_frames`.
-    step_size = max(1, ceil(Int, nrow(df) / budget.max_frames))
     canvas = budget.canvas
     # The standard layout scaled to the canvas width sets theme, legend, and
     # markers alike; batches on the link are drawn 1.25 times larger.
@@ -161,20 +165,18 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
             ),
         )
 
-        frame_iterator = 1:step_size:nrow(df)
-
         record(
             fig,
             gif_path,
-            frame_iterator;
+            eachindex(frame_rows);
             framerate = budget.framerate,
             px_per_unit = budget.px_per_unit,
-        ) do i
+        ) do frame
             empty!(fig)
             add_gif_legend!(fig)
 
-            state = row_states[i]
-            row = df[i, :]
+            state = row_states[frame]
+            row = df[frame_rows[frame], :]
 
             x_onb_l, x_onb_a = state.onboard_live, state.onboard_archive
             x_lnk_l, x_lnk_a = state.link_live, state.link_archive

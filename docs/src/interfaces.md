@@ -554,7 +554,10 @@ declares a permanent hole the moment the producer does. `open_gaps` lists
 the generation gaps not yet closed. On a finished run one call returns the
 holes of `masks/gaps.csv` for those causes. `declared_holes` reads the
 producer's own feed, `holes.csv`, instead; on a finished run it also holds
-the end-of-run causes.
+the end-of-run causes. `GapTracker` is deprecated since 2.7.0 and is
+removed in 3.0; `declared_holes` serves both cases, reading `holes.csv`
+when the run has it and deriving the holes from the event logs when it
+does not (runs of producers before 2.6.0, with `declared_at` missing).
 
 The adapter's types (`RunHandle`, `RunGeometry`, `BatchRecord`,
 `ArrivalEvent`, `Hole`, `GapTracker`), its version floor

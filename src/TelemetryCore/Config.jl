@@ -224,11 +224,12 @@ end
 """
     STORAGE_CALIBRATION_DEFAULTS
 
-Measured calibration constants of [`estimate_artifacts`](@ref), overridable
-key-by-key in `[storage]`: per-artifact disk sizes [bytes], and the RAM of
-the replay (`bytes_replay_cell`, per metrics row × batch membership) and of
-the figure stage (`bytes_figure_stage`, `bytes_figure_row`). The `[storage]`
-schema and the validator iterate this table.
+Measured calibration constants of [`estimate_artifacts`](@ref): per-artifact
+disk sizes [bytes], and the RAM of the replay (`bytes_replay_cell`, per
+metrics row × batch membership) and of the figure stage
+(`bytes_figure_stage`, `bytes_figure_row`). A `[storage]` key of the same
+name still overrides a constant, but that override is deprecated since 2.7.0
+and is removed in 3.0; [`validate_config`](@ref) warns when one is present.
 """
 const STORAGE_CALIBRATION_DEFAULTS = (
     bytes_per_sample = 15.0,      # one Float32 CSV value + newline (external series)
