@@ -47,7 +47,7 @@ rationale is stated in the library README and here. The
 one run each.
 
 The reference scenario — **recovery at the seasonal peak** (~3 min wall
-time, 7 mission days from 21 June 2035) — runs the physical link:
+time, 7 mission days from 30 March 2035) — runs the physical link:
 230 kbit/s downlink against 75 kbit/s production, flat within the pass
 (the Definition Study Report's sustained rate), with the daily 8-hour
 window widened by the 4-hour seasonal extension to 12-hour passes. The
@@ -129,7 +129,7 @@ does it fall on the same transfers (Mission Clock above).
 ```toml
 [contacts]
 seasonal_extension_hours = 4.0      # 8 h window at the trough, 12 h at the peak
-season_peak_day_of_year = 172.0
+season_peak_day_of_year = 89.0
 low_latency_enabled = true          # set to false for the counterfactual run
 
 [[contacts.exceptions]]             # the window of one date, verbatim

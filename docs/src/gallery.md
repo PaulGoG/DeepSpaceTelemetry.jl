@@ -163,7 +163,7 @@ batches per hour.
 
 `scenarios/recovery_12h_seasonal.toml`, the reference scenario and the
 content of `config.toml`: the event timeline of the stress scenario from
-21 June, when the seasonal extension widens the passes to 12 hours.
+30 March, when the seasonal extension widens the passes to 12 hours.
 
 ![Mission summary of the recovery scenario: 12-hour passes, the onboard buffer oscillating between about 50 and 300 batches](assets/gallery/recovery_12h_seasonal_mission_summary_global.png)
 
