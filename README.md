@@ -247,7 +247,9 @@ batch never becomes available on the ground.
 DeepSpaceTelemetry/
 ├── src/
 │   ├── DeepSpaceTelemetry.jl    # Main module
-│   ├── TelemetryCore.jl         # Configuration (+validation), I/O, timers, event logs
+│   ├── TelemetryCore.jl         # Module header; includes the files below in dependency order
+│   ├── TelemetryCore/           # Layout, Config, Validation, Timing, Storage, Clocks, EventLogs,
+│   │                            #   HoleFeed, TableIO, Provenance, BatchIO, Visibility
 │   ├── ChannelEffects.jl        # Packet-loss channels, disruption timeline, LinkModel
 │   ├── VirtualInstrument.jl     # Payload: binary flag series or external CSV ingestion
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
