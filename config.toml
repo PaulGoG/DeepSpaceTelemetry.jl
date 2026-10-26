@@ -1,4 +1,4 @@
-# DeepSpaceTelemetry default configuration: identical to scenarios/recovery_12h_seasonal.toml (the reference scenario of the library; see scenarios/README.md).
+# DeepSpaceTelemetry default configuration: a copy of scenarios/recovery_12h_seasonal.toml, the reference scenario (see scenarios/README.md).
 # Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID]
 
 [simulation]

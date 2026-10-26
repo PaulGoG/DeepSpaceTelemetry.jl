@@ -48,7 +48,7 @@ body:
     attributes:
       label: Checks
       options:
-        - label: The environment was instantiated from the committed manifests
+        - label: The environments were instantiated by their `activate.jl` scripts from this checkout
           required: true
         - label: The configuration passes `validate_config` (the run starts)
           required: false

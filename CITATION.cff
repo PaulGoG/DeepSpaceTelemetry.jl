@@ -10,7 +10,7 @@ abstract: >-
   and delivery-delay metrology. The telemetry, channel, and queuing layers
   are mission-agnostic; the shipped scenarios model LISA, with a binary flag
   payload marking the segments that hold declared events. External analysis
-  pipelines couple to a run through a documented read-only filesystem
+  pipelines couple to a run through a documented read/copy-only filesystem
   contract.
 type: software
 authors:

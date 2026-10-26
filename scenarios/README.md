@@ -7,12 +7,12 @@ from the package root:
 julia --threads=3 scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
 ```
 
-`config.toml` at the package root is the default entry point and is a copy
-of `recovery_12h_seasonal.toml`. Each run archives the configuration it used
-as `config_snapshot.toml`, so provenance never depends on this directory.
-The test suite validates every file here, runs `smoke_1d.toml` end to
-end, and runs `deterministic_1d.toml` twice to assert its reproducibility. Safe intervals are documented per key inside each file; the scenario
-rationale is stated below and in the manual's usage page.
+`config.toml` at the package root is the default entry point and a copy of
+`recovery_12h_seasonal.toml`. The test suite validates every file here and
+runs `smoke_1d.toml` end to end; its reproducibility test runs a shortened,
+lossier `deterministic_1d.toml` three times, one seed twice and another
+once. Each file documents the safe interval of every key; the rationale of
+each scenario is stated below and on the manual's usage page.
 
 ## Coverage
 
@@ -23,18 +23,17 @@ the synthetic flag series (4 Hz, 60 s segments, 10 per batch: 144 batches per da
 and a 14-day on-board recorder. GE denotes the Gilbert–Elliott bursty
 channel with the shipped parameters (stationary loss 6.25 %). Wall times
 are at the configured acceleration, before post-processing (about half a
-minute per mission day); every scenario also runs on the tick clock with
-`--tick`, reproducibly and as fast as the host processes the events, which
-is how the manual's gallery and the showcase are made.
+minute per mission day). Any scenario also runs on the tick clock with
+`--tick`, which is how the manual's gallery is made.
 
 | File | Mission | Wall | Capacity, profile | Contacts | Channel | Disruptions, markers | Expected regime |
 |---|---|---|---|---|---|---|---|
 | `smoke_1d.toml` | 0.5 d | 12 s | physical, flat | 8 h | Bernoulli 1 % | none | one pass drains a 6 h backlog; suite smoke run |
-| `nominal_8h.toml` | 7 d | 168 s | physical, flat | 8 h, January | Bernoulli 1 % | none, no backlog | balance: link capacity 145.7 per day against 144 produced, so the buffer clears at the end of each pass when the host keeps pace with the accelerated clock; a slower receiver leaves a residual buffer |
-| `stress_8h_bursty.toml` | 7 d | 168 s | physical, flat | 8 h, January | GE | solar flare day 2.5, repointing day 1.5, DSN outage day 5, marker day 4 with a triggered low-latency period; 2-day backlog | growth: 138 delivered against 144 produced per day plus the disruption debt; the buffer grows from 288 to about 540 batches and the 24 h compliance fraction falls to about 58 %; live priority keeps the live alert latency bounded |
-| `recovery_12h_seasonal.toml` | 7 d | 168 s | physical, flat | 8 h + 4 h seasonal, 21 June | GE | as the stress scenario, marker 25 June; 2-day backlog | recovery: about 210 batches per 12 h pass against 144 produced per day; the flare and the outage each cost about one pass, so the week ends with the backlog below its initial level (buffer between about 50 and 300 batches) where the 8 h stress case nearly doubles it |
+| `nominal_8h.toml` | 7 d | 168 s | physical, flat | 8 h, January | Bernoulli 1 % | none, no backlog | balance: link capacity 145.7 per day against 144 produced; the buffer clears at the end of each pass if the host keeps pace with the accelerated clock, and a slower receiver leaves a residual |
+| `stress_8h_bursty.toml` | 7 d | 168 s | physical, flat | 8 h, January | GE | solar flare day 2.5, repointing day 1.5, DSN outage day 5, marker day 4 with a triggered low-latency period; 2-day backlog | growth: 138 delivered against 144 produced per day, plus the disruption debt; buffer from 288 to about 530 batches, 24 h compliance about 58 %; live alert latency bounded by live priority |
+| `recovery_12h_seasonal.toml` | 7 d | 168 s | physical, flat | 8 h + 4 h seasonal, 21 June | GE | as the stress scenario, marker 25 June; 2-day backlog | recovery: about 210 batches per 12 h pass against 144 produced per day; the flare and the outage each cost about one pass, and the week still ends below the initial backlog (buffer about 50–300 batches), where the 8 h stress case nearly doubles it |
 | `abstraction_gaussian_peak.toml` | 7 d | 168 s | 60 batches/h peak, Gaussian σ = 0.15 | 8 h, January | GE | as the stress scenario | the pre-library default: a peak abstraction with a 0.38 mean factor, 169 delivered per day, a slow drain of the 2-day backlog between the disruptions |
-| `backlog_recovery_sine.toml` | 7 d | 168 s | 60 batches/h peak, sine | 8 h, January | Bernoulli 10 % | none; 3-day backlog | backlog recovery over the week under retransmission load (the presentation scenario) |
+| `backlog_recovery_sine.toml` | 7 d | 168 s | 60 batches/h peak, sine | 8 h, January | Bernoulli 10 % | none; 3-day backlog | backlog recovery over the week under retransmission load |
 | `drop_policy.toml` | 3 d | 72 s | physical, flat | 8 h, January | Bernoulli 20 %, drop on loss | partial DSN outage day 1.5; 0.5-day backlog | about one fifth of the transfers lost for good (mask state 4), no retransmission traffic |
 | `explicit_schedule.toml` | 7 d | 168 s | physical, flat | explicit pass list: day 2 shortened to 6 h, day 3 missed, day 5 extended to 12 h | GE | repointing day 1.5; 1-day backlog | planned schedules with exceptions; the missed pass produces a two-day gap |
 | `long_30d_seasonal.toml` | 30 d | 360 s at 7200× | physical, flat | 8 h + 4 h seasonal from 1 March; passes missed on 9 and 10 March, shortened on 12 March, a 12-day gap 16–27 March | GE | repointing days 2.5 and 20.5, solar flare day 4, 36 h safe mode day 8 (generation), DSN outage day 27; markers 6 and 20 March with triggered periods; 3-day backlog | long horizon: the recorder ceiling is reached inside the contact gap (validation warns; RECORDER rows), the marker inside the gap opens a low-latency period, three passes drain part of the backlog at the end |

@@ -1,4 +1,4 @@
-# DeepSpaceTelemetry scenario "deterministic_1d": one mission day on the tick clock (logical time, no wall pacing) on the physical rate pair, 1 % Bernoulli loss, 6 h backlog, no disruptions; the same seed reproduces the event logs to the byte.
+# DeepSpaceTelemetry scenario "deterministic_1d": one mission day on the tick clock on the physical rate pair, 1 % Bernoulli loss, 6 h backlog, no disruptions; byte-identical event logs for a given seed.
 # Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/deterministic_1d.toml
 
 [simulation]

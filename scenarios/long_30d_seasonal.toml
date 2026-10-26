@@ -1,4 +1,4 @@
-# DeepSpaceTelemetry scenario "long_30d_seasonal": long horizon: 30 days from 1 March at 7200x on the physical rate pair with the seasonal window, missed and shortened passes, a 12-day contact gap, five disruptions, two markers.
+# DeepSpaceTelemetry scenario "long_30d_seasonal": long horizon: 30 days from 1 March at 7200× on the physical rate pair with the seasonal window, missed and shortened passes, a 12-day contact gap, five disruptions, two markers.
 # Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/long_30d_seasonal.toml
 
 [simulation]
