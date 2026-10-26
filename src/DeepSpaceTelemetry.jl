@@ -6,14 +6,26 @@ missions: duty-cycled ground-station contact windows, a physical downlink
 with stochastic loss and scheduled disruptions, live-FIFO/archive-LIFO
 routing, and provenance-tracked data products. The shipped scenarios model
 the LISA mission; the telemetry, channel, and queuing layers are
-mission-agnostic. Submodules: `TelemetryCore`, `ChannelEffects`,
-`VirtualInstrument`, `PlotTheme`, `Emitter`, `Receiver`, `Masks`,
-`MissionFigures`, `Metrology`, `Export`, `Publication`, `Supervisor`,
-`RunAdapter`, `Sweeps`.
+mission-agnostic. Submodules: `TelemetryCore` and `RunAdapter` (from the
+reader package `DeepSpaceTelemetryReader`, re-exported here),
+`ChannelEffects`, `VirtualInstrument`, `PlotTheme`, `Emitter`, `Receiver`,
+`Masks`, `MissionFigures`, `Metrology`, `Export`, `Publication`,
+`Supervisor`, `Sweeps`.
 """
 module DeepSpaceTelemetry
 
-include("TelemetryCore.jl")
+using DeepSpaceTelemetryReader: DeepSpaceTelemetryReader, TelemetryCore, RunAdapter
+
+"Absolute path of this package's root: the directory of `config.toml`, `scenarios/` and `data/`."
+const PACKAGE_ROOT = dirname(@__DIR__)
+
+function __init__()
+    # The reader package addresses this package's files and records its identity.
+    TelemetryCore.PROJECT_ROOT[] = PACKAGE_ROOT
+    TelemetryCore.DATA_ROOT[] = joinpath(PACKAGE_ROOT, "data")
+    return nothing
+end
+
 include("ChannelEffects.jl")
 include("VirtualInstrument.jl")
 include("PlotTheme.jl")
@@ -25,7 +37,6 @@ include("Metrology.jl")
 include("Export.jl")
 include("Publication.jl")
 include("Supervisor.jl")
-include("RunAdapter.jl")
 include("Sweeps.jl")
 
 export TelemetryCore,

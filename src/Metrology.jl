@@ -16,7 +16,7 @@ See [`alert_latency_table`](@ref),
 """
 module Metrology
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using ..PlotTheme
 using CairoMakie:
     CairoMakie,

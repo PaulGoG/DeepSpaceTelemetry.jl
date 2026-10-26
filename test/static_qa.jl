@@ -9,17 +9,16 @@
     # the coverage flags of the CI coverage leg that process exits without a
     # status file, so the check is skipped on that leg only. The property holds
     # by construction: `__init__` only assigns DATA_ROOT and starts no task.
-    Aqua.test_all(
-        DeepSpaceTelemetry;
-        persistent_tasks = !(
-            get(ENV, "CI", "") == "true" && Base.JLOptions().code_coverage != 0
-        ),
-    )
+    persistent = !(get(ENV, "CI", "") == "true" && Base.JLOptions().code_coverage != 0)
+    Aqua.test_all(DeepSpaceTelemetry; persistent_tasks = persistent)
+    Aqua.test_all(DeepSpaceTelemetryReader; persistent_tasks = persistent)
 end
 
 @testset "Static QA (ExplicitImports)" begin
-    @test ExplicitImports.check_no_stale_explicit_imports(DeepSpaceTelemetry) === nothing
-    @test ExplicitImports.check_no_implicit_imports(DeepSpaceTelemetry) === nothing
+    for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryReader)
+        @test ExplicitImports.check_no_stale_explicit_imports(pkg) === nothing
+        @test ExplicitImports.check_no_implicit_imports(pkg) === nothing
+    end
 end
 
 @testset "Static QA (JET)" begin

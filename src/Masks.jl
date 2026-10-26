@@ -9,7 +9,7 @@ point-wise 0/1 availability expansion of one timeline row.
 """
 module Masks
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using ..ChannelEffects
 using DataFrames: DataFrame, nrow
 using Dates: DateTime, Millisecond

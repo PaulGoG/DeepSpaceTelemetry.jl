@@ -8,12 +8,12 @@
 
 @testset "Run from an installed copy" begin
     work = mktempdir()
-    project = TOML.parsefile(joinpath(TelemetryCore.PROJECT_ROOT, "Project.toml"))
+    project = TOML.parsefile(joinpath(TelemetryCore.PROJECT_ROOT[], "Project.toml"))
 
     repo = joinpath(work, "repo")
     mkpath(repo)
     for item in ("Project.toml", "src")
-        cp(joinpath(TelemetryCore.PROJECT_ROOT, item), joinpath(repo, item))
+        cp(joinpath(TelemetryCore.PROJECT_ROOT[], item), joinpath(repo, item))
     end
     run(`git -C $repo init -q`)
     run(`$FIXTURE_GIT -C $repo add -A`)
@@ -41,7 +41,7 @@
     delete!(seed["deps"], "DeepSpaceTelemetry")
     open(io -> TOML.print(io, seed), joinpath(env, "Manifest.toml"), "w")
 
-    scenario = joinpath(TelemetryCore.PROJECT_ROOT, "scenarios", "deterministic_1d.toml")
+    scenario = joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml")
     data_root = joinpath(work, "data")
     script = joinpath(work, "consumer.jl")
     write(

@@ -11,7 +11,7 @@ is argument parsing plus one call to [`run_mission`](@ref).
 """
 module Supervisor
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using ..ChannelEffects
 using ..VirtualInstrument
 using ..Emitter
@@ -194,7 +194,7 @@ function stamp_external_provenance!(
     needed_days::Float64,
 )
     path = physics.external_data_path
-    resolved = isabspath(path) ? path : joinpath(TelemetryCore.PROJECT_ROOT, path)
+    resolved = isabspath(path) ? path : joinpath(TelemetryCore.PROJECT_ROOT[], path)
     rows = max(countlines(resolved) - 1, 0) # header-inclusive count; ≈ for headerless files
     digest = open(io -> bytes2hex(sha256(io)), resolved)
     covered_days = rows / physics.sample_rate / 86_400.0

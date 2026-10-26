@@ -196,7 +196,7 @@ function validate_config(cfg::AbstractDict)
     if physics.data_source == "external"
         ext_path =
             isabspath(physics.external_data_path) ? physics.external_data_path :
-            joinpath(PROJECT_ROOT, physics.external_data_path)
+            joinpath(PROJECT_ROOT[], physics.external_data_path)
         isfile(ext_path) || config_error(
             "[CONFIG] physics.data_source = \"external\" but external_data_path not found: $ext_path",
         )

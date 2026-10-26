@@ -6,7 +6,7 @@
 
 @testset "Run adapter" begin
     cfg = TelemetryCore.load_config(
-        joinpath(TelemetryCore.PROJECT_ROOT, "scenarios", "deterministic_1d.toml"),
+        joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml"),
     )
     cfg["simulation"]["mission_days"] = 0.2
     cfg["simulation"]["initial_downtime_days"] = 0.05
@@ -224,7 +224,7 @@ end
             ),
         )
         cfg = TelemetryCore.load_config(
-            joinpath(TelemetryCore.PROJECT_ROOT, "scenarios", "deterministic_1d.toml"),
+            joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml"),
         )
         cfg["simulation"]["mission_days"] = 0.1
         cfg["simulation"]["initial_downtime_days"] = 0.02

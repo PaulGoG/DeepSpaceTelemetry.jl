@@ -21,7 +21,7 @@ supplied through the external source.
 """
 module VirtualInstrument
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using CSV: CSV
 using DataFrames: DataFrames, DataFrame
 using Dates: Dates, DateTime, Millisecond
@@ -171,7 +171,7 @@ numeric or holds missing values — is a `[CONFIG]` error naming the file.
 """
 function read_external_series(ext_path::String, columns::Vector{String} = String[])
     resolved =
-        isabspath(ext_path) ? ext_path : joinpath(TelemetryCore.PROJECT_ROOT, ext_path)
+        isabspath(ext_path) ? ext_path : joinpath(TelemetryCore.PROJECT_ROOT[], ext_path)
     isfile(resolved) || TelemetryCore.config_error(
         "[CONFIG] External data source specified but file not found at: $resolved",
     )

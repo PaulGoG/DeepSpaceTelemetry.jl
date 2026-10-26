@@ -9,6 +9,10 @@
   statement. A new environment gets one, and a new script includes it.
 - The test, docs, scripts, and bench environments consume the package by path
   through a `[sources]` entry, so they always run against the local source.
+  `reader/` is a second package, `DeepSpaceTelemetryReader`, that holds
+  `TelemetryCore` and `RunAdapter`; the main package depends on it by path
+  and re-exports both modules, and the two carry the same version number,
+  bumped together at a release.
 - Manifests are not tracked: `Project.toml` defines an environment, with
   `[compat]` bounds on every dependency, and each CI leg resolves its own. A
   dependency change therefore touches `[deps]` and `[compat]` together.

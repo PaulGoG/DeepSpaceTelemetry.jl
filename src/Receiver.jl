@@ -9,7 +9,7 @@ and custodial state from the event log. The derived products live in
 """
 module Receiver
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using ..ChannelEffects
 using Dates: DateTime, Millisecond, now
 

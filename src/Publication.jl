@@ -11,7 +11,7 @@ destination, and the file-name suffix carrying the run ID.
 """
 module Publication
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using ..PlotTheme
 using ..MissionFigures
 using Dates: now

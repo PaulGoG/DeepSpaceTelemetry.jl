@@ -9,7 +9,7 @@ counter from the run directory and event log.
 """
 module Emitter
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using ..ChannelEffects
 using ..VirtualInstrument
 using Dates: Dates, DateTime, Millisecond

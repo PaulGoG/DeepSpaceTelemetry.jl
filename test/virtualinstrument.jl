@@ -65,13 +65,13 @@
 end
 
 @testset "VirtualInstrument External" begin
-    # Relative external paths resolve against PROJECT_ROOT, not the CWD
+    # Relative external paths resolve against PROJECT_ROOT[], not the CWD
     # (the test process runs from test/, not from the package root).
     # The fixture lives in a temporary directory and is passed as a path
-    # relative to PROJECT_ROOT, so the real data/ tree stays untouched.
+    # relative to PROJECT_ROOT[], so the real data/ tree stays untouched.
     fixture_dir = mktempdir()
     abs_name = joinpath(fixture_dir, "ext.csv")
-    rel_name = relpath(abs_name, TelemetryCore.PROJECT_ROOT)
+    rel_name = relpath(abs_name, TelemetryCore.PROJECT_ROOT[])
     try
         CSV.write(abs_name, DataFrame(Amplitude = Float32[1.0, 2.0, 3.0, 4.0]))
         vi_rel = VirtualInstrument.InstrumentState(

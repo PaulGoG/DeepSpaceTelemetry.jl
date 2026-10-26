@@ -8,7 +8,7 @@ batch-state timeline of the run directory.
 """
 module MissionFigures
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using ..ChannelEffects
 using ..PlotTheme
 using CairoMakie:

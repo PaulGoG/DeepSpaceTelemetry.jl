@@ -479,7 +479,7 @@ end
         1,
     )
 
-    # Relative config paths resolve against PROJECT_ROOT (the test process
+    # Relative config paths resolve against PROJECT_ROOT[] (the test process
     # does not run from the package root)
     @test TelemetryCore.load_config("config.toml") isa AbstractDict
 

@@ -5,13 +5,13 @@
 
 @testset "Simulation mode configuration" begin
     tick = TelemetryCore.load_config(
-        joinpath(TelemetryCore.PROJECT_ROOT, "scenarios", "deterministic_1d.toml"),
+        joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml"),
     )
     @test TelemetryCore.simulation_mode(tick) == "tick"
     @test TelemetryCore.mission_span_days(tick) == 1.0
     @test TelemetryCore.simulation_mode(Dict{String,Any}()) == "wall"
     wall = TelemetryCore.load_config(
-        joinpath(TelemetryCore.PROJECT_ROOT, "scenarios", "smoke_1d.toml"),
+        joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "smoke_1d.toml"),
     )
     @test TelemetryCore.mission_span_days(wall) ≈ 12.0 * 3600.0 / 86_400.0
     # A key of the other mode is an error naming the mode, never ignored.
@@ -167,7 +167,7 @@ end
 
 @testset "Deterministic tick missions" begin
     cfg = TelemetryCore.load_config(
-        joinpath(TelemetryCore.PROJECT_ROOT, "scenarios", "deterministic_1d.toml"),
+        joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml"),
     )
     cfg["simulation"]["mission_days"] = 0.25
     cfg["simulation"]["initial_downtime_days"] = 0.1

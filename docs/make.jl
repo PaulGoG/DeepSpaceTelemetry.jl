@@ -1,17 +1,20 @@
 include(joinpath(@__DIR__, "activate.jl"))
 using Documenter
 using DeepSpaceTelemetry
+using DeepSpaceTelemetryReader
 
 # Doctest blocks in the docstrings run in a fresh module with these imports.
-DocMeta.setdocmeta!(
-    DeepSpaceTelemetry,
-    :DocTestSetup,
-    :(using DeepSpaceTelemetry;
-    using DeepSpaceTelemetry: TelemetryCore, ChannelEffects;
-    using Dates;
-    using Random: Xoshiro);
-    recursive = true,
-)
+for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryReader)
+    DocMeta.setdocmeta!(
+        pkg,
+        :DocTestSetup,
+        :(using DeepSpaceTelemetry;
+        using DeepSpaceTelemetry: TelemetryCore, ChannelEffects;
+        using Dates;
+        using Random: Xoshiro);
+        recursive = true,
+    )
+end
 
 makedocs(
     doctest = true,
@@ -28,6 +31,7 @@ makedocs(
     ),
     modules = [
         DeepSpaceTelemetry,
+        DeepSpaceTelemetryReader,
         DeepSpaceTelemetry.TelemetryCore,
         DeepSpaceTelemetry.ChannelEffects,
         DeepSpaceTelemetry.VirtualInstrument,

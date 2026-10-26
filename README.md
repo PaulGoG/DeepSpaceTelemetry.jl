@@ -28,10 +28,11 @@ reproducible from its seed.
 
 ```text
 DeepSpaceTelemetry/
-├── src/            # The library: configuration and I/O, channel models, the
-│                   #   instrument, emitter, receiver, metrology, HDF5 export,
-│                   #   publication figures, the mission supervisor, the run
-│                   #   adapter for consumers, and sweeps
+├── src/            # The library: channel models, the instrument, emitter,
+│                   #   receiver, metrology, HDF5 export, publication figures,
+│                   #   the mission supervisor, and sweeps
+├── reader/         # The reader package: configuration and I/O (TelemetryCore)
+│                   #   and the run adapter for consumers, without the figure stack
 ├── scripts/        # Entry points (headless run, dashboard, sweeps) and post-processing
 ├── scenarios/      # Twelve complete configurations and their coverage matrix
 ├── test/           # Static QA, unit, physics, and four integration missions
@@ -75,6 +76,11 @@ recommended installer). Clone the repository:
 git clone https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git
 cd DeepSpaceTelemetry.jl
 ```
+
+A consumer that only reads run directories adds the reader package alone,
+`Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", subdir = "reader")`,
+and gets `TelemetryCore` and `RunAdapter` without the figure stack and the
+HDF5 export; the two packages share one version.
 
 The commands below are written for the package root, the cloned repository
 directory. The scripts also run from any other working directory: a relative
@@ -244,9 +250,6 @@ batch never becomes available on the ground.
 DeepSpaceTelemetry/
 ├── src/
 │   ├── DeepSpaceTelemetry.jl    # Main module
-│   ├── TelemetryCore.jl         # Module header; includes the files below in dependency order
-│   ├── TelemetryCore/           # Layout, Config, Validation, Timing, Storage, Clocks, EventLogs,
-│   │                            #   HoleFeed, TableIO, Provenance, BatchIO, Visibility
 │   ├── ChannelEffects.jl        # Packet-loss channels, disruption timeline, LinkModel
 │   ├── VirtualInstrument.jl     # Payload: binary flag series or external CSV ingestion
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
@@ -258,8 +261,16 @@ DeepSpaceTelemetry/
 │   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
 │   ├── Publication.jl           # Publication figure export at a declared printed width
 │   ├── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
-│   ├── RunAdapter.jl            # Reference run adapter: file-contract reader, gap tracker, markers, label spans
 │   └── Sweeps.jl                # Ensembles and sweeps on the tick clock
+├── reader/                      # DeepSpaceTelemetryReader, versioned with this package
+│   ├── Project.toml             # Reader package: CSV, DataFrames, JSON, TOML, SHA and stdlib only
+│   ├── activate.jl              # Activates and instantiates the reader environment
+│   └── src/
+│       ├── DeepSpaceTelemetryReader.jl # Module header; exports TelemetryCore and RunAdapter
+│       ├── TelemetryCore.jl     # Module header; includes the files below in dependency order
+│       ├── TelemetryCore/       # Layout, Config, Validation, Timing, Storage, Clocks, EventLogs,
+│       │                        #   HoleFeed, TableIO, Provenance, BatchIO, Visibility
+│       └── RunAdapter.jl        # Reference run adapter: file-contract reader, gap tracker, markers, label spans
 ├── scripts/
 │   ├── Project.toml             # Script environment: terminal UI and logging; package by path via [sources]
 │   ├── activate.jl              # Activates and instantiates the script environment

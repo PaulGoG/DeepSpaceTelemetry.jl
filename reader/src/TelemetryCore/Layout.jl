@@ -9,18 +9,19 @@ const C_LIGHT = 2.99792458e8
 """
     PROJECT_ROOT
 
-Absolute path of the package root, anchored at this source file through
-`@__DIR__` (this file lives in `src/TelemetryCore/`) so that it is stable
-across precompilation and relocation of the checkout. Relative configuration
-paths (`physics.external_data_path`, `contacts.schedule_csv`, the config file
-itself) resolve against it.
+Absolute path of the package root (a `Ref`): the directory whose
+`config.toml`, `scenarios/` and `data/` are addressed, against which relative
+configuration paths (`physics.external_data_path`, `contacts.schedule_csv`,
+the config file itself) resolve, and whose source identity a run records.
+`DeepSpaceTelemetry` sets it to its own root when it loads; on its own, the
+reader package points it at the reader's root.
 """
-const PROJECT_ROOT = abspath(joinpath(@__DIR__, "..", ".."))
+const PROJECT_ROOT = Ref{String}(dirname(dirname(@__DIR__)))
 
 """
     DATA_ROOT
 
-Base directory for run storage (a `Ref`; default `<PROJECT_ROOT>/data`).
+Base directory for run storage (a `Ref`; default `<PROJECT_ROOT[]>/data`).
 Every run-directory path resolves through [`run_directory`](@ref); tests and
 embedding applications may redirect it (e.g. to a temporary directory).
 """
@@ -29,7 +30,7 @@ const DATA_ROOT = Ref{String}("")
 function __init__()
     # Runtime (not precompile-time) initialization; tests and embedding
     # applications may redirect after loading.
-    DATA_ROOT[] = joinpath(PROJECT_ROOT, "data")
+    DATA_ROOT[] = joinpath(PROJECT_ROOT[], "data")
     return nothing
 end
 

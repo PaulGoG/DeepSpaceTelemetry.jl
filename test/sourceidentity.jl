@@ -96,11 +96,11 @@ end
     # <depot>/packages/<name>/<slug>, where Pkg puts it, and the manifest
     # entry of a consumer that pins it by commit through [sources].
     uuid = Base.UUID(
-        TOML.parsefile(joinpath(TelemetryCore.PROJECT_ROOT, "Project.toml"))["uuid"],
+        TOML.parsefile(joinpath(TelemetryCore.PROJECT_ROOT[], "Project.toml"))["uuid"],
     )
     staging = mktempdir()
     for item in ("Project.toml", "src")
-        cp(joinpath(TelemetryCore.PROJECT_ROOT, item), joinpath(staging, item))
+        cp(joinpath(TelemetryCore.PROJECT_ROOT[], item), joinpath(staging, item))
     end
     content = TelemetryCore.git_tree_sha1(staging)
     copy = joinpath(

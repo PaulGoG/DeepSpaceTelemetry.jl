@@ -6,6 +6,19 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Changed
+- `TelemetryCore` and `RunAdapter` move into a second package in this
+  repository, `DeepSpaceTelemetryReader` under `reader/`, which depends on
+  CSV, DataFrames, JSON, TOML, SHA and the standard library only.
+  DeepSpaceTelemetry depends on it by path and re-exports both modules, so
+  every qualified name (`DeepSpaceTelemetry.TelemetryCore.…`) is unchanged
+  and `Pkg.add(url = …)` of the main package still resolves (Pkg collects
+  the `[sources]` of a package added by URL). A consumer that only reads
+  run directories adds the reader alone, `Pkg.add(url = …, subdir =
+  "reader")`, and no longer loads CairoMakie and HDF5. The two packages
+  carry one version number. `TelemetryCore.PROJECT_ROOT` is a `Ref` set by
+  the host package; `DeepSpaceTelemetry` points it at its own root.
+
 ## [2.8.0] - 2026-10-26
 
 ### Changed

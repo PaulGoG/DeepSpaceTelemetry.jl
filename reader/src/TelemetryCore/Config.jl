@@ -9,11 +9,12 @@ the current directory first, then the project root; an empty `path` reads
 """
 function load_config(path::String = "")
     if isempty(path)
-        path = isfile("config.toml") ? "config.toml" : joinpath(PROJECT_ROOT, "config.toml")
+        path =
+            isfile("config.toml") ? "config.toml" : joinpath(PROJECT_ROOT[], "config.toml")
     elseif !isabspath(path) && !isfile(path)
         # Root fallback, as for contacts.schedule_csv, so that
         # `run_full_sim.jl scenario.toml` works from any directory.
-        candidate = joinpath(PROJECT_ROOT, path)
+        candidate = joinpath(PROJECT_ROOT[], path)
         isfile(candidate) && (path = candidate)
     end
     isfile(path) || config_error("[CONFIG] Configuration file not found at $path")
@@ -1824,7 +1825,7 @@ function contacts_settings(cfg::AbstractDict)
     if !isempty(schedule_csv)
         path =
             isabspath(schedule_csv) || isfile(schedule_csv) ? schedule_csv :
-            joinpath(PROJECT_ROOT, schedule_csv)
+            joinpath(PROJECT_ROOT[], schedule_csv)
         isfile(path) || config_error("[CONFIG] contacts.schedule_csv not found: $path")
         header = strip.(split(readline(path), ','))
         df =

@@ -478,7 +478,7 @@ end
 end
 
 @testset "Scenario library" begin
-    scenario_dir = joinpath(TelemetryCore.PROJECT_ROOT, "scenarios")
+    scenario_dir = joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios")
     files = sort(filter(f -> endswith(f, ".toml"), readdir(scenario_dir)))
     @test length(files) >= 11
     @test "smoke_1d.toml" in files && "recovery_12h_seasonal.toml" in files
@@ -498,7 +498,7 @@ end
     end
     # The root configuration is the reference scenario: the whole file is
     # compared, apart from its comments, which TOML parsing drops.
-    root = TelemetryCore.load_config(joinpath(TelemetryCore.PROJECT_ROOT, "config.toml"))
+    root = TelemetryCore.load_config(joinpath(TelemetryCore.PROJECT_ROOT[], "config.toml"))
     ref = TelemetryCore.load_config(joinpath(scenario_dir, "recovery_12h_seasonal.toml"))
     @test root == ref
     # The smoke scenario runs end to end as shipped.
@@ -527,7 +527,7 @@ end
         script_csv = joinpath(mktempdir(), "script.csv")
         Masks.expand_pointwise_mask(run_dir, n_batches * ppb, -1, lib_csv)
         script = joinpath(
-            TelemetryCore.PROJECT_ROOT,
+            TelemetryCore.PROJECT_ROOT[],
             "scripts",
             "postprocessing",
             "standalone_mask_expander.jl",

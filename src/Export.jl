@@ -11,7 +11,7 @@ regenerable view of them ([`export_hdf5`](@ref)).
 """
 module Export
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using DataFrames: DataFrame, nrow
 using Dates: DateTime, now
 using HDF5: HDF5, h5open, create_group

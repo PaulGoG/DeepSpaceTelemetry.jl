@@ -68,7 +68,7 @@ function platform_provenance()
 end
 
 """
-    source_identity(root = PROJECT_ROOT; manifest = active_manifest_path()) -> NamedTuple
+    source_identity(root = PROJECT_ROOT[]; manifest = active_manifest_path()) -> NamedTuple
 
 The identity of the package source at `root`, stamped into
 `[provenance.platform]` and copied into `descriptor.toml`:
@@ -103,7 +103,7 @@ id.git_tree_sha1   # 40 hexadecimal digits, for a checkout and an installed copy
 ```
 """
 function source_identity(
-    root::AbstractString = PROJECT_ROOT;
+    root::AbstractString = PROJECT_ROOT[];
     manifest::Union{AbstractString,Nothing} = active_manifest_path(),
 )
     isdir(root) || throw(ArgumentError("[RUN] No package directory $root."))
@@ -309,52 +309,52 @@ function git_blob_digest(path::String)
 end
 
 """
-    git_work_tree(root = PROJECT_ROOT) -> Bool
+    git_work_tree(root = PROJECT_ROOT[]) -> Bool
 
 Whether `root` is the top level of a git work tree with a commit at `HEAD`;
 `false` when git is not installed. A directory inside another repository
 does not count, since an installed copy under a version-controlled depot
 would otherwise be given that repository's commit.
 """
-function git_work_tree(root::AbstractString = PROJECT_ROOT)
+function git_work_tree(root::AbstractString = PROJECT_ROOT[])
     top = git_output(`rev-parse --show-toplevel`; root)
     (top === nothing || isempty(top) || realpath(top) != realpath(root)) && return false
     return git_output(`rev-parse --verify --quiet HEAD`; root) !== nothing
 end
 
 """
-    git_commit(root = PROJECT_ROOT) -> String
+    git_commit(root = PROJECT_ROOT[]) -> String
 
 The `HEAD` commit of the git work tree at `root`, or `""` when `root` is not
 one ([`git_work_tree`](@ref)). [`source_identity`](@ref) covers installed
 copies as well.
 """
-function git_commit(root::AbstractString = PROJECT_ROOT)
+function git_commit(root::AbstractString = PROJECT_ROOT[])
     git_work_tree(root) || return ""
     return something(git_output(`rev-parse HEAD`; root), "")
 end
 
 """
-    git_dirty(root = PROJECT_ROOT) -> Bool
+    git_dirty(root = PROJECT_ROOT[]) -> Bool
 
 Whether the git work tree at `root` carries uncommitted changes to tracked
 files (`git status --porcelain --untracked-files=no`); `false` when `root` is
 not a work tree ([`git_work_tree`](@ref)). A run made from a dirty tree is
 not reproducible from its recorded commit alone.
 """
-function git_dirty(root::AbstractString = PROJECT_ROOT)
+function git_dirty(root::AbstractString = PROJECT_ROOT[])
     git_work_tree(root) || return false
     status = git_output(`status --porcelain --untracked-files=no`; root)
     return !isempty(something(status, ""))
 end
 
 """
-    git_output(arguments::Cmd; root = PROJECT_ROOT) -> Union{String,Nothing}
+    git_output(arguments::Cmd; root = PROJECT_ROOT[]) -> Union{String,Nothing}
 
 Standard output of `git -C <root> <arguments>`, stripped, or `nothing` when
 git is not installed or the command fails (no repository).
 """
-function git_output(arguments::Cmd; root::AbstractString = PROJECT_ROOT)
+function git_output(arguments::Cmd; root::AbstractString = PROJECT_ROOT[])
     try
         command = `git -C $root $arguments`
         return String(strip(read(pipeline(command; stderr = devnull), String)))

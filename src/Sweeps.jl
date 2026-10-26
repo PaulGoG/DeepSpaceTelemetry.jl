@@ -11,7 +11,7 @@ products land under `<data root>/sweeps/<prefix>/`.
 """
 module Sweeps
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using ..Supervisor
 using DataFrames: DataFrame, nrow
 using Dates: now

@@ -7,6 +7,7 @@ using Test, Dates, Statistics, CSV, DataFrames, Logging, TOML
 using StableRNGs
 using Aqua, JET, ExplicitImports
 using DeepSpaceTelemetry
+using DeepSpaceTelemetryReader
 using DeepSpaceTelemetry:
     TelemetryCore,
     ChannelEffects,

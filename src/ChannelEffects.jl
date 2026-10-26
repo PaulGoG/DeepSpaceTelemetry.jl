@@ -8,7 +8,7 @@ composite `LinkModel` (visibility × disruption) gating both pipeline loops.
 """
 module ChannelEffects
 
-using ..TelemetryCore
+using ..TelemetryCore: TelemetryCore
 using Dates: Dates, DateTime, Millisecond
 using Random: Random, Xoshiro
 
