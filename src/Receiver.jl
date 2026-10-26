@@ -348,6 +348,9 @@ function run_receiver(
 
             # Retention custodian (docstring). The grace window is the
             # availability guarantee consumers rely on (docs/src/interfaces.md).
+            # Each prune declares the `pruned` event row and the hole first,
+            # then writes the marker, then deletes the payload, so a consumer
+            # never sees a payload-less batch without its `pruned` row.
             if retention.enabled && ground_payload_bytes > retention.watermark_bytes
                 # Materialized on breach and refreshed when exhausted
                 # mid-breach; empty between breach episodes (bounded growth).
@@ -359,11 +362,6 @@ function run_receiver(
                     (ingest_t, pruned_name, payload_bytes) = popfirst!(prune_queue)
                     batch_dir = joinpath(ground_path, pruned_name)
                     try
-                        for f in readdir(batch_dir)
-                            startswith(f, "seg_") &&
-                                rm(joinpath(batch_dir, f); force = true)
-                        end
-                        touch(joinpath(batch_dir, "PRUNED"))
                         TelemetryCore.log_rx_event(run_dir, sim_t, pruned_name, "pruned", 0)
                         hole_feed === nothing || TelemetryCore.declare_batch_hole!(
                             hole_feed,
@@ -371,12 +369,18 @@ function run_receiver(
                             "pruned",
                             batch_dir,
                         )
+                        touch(joinpath(batch_dir, "PRUNED"))
+                        for f in readdir(batch_dir)
+                            startswith(f, "seg_") &&
+                                rm(joinpath(batch_dir, f); force = true)
+                        end
                         @info "[RECEIVER] Retention: pruned payload of $pruned_name (ingested $ingest_t)"
                         # Decrement only on success: after a failed prune the
                         # files are still on disk and the tally must stay
                         # truthful (the batch is not re-queued; the catch logs it).
                         ground_payload_bytes -= payload_bytes
                     catch e
+                        e isa Union{Base.IOError,SystemError} || rethrow()
                         @error "[RECEIVER] Retention pruning failed for $pruned_name — continuing." exception =
                             e
                     end

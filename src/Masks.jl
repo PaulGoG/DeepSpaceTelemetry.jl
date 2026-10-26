@@ -313,7 +313,7 @@ function gap_table(run_dir::String)
     physics = TelemetryCore.physics_settings(cfg)
     provenance = get(cfg, "provenance", Dict{String,Any}())
     fs = physics.sample_rate
-    points_per_batch = round(Int, fs * physics.segment_duration_sec) * physics.batch_size
+    points_per_batch = TelemetryCore.points_per_batch(physics)
     origin = TelemetryCore.payload_origin(cfg)
     t_end = TelemetryCore.mission_end(cfg)
     row_of(t::DateTime) = TelemetryCore.payload_time_row(origin, fs, t)
@@ -575,8 +575,7 @@ function expand_pointwise_mask(
     isfile(mask_path) ||
         throw(ArgumentError("[POST] Telemetry mask not found at: $mask_path"))
     physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
-    points_per_batch =
-        round(Int, physics.sample_rate * physics.segment_duration_sec * physics.batch_size)
+    points_per_batch = TelemetryCore.points_per_batch(physics)
     mask_df = TelemetryCore.read_mask_timeline(run_dir)
     target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
     1 <= target_idx <= nrow(mask_df) || throw(

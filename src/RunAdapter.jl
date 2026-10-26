@@ -180,7 +180,7 @@ function open_run(
         physics.sample_rate,
         physics.segment_duration_sec,
         physics.batch_size,
-        round(Int, physics.sample_rate * physics.segment_duration_sec) * physics.batch_size,
+        TelemetryCore.points_per_batch(physics),
         start_sim,
         origin,
         rows isa Integer ? Int(rows) : nothing,

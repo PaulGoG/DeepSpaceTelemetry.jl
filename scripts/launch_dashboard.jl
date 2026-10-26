@@ -30,7 +30,13 @@ function launch_terminal(title::String, cmd::String)
             @warn "Could not find supported GUI terminal. Run manually in a new window:\n$cmd"
         end
     elseif Sys.isapple()
-        apple_cmd = "osascript -e 'tell application \"Terminal\" to do script \"cd $(pwd()) && $cmd\"'"
+        script = replace(
+            "cd " * Base.shell_escape_posixly(pwd()) * " && " * cmd,
+            "\\" => "\\\\",
+            "\"" => "\\\"",
+        )
+        apple_cmd =
+            "osascript -e 'tell application \"Terminal\" to do script \"" * script * "\"'"
         run(Cmd(["sh", "-c", apple_cmd]), wait = false)
     elseif Sys.iswindows()
         run(Cmd(["cmd", "/c", "start", title, "cmd", "/k", cmd]), wait = false)
@@ -63,14 +69,18 @@ run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
 
 println("Launching dashboard terminals for run: $run_id...")
 
-# Commands to run in the new windows: absolute paths, no working-directory
+# Commands to run in the new windows: the running Julia binary, so the windows
+# run the same version, shell-escaped absolute paths, no working-directory
 # assumption, and a pure-Julia log follower (scripts/follow_log.jl) in place
 # of `tail -F`.
-julia_scripts = "julia"
-live_viewer_cmd = "$julia_scripts \"$(joinpath(@__DIR__, "live_viewer.jl"))\" $run_id"
+julia_exe = Base.julia_cmd().exec[1]
+live_viewer_cmd =
+    Base.shell_escape_posixly(julia_exe, joinpath(@__DIR__, "live_viewer.jl"), run_id)
 follow_log = joinpath(@__DIR__, "follow_log.jl")
-tail_rx_cmd = "$julia_scripts \"$follow_log\" \"$(joinpath(run_dir, "receiver.log"))\""
-tail_tx_cmd = "$julia_scripts \"$follow_log\" \"$(joinpath(run_dir, "emitter.log"))\""
+tail_rx_cmd =
+    Base.shell_escape_posixly(julia_exe, follow_log, joinpath(run_dir, "receiver.log"))
+tail_tx_cmd =
+    Base.shell_escape_posixly(julia_exe, follow_log, joinpath(run_dir, "emitter.log"))
 
 # Windows to open, from the validated [dashboard] settings.
 dashboard = DeepSpaceTelemetry.TelemetryCore.dashboard_settings(cfg)

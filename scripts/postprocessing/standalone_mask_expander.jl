@@ -13,6 +13,10 @@ Usage:
 
 Example:
     julia standalone_mask_expander.jl telemetry_mask_timeline.csv 921600 100 pointwise_mask.csv
+
+The test suite checks this script against `Masks.expand_pointwise_mask`. Like
+the library's point-wise product, it places batches positionally and ignores
+generation gaps (see the manual's analysis-interfaces page).
 """
 
 # Not installed automatically: that would modify the caller's active environment.

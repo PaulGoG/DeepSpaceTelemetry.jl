@@ -113,7 +113,7 @@ function InstrumentState(
 )
     sample_rate > 0 || throw(ArgumentError("sample_rate must be > 0 (got $sample_rate)."))
     TelemetryCore.segment_period(segment_duration_sec)
-    samples_per_segment(sample_rate, segment_duration_sec)
+    TelemetryCore.samples_per_segment(sample_rate, segment_duration_sec)
     if data_source == "external"
         samples, payload_columns = read_external_series(ext_path, columns)
         return InstrumentState(
@@ -155,23 +155,6 @@ after `t`.
 """
 function segment_boundary(origin::DateTime, period::Millisecond, t::DateTime)
     return origin + period * cld((t - origin).value, period.value)
-end
-
-"""
-    samples_per_segment(sample_rate, segment_duration_sec) -> Int
-
-Number of samples in one segment, `sample_rate × segment_duration_sec`
-rounded to the nearest integer. `ArgumentError` when the product is below
-one: the sample period would exceed the segment.
-"""
-function samples_per_segment(sample_rate::Real, segment_duration_sec::Real)
-    product = sample_rate * segment_duration_sec
-    product >= 1 || throw(
-        ArgumentError(
-            "sample_rate × segment_duration_sec must be ≥ 1 sample per segment (got $product).",
-        ),
-    )
-    return round(Int, product)
 end
 
 """
@@ -297,15 +280,15 @@ end
     payload_row(vi::InstrumentState, segment_id::Integer) -> Int
 
 Payload row of the first sample of segment `segment_id`,
-`(segment_id − 1) · n + 1` with `n` = [`samples_per_segment`](@ref). When
+`(segment_id − 1) · n + 1` with `n` = [`TelemetryCore.samples_per_segment`](@ref). When
 `sample_rate × segment_duration_sec` is an integer this is
 `(epoch − origin) · sample_rate + 1`, the row whose instant is the segment's
 content epoch; otherwise (a configuration warned about at validation)
 consecutive segments still read consecutive, disjoint rows.
 """
 function payload_row(vi::InstrumentState, segment_id::Integer)
-    return (segment_id - 1) * samples_per_segment(vi.sample_rate, vi.segment_duration_sec) +
-           1
+    n_samples = TelemetryCore.samples_per_segment(vi.sample_rate, vi.segment_duration_sec)
+    return (segment_id - 1) * n_samples + 1
 end
 
 """
@@ -354,7 +337,7 @@ The next segment of science data, stamped with its content epoch and its
 """
 function next_segment!(vi::InstrumentState)
     period = TelemetryCore.segment_period(vi.segment_duration_sec)
-    n_samples = samples_per_segment(vi.sample_rate, vi.segment_duration_sec)
+    n_samples = TelemetryCore.samples_per_segment(vi.sample_rate, vi.segment_duration_sec)
     id = segment_id(vi, vi.last_t)
     data = segment_samples(
         vi.source,

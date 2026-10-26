@@ -632,10 +632,7 @@ function component_spawners(
             latest[].last_t;
             origin = plan.payload_origin,
             sample_rate = physics.sample_rate,
-            points_per_batch = round(
-                Int,
-                physics.sample_rate * physics.segment_duration_sec,
-            ) * physics.batch_size,
+            points_per_batch = TelemetryCore.points_per_batch(physics),
             hole_feed = hole_feed,
         )
         return spawn(
@@ -845,7 +842,10 @@ function expand_pointwise_masks!(plan, run_dir::String, orig_stdout::IO)
         total_sim_sec = (plan.mission_days + plan.initial_downtime_days) * 86_400.0
         total_segments = ceil(Int, total_sim_sec / physics.segment_duration_sec)
         total_points =
-            round(Int, total_segments * physics.segment_duration_sec * physics.sample_rate)
+            total_segments * TelemetryCore.samples_per_segment(
+                physics.sample_rate,
+                physics.segment_duration_sec,
+            )
         rows_spec = plan.post_processing.target_event_rows
         target_rows =
             rows_spec isa Symbol ? collect(1:TelemetryCore.mask_timeline_rows(run_dir)) :
@@ -1218,7 +1218,7 @@ function execute_mission!(
         run_dir,
         plan.payload_origin,
         physics.sample_rate,
-        round(Int, physics.sample_rate * physics.segment_duration_sec) * physics.batch_size,
+        TelemetryCore.points_per_batch(physics),
     )
 
     # Pre-populate the onboard buffer sequentially before the clock starts;

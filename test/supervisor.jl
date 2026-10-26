@@ -519,6 +519,34 @@ end
         # stalled; the per-segment cost that sets the rate is measured by the
         # physics/next_segment and io/batch_save_load benchmarks.
         @test count(==("ingested"), rx.Event) > 10
+        # The dependency-light standalone expander agrees with the library on
+        # the final row when the point total is the batch count times the
+        # points per batch, the rule the script applies.
+        physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
+        ppb = TelemetryCore.points_per_batch(physics)
+        n_batches = ncol(TelemetryCore.read_mask_timeline(run_dir)) - 1
+        lib_csv = joinpath(mktempdir(), "lib.csv")
+        script_csv = joinpath(mktempdir(), "script.csv")
+        Masks.expand_pointwise_mask(run_dir, n_batches * ppb, -1, lib_csv)
+        script = joinpath(
+            TelemetryCore.PROJECT_ROOT,
+            "scripts",
+            "postprocessing",
+            "standalone_mask_expander.jl",
+        )
+        timeline = TelemetryCore.mask_timeline_path(run_dir)
+        run(
+            pipeline(
+                `$(Base.julia_cmd()) --project=$(Base.active_project()) $script $timeline $ppb -1 $script_csv`;
+                stdout = devnull,
+                stderr = devnull,
+            ),
+        )
+        lib = TelemetryCore.read_table(lib_csv)
+        standalone = TelemetryCore.read_table(script_csv)
+        @test names(lib) == names(standalone) == ["Time_Index", "Ground_Available"]
+        @test Int.(lib.Ground_Available) == Int.(standalone.Ground_Available)
+        @test Int.(lib.Time_Index) == Int.(standalone.Time_Index)
     finally
         rm(run_dir; recursive = true, force = true)
     end

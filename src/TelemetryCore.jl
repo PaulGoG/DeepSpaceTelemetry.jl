@@ -1032,6 +1032,36 @@ function segment_period(segment_duration_sec::Real)
 end
 
 """
+    samples_per_segment(sample_rate, segment_duration_sec) -> Int
+
+Number of samples in one segment, `sample_rate × segment_duration_sec`
+rounded to the nearest integer. `ArgumentError` when the product is below
+one: the sample period would exceed the segment.
+"""
+function samples_per_segment(sample_rate::Real, segment_duration_sec::Real)
+    product = sample_rate * segment_duration_sec
+    product >= 1 || throw(
+        ArgumentError(
+            "sample_rate × segment_duration_sec must be ≥ 1 sample per segment (got $product).",
+        ),
+    )
+    return round(Int, product)
+end
+
+"""
+    points_per_batch(physics) -> Int
+
+Payload rows of one batch,
+`samples_per_segment(sample_rate, segment_duration_sec) · batch_size`, from
+the `[physics]` settings ([`physics_settings`](@ref)) or any object with
+those three fields. The one definition behind the descriptor, the hole
+feed, the gap table, the adapter and the point-wise masks.
+"""
+points_per_batch(physics) =
+    samples_per_segment(physics.sample_rate, physics.segment_duration_sec) *
+    physics.batch_size
+
+"""
     physics_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[physics]` parameters: `data_source` (`"synthetic"` or
@@ -1526,9 +1556,7 @@ function write_run_descriptor(run_dir::String)
         "sample_rate" => physics.sample_rate,
         "segment_duration_sec" => physics.segment_duration_sec,
         "batch_size" => physics.batch_size,
-        "points_per_batch" =>
-            round(Int, physics.sample_rate * physics.segment_duration_sec) *
-            physics.batch_size,
+        "points_per_batch" => points_per_batch(physics),
         "written_at" => string(now()),
     )
     for key in ("external_data_sha256", "external_data_rows")
@@ -3559,8 +3587,7 @@ HoleFeed(
     hole_feed(run_dir::String) -> HoleFeed
 
 The feed of a run from its configuration snapshot: `payload_origin(cfg)`,
-`physics.sample_rate`, and `points_per_batch` =
-`round(Int, sample_rate × segment_duration_sec) × batch_size`.
+`physics.sample_rate`, and [`points_per_batch`](@ref).
 """
 function hole_feed(run_dir::String)
     cfg = load_run_config(run_dir)
@@ -3569,7 +3596,7 @@ function hole_feed(run_dir::String)
         run_dir,
         payload_origin(cfg),
         physics.sample_rate,
-        round(Int, physics.sample_rate * physics.segment_duration_sec) * physics.batch_size,
+        points_per_batch(physics),
     )
 end
 
@@ -3938,11 +3965,13 @@ function source_identity(
         length(lines) == 2 || throw(
             ErrorException("[RUN] git rev-parse returned no commit and tree for $root."),
         )
+        # The work tree was established just above; git_dirty(root) would test it again.
+        status = git_output(`status --porcelain --untracked-files=no`; root)
         return (
             identity_source = "work_tree",
             git_commit = String(strip(lines[1])),
             git_tree_sha1 = String(strip(lines[2])),
-            git_dirty = git_dirty(root),
+            git_dirty = !isempty(something(status, "")),
             repo_url = "",
             repo_rev = "",
         )
@@ -3975,18 +4004,41 @@ function source_identity(
 end
 
 """
+    manifest_beside(project::AbstractString) -> Union{String,Nothing}
+
+The manifest next to the project file `project`, the version-specific
+`Manifest-v<major>.<minor>.toml` first, then `Manifest.toml`; `nothing`
+when neither exists. The fallback of [`active_manifest_path`](@ref) for a
+Julia without `Base.project_file_manifest_path`.
+"""
+function manifest_beside(project::AbstractString)
+    dir = dirname(project)
+    for name in ("Manifest-v$(VERSION.major).$(VERSION.minor).toml", "Manifest.toml")
+        path = joinpath(dir, name)
+        isfile(path) && return path
+    end
+    return nothing
+end
+
+"""
     active_manifest_path(project = Base.active_project()) -> Union{String,Nothing}
 
 The manifest of the environment whose project file is `project`, resolved
 as Julia's code loading resolves it (a workspace root, a `manifest` key,
 the version-specific `Manifest-vX.Y.toml` before `Manifest.toml`), or
-`nothing` when there is no project or no manifest.
+`nothing` when there is no project or no manifest. On a Julia without the
+internal `Base.project_file_manifest_path` it falls back to the manifest
+next to the project file ([`manifest_beside`](@ref)).
 """
 function active_manifest_path(
     project::Union{AbstractString,Nothing} = Base.active_project(),
 )
     project === nothing && return nothing
-    return Base.project_file_manifest_path(String(project))
+    project = String(project)
+    if isdefined(Base, :project_file_manifest_path)
+        return Base.project_file_manifest_path(project)
+    end
+    return manifest_beside(project)
 end
 
 """
@@ -4281,18 +4333,22 @@ end
     read_batch_metadata(batch_dir::String) -> Dict{String,Any}
 
 Parses `<batch_dir>/metadata.json`. Returns an empty dictionary when the file
-is absent or unparsable (a foreign or truncated directory), so directory
-sweeps degrade to "unknown" instead of faulting.
+is absent, since a directory without it is not a batch. An unparsable file
+(a truncated or corrupted batch) is an `ArgumentError` naming the directory.
 """
 function read_batch_metadata(batch_dir::String)
     path = joinpath(batch_dir, "metadata.json")
     isfile(path) || return Dict{String,Any}()
+    text = read(path, String)
     parsed = try
-        JSON.parse(read(path, String); dicttype = Dict{String,Any})
+        JSON.parse(text; dicttype = Dict{String,Any})
     catch e
-        @warn "[BATCH] Unparsable metadata.json in $batch_dir — treated as unknown." exception =
-            e
-        return Dict{String,Any}()
+        e isa InterruptException && rethrow()
+        throw(
+            ArgumentError(
+                "[BATCH] Unparsable metadata.json in $batch_dir: $(sprint(showerror, e))",
+            ),
+        )
     end
     return parsed
 end

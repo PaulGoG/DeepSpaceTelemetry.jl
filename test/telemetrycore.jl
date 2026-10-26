@@ -577,6 +577,12 @@ end
         text_path = joinpath(tmp, "seg_8.csv")
         write(text_path, "A,B\n1.0,x\n")
         @test_throws ArgumentError TelemetryCore.load_segment(text_path)
+        # A corrupt metadata.json is an error; a directory without one is not a batch.
+        corrupt = mkpath(joinpath(tmp, "batch_101"))
+        write(joinpath(corrupt, "metadata.json"), "{not json")
+        @test_throws ArgumentError TelemetryCore.read_batch_metadata(corrupt)
+        bare = mkpath(joinpath(tmp, "batch_102"))
+        @test TelemetryCore.read_batch_metadata(bare) == Dict{String,Any}()
     end
 end
 
@@ -840,6 +846,10 @@ end
     @test_throws ArgumentError TelemetryCore.physics_settings(
         Dict{String,Any}("physics" => Dict{String,Any}("sample_rate" => 4.0)),
     ) # required keys
+    geometry = (sample_rate = 0.3, segment_duration_sec = 5.0, batch_size = 10)
+    @test TelemetryCore.samples_per_segment(0.3, 5.0) == 2
+    @test TelemetryCore.points_per_batch(geometry) == 20
+    @test_throws ArgumentError TelemetryCore.samples_per_segment(0.1, 5.0)
     sup = TelemetryCore.supervision_settings(Dict{String,Any}())
     @test sup.on_component_failure == "abort" &&
           sup.max_restarts == 3 &&
@@ -966,6 +976,26 @@ end
     id = TelemetryCore.generate_run_id(cfg)
     @test occursin(r"^RUN_cfg=[0-9a-f]{8}_pid=\d+_t=\d{8}_\d{6}$", id)
     @test startswith(id, "RUN_cfg=" * first(h, 8))
+end
+
+@testset "Manifest resolution" begin
+    mktempdir() do dir
+        project = joinpath(dir, "Project.toml")
+        write(project, "")
+        @test TelemetryCore.manifest_beside(project) === nothing
+        plain = joinpath(dir, "Manifest.toml")
+        touch(plain)
+        @test TelemetryCore.manifest_beside(project) == plain
+        versioned = joinpath(dir, "Manifest-v$(VERSION.major).$(VERSION.minor).toml")
+        touch(versioned)
+        @test TelemetryCore.manifest_beside(project) == versioned
+        resolved = TelemetryCore.active_manifest_path(project)
+        expected =
+            isdefined(Base, :project_file_manifest_path) ?
+            Base.project_file_manifest_path(project) :
+            TelemetryCore.manifest_beside(project)
+        @test resolved isa String && endswith(resolved, ".toml") && resolved == expected
+    end
 end
 
 @testset "Session-figure keys and the figure-stage RAM estimate" begin
