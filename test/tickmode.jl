@@ -179,6 +179,7 @@ end
         run_dir = with_logger(NullLogger()) do
             Supervisor.run_mission(c; run_id = run_id, orig_stdout = devnull)
         end
+        assert_clean_run(run_dir)
         return run_dir
     end
     runs = String[]

@@ -21,6 +21,7 @@ DeepSpaceTelemetry.Metrology.requirement_label_anchor
 DeepSpaceTelemetry.Metrology.ANNOTATION_BLOCK_LEFT
 DeepSpaceTelemetry.Metrology.delivery_delay_table
 DeepSpaceTelemetry.Metrology.delivery_compliance
+DeepSpaceTelemetry.Metrology.write_metrology_tables
 DeepSpaceTelemetry.Metrology.plot_delivery_delay
 DeepSpaceTelemetry.Metrology.quantile_sorted
 ```

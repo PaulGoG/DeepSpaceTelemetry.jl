@@ -969,8 +969,25 @@ end
             link = ChannelEffects.LinkModel(
                 TelemetryCore.VisibilityModel(Time(0), Second(24 * 3600), "flat"),
             )
+            # The receiver compiled for this loss model before the clock
+            # starts, so the compilation does not elapse inside the 3 s budget.
+            warm_dir = TelemetryCore.setup_run_dir(run_id * "__warmup")
+            with_logger(NullLogger()) do
+                Receiver.run_receiver(
+                    TelemetryCore.SimulationClock(now(), start_sim, 600.0),
+                    link,
+                    run_id * "__warmup";
+                    orig_stdout = devnull,
+                    batch_transfer_sec = 1.0,
+                    loss_model = FirstAttemptLoss(Ref(false)),
+                    max_retries = 3,
+                    deadline = now() - Second(1),
+                    round_trip_light_time_sec = round_trip_sec,
+                )
+            end
+            rm(warm_dir; recursive = true, force = true)
             clock = TelemetryCore.SimulationClock(now(), start_sim, 600.0)
-            loss = FirstAttemptLoss(TelemetryCore.batch_name(1, true), Ref(false))
+            loss = FirstAttemptLoss(Ref(false))
             with_logger(NullLogger()) do
                 Receiver.run_receiver(
                     clock,

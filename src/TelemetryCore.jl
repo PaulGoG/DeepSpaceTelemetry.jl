@@ -193,35 +193,40 @@ end
 """
     load_run_config_with_source(run_dir::String) -> Tuple{Dict{String,Any},String}
 
-The configuration that produced a run and where it came from: the run's own
-`config_snapshot.toml` (`"snapshot"`), or the project-level `config.toml`
-(`"fallback"`) when the snapshot is missing or does not parse — each case
-reported with a `[CONFIG]` warning, since the fallback re-parametrizes the
-analysis of the run with whatever `config.toml` holds today.
+The configuration that produced a run, parsed from the run's own
+`config_snapshot.toml`, and its source, always `"snapshot"`. The second
+value is kept for the `config_source` attribute of the HDF5 export. A
+missing or unparsable snapshot raises a `[CONFIG]` `ArgumentError`: the
+directory is not a run of this package, and no other configuration stands
+in for it.
 """
 function load_run_config_with_source(run_dir::String)
     snapshot = joinpath(run_dir, "config_snapshot.toml")
-    if isfile(snapshot)
-        try
-            return TOML.parsefile(snapshot), "snapshot"
-        catch e
-            @warn "[CONFIG] Corrupt config_snapshot.toml in $run_dir — falling back to the project config.toml (config_source = \"fallback\")." exception =
-                e
-        end
-    else
-        @warn "[CONFIG] No config_snapshot.toml in $run_dir — falling back to the project config.toml (config_source = \"fallback\")."
+    isfile(snapshot) || config_error(
+        "[CONFIG] No config_snapshot.toml in $run_dir: " *
+        "not a run directory of this package.",
+    )
+    parsed = try
+        TOML.parsefile(snapshot)
+    catch e
+        e isa TOML.ParserError || rethrow()
+        config_error(
+            "[CONFIG] Unparsable config_snapshot.toml in $run_dir: " * sprint(showerror, e),
+        )
     end
-    return load_config(), "fallback"
+    return parsed, "snapshot"
 end
 
 """
     load_run_config(run_dir::String)
 
-The configuration that produced a given run
-([`load_run_config_with_source`](@ref) without the source). Post-processing
-must always use this instead of [`load_config`](@ref), otherwise editing
-`config.toml` silently re-parametrizes the analysis of old runs (disruption
-windows, session times, physics rates).
+The configuration that produced a given run: its own `config_snapshot.toml`
+and nothing else ([`load_run_config_with_source`](@ref) without the
+source). A directory without a parsable snapshot is refused with a
+`[CONFIG]` `ArgumentError`. Post-processing must always use this instead of
+[`load_config`](@ref), otherwise editing `config.toml` silently
+re-parametrizes the analysis of old runs (disruption windows, session
+times, physics rates).
 """
 load_run_config(run_dir::String) = first(load_run_config_with_source(run_dir))
 
@@ -448,9 +453,8 @@ run in `run_dir` and returns the figure path, or `nothing` when the run
 holds nothing to draw. `post_processing` and `ground` are the results of
 [`post_processing_settings`](@ref) and [`ground_settings`](@ref). The
 keywords are those of the plotting functions (`style`, `plots_dir`,
-`formats`, `suffix`) and `write_tables` (`false` leaves the CSV tables of
-the product untouched, as the publication export requires). The methods
-live in the modules that own the figures, `Metrology` and `MissionFigures`.
+`formats`, `suffix`). The methods live in the modules that own the
+figures, `Metrology` and `MissionFigures`.
 """
 function render_figure_product end
 

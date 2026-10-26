@@ -22,9 +22,12 @@ using TOML: TOML
 """
     FIGURE_FREE_POST_PROCESSING
 
-The post-processing switches a sweep run sets: no figures, no point-wise
-masks, no mask timeline, no HDF5 or publication export. The gap table and
-the metrology tables, which the summary reads, are always written.
+The post-processing switches a sweep run sets: no mask timeline, no
+point-wise masks, no batch-state raster or session figures, no HDF5 export.
+The publication export is switched off by [`sweep_configuration`](@ref),
+and [`run_one`](@ref) runs the mission with `figures = false`, so no figure
+is drawn. The gap table and the metrology tables, which the summary reads,
+are written for every run.
 """
 const FIGURE_FREE_POST_PROCESSING = (
     "generate_mask_timeline" => false,
@@ -78,8 +81,9 @@ end
 
 The configuration of one sweep run: `cfg` on the tick clock
 ([`TelemetryCore.tick_configuration`](@ref)), every `"section.key=value"`
-override applied, `simulation.rng_seed = seed`, and the post-processing
-reduced to tables ([`FIGURE_FREE_POST_PROCESSING`](@ref)).
+override applied, `simulation.rng_seed = seed`, the switches of
+[`FIGURE_FREE_POST_PROCESSING`](@ref), and the publication export off. The
+figures themselves are skipped by [`run_one`](@ref).
 """
 function sweep_configuration(
     cfg::AbstractDict,
@@ -199,7 +203,7 @@ run directory.
 function run_one(cfg::Dict{String,Any}, run_id::String, data_root::String)
     TelemetryCore.DATA_ROOT[] = data_root
     return with_logger(NullLogger()) do
-        Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull)
+        Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull, figures = false)
     end
 end
 

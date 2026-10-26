@@ -34,6 +34,9 @@
         @test nrow(summary) == 2 && summary.seed == [1, 2]
         @test summary.run_id == basename.(runs)
         @test all(isfile(joinpath(r, "RUN_COMPLETE")) for r in runs)
+        @test isfile(joinpath(runs[1], "delivery_delay.csv"))
+        plots = joinpath(runs[1], "plots")
+        @test !isdir(plots) || isempty(readdir(plots))
         @test !isfile(joinpath(runs[1], "masks", "telemetry_mask_timeline.csv"))
         @test isfile(joinpath(runs[1], "masks", "gaps.csv"))
         # The span fixes the production; the seeds move the losses only.

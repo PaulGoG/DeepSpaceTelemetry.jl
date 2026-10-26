@@ -181,9 +181,10 @@ Root attributes: `format_version`, `run_id`, `start_sim_time`, `speed_up`,
 `exported_at`, the platform fingerprint of the run snapshot
 (`[provenance.platform]`: hostname, package version, git commit, Julia
 version, …), `config_snapshot` — the run's configuration as TOML text — and
-`config_source`, `"snapshot"` when that text is the run's own
-`config_snapshot.toml` and `"fallback"` when the project `config.toml` stood
-in for a missing or corrupt snapshot.
+`config_source`, `"snapshot"`: the text is the run's own
+`config_snapshot.toml`. Files written by earlier versions may hold
+`"fallback"`, meaning the project `config.toml` stood in for a missing or
+corrupt snapshot.
 """
 function write_provenance!(
     file::HDF5.File,

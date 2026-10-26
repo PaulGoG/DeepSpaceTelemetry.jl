@@ -6,6 +6,35 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The metrology tables `alert_latency.csv`, `alert_latency_markers.csv` and
+  `delivery_delay.csv` are written by their own post-processing stage,
+  before any figure, whatever the figure flags say
+  (`Metrology.write_metrology_tables`). Sweep runs draw no figure at all:
+  `Supervisor.run_mission(cfg; figures = false)` skips the figure stages
+  and the publication export, as the manual had stated.
+- A run directory whose `config_snapshot.toml` is missing or unparsable is
+  refused with a `[CONFIG]` error. Post-processing no longer falls back to
+  the package's `config.toml`, which re-parametrized the products of a
+  damaged run; the HDF5 attribute `config_source` is always `snapshot`.
+- `component_events.csv` is written through the package's table writer, so
+  its instants carry the documented form.
+- Documentation and docstrings: each guarantee stated once and where it
+  belongs; corrections against the code and the LISA Definition Study
+  Report (catch-up ratio, light time, Kleinrock volume, section numbers,
+  the seasonal peak day as a scenario phase); the contract page matches the
+  writers (tick runs without heartbeats, the anchor keys, the
+  post-processing order, the conditional `masks/batch_epochs.csv`, the
+  `STREAM` pair only on a restart); the streaming example runs as a script.
+
+### Fixed
+- The suite runs inside one enclosing testset, asserts that no
+  post-processing stage logged an error after a mission, derives the JET
+  target modules from the package (RunAdapter and Sweeps were missing), and
+  runs Aqua's persistent-tasks check on every CI leg but the coverage leg.
+  The CI jobs carry timeouts, and the cache action may prune.
+
+
 ## [2.6.2] - 2026-10-14
 
 ### Added

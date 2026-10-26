@@ -169,6 +169,8 @@ end
             "generate_mask_timeline" => true,
             "expand_to_pointwise_masks" => true,
             "target_event_rows" => [-1],
+            "session_figures" => false,
+            "state_raster" => false,
         )
         # A scheduled generation gap 06:28:48–06:43:48, ending off the
         # segment grid of the payload origin 05:45:36.
@@ -193,6 +195,7 @@ end
             Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull)
         end
         try
+            assert_clean_run(run_dir)
             @test run_dir == TelemetryCore.run_directory(run_id)
             @test isfile(joinpath(run_dir, "RUN_COMPLETE"))
             @test !isfile(joinpath(run_dir, "RUN_ACTIVE")) &&
@@ -493,23 +496,11 @@ end
             @test validated isa AbstractDict
         end
     end
-    # The root configuration is the reference scenario, section by section.
+    # The root configuration is the reference scenario: the whole file is
+    # compared, apart from its comments, which TOML parsing drops.
     root = TelemetryCore.load_config(joinpath(TelemetryCore.PROJECT_ROOT, "config.toml"))
     ref = TelemetryCore.load_config(joinpath(scenario_dir, "recovery_12h_seasonal.toml"))
-    for section in (
-        "simulation",
-        "storage",
-        "telemetry",
-        "contacts",
-        "ground",
-        "events",
-        "physics",
-        "packet_loss",
-        "disruption",
-        "post_processing",
-    )
-        @test get(root, section, nothing) == get(ref, section, nothing)
-    end
+    @test root == ref
     # The smoke scenario runs end to end as shipped.
     cfg = TelemetryCore.load_config(joinpath(scenario_dir, "smoke_1d.toml"))
     run_id = "TEST_RUN_smoke_pid$(getpid())"
@@ -517,6 +508,7 @@ end
         Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull)
     end
     try
+        assert_clean_run(run_dir)
         @test isfile(joinpath(run_dir, "RUN_COMPLETE"))
         @test isfile(joinpath(run_dir, "delivery_delay.csv"))
         @test isfile(joinpath(run_dir, "plots", "mission_summary_global.png"))

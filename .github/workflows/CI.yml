@@ -16,6 +16,11 @@ jobs:
   test:
     name: Tests — Julia ${{ matrix.version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    # julia-actions/cache deletes superseded caches only with actions: write.
+    permissions:
+      contents: read
+      actions: write
     # Every leg blocks the workflow except "pre", which watches the next
     # prerelease and may fail without failing the workflow: Linux on the
     # current stable release and on "1.12" (the compat floor), macOS and
@@ -75,6 +80,7 @@ jobs:
   format:
     name: Formatting
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -86,6 +92,7 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Pushes to main and release tags both deploy to gh-pages; one group
     # across those refs serializes them. A pull-request build deploys nothing
     # (push_preview is off) and gets a group of its own per ref: inside the
@@ -98,6 +105,8 @@ jobs:
       contents: write
       pull-requests: read
       statuses: write
+      # julia-actions/cache deletes superseded caches only with actions: write.
+      actions: write
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3

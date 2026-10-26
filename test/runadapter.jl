@@ -48,6 +48,7 @@
         Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull)
     end
     try
+        assert_clean_run(run_dir)
         run = RunAdapter.open_run(run_id)          # by identifier
         @test RunAdapter.open_run(run_dir).run_dir == run.run_dir   # by path
         g = RunAdapter.run_geometry(run)

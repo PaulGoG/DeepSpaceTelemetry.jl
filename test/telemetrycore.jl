@@ -482,8 +482,8 @@ end
     # does not run from the package root)
     @test TelemetryCore.load_config("config.toml") isa AbstractDict
 
-    # Malformed TOML: hard stop for the live config, warn + fallback to the
-    # project config for run snapshots (post-processing must not die)
+    # Malformed TOML: hard stop for the live config and for a run snapshot;
+    # a run without its own snapshot is refused, not read through config.toml
     mktempdir() do dir
         bad_toml = joinpath(dir, "config.toml")
         write(bad_toml, "[simulation\nspeed_up = ")
@@ -492,19 +492,16 @@ end
         run_dir = joinpath(dir, "run")
         mkpath(run_dir)
         write(joinpath(run_dir, "config_snapshot.toml"), "[simulation\nspeed_up = ")
-        cfg_fb = @test_logs (:warn,) match_mode=:any TelemetryCore.load_run_config(run_dir)
-        @test cfg_fb isa AbstractDict && haskey(cfg_fb, "simulation")
-        cfg_src, source =
-            @test_logs (:warn,) match_mode=:any TelemetryCore.load_run_config_with_source(
-                run_dir,
-            )
-        @test source == "fallback" && haskey(cfg_src, "simulation")
+        @test_throws ArgumentError TelemetryCore.load_run_config(run_dir)
+        err = try
+            TelemetryCore.load_run_config(run_dir)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError && occursin("config_snapshot.toml", err.msg)
         rm(joinpath(run_dir, "config_snapshot.toml"))
-        _, source =
-            @test_logs (:warn, r"No config_snapshot") match_mode=:any TelemetryCore.load_run_config_with_source(
-                run_dir,
-            )
-        @test source == "fallback"
+        @test_throws ArgumentError TelemetryCore.load_run_config(run_dir)
         write(joinpath(run_dir, "config_snapshot.toml"), "[simulation]\nspeed_up = 5.0\n")
         cfg_snap, source = TelemetryCore.load_run_config_with_source(run_dir)
         @test source == "snapshot" && cfg_snap["simulation"]["speed_up"] == 5.0

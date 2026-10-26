@@ -25,8 +25,8 @@ function valid_test_cfg()
     )
 end
 
+# The model loses the first attempt served, which under LIVE FIFO order is batch 1.
 struct FirstAttemptLoss <: ChannelEffects.LossModel
-    victim::String
     failed::Base.RefValue{Bool}
 end
 
@@ -34,6 +34,21 @@ function ChannelEffects.sample_loss!(m::FirstAttemptLoss; multiplier::Float64 = 
     m.failed[] && return false
     m.failed[] = true
     return true
+end
+
+"""
+    assert_clean_run(run_dir; faults = false)
+
+The run's `supervisor.log` holds no `[Error]` record and, unless `faults`
+is set, no `component_events.csv` exists. The post-processing stages log
+their failures instead of throwing, so this is the channel that turns a
+mission test red.
+"""
+function assert_clean_run(run_dir::AbstractString; faults::Bool = false)
+    log = joinpath(run_dir, "supervisor.log")
+    @test isfile(log) && !occursin("[Error]", read(log, String))
+    faults || @test !isfile(joinpath(run_dir, "component_events.csv"))
+    return nothing
 end
 
 """

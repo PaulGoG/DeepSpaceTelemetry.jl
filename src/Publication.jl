@@ -72,7 +72,6 @@ function export_publication_figures(
             plots_dir = dir,
             formats,
             suffix,
-            write_tables = false,
         )
         p === nothing || push!(paths, p)
     end

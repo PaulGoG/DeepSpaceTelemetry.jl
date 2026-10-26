@@ -83,6 +83,7 @@
                 Metrology.plot_alert_latency(dir; lookback_hours = 0.25),
                 "alert_latency.png",
             )
+            Metrology.write_metrology_tables(dir; lookback_hours = 0.25)
         end
         @test isfile(joinpath(dir, "alert_latency.csv"))
         @test isfile(joinpath(dir, "plots", "alert_latency.pdf"))
@@ -158,6 +159,7 @@ end
                 Metrology.plot_delivery_delay(dir; requirement_hours = 24.0),
                 "delivery_delay.png",
             )
+            Metrology.write_metrology_tables(dir)
         end
         @test isfile(joinpath(dir, "delivery_delay.csv"))
         @test isfile(joinpath(dir, "plots", "delivery_delay.pdf"))
@@ -646,6 +648,7 @@ end
                 ),
                 "alert_latency.png",
             )
+            Metrology.write_metrology_tables(dir; lookback_hours = 0.1)
         end
         @test isfile(joinpath(dir, "alert_latency_markers.csv"))
     end

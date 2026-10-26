@@ -27,21 +27,25 @@ using DeepSpaceTelemetry:
 # data/ tree stays untouched even if the process is killed mid-suite.
 TelemetryCore.DATA_ROOT[] = mktempdir()
 
-include("helpers.jl")
-include("static_qa.jl")
-include("telemetrycore.jl")
-include("sourceidentity.jl")
-include("channeleffects.jl")
-include("virtualinstrument.jl")
-include("masks.jl")
-include("integration.jl")
-include("supervisor.jl")
-include("tickmode.jl")
-include("runadapter.jl")
-include("sweeps.jl")
-include("metrology.jl")
-include("export.jl")
-include("figures.jl")
-# Opt-in: a run from a copy installed by Pkg, which precompiles from scratch.
-get(ENV, "DEEPSPACETELEMETRY_TEST_INSTALLED", "false") == "true" &&
-    include("installed_copy.jl")
+# A single enclosing testset, so a failing file no longer aborts the files after
+# it and the per-testset times are printed.
+@testset verbose = true "DeepSpaceTelemetry" begin
+    include("helpers.jl")
+    include("static_qa.jl")
+    include("telemetrycore.jl")
+    include("sourceidentity.jl")
+    include("channeleffects.jl")
+    include("virtualinstrument.jl")
+    include("masks.jl")
+    include("integration.jl")
+    include("supervisor.jl")
+    include("tickmode.jl")
+    include("runadapter.jl")
+    include("sweeps.jl")
+    include("metrology.jl")
+    include("export.jl")
+    include("figures.jl")
+    # Opt-in: a run from a copy installed by Pkg, which precompiles from scratch.
+    get(ENV, "DEEPSPACETELEMETRY_TEST_INSTALLED", "false") == "true" &&
+        include("installed_copy.jl")
+end

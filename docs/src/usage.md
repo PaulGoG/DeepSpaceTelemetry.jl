@@ -328,10 +328,11 @@ missed pass is zero, and the seasonal extension appears as the slow rise
 and fall of that level. Count axes that reach 10⁴ batches carry tick labels
 with one common power of ten (`10⁴`, `2×10⁴`, …).
 
-The post-processing writes its products in order of cost: the alert-latency
-and delivery-delay tables with their figures, the mask timeline and the
-raster drawn from it, then the mission summary and the session figures, the
-point-wise masks, and the exports. A run whose supervisor process was
+The post-processing writes its products in order of cost: the gap table,
+the settled hole feed and the label spans, the metrology tables, then the
+alert-latency and delivery-delay figures, the mask timeline and the raster
+drawn from it, the mission summary and the session figures, the point-wise
+masks, the exports, and the run descriptor last. A run whose supervisor process was
 killed during that stage is completed with
 `scripts/postprocessing/complete_run.jl` (Analysis Interfaces, lifecycle
 sentinels).

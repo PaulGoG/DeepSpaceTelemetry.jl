@@ -727,7 +727,7 @@ derived view of them and can be regenerated at any time.
 
 | Group | Content |
 |---|---|
-| root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `git_tree_sha1`, `julia_version`, …), `config_snapshot` — the run's configuration as TOML text — and `config_source` (`snapshot` or `fallback`, the latter when the project `config.toml` stood in for a missing or corrupt snapshot) |
+| root attributes | `format_version`, `run_id`, `start_sim_time`, `speed_up`, `exported_at`, the platform fingerprint of the run snapshot (`hostname`, `package_version`, `git_commit`, `git_tree_sha1`, `julia_version`, …), `config_snapshot` — the run's configuration as TOML text — and `config_source` (`snapshot`; files written by earlier versions may hold `fallback`, meaning the project `config.toml` stood in for a missing or corrupt snapshot) |
 | `events/tx`, `events/rx`, `holes` | the event logs and the declared-hole feed, one dataset per column |
 | `metrics/mission_profile` | the metrics profile, one dataset per column |
 | `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants (`SimTime`, `SimTime_iso`), and the attributes `state_codes` and `layout` |

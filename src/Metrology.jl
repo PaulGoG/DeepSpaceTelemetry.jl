@@ -484,12 +484,10 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
 end
 
 """
-    plot_alert_latency(run_dir::String; lookback_hours = 72.0, processing_latency_hours = 1.0, style, plots_dir, formats, suffix, write_tables = true) -> Union{Nothing,String}
+    plot_alert_latency(run_dir::String; lookback_hours = 72.0, processing_latency_hours = 1.0, style, plots_dir, formats, suffix) -> Union{Nothing,String}
 
-Writes `<run_dir>/alert_latency.csv` ([`alert_latency_table`](@ref)) and,
-for a run with markers, `alert_latency_markers.csv`
-([`marker_latency_table`](@ref)) when `write_tables` is set, and renders
-`<plots_dir>/alert_latency.png` with a vector twin: the median
+Renders `<plots_dir>/alert_latency.png` with a vector twin from
+[`alert_latency_table`](@ref) and [`marker_latency_table`](@ref): the median
 window-completeness latency and its interquartile band against the
 look-back, realized in the archive color (solid) and counterfactual FIFO in
 [`PlotTheme.COLOR_COUNTERFACTUAL`](@ref) (dotted), one
@@ -506,22 +504,13 @@ function plot_alert_latency(
     plots_dir::String = joinpath(run_dir, "plots"),
     formats = ("png", "pdf"),
     suffix::String = "",
-    write_tables::Bool = true,
 )
     table = alert_latency_table(run_dir; lookback_hours = lookback_hours)
     if isempty(table)
         @warn "[POST] No delivered live batch in $run_dir — alert-latency metric skipped."
         return nothing
     end
-    write_tables &&
-        TelemetryCore.safe_csv_write(joinpath(run_dir, "alert_latency.csv"), table)
     marker_table = marker_latency_table(run_dir; lookback_hours = lookback_hours)
-    write_tables &&
-        !isempty(marker_table) &&
-        TelemetryCore.safe_csv_write(
-            joinpath(run_dir, "alert_latency_markers.csv"),
-            marker_table,
-        )
 
     x = Float64.(table.Lookback_Hours)
     path = ""
@@ -693,7 +682,7 @@ function plot_alert_latency(
         PlotTheme.size_to_panels!(fig, 1 => SINGLE_PANEL_SHARE * style.panel_height)
         path = PlotTheme.save_figure(fig, plots_dir, "alert_latency"; formats, suffix)
     end
-    @info "[POST] Alert-latency metric saved: $(relpath(path, run_dir)) and alert_latency.csv."
+    @info "[POST] Alert-latency metric saved: $(relpath(path, run_dir))."
     return path
 end
 
@@ -777,16 +766,48 @@ function delivery_compliance(table::DataFrame, requirement_hours::Float64)
 end
 
 """
-    plot_delivery_delay(run_dir::String; requirement_hours = 24.0, style, plots_dir, formats, suffix, write_tables = true) -> Union{Nothing,String}
+    write_metrology_tables(run_dir::String; lookback_hours::Float64 = 72.0) -> Nothing
 
-Writes `<run_dir>/delivery_delay.csv` ([`delivery_delay_table`](@ref)) when
-`write_tables` is set and renders `<plots_dir>/delivery_delay.png` with a
-vector twin: the empirical distribution of the measurement-to-ground delay
-as the fraction of generated batches on the ground within a given delay,
-one curve per batch family and, when both exist, one for all batches, with
-the requirement rule and the compliance summary. The legend is omitted for
-a single curve. Returns the PNG path, or `nothing` when the run generated
-no batch.
+Writes the metrology tables of a run: `alert_latency.csv` and, when the run
+has event markers with an alert, `alert_latency_markers.csv`
+([`alert_latency_table`](@ref), [`marker_latency_table`](@ref)), and
+`delivery_delay.csv` ([`delivery_delay_table`](@ref)). A table that would be
+empty (no delivered live batch, no generated batch) is not written and is
+announced with a `[POST]` warning. The tables are run products independent
+of the figure flags; [`plot_alert_latency`](@ref) and
+[`plot_delivery_delay`](@ref) write none.
+"""
+function write_metrology_tables(run_dir::String; lookback_hours::Float64 = 72.0)
+    table = alert_latency_table(run_dir; lookback_hours)
+    if isempty(table)
+        @warn "[POST] No delivered live batch in $run_dir: alert-latency table skipped."
+    else
+        TelemetryCore.safe_csv_write(joinpath(run_dir, "alert_latency.csv"), table)
+        marker_table = marker_latency_table(run_dir; lookback_hours)
+        isempty(marker_table) || TelemetryCore.safe_csv_write(
+            joinpath(run_dir, "alert_latency_markers.csv"),
+            marker_table,
+        )
+    end
+    delay = delivery_delay_table(run_dir)
+    if nrow(delay) == 0
+        @warn "[POST] No generated batch in $run_dir: delivery-delay table skipped."
+    else
+        TelemetryCore.safe_csv_write(joinpath(run_dir, "delivery_delay.csv"), delay)
+    end
+    return nothing
+end
+
+"""
+    plot_delivery_delay(run_dir::String; requirement_hours = 24.0, style, plots_dir, formats, suffix) -> Union{Nothing,String}
+
+Renders `<plots_dir>/delivery_delay.png` with a vector twin from
+[`delivery_delay_table`](@ref): the empirical distribution of the
+measurement-to-ground delay as the fraction of generated batches on the
+ground within a given delay, one curve per batch family and, when both
+exist, one for all batches, with the requirement rule and the compliance
+summary. The legend is omitted for a single curve. Returns the PNG path, or
+`nothing` when the run generated no batch.
 """
 function plot_delivery_delay(
     run_dir::String;
@@ -795,15 +816,12 @@ function plot_delivery_delay(
     plots_dir::String = joinpath(run_dir, "plots"),
     formats = ("png", "pdf"),
     suffix::String = "",
-    write_tables::Bool = true,
 )
     table = delivery_delay_table(run_dir)
     if nrow(table) == 0
         @warn "[POST] No generated batch in $run_dir — delivery-delay metric skipped."
         return nothing
     end
-    write_tables &&
-        TelemetryCore.safe_csv_write(joinpath(run_dir, "delivery_delay.csv"), table)
     summary = delivery_compliance(table, requirement_hours)
 
     # Empirical fraction of *generated* batches delivered within x hours, so
@@ -950,7 +968,7 @@ function plot_delivery_delay(
         PlotTheme.size_to_panels!(fig, 1 => SINGLE_PANEL_SHARE * style.panel_height)
         path = PlotTheme.save_figure(fig, plots_dir, "delivery_delay"; formats, suffix)
     end
-    @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) and delivery_delay.csv ($(round(100 * summary.fraction_within, digits = 1)) % within $(requirement_hours) h)."
+    @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) ($(round(100 * summary.fraction_within, digits = 1)) % within $(requirement_hours) h)."
     return path
 end
 

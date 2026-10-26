@@ -1537,7 +1537,6 @@ function TelemetryCore.render_figure_product(
     run_dir::String,
     post_processing::NamedTuple,
     ground::NamedTuple;
-    write_tables::Bool = true,
     kwargs...,
 )
     return plot_state_raster(run_dir; kwargs...)

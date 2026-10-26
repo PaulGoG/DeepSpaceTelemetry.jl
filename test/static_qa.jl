@@ -6,10 +6,15 @@
     # src/ loads and the stale-deps check runs unexempted.
     #
     # The persistent-tasks check precompiles a generated wrapper package; under
-    # the coverage flags of the CI runners that process exits without a status
-    # file, so the check runs everywhere except CI. The property holds by
-    # construction: `__init__` only assigns DATA_ROOT and starts no task.
-    Aqua.test_all(DeepSpaceTelemetry; persistent_tasks = get(ENV, "CI", "") != "true")
+    # the coverage flags of the CI coverage leg that process exits without a
+    # status file, so the check is skipped on that leg only. The property holds
+    # by construction: `__init__` only assigns DATA_ROOT and starts no task.
+    Aqua.test_all(
+        DeepSpaceTelemetry;
+        persistent_tasks = !(
+            get(ENV, "CI", "") == "true" && Base.JLOptions().code_coverage != 0
+        ),
+    )
 end
 
 @testset "Static QA (ExplicitImports)" begin
@@ -22,20 +27,10 @@ end
     # dependencies are analyzed but not reported against.
     JET.test_package(
         DeepSpaceTelemetry;
-        target_modules = (
-            DeepSpaceTelemetry,
-            TelemetryCore,
-            ChannelEffects,
-            VirtualInstrument,
-            PlotTheme,
-            Emitter,
-            Receiver,
-            Masks,
-            MissionFigures,
-            Metrology,
-            Export,
-            Publication,
-            Supervisor,
+        target_modules = Tuple(
+            m for
+            m in (getfield(DeepSpaceTelemetry, n) for n in names(DeepSpaceTelemetry)) if
+            m isa Module
         ),
     )
 end
