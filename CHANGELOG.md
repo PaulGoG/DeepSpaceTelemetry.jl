@@ -13,9 +13,13 @@ Notable changes to DeepSpaceTelemetry. The format follows
   declination peaks near day 89, and the daily pass of a northern 35 m
   station (Cebreros) is longest there. The reference scenario
   `recovery_12h_seasonal.toml` (and `config.toml`) starts on 30 March 2035
-  instead of 21 June, so its passes are still 12 hours; its marker moves
-  with it. The realized totals of the two seasonal scenarios change and
-  their gallery figures are regenerated.
+  instead of 21 June, so its passes are still 12 hours, and its marker
+  moves with it; its run is unchanged to the byte, since only the phase
+  matters. `long_30d_seasonal.toml` starts on 20 July instead of 1 March,
+  its exceptions and markers shifted by the same 141 days, so that its
+  passes stay in the 8 to 9 hour range that drives the backlog to the
+  recorder ceiling inside the contact gap; its totals change and its
+  gallery figures are regenerated.
 - The batch-state replay streams: `Masks.replay_batch_states` applies the
   event logs row by row into one state vector per batch, and
   `generate_telemetry_masks` writes `masks/telemetry_mask_timeline.csv` from

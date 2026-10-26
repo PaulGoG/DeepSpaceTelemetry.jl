@@ -235,7 +235,7 @@ days later recovers part of it.
 
 ## Thirty Days with a Contact Gap
 
-`scenarios/long_30d_seasonal.toml`: thirty days from 1 March with
+`scenarios/long_30d_seasonal.toml`: thirty days from 20 July with
 the seasonal extension, two missed passes and a shortened one, a 12-day
 interval without contact, five disruptions, and two event markers.
 
