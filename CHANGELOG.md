@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-10-26
+
 ### Changed
 - `TelemetryCore` and `RunAdapter` move into a second package in this
   repository, `DeepSpaceTelemetryReader` under `reader/`, which depends on
@@ -854,6 +856,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[2.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.6.2...v2.7.0
 [2.6.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.6.1...v2.6.2
