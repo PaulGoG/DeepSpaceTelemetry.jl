@@ -34,6 +34,20 @@ function generate_run_id(cfg::AbstractDict)
 end
 
 """
+    package_version() -> String
+
+Version of the package at [`PROJECT_ROOT`](@ref), read from its
+`Project.toml`: the producer of a run, which is `DeepSpaceTelemetry` when it
+hosts the reader and the reader package itself otherwise. Falls back to the
+reader's own version when that file is absent.
+"""
+function package_version()
+    project = joinpath(PROJECT_ROOT[], "Project.toml")
+    isfile(project) || return string(pkgversion(TelemetryCore))
+    return string(get(TOML.parsefile(project), "version", pkgversion(TelemetryCore)))
+end
+
+"""
     platform_provenance() -> Dict{String,Any}
 
 Hardware and runtime fingerprint stamped into every run's
@@ -50,7 +64,7 @@ no GPU backend.
 function platform_provenance()
     cpu = Sys.cpu_info()
     provenance = Dict{String,Any}(
-        "package_version" => string(pkgversion(TelemetryCore)),
+        "package_version" => package_version(),
         "hostname" => Base.Libc.gethostname(),
         "os" => string(Sys.KERNEL, " ", Sys.MACHINE),
         "cpu_model" => isempty(cpu) ? "unknown" : cpu[1].model,
