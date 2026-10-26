@@ -2,8 +2,12 @@
 
 ```@docs
 DeepSpaceTelemetry.RunAdapter
+```
+
+## Public surface
+
+```@docs
 DeepSpaceTelemetry.RunAdapter.MINIMUM_PRODUCER_VERSION
-DeepSpaceTelemetry.RunAdapter.GAP_LABELS
 DeepSpaceTelemetry.RunAdapter.RunGeometry
 DeepSpaceTelemetry.RunAdapter.BatchRecord
 DeepSpaceTelemetry.RunAdapter.ArrivalEvent
@@ -18,7 +22,6 @@ DeepSpaceTelemetry.RunAdapter.batch_rows
 DeepSpaceTelemetry.RunAdapter.list_batches
 DeepSpaceTelemetry.RunAdapter.read_batch
 DeepSpaceTelemetry.RunAdapter.read_batch_matrix
-DeepSpaceTelemetry.RunAdapter.segment_files
 DeepSpaceTelemetry.RunAdapter.arrival_events
 DeepSpaceTelemetry.RunAdapter.markers
 DeepSpaceTelemetry.RunAdapter.label_spans
@@ -27,4 +30,11 @@ DeepSpaceTelemetry.RunAdapter.GapTracker
 DeepSpaceTelemetry.RunAdapter.declare!
 DeepSpaceTelemetry.RunAdapter.open_gaps
 DeepSpaceTelemetry.RunAdapter.declared_holes
+```
+
+## Internals
+
+```@docs
+DeepSpaceTelemetry.RunAdapter.GAP_LABELS
+DeepSpaceTelemetry.RunAdapter.segment_files
 ```

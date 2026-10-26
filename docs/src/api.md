@@ -20,3 +20,5 @@ One page per module:
 - [RunAdapter](api/runadapter.md)
 - [Sweeps](api/sweeps.md)
 - [PlotTheme](api/plottheme.md)
+
+The public names of `RunAdapter` are versioned with the run-directory contract of the Analysis Interfaces chapter; the other modules document the implementation.
