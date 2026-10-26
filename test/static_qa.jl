@@ -24,13 +24,23 @@ end
 
 @testset "Static QA (JET)" begin
     # Reports are restricted to this package's own modules; upstream
-    # dependencies are analyzed but not reported against.
-    JET.test_package(
-        DeepSpaceTelemetry;
-        target_modules = Tuple(
-            m for
-            m in (getfield(DeepSpaceTelemetry, n) for n in names(DeepSpaceTelemetry)) if
-            m isa Module
-        ),
-    )
+    # dependencies are analyzed but not reported against. On a Julia version
+    # JET does not support yet (the prerelease leg) JET loads empty stubs that
+    # error on use; the analysis is then skipped and reported as broken rather
+    # than failing the leg for a reason outside this package.
+    try
+        JET.test_package(
+            DeepSpaceTelemetry;
+            target_modules = Tuple(
+                m for
+                m in (getfield(DeepSpaceTelemetry, n) for n in names(DeepSpaceTelemetry)) if
+                m isa Module
+            ),
+        )
+    catch e
+        e isa ErrorException &&
+        occursin("Full JET functionality is not available", e.msg) || rethrow()
+        @warn "[QA] JET analysis skipped on this Julia version." version = VERSION
+        @test_skip false
+    end
 end

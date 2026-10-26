@@ -314,7 +314,9 @@ end
         )
         host = Module(:RunAdapterConsumerHost)
         Base.include(host, file)
-        return host.RunAdapterConsumer, file
+        # The binding is newer than this function's world: read it in the
+        # latest world (a plain access warns on 1.12 and errors later).
+        return Base.invokelatest(getglobal, host, :RunAdapterConsumer), file
     end
     consumer, file = consumer_module(surface)
     @test ExplicitImports.check_all_qualified_accesses_are_public(consumer, file) ===
