@@ -12,7 +12,9 @@
 
     repo = joinpath(work, "repo")
     mkpath(repo)
-    for item in ("Project.toml", "src")
+    # The reader package travels with the main one: a URL install resolves it
+    # from the clone through the main package's [sources].
+    for item in ("Project.toml", "src", "reader")
         cp(joinpath(TelemetryCore.PROJECT_ROOT[], item), joinpath(repo, item))
     end
     run(`git -C $repo init -q`)
@@ -39,6 +41,7 @@
     end
     seed = TOML.parsefile(TelemetryCore.active_manifest_path())
     delete!(seed["deps"], "DeepSpaceTelemetry")
+    delete!(seed["deps"], "DeepSpaceTelemetryReader")
     open(io -> TOML.print(io, seed), joinpath(env, "Manifest.toml"), "w")
 
     scenario = joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml")
