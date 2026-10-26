@@ -1,9 +1,9 @@
 # DeepSpaceTelemetry
 
-A Julia framework simulating the telemetry environment of deep-space science missions — contact windows, link physics, queuing, loss, and disruption — with the **LISA (Laser Interferometer Space Antenna)** mission as the shipped scenarios (a library under `scenarios/`). A mission runs on a wall-paced clock for rehearsals with live dashboards, or on a logical clock whose runs reproduce to the byte for a given seed.
+A Julia framework that simulates the telemetry environment of deep-space science missions: contact windows, link physics, queuing, loss, and disruption. The shipped scenarios, a library under `scenarios/`, model the **LISA (Laser Interferometer Space Antenna)** mission. Missions run on a wall-paced clock for rehearsals with live dashboards, or on a logical clock whose runs reproduce to the byte for a given seed.
 
 ## Overview
-Deep-space missions communicate on asymmetric duty cycles: a daily ground-station contact window followed by a long blind spot in which science data accumulates onboard. This framework simulates the physics, link constraints, and queuing logic of that regime end to end. The shipped configuration models LISA — orbiting the Sun 50 million kilometers behind Earth, with an 8-hour DSN window against a 16-hour blind spot (12 h passes near the seasonal peak in the default configuration), and a binary flag series marking the segments that hold declared events as the payload — while the telemetry, channel, and queuing layers remain mission-agnostic. "DSN" denotes throughout a deep-space ground-station network in the generic sense; the LISA passes are ESA ESTRACK 35 m antenna passes.
+Deep-space missions communicate on asymmetric duty cycles: a daily ground-station contact window followed by a long blind spot in which science data accumulates onboard. The shipped configuration models LISA, which orbits the Sun 50 million kilometers behind Earth, with an 8-hour DSN window against a 16-hour blind spot (12 h passes near the seasonal peak in the default configuration); its payload is a binary flag series marking the segments that hold declared events. The telemetry, channel, and queuing layers remain mission-agnostic. "DSN" denotes throughout a deep-space ground-station network in the generic sense; the LISA passes are ESA ESTRACK 35 m antenna passes.
 
 ![Mission summary of the stress scenario](assets/gallery/stress_8h_bursty_mission_summary_global.png)
 
@@ -11,18 +11,18 @@ One week of `scenarios/stress_8h_bursty.toml`: 8 h daily passes on the
 physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare blackout
 with a 12 h recovery ramp on day 2.5, a partial ground-station outage on day
 5, and a scheduled generation gap on day 1.5. The onboard buffer grows from
-288 to 530 batches across the week while 760 batches reach the ground and
-retransmission recovers all 49 rejected transfers; the run is a tick-mode
-run, reproducible to the byte from the scenario, the seed, and the commit.
-The [Scenario Gallery](@ref) shows this run through its other products and
-nine further scenarios through their own.
+288 to 530 batches over the week, and retransmission recovers every rejected
+transfer. The [Scenario Gallery](@ref) shows this run through its other
+products, nine further scenarios through their own, and the totals of all ten.
 
 ## Installation
 
 Requires Julia ≥ 1.12. The package is not registered in the General
 registry and is used from a clone of the repository, which carries the
-scripts, the scenario library, and the benchmarks; every run is written
-under the clone's `data/runs/` directory:
+scripts, the scenario library, and the benchmarks. Runs are written under
+the data root, `data/runs/` of the clone by default; a copy installed by
+Pkg writes under its own directory unless `TelemetryCore.DATA_ROOT[]` is
+redirected:
 
 ```bash
 git clone https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git
@@ -37,8 +37,8 @@ cd DeepSpaceTelemetry.jl
 * **FIFO/LIFO routing**: live transmission first (FIFO), then the archive backfill in strict LIFO order, so alert pipelines extend a live event's waveform backward in time without gaps.
 * **Stochastic packet loss**: per-transfer loss from a memoryless Bernoulli or a bursty Gilbert–Elliott channel, a retransmit/drop policy, and retransmissions deferred by the round-trip light time of the configured range; retry-exhausted batches land in `lost/` (data preserved, mask state `4`).
 * **Disruption events**: scheduled link disruptions (full or partial blackout, linear recovery ramp, elevated loss) and scheduled generation gaps such as antenna repointing; the on-board recorder ceiling discards data at capacity and records the loss as a gap.
-* **Event markers**: declared instants stamped into the batch metadata and the transmit log; the alert-latency and delivery-delay metrics are evaluated at each marker, with an optional triggered low-latency period.
-* **Two clocks**: wall mode paces mission time against the wall clock at `speed_up`, with heartbeats, a watchdog, restart-on-death, and the live dashboards; tick mode (`simulation.mode = "tick"`, or `--tick` on any scenario) advances it from one component wakeup to the next on one thread and reproduces a run to the byte for a given seed on a given platform (Mission Clocks in the physics page).
+* **Event markers**: declared instants stamped into the batch metadata and the transmit log; the alert-latency metric is evaluated at each marker, with an optional triggered low-latency period.
+* **Two clocks**: wall mode paces mission time against the wall clock at `speed_up`, with heartbeats, a watchdog, restart-on-death, and the live dashboards; tick mode (`simulation.mode = "tick"`, or `--tick` on any scenario) advances it from one component wakeup to the next on one thread (Mission Clocks in the physics page).
 * **Post-processing products**: the exact batch-state history replayed from the event logs (`telemetry_mask_timeline.csv`), point-wise 0/1 availability masks, the gap table of every hole in the delivered record with its cause (`masks/gaps.csv`), metrology tables, mission and session figures, an HDF5 export of every product with provenance attributes, and a publication export at a declared printed width with a provenance sidecar.
-* **Scenario library**: twelve complete configurations under `scenarios/`, from a 12-second smoke run to a 30-day seasonal mission and one mission day on the tick clock, each validated by the test suite.
-* **Validated configuration**: every tunable has a documented safe interval; `validate_config` rejects code-breaking values and retired keys with a precise `[CONFIG]` message and warns on suspicious ones before any data is generated. The packet-loss channel, the only random stream, is seeded from `simulation.rng_seed`.
+* **Scenario library**: twelve complete configurations under `scenarios/`, from a half-day smoke run to a 30-day seasonal mission, among them one mission day on the tick clock, each validated by the test suite.
+* **Validated configuration**: every tunable has a documented safe interval. At start-up `validate_config` rejects code-breaking values and retired keys with a precise `[CONFIG]` message and warns on suspicious ones. `simulation.rng_seed` seeds the packet-loss channel, the only random stream.

@@ -403,7 +403,8 @@ freely, as in `[-1, "10:20", 45]`. The
 - **Loss and disruption** — every transfer attempt draws from a memoryless
   Bernoulli or a bursty two-state Gilbert–Elliott channel, the latter
   validated against its analytic stationary rate. Retransmission is deferred
-  by the round-trip light time, blocks the head of the line, and ends after
+  by the round-trip light time while the other in-flight batches keep being
+  served, and ends after
   `max_retries`, at which point the batch moves to `lost/` rather than being
   deleted. Scheduled disruptions apply a full or partial blackout, a linear
   recovery ramp, and elevated loss. Generation gaps stop production instead
@@ -420,7 +421,7 @@ freely, as in `[-1, "10:20", 45]`. The
   realized doctrine against a counterfactual FIFO drain over the same service
   completions; and the measurement-to-ground delivery delay of every batch
   against a requirement (24 h for LISA). Declared event markers are stamped
-  into the batch metadata and evaluated by both metrics.
+  into the batch metadata and the alert latency is evaluated at each of them.
 - **Consumers and ensembles** — the reference run adapter answers what a
   consumer asks of a run (geometry, batches, payload, arrivals, state,
   labeled intervals) from the file contract, declares holes as the feeds

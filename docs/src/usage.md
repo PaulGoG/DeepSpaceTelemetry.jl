@@ -1,17 +1,16 @@
 # Usage & Configuration
 
 ## The Configuration File (`config.toml`)
-Every mission parameter is set in a TOML file. Every key's **safe
-interval** is documented inline in `config.toml`; `validate_config` enforces
-them at startup — code-breaking values abort with a precise message, suspicious
-ones warn. Type mismatches (quoted numbers, float counts) and malformed TOML
-abort with a `[CONFIG]` message rather than a stack trace; a corrupt run snapshot falls back to the
-project config with a warning, so post-processing of an old run is never aborted by it.
+Mission parameters are set in a TOML file, and `config.toml` documents the
+**safe interval** of each key inline. `validate_config` enforces them at
+startup: code-breaking values abort with a precise message, suspicious ones
+warn. Type mismatches (quoted numbers, float counts) and malformed TOML
+abort with a `[CONFIG]` message rather than a stack trace.
 
-Storage is governed up front: `check_storage_limits` prints a per-artifact
-estimate (payload, metadata, event logs, metrics, masks, plots, logs, file
-count — everything is config-derivable) and enforces the `[storage]` budgets
-with mitigation awareness. With `[retention]` disabled, a projected overrun
+Storage is checked up front: `check_storage_limits` prints a per-artifact
+estimate derived from the configuration (payload, metadata, event logs,
+metrics, masks, plots, logs, file count) and enforces the `[storage]`
+budgets, taking the retention custodian into account. With `[retention]` disabled, a projected overrun
 **aborts** before any directory is created; with the retention custodian
 enabled, the run proceeds (with a warning) as long as the steady-state
 footprint — non-prunable classes plus delivered payload capped at
@@ -29,14 +28,11 @@ advances mission time logically from one component wakeup to the next and
 reads `mission_days` instead. The two key sets are disjoint: a `speed_up`
 or `mission_wall_seconds` in tick mode, or a `mission_days` in wall mode,
 is a configuration error naming the mode, and tick mode also rejects
-`dashboard.receiver_status_panel = true`. A tick run needs no `--threads`
-option and issues no thread advisory: its components are cooperative tasks
-of one thread by construction. `scenarios/deterministic_1d.toml` is the
-library's tick scenario, one mission day that the same seed reproduces to
-the byte, and any wall scenario runs on the tick clock with its span
-unchanged through `--tick` on the command line
-(`TelemetryCore.tick_configuration` in a session): this is how the figures
-of the manual, the gallery, and the showcase are made.
+`dashboard.receiver_status_panel = true`. `scenarios/deterministic_1d.toml`
+is the library's tick scenario, one mission day. Any wall scenario runs on
+the tick clock with its span unchanged through `--tick` on the command line
+(`TelemetryCore.tick_configuration` in a session); the figures of this
+manual are made that way.
 
 ### Scenario Library
 
@@ -63,22 +59,19 @@ mission: a 15-minute antenna repointing on day 1.5 (a generation gap), a
 day-2.5 solar-flare-class full blackout (18 h, then a 12 h linear recovery
 ramp with 5× elevated loss), and a day-5.0 partial DSN outage (severity
 0.8, 12 h, 6 h ramp, 3× loss). An event marker at 14:00 on day 4 triggers,
-six hours later, a 3-hour low-latency period at half capacity. The flare
-and the outage each cost about one pass, so the week ends with the backlog
-below its initial level (the buffer moves between about 50 and 300 batches)
-where the same timeline under 8-hour passes nearly doubles it.
+six hours later, a 3-hour low-latency period at half capacity.
 
 The same disruption timeline under 8-hour January passes is
 `scenarios/stress_8h_bursty.toml`, where the link delivers 138 batches per
 day against 144 produced and the backlog grows; `scenarios/nominal_8h.toml`
-is the balanced case without backlog or disruptions; the pre-library
-default — a 60 batches/h peak under a Gaussian profile — is
+is the balanced case without backlog or disruptions; the peak-capacity
+abstraction, a 60 batches/h peak under a Gaussian profile, is
 `scenarios/abstraction_gaussian_peak.toml`. The library also covers a drop
 policy, an explicit pass schedule, a 30-day seasonal mission reaching the
 recorder ceiling, the coarse-batch regime of 2400 s segments, external
-ingestion, and one mission day on the tick clock. Under the physical rate pair only the flat profile
+ingestion, and one mission day on the tick clock. Under the physical rate pair and 8-hour passes only the flat profile
 sustains production: a day's capacity is the link rate times the pass
-length times the profile mean (flat 1.0, sine 0.5, Gaussian with σ = 0.15: 0.38),
+length times the profile mean (flat 1.0, sigmoid with k = 10: 0.93, sine 0.5, Gaussian with σ = 0.15: 0.38),
 so the shaped profiles remain stress abstractions of a partially usable
 pass. `validate_config` warns when the rate pair meets a shaped profile,
 stating the profile mean and the capacity of one nominal pass against the
@@ -91,9 +84,8 @@ other argument sets the run ID (both optional, order-independent):
 ```bash
 julia --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
 ```
-Every run archives the exact configuration it used as its own
-`config_snapshot.toml`, so reproducibility never depends on the driving
-file's location.
+Each run archives the exact configuration it used as `config_snapshot.toml`,
+and post-processing reads that snapshot rather than the driving file.
 
 ### Packet Loss & Disruptions
 ```toml
@@ -127,9 +119,10 @@ The on-board recorder is bounded by `[storage] onboard_capacity_days`
 batches are discarded until room returns (no eviction), and the loss is
 recorded as a `RECORDER` gap in the transmit event log.
 
-Reproducibility: `simulation.rng_seed` seeds the packet-loss channel, the
-run's only random stream; the synthetic payload is declared by the event
-markers and involves no draw. Identical config → identical loss realization.
+`simulation.rng_seed` seeds the packet-loss channel, the run's only random
+stream; the synthetic payload is declared by the event markers and involves
+no draw. The same seed draws the same loss sequence; only on the tick clock
+does it fall on the same transfers (Mission Clock above).
 
 ### Contact Schedule
 `[contacts]` shapes the daily window of `[telemetry]`; every key is optional.
@@ -199,7 +192,7 @@ sample_rate = 1024.0
 segment_duration_sec = 60.0
 batch_size = 15
 ```
-Row `r` of the series is the sample at `start_sim_time − initial_downtime_days + (r − 1) / sample_rate`: the first rows fill the pre-existing blind-spot backlog, a generation gap skips the rows of its interval, and past the last row the payload is zero. Each batch records the row of its first sample (`payload_row`, see the analysis interfaces).
+Row `r` of the series is the sample at `start_sim_time − initial_downtime_days · 86 400 s + (r − 1) / sample_rate`: the first rows fill the pre-existing blind-spot backlog, a generation gap skips the rows of its interval, and past the last row the payload is zero. Each batch records the row of its first sample (`payload_row`, see the analysis interfaces).
 
 A file may carry several columns. `external_data_columns` names those to ingest, in that order; left empty, the `Amplitude` column is taken, or else the first column, under the name `Amplitude`. Every ingested column is delivered as one payload — one batch, one transfer, one loss draw — and each segment file carries one column per payload column under its name; the names are stamped into the run's provenance and descriptor, and the adapter reads one column (`read_batch`) or all (`read_batch_matrix`). A listed column absent from the file's header is rejected at validation.
 
@@ -212,23 +205,22 @@ and recovers stalls by catch-up — but a non-yielding stretch in one
 component (compilation warm-up, garbage collection, figure rendering)
 pauses the others until it yields, and the entry point prints an advisory.
 In tick mode the two components are cooperative tasks of one thread under
-the driver, no thread option is needed, and the run takes as long as its
-events take to process.
+the driver; no `--threads` option is needed, no thread advisory is printed,
+and the run takes as long as its events take to process.
 
 **Interactive Dashboard:**
 ```bash
 julia --threads=3 scripts/launch_dashboard.jl
 ```
-This spawns the log terminals and the change-driven `UnicodePlots` live viewer (redrawn only on state change).
+This spawns the log terminals and the `UnicodePlots` live viewer, which redraws only on a state change.
 
 **Headless Mode:**
 ```bash
 julia --threads=3 scripts/run_full_sim.jl
 julia scripts/run_full_sim.jl --tick MY_RUN scenarios/stress_8h_bursty.toml
 ```
-Any argument ending in `.toml` selects the configuration, `--tick` runs it
-on the tick clock with its span unchanged, and any other argument sets the
-run ID; all are optional and order-independent. The receiver's console
+`--tick` runs the configuration on the tick clock with its span unchanged;
+the other arguments follow the rule given under Scenario Library. The receiver's console
 status panel (a text panel redrawn on every receiver
 iteration, which clears the terminal) is off by default;
 `dashboard.receiver_status_panel = true` enables it for a headless run whose
@@ -237,15 +229,15 @@ terminal shows nothing else.
 ## Ensembles and Sweeps
 A sweep runs one configuration on the tick clock once per seed, with
 optional overrides of any key, and gathers the realized totals of every
-run into one table. Every run is reproducible to the byte, so the table is
-the result and the runs can be regenerated from it:
+run into one table. Any run of the table can be regenerated exactly from
+its seed and the sweep's provenance:
 ```bash
 julia scripts/run_sweep.jl scenarios/stress_8h_bursty.toml MY_SWEEP --seeds 1:8 --workers 4 --set packet_loss.p_loss=0.2
 ```
-`--seeds` takes a range or a comma-separated list; `--workers N`
+`--seeds` takes a range or a comma-separated list. `--workers N`
 distributes the runs over `N` worker processes started with the active
-project (serial without it — on the tick clock the runs are independent
-of the host's load, so parallel runs do not distort each other); every
+project (serial without it); on the tick clock the runs are independent
+of the host's load, so parallel runs do not distort each other. Every
 `--set section.key=value` applies to all runs, parsed as TOML would parse
 the value. The runs land under `data/runs/<PREFIX>_seed<seed>/` with
 their post-processing reduced to tables (no figures, no point-wise masks,
@@ -261,11 +253,11 @@ overrides, workers)` returns the table and the directory, and
 `Sweeps.summarize_run(run_dir)` reads one run's totals.
 
 ## Post-Processing & Masks
-After a run, the system outputs `masks/telemetry_mask_timeline.csv`. This 2D matrix logs the exact state of every batch (`0=Future`, `1=Onboard`, `2=Link`, `3=Ground`, `4=Lost`) at every telemetry event. The reconstruction is exact: the emitter and receiver append every batch milestone to `events_tx.csv` / `events_rx.csv` (generation, transmission, ingest, retry, loss) and post-processing replays those ground-truth logs. Runs without event logs (pre-0.9 layouts) are not supported by the replay.
+After a run, post-processing writes `masks/telemetry_mask_timeline.csv`, a 2D matrix of the state of every batch (`0=Future`, `1=Onboard`, `2=Link`, `3=Ground`, `4=Lost`) at every telemetry event. The reconstruction is exact: the emitter and receiver append every batch milestone to `events_tx.csv` / `events_rx.csv` (generation, transmission, ingest, retry, loss), and post-processing replays those ground-truth logs.
 
-Post-processing always reads the run's own `config_snapshot.toml`, so analyzing an old run stays correct after `config.toml` edits.
+Post-processing reads the run's own `config_snapshot.toml`; a run whose snapshot is missing or unparsable is refused with a `[CONFIG]` error rather than re-parametrized from the package's `config.toml`.
 
-Before any figure, post-processing writes `masks/gaps.csv`, the gap table: every hole of the delivered record as a payload-row interval with its cause — a lost or pruned batch, a batch undelivered at run end, a generation gap by type (`stream`, `scheduled`, `recorder`), or the unreached tail of an external record — the declared input of a gap-aware analysis (Stationary Analysis in the Analysis Interfaces page). `Masks.gap_table(run_dir)` computes it for a run made before the product existed. The declared-hole feed `holes.csv`, appended during the run as each hole is declared, is settled from the gap table here: the end-of-run holes are appended with the nominal mission end as their declaration instant, so the feed and the table agree on a finished run. The label-span table `label_spans.csv` is written at mission start and regenerated here only when a run lacks it. After every other product, post-processing writes `descriptor.toml`, the run's identity for a downstream collection: producer version and source identity (tree hash and commit, also for a copy installed by Pkg), configuration hash, seed, clock mode, payload geometry, and the size and SHA-256 of every table present.
+Before any figure, post-processing writes the gap table `masks/gaps.csv`. It lists every hole of the delivered record as a payload-row interval with its cause: a lost or pruned batch, a batch undelivered at run end, a generation gap by type (`stream`, `scheduled`, `recorder`), or the unreached tail of an external record. A gap-aware analysis takes it as its declared input (Stationary Analysis in the Analysis Interfaces page), and `Masks.gap_table(run_dir)` computes it for a run made before the product existed. The declared-hole feed `holes.csv`, appended during the run as each hole is declared, is settled from the gap table here: the end-of-run holes are appended with the nominal mission end as their declaration instant, so the feed and the table agree on a finished run. The label-span table `label_spans.csv` is written at mission start and regenerated here only when a run lacks it. Last, post-processing writes `descriptor.toml`, the run's identity for a downstream collection: producer version and source identity (tree hash and commit, also for a copy installed by Pkg), configuration hash, seed, clock mode, payload geometry, and the size and SHA-256 of every table present.
 
 One matrix row expands into a high-resolution point-wise 0/1 availability array (multiplied against the raw time series, it blanks out undelivered data):
 ```bash
@@ -308,8 +300,9 @@ julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 ```
 
 ## Session Figures of Long Missions
-Every contact window, nominal pass or low-latency period, receives a session
-figure, so their number grows with the mission: a year of daily passes is
+Each contact window, nominal pass or low-latency period, receives a session
+figure (`session_day<kk>_detail.png`, `session_day<kk>_low_latency_detail.png`),
+so their number grows with the mission: a year of daily passes is
 365 figures, about a second and 0.6 MB each. Two keys bound the stage:
 ```toml
 [post_processing]
@@ -333,8 +326,7 @@ block, so the capacity panel shows the mean capacity of each mission day
 instead (the legend says so): an 8-hour pass is a third of the day, a
 missed pass is zero, and the seasonal extension appears as the slow rise
 and fall of that level. Count axes that reach 10⁴ batches carry tick labels
-with one common power of ten (`10⁴`, `2×10⁴`, …). Shorter missions and
-smaller counts are drawn as before.
+with one common power of ten (`10⁴`, `2×10⁴`, …).
 
 The post-processing writes its products in order of cost: the alert-latency
 and delivery-delay tables with their figures, the mask timeline and the
@@ -351,23 +343,18 @@ One further figure follows every run, behind its own flag:
 state_raster = true         # the batch-state timeline as a raster
 ```
 `state_raster.png` draws `masks/telemetry_mask_timeline.csv` with one column
-per batch, one row per recorded event, and one color per state: the boundary
-between the future wash and the onboard color is generation, each pass turns a
-block of columns to the ground colors — the live color for batches generated
-in contact, the archive color for blind-spot batches, as in every other
-figure — and within an archive block the higher batch identifiers turn first:
-the LIFO backfill, advancing backward in batch identifier. What remains in the onboard color at the top of the figure is the
-backlog the run never cleared. It needs `generate_mask_timeline`, and is
-skipped without it.
+per batch, one row per recorded event, and one color per state, in the live
+and archive colors of every other figure. The [Scenario Gallery](@ref) reads
+it. It needs `generate_mask_timeline`, and is skipped without it.
 
 ## GIF Animation
 To visualize the LIFO/FIFO routing physics of a completed run:
 ```bash
 julia scripts/postprocessing/generate_gif.jl [--web] [RUN_ID]
 ```
-Every frame is one row of `mission_profile.csv` — a change-driven cadence,
-so the animation is not linear in mission time — and states the mission
-clock, the link state, and the buffer counters. Two rendering profiles
+Each frame is one row of `mission_profile.csv` and states the mission
+clock, the link state, and the buffer counters. The rows follow a
+change-driven cadence, so the animation is not linear in mission time. Two rendering profiles
 exist: the default archive profile (1400 units wide, two raster units each,
 at most 800 frames) and `--web`, which writes the size the README and the
 manual carry (900 px, at most 240 frames, a few megabytes) as

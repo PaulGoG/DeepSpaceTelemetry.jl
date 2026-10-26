@@ -1,10 +1,9 @@
 # Scenario Gallery
 
 Ten of the twelve shipped scenarios, each run once and shown through the
-figures the run itself wrote. Every image on this page is a product from the
-`plots/` directory of a run, reduced to the page width and otherwise
-untouched. The smoke scenario and the deterministic one-day scenario exist
-for the test suite and are left out.
+figures the run itself wrote, taken from its `plots/` directory, reduced to
+the page width, and otherwise untouched. The smoke scenario and the
+deterministic one-day scenario exist for the test suite and are left out.
 
 Any scenario runs by path from the package root, on the wall clock or, with
 `--tick`, on the tick clock:
@@ -22,9 +21,9 @@ every file in `docs/src/assets/PROVENANCE.toml`:
 julia docs/render_assets.jl
 ```
 
-Every run of this page is a tick-mode run: the totals below are reproducible
-to the byte from the scenario, the seed, and the commit recorded with them,
-and the host's load plays no part. The regime each scenario is built to
+The totals below therefore reproduce to the byte from the scenario, the
+seed, the commit, the platform, and the Julia version recorded with each
+run; the host's load plays no part. The regime each scenario is built to
 reach follows from its link budget and is derived in the coverage matrix of
 `scenarios/README.md`.
 
@@ -96,8 +95,8 @@ backlog, no disruption, 1 % Bernoulli loss.
 
 ![Mission summary of the nominal scenario: seven rectangular passes, the onboard buffer returning to zero at the end of each](assets/gallery/nominal_8h_mission_summary_global.png)
 
-The balanced case. One pass can carry 145.7 batches against the 144 produced
-per day, so every pass ends with the buffer empty and every blind spot
+The balanced case. One pass carries about 146 batches after the 1 % loss,
+against 144 produced per day, so every pass ends with the buffer empty and every blind spot
 refills it to 96 batches, sixteen hours of production. Within a pass the live
 batches cross as they are generated and the remaining capacity drains the
 archive, which therefore grows at about twice the live rate.
@@ -122,13 +121,8 @@ zero while the buffer ends the week near twice its initial level.
 
 ![Batch-routing animation of the stress scenario: one row per stage, sky blue for live batches and green for archive ones, with the mission clock and the buffer counters in every frame](assets/gallery/stress_8h_bursty_telemetry_animation_web.gif)
 
-The same run, batch by batch ([GIF Animation](@ref)). Each row is a stage —
-buffered on the satellite, in flight on the link, delivered on the ground —
-and the color the routing family: sky blue live (FIFO), green archive
-(LIFO), the marker shape repeating the distinction. Live batches cross as
-they are generated, so the sky-blue runs mark the passes; between them the
-archive segment grows backward in batch identifier, contiguous with the live
-tail.
+The same run, batch by batch ([GIF Animation](@ref)), read frame by frame
+under [Queuing Theory: LIFO vs FIFO](@ref).
 
 ![Batch-state raster of the stress scenario: one column per batch, mission time upward, each pass turning a green archive block and a sky-blue live block to the ground colors](assets/gallery/stress_8h_bursty_state_raster.png)
 
@@ -190,7 +184,7 @@ the successive passes working backward through the initial backlog.
 `scenarios/abstraction_gaussian_peak.toml` and
 `scenarios/backlog_recovery_sine.toml` replace the physical rate pair by a
 peak capacity of 60 batches per hour under a profile of the window
-progress: Gaussian with σ = 0.15, a narrow-beam pass with a mean factor of
+progress: Gaussian with σ = 0.15, a pass concentrated around culmination with a mean factor of
 0.38, and sine, zero at both horizons with a mean factor of 0.5.
 
 ![Mission summary of the Gaussian-profile scenario: bell-shaped passes under the event timeline of the stress scenario](assets/gallery/abstraction_gaussian_peak_mission_summary_global.png)
@@ -241,7 +235,7 @@ days later recovers part of it.
 
 ## Thirty Days with a Contact Gap
 
-`scenarios/long_30d_seasonal.toml`: thirty days from 1 March at 7200× with
+`scenarios/long_30d_seasonal.toml`: thirty days from 1 March with
 the seasonal extension, two missed passes and a shortened one, a 12-day
 interval without contact, five disruptions, and two event markers.
 
