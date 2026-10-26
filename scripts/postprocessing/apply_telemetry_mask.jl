@@ -1,15 +1,7 @@
-"""
-Point-wise mask expansion (command-line wrapper)
-================================================
-
-Expands one row of a run's batch-level `telemetry_mask_timeline.csv` into a
-point-wise 0/1 availability array (`Masks.expand_pointwise_mask`) without
-reading the payload files: the output `pointwise_mask_tXXX.csv` states the
-availability of every physical sample at the requested telemetry event.
-
-Usage:
-    julia apply_telemetry_mask.jl <run_id> <total_points> <event_row_index> <output_csv>
-"""
+# Expands one row of a run's batch-level telemetry_mask_timeline.csv into a
+# point-wise 0/1 availability array (Masks.expand_pointwise_mask) without
+# reading the payload files: the availability of every physical sample at
+# the requested telemetry event.
 
 include(joinpath(@__DIR__, "..", "activate.jl"))
 using DeepSpaceTelemetry

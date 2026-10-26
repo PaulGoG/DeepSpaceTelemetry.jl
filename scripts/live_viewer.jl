@@ -3,10 +3,10 @@ using DeepSpaceTelemetry
 using UnicodePlots, Dates
 
 """
-    get_batch_info(path::String)
+    get_batch_info(path) -> Tuple{Vector{Int},Vector{Int}}
 
-Reads a directory and parses out the Batch IDs for LIVE and ARCH batches.
-Returns a tuple of `(live_ids, arch_ids)`.
+Identifiers of the live and the archive batches stored in directory `path`;
+both empty when it does not exist.
 """
 function get_batch_info(path)
     if !isdir(path)
@@ -30,8 +30,10 @@ end
 """
     run_viewer(run_id::String)
 
-Runs an active terminal UI visualization using UnicodePlots to track the LIFO/FIFO
-progression of telemetry batches across the mission lifecycle.
+Terminal tracker of run `run_id` (UnicodePlots): the live (FIFO) and archive
+(LIFO) batches in the onboard, link, ground, and lost directories, redrawn
+when their contents change, until interrupted. Waits for a run directory
+that does not exist yet.
 """
 function run_viewer(run_id::String)
     run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
@@ -43,9 +45,8 @@ function run_viewer(run_id::String)
     print("\e[?25l")
     print("\e[2J")
 
-    # Sliding view window: trail already-grounded batches behind the drain
-    # edge, glide toward the target, and hold position (never snap to the end)
-    # while the satellite/link are momentarily empty.
+    # Sliding view window: trail grounded batches behind the drain edge, glide
+    # toward the target, and hold position while satellite and link are empty.
     trail_buffer = 15
     glide = 0.25
     view_min = 0.0

@@ -2,11 +2,12 @@
     Sweeps
 
 Ensembles and sweeps on the tick clock: the same configuration run over a
-set of seeds, with optional overrides of any key, each run reproducible to
-the byte, and the realized totals of every run gathered into one table.
-[`run_sweep`](@ref) drives the runs, serially or on worker processes;
-[`summarize_run`](@ref) reads one run's totals; the products land under
-`<data root>/sweeps/<prefix>/`.
+set of seeds, with optional overrides of any key, and the realized totals of
+every run gathered into one table. On a given platform a seed reproduces a
+run's event logs to the byte and its metrics profile apart from the
+`WallTime` column. [`run_sweep`](@ref) drives the runs, serially or on
+worker processes; [`summarize_run`](@ref) reads one run's totals; the
+products land under `<data root>/sweeps/<prefix>/`.
 """
 module Sweeps
 
@@ -37,8 +38,8 @@ const FIGURE_FREE_POST_PROCESSING = (
     apply_override!(cfg::AbstractDict, key::AbstractString, value) -> AbstractDict
 
 Sets the dotted `key` (`section.key`, any depth) of `cfg` to `value`,
-creating the sections on the way. A string `value` is parsed as TOML
-would parse it (`true`, `3`, `0.25`, or a quoted or bare string).
+creating the sections on the way. A string `value` is converted by
+[`parse_override`](@ref): `true`, `3`, `0.25`, or a quoted or bare string.
 """
 function apply_override!(cfg::AbstractDict, key::AbstractString, value)
     parts = split(String(key), '.')
@@ -190,9 +191,10 @@ end
 """
     run_one(cfg::Dict{String,Any}, run_id::String, data_root::String) -> String
 
-One sweep run in the calling process: sets the data root, runs the
-mission headless and silently (its own logs go to the run directory as
-always), returns the run directory. The body every worker executes.
+One sweep run in the calling process, the body every worker executes: sets
+the data root and runs the mission headless with the console and the global
+logger silenced; the run's own logs still go to its directory. Returns the
+run directory.
 """
 function run_one(cfg::Dict{String,Any}, run_id::String, data_root::String)
     TelemetryCore.DATA_ROOT[] = data_root

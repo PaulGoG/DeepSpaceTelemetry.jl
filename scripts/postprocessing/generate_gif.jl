@@ -2,15 +2,10 @@ include(joinpath(@__DIR__, "..", "activate.jl"))
 using DeepSpaceTelemetry
 using CairoMakie, DataFrames, Dates
 
-"""
-    GifProfile
-
-Rendering budget of the animation: canvas size in Makie units, the raster
-scale applied to it, the frame ceiling, and the playback rate. `:archive`
-renders the full-resolution artifact; `:web` renders a figure sized for a
-README or a manual page, which keeps the file inside a few megabytes
-without a post-processing pass.
-"""
+# Rendering budgets of the animation: canvas [Makie units], raster scale,
+# frame ceiling, and playback rate [frames/s]. `:archive` is full resolution;
+# `:web` is sized for the README and the manual, a few megabytes without a
+# post-processing pass.
 const GIF_PROFILES = Dict(
     :archive =>
         (canvas = (1400, 780), px_per_unit = 2, max_frames = 800, framerate = 12),
@@ -71,26 +66,19 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
     has_loss_col = hasproperty(df, :Lost_Count)
     has_disruption_col = hasproperty(df, :Disruption_Active)
 
-    # Frame budget: `ceil` so the ceiling actually binds — with `floor`, any
-    # row count between one and two times `max_frames` decimated by one and
-    # rendered the profile in full.
+    # `ceil`, not `floor`: the frame count must not exceed `max_frames`.
     step_size = max(1, ceil(Int, nrow(df) / budget.max_frames))
     canvas = budget.canvas
-    # One style, the standard layout scaled to the width of the animation
-    # canvas, drives the axis theme, the legend typography, and
-    # the marker sizes, so they agree within every frame. Batches on the
-    # link are drawn slightly larger.
+    # The standard layout scaled to the canvas width sets theme, legend, and
+    # markers alike; batches on the link are drawn 1.25 times larger.
     style = DeepSpaceTelemetry.PlotTheme.PlotStyle(
         canvas[1] / DeepSpaceTelemetry.PlotTheme.FIGURE_WIDTH,
     )
     marker_size = round(Int, style.markersize)
     marker_size_link = round(Int, 1.25 * style.markersize)
-    # The row carries the stage (satellite, link, ground), so color is free
-    # to carry the routing family, in the Okabe–Ito hues the static figures
-    # already use for it; the marker shape repeats the distinction so the
-    # animation survives grayscale. Encoding the stage in the color instead
-    # would duplicate the axis and leave the family — the quantity a reader
-    # cannot otherwise recover — to a shape that merges once a row holds
+    # The row encodes the stage, so color encodes the routing family in the
+    # Okabe–Ito hues of the static figures and marker shape repeats it for
+    # grayscale. Shape alone would not do: markers merge once a row holds
     # hundreds of batches.
     color_live = DeepSpaceTelemetry.PlotTheme.COLOR_LIVE
     color_archive = DeepSpaceTelemetry.PlotTheme.COLOR_ARCHIVE
@@ -114,8 +102,8 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
     view_min = 0.0
     view_max = 50.0
 
-    # Frameless legend strip above the tracker, mirroring the static plots.
-    # Grouped by routing class; the Lost group appears only in lossy runs.
+    # Legend strip above the tracker, as in the static figures; the Lost entry
+    # appears only in lossy runs.
     add_gif_legend! =
         fig -> begin
             elems = Any[
@@ -268,7 +256,6 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                 fontsize = style.fontsize_annotation,
             )
 
-            # Live points (circles)
             if !isempty(x_onb_l)
                 scatter!(
                     ax,
@@ -303,7 +290,6 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                 )
             end
 
-            # Archive points (diamonds)
             if !isempty(x_onb_a)
                 scatter!(
                     ax,
@@ -338,7 +324,6 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
                 )
             end
 
-            # Lost points (crosses, terminal state)
             if !isempty(x_lost)
                 scatter!(
                     ax,

@@ -73,20 +73,15 @@ struct PlotContext
 end
 
 """
-    SPAN_COALESCE_FRACTION
-
 Fraction of the plotted time range below which two recorder-full spans are
 drawn as one band ([`coalesce_spans`](@ref)).
 """
 const SPAN_COALESCE_FRACTION = 0.005
 
 """
-    SPAN_MIN_VISIBLE_FRACTION
-
-Fraction of the plotted time range below which a shaded span is widened,
-about its center, to that width ([`shade_spans!`](@ref)): a 15-minute
-generation gap on a seven-day axis would otherwise collapse to a line and
-lose the band encoding its legend entry shows.
+Fraction of the plotted time range below which a shaded span is widened about its center
+to that width ([`shade_spans!`](@ref)): a 15-minute generation gap on a seven-day axis
+would otherwise collapse to a line, unlike the band its legend entry shows.
 """
 const SPAN_MIN_VISIBLE_FRACTION = 0.006
 
@@ -221,9 +216,8 @@ function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
     ]
     has_loss_cols = hasproperty(df, :Lost_Count)
     any_lost = has_loss_cols && maximum(df.Lost_Count) > 0
-    # The dedicated Lost strip renders whenever the loss channel was enabled —
-    # an empty strip honestly reports "no losses" — and for legacy runs that
-    # recorded losses without a config snapshot.
+    # The Lost strip is drawn whenever the loss channel was enabled, empty or
+    # not, and for legacy runs that recorded losses without a config snapshot.
     loss_enabled = Bool(get(get(cfg, "packet_loss", Dict{String,Any}()), "enabled", false))
     recorder_spans = generation_gap_spans(run_dir, t_start, maximum(df_x), "RECORDER")
     recorder_capacity =
@@ -257,9 +251,10 @@ end
 """
     low_latency_spans(model::TelemetryCore.VisibilityModel, t_start, x_end) -> Vector{NTuple{2,Float64}}
 
-Low-latency periods of the run — scheduled ones and those triggered by an
-event marker — as `(start, stop)` pairs in hours since `t_start`, clipped to
-`[0, x_end]`. Empty when `contacts.low_latency_enabled` is unset, the
+Low-latency periods of the run, scheduled ones and those triggered by an
+event marker, as `(start, stop)` pairs in hours since `t_start` for the
+periods overlapping `[0, x_end]`; the pairs are not clipped, the shading
+clamps at draw time. Empty when `contacts.low_latency_enabled` is unset, the
 [`TelemetryCore.VisibilityModel`](@ref) then carrying no such window.
 """
 function low_latency_spans(
@@ -289,12 +284,10 @@ end
 """
     mark_events!(ax, x_lo, x_hi, times; style)
 
-Draws one upright rule per declared event marker onto `ax`, clamped to the
-plotted range, in [`PlotTheme.COLOR_MARKER`](@ref) at the guide line width of
-`style` and behind the data. The rule is solid, the one vertical style no
-shaded window uses for its edges, so a marker never reads as an event
-boundary. The markers are the instants at which the alert-latency metric is
-evaluated, and the origin of any triggered low-latency period.
+Draws one upright rule per declared event marker within the plotted range
+onto `ax`, in [`PlotTheme.COLOR_MARKER`](@ref) at the guide line width of
+`style`, behind the data. The rule is solid, a style no shaded window uses
+for its edges, so a marker does not read as an event boundary.
 """
 function mark_events!(
     ax,
@@ -447,11 +440,10 @@ end
 
 Shades every disruption event onto `ax`, clamped to the plotted range: a
 uniform wash over the blackout, fading linearly to zero alpha across the
-recovery ramp (mirroring the capacity ramp), with dashed same-hue lines at
-the guide line width of `style` delimiting event start and full recovery.
-All shading is pushed far back along z so it renders behind the data
-identically on every panel — but strictly above z = -100, where the white
-background of a twin axis (dual-y panels) would cover it.
+recovery ramp as the capacity does, and dashed same-hue lines at the guide
+line width of `style` at event start and full recovery. The shading lies
+behind the data on every panel but above z = -100, where the white
+background of a twin axis would cover it.
 """
 function shade_disruptions!(
     ax,
@@ -500,17 +492,15 @@ end
 """
     figure_legend_entries(; degraded, blackout, ramp, lost, outage = false, …) -> Vector{Tuple{String,Vector{Any},Vector{String}}}
 
-Legend elements and labels of a figure, with composite fill+edge patches for
-the band+stair pairs. Entries are strictly limited to what that figure
-draws: `degraded` swaps the single capacity entry for the nominal/effective
-pair, `blackout`/`ramp`/`outage`/`scheduled_gap`/`recorder`/`low_latency`
-gate the shading patches, `marker` gates the event-marker rule, `daily_mean`
-marks the capacity labels as daily means, and `lost` is `:strip` (summary
-stairs + marks), `:marks` (session ✕ pins), or `:none`.
-The entries come in three families — `Link`, `Received`, `Events` — each a
-`(title, elements, labels)` tuple for [`PlotTheme.figure_legend!`](@ref);
-under its header a label names the series only (`Total (live + archive)`, not
-`Total received …`).
+The `Link`, `Received`, and `Events` families of a figure's legend, each a
+`(title, elements, labels)` tuple for [`PlotTheme.figure_legend!`](@ref),
+holding only what the figure draws. `degraded` swaps the capacity entry for
+the nominal/effective pair; `blackout`, `ramp`, `outage`, `scheduled_gap`,
+`recorder`, `low_latency`, and `marker` gate their entries; `daily_mean`
+marks the capacity labels as daily means; `lost` is `:strip` (summary
+stairs and marks), `:marks` (session ✕ pins), or `:none`. Band+stair series
+get composite fill+edge patches, and labels name the series only
+(`Total (live + archive)` under `Received`).
 """
 function figure_legend_entries(;
     degraded::Bool,
@@ -742,9 +732,9 @@ shading_patch(fill, edge, linestyle::Symbol, style::PlotTheme.PlotStyle) = [
 
 Every x position at which a figure of `ctx` draws an upright rule: the
 boundaries of the disruption, outage, generation-gap and low-latency
-windows, and the event markers. In-axis annotations pick their end of the
-axis against this list ([`PlotTheme.annotation_side`](@ref),
-[`PlotTheme.annotation_anchor`](@ref)), so a rule never crosses a text block.
+windows, and the event markers. In-axis annotations are placed against this
+list ([`PlotTheme.annotation_side`](@ref),
+[`PlotTheme.annotation_anchor`](@ref)) to keep the rules clear of the text.
 """
 function upright_rules(ctx::PlotContext)
     xs = Float64[]
@@ -766,11 +756,8 @@ function upright_rules(ctx::PlotContext)
 end
 
 """
-    TICK_LABEL_SPACE
-
-Width reserved for the y tick labels of every stacked panel at the standard
-layout, in Makie units (four digits at the tick size): with equal
-reservations the y-labels of stacked panels form one aligned column.
+Width reserved for the y tick labels of every stacked panel at the standard layout
+[Makie units], four digits at the tick size, so the y-labels of stacked panels align.
 """
 const TICK_LABEL_SPACE = 70
 
@@ -823,8 +810,6 @@ function count_tick_step(y_top::Real)
 end
 
 """
-    SUMMARY_CAPACITY_SAMPLES
-
 Number of equidistant instants on which the mission summary evaluates the
 capacity curves ([`capacity_curves`](@ref)): about one per raster column of
 the standard PNG, so a contact edge is drawn within a pixel of its instant.
@@ -832,8 +817,6 @@ the standard PNG, so a contact edge is drawn within a pixel of its instant.
 const SUMMARY_CAPACITY_SAMPLES = 4000
 
 """
-    SESSION_CAPACITY_SAMPLES
-
 Number of equidistant instants on which a session figure evaluates the
 capacity curves ([`capacity_curves`](@ref)).
 """
@@ -874,8 +857,6 @@ function capacity_curves(
 end
 
 """
-    SUMMARY_DAILY_MEAN_DAYS
-
 Mission span [days] above which the mission summary draws the capacity as
 its mean over each mission day ([`daily_mean_capacity`](@ref)). At the
 standard layout a day is then narrower than three line widths, and the
@@ -884,8 +865,6 @@ passes drawn one by one merge into a solid block.
 const SUMMARY_DAILY_MEAN_DAYS = 120
 
 """
-    DAILY_MEAN_SAMPLES
-
 Instants per mission day on which [`daily_mean_capacity`](@ref) evaluates
 the capacity: one per minute, so that a pass whose length drifts by minutes
 from day to day gives a mean that drifts with it instead of jumping by
@@ -983,8 +962,6 @@ function filled_stairs!(
 end
 
 """
-    SESSION_PIN_HEIGHT
-
 Relative height of the lost-batch pins on the received panel of the session
 figure: below the top row, which the loss count and the low-latency note
 occupy, and above the data, whose maximum sits at 1/1.2 of the axis.
@@ -1203,10 +1180,8 @@ function plot_mission_summary(
             markersize = style.markersize,
             strokewidth = 0,
         )
-        # The strip states its takeaway in either direction: a lossless run
-        # reads "0 lost (0 %)" instead of presenting an empty panel. It sits
-        # at the end the upright rules leave free, or between them when both
-        # ends carry one.
+        # A lossless run reads "0 lost (0 %)" rather than an empty strip; the
+        # text takes a free end of the axis or a gap between the upright rules.
         lost_final = Int(lost_curve[end])
         pct = 100 * lost_final / max(1.0, Float64(df.Ground_Total[end]) + lost_final)
         lost_text =
@@ -1367,9 +1342,7 @@ function plot_session(
         ylabel = "Received data batches",
         xticks = (session_tick_vals_h, session_tick_labels),
         yticks = PlotTheme.UpperPrunedTicks(),
-        # HH:MM labels crowd at session resolution; rotation is applied
-        # here rather than in the global theme (rule: rotate crowded labels
-        # only).
+        # HH:MM labels crowd at session resolution; the theme rotates none.
         xticklabelrotation = π / 4,
     )
     xlims!(ax_s2, min_sess_h, max_sess_h)
@@ -1390,10 +1363,9 @@ function plot_session(
         style,
     )
 
-    # Session losses: no dedicated panel (it would sit empty on loss-free
-    # days) — ✕ markers along the top edge at the loss instants plus a
-    # corner count annotation, and no elements at all when the session lost
-    # nothing.
+    # Session losses get no strip, which would sit empty on loss-free days:
+    # ✕ pins near the top at the loss instants and a corner count, both
+    # omitted when the session lost nothing.
     n_lost_sess =
         ctx.has_loss_cols ? Int(session_df.Lost_Count[end] - session_df.Lost_Count[1]) : 0
     if n_lost_sess > 0
@@ -1478,17 +1450,10 @@ function plot_session(
     return PlotTheme.save_figure(fig, plots_dir, "session_$(stem)_detail"; formats, suffix)
 end
 
-"""
-    RASTER_PX_PER_UNIT
-
-Pixel density at which the batch-state raster is embedded in a vector
-export, equal to the density of the PNG twin.
-"""
+"Pixel density of the batch-state raster in a vector export, equal to the PNG twin's."
 const RASTER_PX_PER_UNIT = 4
 
 """
-    RASTER_STATES
-
 Cell states of the batch-state raster in legend order: the code drawn, the
 legend label, and the color. Codes 0–4 are those of
 `masks/telemetry_mask_timeline.csv`; [`plot_state_raster`](@ref) redraws the
@@ -1524,21 +1489,13 @@ end
 """
     plot_state_raster(run_dir::String; style, plots_dir, formats, suffix) -> Union{Nothing,String}
 
-Renders `masks/telemetry_mask_timeline.csv` as a raster — one column per
-batch, one row per recorded event, one color per state — to
-`<plots_dir>/state_raster.png` with a vector twin, and returns its path
-(`nothing` when the timeline is absent, so a run that skipped
-[`DeepSpaceTelemetry.Masks.generate_telemetry_masks`](@ref) is not an error). Must run inside the
-telemetry theme.
-
-The figure is the routing doctrine in one panel: the boundary between the
-future wash and the onboard color is generation, each pass turns a block of
-columns to the ground color, and within a block the higher batch
-identifiers turn first — the LIFO backfill, advancing backward in batch
-identifier. What survives to the top of the figure in the onboard color is
-the backlog the run never cleared. Delivered batches are drawn in the live
-or the archive color according to the batch family recorded in
-`events_tx.csv`.
+Renders `masks/telemetry_mask_timeline.csv` as a raster, one column per
+batch, one row per recorded event, and one color per state, to
+`<plots_dir>/state_raster.png` with a vector twin, and returns its path;
+`nothing` when the timeline is absent, so a run that skipped
+[`DeepSpaceTelemetry.Masks.generate_telemetry_masks`](@ref) is not an error.
+Delivered batches take the live or the archive color by the batch family
+recorded in `events_tx.csv`. Opens its own telemetry theme scope.
 """
 function plot_state_raster(
     run_dir::String;
@@ -1718,16 +1675,14 @@ end
 Reads `mission_profile.csv` and renders the mission summary
 ([`plot_mission_summary`](@ref)) and one session figure per contact window
 ([`plot_session`](@ref)) into `plots_dir` (default `<run_dir>/plots`) in
-`formats` (default PNG + PDF) with the file-name `suffix`, all under the
+`formats` (default PNG + PDF) with the file-name `suffix`, under the
 telemetry theme of `style` ([`PlotTheme.PlotStyle`](@ref)); returns the
-paths written. Windows are enumerated from the contact model — the nominal daily
-passes, scheduled or generated, and the low-latency periods — not detected
-from the effective bandwidth, so a fully blacked-out day still receives
-its zero-throughput figure and file names share the summary's 0-based day
-coordinates.
-Every figure is drawn in a theme scope of its own and released after
-saving ([`PlotTheme.figure_scope`](@ref)), so the memory of the stage does
-not grow with the number of contact windows. The run's
+paths written. Windows come from the contact model (nominal daily passes,
+scheduled or generated, and low-latency periods), not from the effective
+bandwidth, so a blacked-out day still gets its zero-throughput figure and
+file names follow the summary's 0-based days. Each figure is drawn in its
+own theme scope and released after saving ([`PlotTheme.figure_scope`](@ref)),
+so memory does not grow with the number of windows.
 `post_processing.session_figures` switches the session figures off and
 `post_processing.session_figures_max` caps them at that many windows,
 evenly spaced over the mission ([`evenly_spaced`](@ref)).

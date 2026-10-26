@@ -1,18 +1,7 @@
-"""
-HDF5 product export (command-line wrapper)
-==========================================
-
-Writes every consumer-facing product of a run — event logs, metrics
-profile, batch-state timeline, batch epochs, point-wise masks, metrology
-tables, markers, component events — into `<run_dir>/products.h5` with the
-run's provenance as attributes (`Export.export_hdf5`). The CSV products
-remain in place; the file is a derived view for HDF5-based pipelines.
-
-Usage:
-    julia export_hdf5.jl [run_id]
-
-Without an argument the most recently modified run directory is exported.
-"""
+# Writes the consumer-facing products of a run, with its provenance as
+# attributes, into <run_dir>/products.h5 (Export.export_hdf5), a derived view
+# for HDF5-based pipelines; the CSV products stay in place. Argument: the run
+# ID, by default that of the most recently modified run directory.
 
 include(joinpath(@__DIR__, "..", "activate.jl"))
 using DeepSpaceTelemetry

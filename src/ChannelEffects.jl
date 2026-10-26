@@ -18,8 +18,9 @@ using Random: Random, Xoshiro
 
 Abstract supertype for stochastic downlink packet-loss models. Concrete models
 implement [`sample_loss!`](@ref), which is drawn once per batch transfer
-attempt on the receiver side. All models carry their own seeded `Xoshiro` RNG
-so loss realizations are reproducible independently of the physics stream.
+attempt on the receiver side. The random models carry their own RNG, a
+`Xoshiro` seeded by [`build_loss_model`](@ref), so loss realizations depend
+on the seed alone.
 """
 abstract type LossModel end
 
@@ -46,13 +47,14 @@ end
 """
     GilbertElliottLoss(p_good_to_bad, p_bad_to_good, p_loss_good, p_loss_bad, in_bad_state, rng)
 
-Two-state Markov (Gilbert–Elliott) bursty-channel model — the canonical model
-for correlated packet loss. The channel alternates between a GOOD state with
-loss probability `p_loss_good` and a BAD state with loss probability
-`p_loss_bad`; state transitions occur once per transfer attempt with
-probabilities `p_good_to_bad` / `p_bad_to_good`. All four parameters must lie
-in `[0, 1]`. The RNG type is a struct parameter so the per-attempt draws
-dispatch statically.
+Two-state Markov (Gilbert–Elliott) bursty-channel model of correlated packet
+loss (Gilbert 1960, doi:10.1002/j.1538-7305.1960.tb03959.x; Elliott 1963,
+doi:10.1002/j.1538-7305.1963.tb00955.x). The channel alternates between a
+GOOD state with loss probability `p_loss_good` and a BAD state with loss
+probability `p_loss_bad`; state transitions occur once per transfer attempt
+with probabilities `p_good_to_bad` / `p_bad_to_good`. All four parameters
+must lie in `[0, 1]`. The RNG type is a struct parameter so the per-attempt
+draws dispatch statically.
 """
 mutable struct GilbertElliottLoss{R<:Random.AbstractRNG} <: LossModel
     p_good_to_bad::Float64
@@ -276,9 +278,10 @@ end
 
 Constructs the stochastic loss model declared in the `[packet_loss]` config
 section, with its own RNG seeded from `seed`. Returns [`NoLoss`](@ref) when
-the section is absent or `enabled = false`. Errors on an unknown `model`
-string or probabilities outside `[0, 1]` (validated upstream by
-`TelemetryCore.validate_config`, re-checked here defensively).
+the section is absent or `enabled = false`. An unknown `model` string or a
+probability outside `[0, 1]` raises the `[CONFIG]` error of
+`TelemetryCore.loss_channel_settings` (validated upstream by
+`TelemetryCore.validate_config` as well).
 """
 function build_loss_model(cfg::AbstractDict, seed::Integer)
     loss = TelemetryCore.loss_channel_settings(cfg)

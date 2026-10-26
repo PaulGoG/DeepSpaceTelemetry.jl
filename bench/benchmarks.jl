@@ -18,9 +18,7 @@ suite["physics"]["next_segment"] =
     @benchmarkable DeepSpaceTelemetry.VirtualInstrument.next_segment!($vi)
 
 # Batch I/O at the shipped batch geometry (10 segments of 240 samples): the
-# per-batch cost that bounds the emitter's pace. Directory creation and
-# fixture construction live in the setup phase so the measured region is
-# exactly the save + load I/O.
+# per-batch cost that bounds the emitter's pace. Only save + load is timed.
 suite["io"] = BenchmarkGroup()
 suite["io"]["batch_save_load"] = @benchmarkable begin
     DeepSpaceTelemetry.TelemetryCore.save_batch(path, batch)
@@ -42,8 +40,8 @@ end setup = (
     )
 ) teardown = (rm(tmp; recursive = true, force = true))
 
-# Benchmark Channel Effects (hot path: one draw / factor per transfer attempt
-# or loop tick — must stay in the ns regime)
+# Channel effects: one draw or factor per transfer attempt or loop tick, so
+# these must stay at nanoseconds.
 suite["channel"] = BenchmarkGroup()
 bernoulli = DeepSpaceTelemetry.ChannelEffects.BernoulliLoss(0.1, Xoshiro(1))
 gilbert_elliott = DeepSpaceTelemetry.ChannelEffects.GilbertElliottLoss(
@@ -98,8 +96,8 @@ suite["channel"]["disruption_factor"] =
 suite["channel"]["effective_bandwidth"] =
     @benchmarkable DeepSpaceTelemetry.ChannelEffects.effective_bandwidth($link, $t_blackout)
 
-# Benchmark Post-Processing (exact event-log reconstruction at showcase scale:
-# ~1500 batches through gen/tx/ingest against 2000 profile rows)
+# Post-processing: exact event-log reconstruction at showcase scale, 1500
+# batches through gen/tx/ingest against 2000 profile rows.
 bench_dir = mktempdir()
 const bench_profile = let n_batches = 1500, n_rows = 2000
     t0 = DateTime(2035, 1, 1)
@@ -131,9 +129,9 @@ suite["postproc"]["exact_reconstruction"] =
     @benchmarkable DeepSpaceTelemetry.Masks.batch_states($bench_dir, $bench_profile) samples =
         10 evals = 1
 
-# Run benchmarks only when invoked as a script (suppress @info chatter from
-# the benchmarked functions; BenchmarkTools progress stays visible). The
-# fixture directory is removed even when the run throws.
+# Runs only when invoked as a script. The benchmarked functions' @info output
+# is suppressed, BenchmarkTools progress is not; the fixture directory is
+# removed even when a benchmark throws.
 if abspath(PROGRAM_FILE) == @__FILE__
     println("Running benchmarks...")
     try

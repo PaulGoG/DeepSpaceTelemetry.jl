@@ -52,16 +52,16 @@ function delivered_payload_queue(run_dir::String, ground_path::String)
     return queue
 end
 
-# --- Receiver Main Loop ---
+# --- Service pacing ---
 """
     ServicePacer
 
 The running completion deadline of the receiver's download slot: `wall`
 seconds under a [`TelemetryCore.SimulationClock`](@ref), the mission
-instant `sim` under a [`TelemetryCore.TickClock`](@ref). Service
-completions are paced against it, so the loop's own overhead — directory
-scans, the metrics row, the file moves — is absorbed into the slot instead
-of being added to every one of them.
+instant `sim` under a [`TelemetryCore.TickClock`](@ref). Completions are
+paced against it so that the loop's own overhead (directory scans, the
+metrics row, the file moves) is absorbed into the slot rather than added to
+each one.
 """
 mutable struct ServicePacer
     wall::Float64
@@ -120,54 +120,55 @@ end
 idle_wait!(clock::TelemetryCore.TickClock, ::String) =
     TelemetryCore.wait_for_change!(clock; priority = TelemetryCore.RECEIVER_PRIORITY)
 
+# --- Receiver main loop ---
 """
     run_receiver(clock, link, run_id; ...)
 
-The main ground-station loop. It continually checks the `link/` directory for
-incoming data batches, simulates a delay based on the effective link capacity
-(visibility profile × disruption factor), draws a stochastic loss realization
-per transfer attempt from `loss_model`, moves successful batches to `ground/`
-and exhausted ones to `lost/`, and — when `status_panel` is set — renders a
-console status panel to `orig_stdout`.
+The ground-station loop: serves the batches on `link/`, each transfer
+taking `batch_transfer_sec` divided by the effective link capacity
+(visibility profile × disruption factor), draws one loss realization from
+`loss_model` per transfer attempt, and moves delivered batches to `ground/`
+and retry-exhausted ones to `lost/`. Every milestone is appended to
+`events_rx.csv`, from which the post-processing reconstructs the run
+exactly.
 
 A lost transfer leaves the batch on the link; its retransmission is served
-no earlier than one round-trip light time after the loss was detected
-(`round_trip_light_time_sec`, deferred negative acknowledgment), while the
-other in-flight batches keep being served; after
-`max_retries` failed attempts the batch is moved to `lost/` — never deleted —
-which frees the emitter's transmission window slot (in-flight occupancy is
-the `link/` listing). Every
-milestone is appended to `events_rx.csv` for exact post-processing
-reconstruction. At startup, a re-attaching receiver reseeds retry and
-custodial state from the event log and synthesizes `ingested` records (at the
-re-attach instant) for batches delivered to `ground/` whose record was lost
-to a crash between the delivery move and the log append.
+no earlier than `round_trip_light_time_sec` after the loss was detected
+(deferred negative acknowledgment), while the other in-flight batches keep
+being served. A batch whose transfer fails `max_retries + 1` times moves to
+`lost/`, data preserved, which frees its slot in the emitter's transmission
+window (in-flight occupancy is the `link/` listing). A re-attaching receiver
+reseeds retry and custodial state from the event log and synthesizes
+`ingested` records, at the re-attach instant, for batches in `ground/` whose
+record a crash between the delivery move and the log append lost.
 
-When `retention.enabled` the loop also runs the retention custodian: once the
-delivered-payload tally exceeds `watermark_bytes`, the oldest-ingested batches
-beyond the `grace` mission-time guarantee have their `seg_*.csv` payload
-files deleted — the batch directory keeps `metadata.json`, gains a `PRUNED`
-marker, and a `pruned` event is appended to `events_rx.csv`. Event logs,
-metrics, masks, and `lost/` are never pruned. The pruning queue is
-materialized lazily on watermark breach ([`delivered_payload_queue`](@ref)).
+With `retention.enabled` the loop also runs the retention custodian: while
+the delivered-payload tally exceeds `watermark_bytes`, the oldest-ingested
+batches, once at least `grace` of mission time past their ingestion, lose
+their `seg_*.csv` payload files, keep `metadata.json`, gain a `PRUNED`
+marker, and are recorded as `pruned` in `events_rx.csv`. Event logs,
+metrics, masks, and `lost/` are not pruned. The pruning queue is
+materialized on watermark breach ([`delivered_payload_queue`](@ref)).
 
 # Keyword arguments
 
   - `orig_stdout`: stream receiving the console status panel.
   - `status_panel`: render the clear-screen console status panel (mission
     day, link state, ground and lost tallies) to `orig_stdout` on every
-    loop iteration; off by default, the supervisor sets it from
+    loop iteration; off by default, set by the supervisor from
     `dashboard.receiver_status_panel`.
   - `batch_transfer_sec`: transfer time of one batch at full link capacity
     [mission s] (`telemetry_settings(cfg).nominal_batch_transfer_sec`).
   - `loss_model`: stochastic packet-loss channel (`ChannelEffects.LossModel`).
-  - `max_retries`: failed attempts before a batch moves to `lost/`.
+  - `max_retries`: retransmissions allowed per batch; `0` moves a batch to
+    `lost/` at its first failed transfer.
   - `retention`: the custodian's [`TelemetryCore.RetentionPolicy`](@ref).
   - `deadline`: absolute wall-clock stop shared by both components (wall
     clock); under a [`TelemetryCore.TickClock`](@ref) the loop ends at the
     horizon instead and every wait parks the task on the logical clock.
   - `stop`: cooperative stop flag raised by the supervisor.
-  - `heartbeat_path`: liveness file touched once per second when set.
+  - `heartbeat_path`: liveness file touched every
+    [`TelemetryCore.HEARTBEAT_INTERVAL_MS`](@ref) when set; removed on exit.
   - `min_link_factor`: capacity floor below which no transfer is attempted.
   - `round_trip_light_time_sec`: earliest retransmission delay after a
     detected loss [mission s]; `0.0` retries immediately.
@@ -255,12 +256,9 @@ function run_receiver(
             )
             unrecorded = sort!(collect(setdiff(Set(ground_seed), keys(ingested_t))))
             if !isempty(unrecorded)
-                # Reconciliation synthesis: a batch present in ground/ without
-                # an ingested record witnesses a crash between the delivery
-                # move and the log append. The actual delivery time is
-                # unrecoverable, so the record is synthesized at the re-attach
-                # instant — masks, custodian, and consumers then agree the
-                # batch is delivered.
+                # The delivery time is unrecoverable: the record is synthesized
+                # at the re-attach instant, so masks, custodian, and consumers
+                # agree the batch is delivered.
                 reconcile_t = TelemetryCore.get_current_sim_time(clock)
                 for b in unrecorded
                     TelemetryCore.log_rx_event(run_dir, reconcile_t, b, "ingested", 0)
@@ -270,9 +268,7 @@ function run_receiver(
                     first(unrecorded, min(5, length(unrecorded)))
             end
             if retention.enabled
-                # Tally only: the prune queue itself is materialized lazily on
-                # watermark breach (see the custodian block below), so it stays
-                # empty on missions whose watermark is never reached.
+                # Tally only: the prune queue is built on breach.
                 ground_payload_bytes = sum(
                     entry -> entry[3],
                     delivered_payload_queue(run_dir, ground_path);
@@ -284,7 +280,6 @@ function run_receiver(
 
     @info "[RECEIVER] Ground-station loop started."
 
-    # The running completion deadline of the download slot ([`ServicePacer`](@ref)).
     pacer = ServicePacer(time(), TelemetryCore.get_current_sim_time(clock))
 
     try
@@ -351,12 +346,8 @@ function run_receiver(
                 last_bw = bandwidth_pct
             end
 
-            # Retention custodian: prune delivered payload CSVs oldest-first
-            # once the prunable tally exceeds the watermark — but never within
-            # the grace window, which is the availability guarantee consumers
-            # rely on (docs/src/interfaces.md). Only seg_*.csv files are
-            # deleted; metadata.json stays and a PRUNED marker plus a `pruned`
-            # event record the action.
+            # Retention custodian (docstring). The grace window is the
+            # availability guarantee consumers rely on (docs/src/interfaces.md).
             if retention.enabled && ground_payload_bytes > retention.watermark_bytes
                 # Materialized on breach and refreshed when exhausted
                 # mid-breach; empty between breach episodes (bounded growth).
@@ -383,7 +374,7 @@ function run_receiver(
                         @info "[RECEIVER] Retention: pruned payload of $pruned_name (ingested $ingest_t)"
                         # Decrement only on success: after a failed prune the
                         # files are still on disk and the tally must stay
-                        # truthful (the batch is not re-queued; logged above).
+                        # truthful (the batch is not re-queued; the catch logs it).
                         ground_payload_bytes -= payload_bytes
                     catch e
                         @error "[RECEIVER] Retention pruning failed for $pruned_name — continuing." exception =
@@ -524,8 +515,6 @@ function run_receiver(
                             readdir(batch_dir);
                             init = 0,
                         )
-                        # Tally only — the prune queue is materialized lazily
-                        # on watermark breach (custodian block).
                         ground_payload_bytes += payload
                     end
                 end

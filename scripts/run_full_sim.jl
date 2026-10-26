@@ -1,13 +1,11 @@
 include(joinpath(@__DIR__, "activate.jl"))
 using DeepSpaceTelemetry
 
-# Headless entry point: argument parsing plus one call. Any argument ending
-# in ".toml" selects an alternative configuration file (e.g. scenario.toml);
-# `--tick` runs the configuration on the logical clock with its span
-# unchanged (TelemetryCore.tick_configuration); any other argument is taken
-# as the run ID. Order-independent, all optional. The pipeline itself —
-# validation, storage gate, models, supervised components, sentinels,
-# post-processing — is Supervisor.run_mission.
+# Headless entry point. Arguments, all optional and in any order: a path
+# ending in ".toml" selects the configuration (e.g. scenario.toml), `--tick`
+# runs it on the logical clock with its span unchanged
+# (TelemetryCore.tick_configuration), and any other argument is the run ID.
+# The pipeline is Supervisor.run_mission.
 config_arg = ""
 run_id = ""
 tick = false

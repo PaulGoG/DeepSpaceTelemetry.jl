@@ -19,7 +19,7 @@ using LinearAlgebra: LinearAlgebra
 using SHA: SHA, sha256
 using TOML: TOML
 
-# --- Constants ---
+# --- Constants and run paths ---
 """
     C_LIGHT
 
@@ -56,8 +56,8 @@ end
 """
     run_directory(run_id::String) -> String
 
-Canonical run-directory path `<DATA_ROOT>/runs/<run_id>` — the single source
-of the run layout for components, scripts, and post-processing tools.
+Run-directory path `<DATA_ROOT>/runs/<run_id>`, used alike by the
+components, the scripts, and the post-processing tools.
 """
 run_directory(run_id::String) = joinpath(runs_root(), run_id)
 
@@ -86,9 +86,7 @@ function latest_run_id()
 end
 
 # --- Batch wire format ---
-# The on-disk batch naming is an interface shared by both components, the
-# post-processing replay, and the terminal viewer; these helpers are its
-# single definition.
+# Batch directory names, as used by both components, the replay, and the viewer.
 
 """
     batch_name(id::Integer, live::Bool) -> String
@@ -156,18 +154,18 @@ is_batch_name(name::AbstractString) = is_live_batch(name) || is_archive_batch(na
 
 # --- Configuration Management ---
 """
-    load_config(path::String="")
+    load_config(path::String = "") -> Dict{String,Any}
 
-Loads the mission configuration from `config.toml`. Uses the provided path
-(relative paths resolve against the current directory first, then the project
-root) or defaults to `config.toml` at the project root.
+The parsed TOML configuration at `path`. A relative path resolves against
+the current directory first, then the project root; an empty `path` reads
+`config.toml` by the same rule. A missing or unparsable file raises a
+`[CONFIG]` `ArgumentError`.
 """
 function load_config(path::String = "")
     if isempty(path)
         path = isfile("config.toml") ? "config.toml" : joinpath(PROJECT_ROOT, "config.toml")
     elseif !isabspath(path) && !isfile(path)
-        # Relative config paths resolve against the project root when not
-        # found in the CWD (same rule as physics.external_data_path), so
+        # Root fallback, as for contacts.schedule_csv, so that
         # `run_full_sim.jl scenario.toml` works from any directory.
         candidate = joinpath(PROJECT_ROOT, path)
         isfile(candidate) && (path = candidate)
@@ -371,20 +369,15 @@ function normalize_target_rows(raw)
     return sort!(unique!(rows))
 end
 
-# --- Configuration Validation ---
-
-# Schema of recognized sections and keys. Anything outside it draws a
-# warning in validate_config: a mistyped key would otherwise fall back to
-# its default without a trace.
+# --- Configuration schema ---
 """
     STORAGE_CALIBRATION_DEFAULTS
 
-Measured calibration constants of the artifact estimator, overridable
-key-by-key in `[storage]`. The `bytes_*` disk constants are per-artifact CSV
-or figure sizes; `bytes_replay_cell` is the post-processing replay RAM per
-(metrics row × batch) membership. The schema entry for `[storage]` and the
-validator both iterate this table, so a new calibration key is declared
-exactly once.
+Measured calibration constants of [`estimate_artifacts`](@ref), overridable
+key-by-key in `[storage]`: per-artifact disk sizes [bytes], and the RAM of
+the replay (`bytes_replay_cell`, per metrics row × batch membership) and of
+the figure stage (`bytes_figure_stage`, `bytes_figure_row`). The `[storage]`
+schema and the validator iterate this table.
 """
 const STORAGE_CALIBRATION_DEFAULTS = (
     bytes_per_sample = 15.0,      # one Float32 CSV value + newline (external series)
@@ -457,10 +450,11 @@ holds nothing to draw. `post_processing` and `ground` are the results of
 keywords are those of the plotting functions (`style`, `plots_dir`,
 `formats`, `suffix`) and `write_tables` (`false` leaves the CSV tables of
 the product untouched, as the publication export requires). The methods
-live in the modules that own the figures, `Metrology` and `Receiver`.
+live in the modules that own the figures, `Metrology` and `MissionFigures`.
 """
 function render_figure_product end
 
+# Recognized sections and keys; validate_config warns on anything else.
 const KNOWN_LABEL_KEYS = ["label", "label_start_index", "label_end_index"]
 const KNOWN_CONFIG_KEYS = Dict(
     "simulation" => [
@@ -573,10 +567,9 @@ const KNOWN_CONTACT_ENTRY_KEYS = Dict(
     "low_latency_periods" => ["start", "duration_hours", "capacity_fraction", "label"],
 )
 
-# --- Configuration accessors ---
-# Retired configuration keys, (section, key) => (version of removal, what to
-# do instead). A live configuration that still carries one is rejected with
-# the remedy named instead of being read through a silent fallback.
+# --- Retired configuration keys ---
+# (section, key) => (version of removal, remedy). A live configuration that
+# carries one is rejected with the remedy named, not read through a fallback.
 const REMOVED_CONFIG_KEYS = Dict(
     ("simulation", "test_duration_sec") =>
         ("1.0.0", "use simulation.mission_wall_seconds"),
@@ -624,6 +617,7 @@ function reject_removed_section(cfg::AbstractDict)
     return nothing
 end
 
+# --- Configuration accessors ---
 """
     mission_wall_seconds(cfg::AbstractDict) -> Float64
 
@@ -761,32 +755,31 @@ function normalize_profile!(df::DataFrame)
     return df
 end
 
-# Validated, typed views of the configuration sections consumed by more than
-# one component. The validator, the channel builders, the storage estimator,
-# the post-processing tools, and the entry-point script all read through
-# these, so every bound is enforced in exactly one place and every consumer
-# sees the same defaults.
+# Section accessors: every consumer, the validator included, reads a section
+# through one of these, so each bound and default is defined once.
 
 """
     telemetry_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[telemetry]` parameters: `session_start::Time`,
-`session_duration::Second`, `bandwidth_profile::String` (one of
-[`BANDWIDTH_PROFILES`](@ref)),
-`sigmoid_steepness`, `gaussian_sigma`, `max_batches_per_hour`,
-`max_inflight_batches::Int`, `min_link_factor`, `range_million_km ≥ 0`
-(spacecraft–Earth range; `0` disables the light-time delay), and the
-derived `round_trip_light_time_sec = 2 · range / c`. The link capacity is
-given either as `max_batches_per_hour` or as the physical pair
-`downlink_kbps` and `onboard_data_rate_kbps` (both > 0), from which the
-capacity in batches per hour follows through the batch content span
-(`[physics]`); the two forms are mutually exclusive. The result carries
-`nominal_batch_transfer_sec` (the transfer time of one batch at full
-capacity), `catch_up_ratio` (downlink over production rate; `NaN` in the
-batches-per-hour form), and `onboard_data_rate_kbps` (`NaN` likewise). Bounds are enforced with
-`[CONFIG]` errors; absent keys take the documented defaults (post-processing
-of legacy snapshots), while the live-config required-key policy is applied
-by [`validate_config`](@ref).
+`session_duration::Second` (`session_duration_hours ∈ (0, 24]`: the daily
+scheduler wraps `Time` arithmetic at 24 h), `bandwidth_profile::String` (one
+of [`BANDWIDTH_PROFILES`](@ref)), `sigmoid_steepness`, `gaussian_sigma`,
+`max_batches_per_hour`, `max_inflight_batches::Int`, `min_link_factor`, and
+`range_million_km ≥ 0` (spacecraft–Earth range; `0` disables the light-time
+delay) with the derived `round_trip_light_time_sec = 2 · range / c`.
+
+The link capacity is given either as `max_batches_per_hour` or as the rate
+pair `downlink_kbps` and `onboard_data_rate_kbps` (both > 0); the two forms
+are mutually exclusive, and the pair fixes the capacity in batches per hour
+through the batch content span of `[physics]`. `nominal_batch_transfer_sec`
+is the transfer time of one batch at full capacity; `catch_up_ratio`
+(downlink over production rate) and `onboard_data_rate_kbps` are `NaN` in
+the batches-per-hour form.
+
+Bounds raise `[CONFIG]` errors. Absent keys take their defaults, so the
+snapshot of an older run still reads; [`validate_config`](@ref) applies the
+required-key policy of a live configuration.
 
 # Examples
 ```jldoctest
@@ -1039,18 +1032,21 @@ end
 
 Validated `[physics]` parameters: `data_source` (`"synthetic"` or
 `"external"`), `external_data_path` (as configured; consumers resolve it
-against the package root), `external_data_columns` (the columns of the
-external file to ingest, in that order; empty for `Amplitude`, or else the
-first column, written as `Amplitude`; a list of unique, non-empty names,
-rejected with the synthetic source), `sample_rate > 0`, `segment_duration_sec > 0`
-and a whole number of milliseconds (the resolution of the content clock),
-and `batch_size ≥ 1`, with at least one sample per segment. The four core
-keys are required. The retired `signal_injection_probability` is rejected
-(event instants are `[[events.markers]]`); the keys retired at 2.0.0 are
-rejected by [`validate_config`](@ref) only, so the snapshot of an older run
-still reads. The existence of the external file is likewise checked by
-`validate_config` only, so post-processing of a finished run does not
-depend on the input file still being present.
+against the package root), `external_data_columns`, `sample_rate > 0`,
+`segment_duration_sec > 0` and a whole number of milliseconds (the
+resolution of the content clock), and `batch_size ≥ 1`, with at least one
+sample per segment. The four core keys are required.
+
+`external_data_columns` lists unique, non-empty column names of the
+external file, ingested in that order, and is rejected with the synthetic
+source; left empty, the `Amplitude` column is ingested, or else the first
+column, under the name `Amplitude`.
+
+The retired `signal_injection_probability` is rejected (event instants are
+`[[events.markers]]`). The keys retired at 2.0.0 and the existence of the
+external file are checked by [`validate_config`](@ref) only, so that
+post-processing of a finished run reads its snapshot even after a key was
+retired or the input file removed.
 """
 function physics_settings(cfg::AbstractDict)
     phy = get(cfg, "physics", Dict{String,Any}())
@@ -1291,7 +1287,7 @@ Validated `[post_processing]` section: `generate_mask_timeline` (default
 ([`normalize_target_rows`](@ref), default `[-1]`), `alert_lookback_hours > 0`
 (72), `delivery_requirement_hours > 0` (24), `hdf5_export` (`false`),
 `session_figures` (`true`, the per-contact session figures),
-`session_figures_max >= 0` (0, the cap on their number, 0 meaning none), and
+`session_figures_max ≥ 0` (0; the cap on their number, 0 for no cap), and
 `figures`, a `NamedTuple` of booleans keyed by the flags of
 [`FIGURE_PRODUCTS`](@ref) with their defaults. The retired
 `generate_batch_matrix` is rejected with its replacement named;
@@ -1403,8 +1399,8 @@ mission_epoch(cfg::AbstractDict) = parsed_datetime(
     mission_end(cfg::AbstractDict) -> DateTime
 
 The nominal end of the mission, `mission_epoch(cfg)` plus
-[`mission_span_days`](@ref) in milliseconds (the instant the gap table
-closes an open generation gap at).
+[`mission_span_days`](@ref) rounded to the millisecond; the gap table closes
+a generation gap still open at the end of the run at this instant.
 """
 mission_end(cfg::AbstractDict) =
     mission_epoch(cfg) + Millisecond(round(Int, mission_span_days(cfg) * MS_PER_DAY))
@@ -1436,7 +1432,8 @@ function batch_markers(markers::Vector{EventMarker}, epoch::DateTime, stop::Date
 end
 
 """
-    save_markers(run_dir::String, markers::Vector{EventMarker})
+    save_markers(run_dir::String, markers::Vector{EventMarker};
+                 origin = nothing, sample_rate = 0.0)
 
 Writes `<run_dir>/markers.csv` (`SimTime, Label, PayloadRow`) — the run's
 event instants for consumers and post-processing; `PayloadRow`, the payload
@@ -1484,20 +1481,21 @@ const DESCRIPTOR_PRODUCTS = (
     write_run_descriptor(run_dir::String) -> String
 
 Writes `<run_dir>/descriptor.toml`, the run's identity for a downstream
-collection to copy verbatim: `schema`, `run_id`, the producer's
-`package_version` and source identity (`identity_source`, `git_commit`,
-`git_tree_sha1`, `git_dirty`, `repo_url`, `repo_rev`; see
-[`source_identity`](@ref); the fields added in 2.6.1 are empty for an earlier
-run), the configuration hash
-`config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`,
-`payload_origin`, `rng_seed`, the payload geometry, `payload_columns` (the
-names of the payload columns of the segment files: those stamped into the
-provenance of an external run, else `["Amplitude"]`), the external record's
-`external_data_sha256` and `external_data_rows` when present, and under
-`[products]` the size and SHA-256 of every table of
-[`DESCRIPTOR_PRODUCTS`](@ref) present. Written last among the
-post-processing products, so the hashes are final; rotated, never
-overwritten. Returns the path.
+collection to copy verbatim, and returns its path. Fields: `schema`,
+`run_id`, the producer's `package_version` and source identity
+(`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`,
+`repo_rev`; [`source_identity`](@ref)), `config_sha256`, the clock `mode`,
+`mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload
+geometry (`sample_rate`, `segment_duration_sec`, `batch_size`,
+`points_per_batch`), `payload_columns` (those stamped into the provenance
+of an external run, else `["Amplitude"]`), `external_data_sha256` and
+`external_data_rows` when recorded, `written_at`, and under `[products]`
+the size and SHA-256 of every table of [`DESCRIPTOR_PRODUCTS`](@ref)
+present. The source-identity fields added in 2.6.1 are empty for an
+earlier run.
+
+Written last among the post-processing products, so the hashes are final;
+an existing descriptor is rotated ([`backup_existing`](@ref)).
 """
 function write_run_descriptor(run_dir::String)
     cfg = load_run_config(run_dir)
@@ -1625,7 +1623,7 @@ const DisruptionEventSettings = NamedTuple{
 
 Validated `[[disruption.events]]` entries in file order (the pre-1.0
 `[[disaster.events]]` section name is rejected): `type`, `label`,
-`start_day ≥ 0`, `duration_hours > 0`, `recovery_hours ≥ 0`,
+`start_day ≥ 0` (required), `duration_hours > 0`, `recovery_hours ≥ 0`,
 `severity ∈ [0, 1]`, `loss_multiplier`, and `affects` — `"link"` (the
 default: a capacity and loss disruption) or `"generation"` (a scheduled
 gap in data production of `duration_hours`; severity, recovery, and loss
@@ -1696,13 +1694,12 @@ end
 """
     onboard_capacity(cfg::AbstractDict) -> NamedTuple
 
-The on-board recorder ceiling from `storage.onboard_capacity_days > 0`
-(default 14, the Definition Study Report's autonomy without ground
-contact; Colpi et al. 2024,
-[doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)):
-`days`, `batches` (the ceiling the emitter enforces — production
-over that span in whole batches, at least one), and `gigabit` (the
-physical volume when the link is given as a rate pair, else `NaN`).
+The on-board recorder ceiling from `storage.onboard_capacity_days > 0`:
+`days`; `batches`, the production over that span in whole batches (at least
+one), which the emitter enforces; and `gigabit`, the physical volume when
+the link is given as a rate pair, else `NaN`. The default of 14 days is the
+autonomy without ground contact of the Definition Study Report (Colpi et al.
+2024, [doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)).
 """
 function onboard_capacity(cfg::AbstractDict)
     st = get(cfg, "storage", Dict{String,Any}())
@@ -2078,74 +2075,69 @@ end
 """
     validate_config(cfg::AbstractDict)
 
-Validates every tunable against its safe interval (documented inline in
-`config.toml`) before any directory is created or any computation starts.
-Code-breaking values are rejected with an `ArgumentError` (early
-termination); suspicious but
-runnable values emit a `@warn`. Returns `cfg` for chaining.
+Validates a live configuration before any directory is created or any
+computation starts, and returns `cfg`; the safe interval of every key is
+documented inline in `config.toml`. A value that would break the pipeline
+raises a `[CONFIG]` `ArgumentError`; a runnable but suspicious one emits a
+`@warn`.
 
-Hard errors (would break the pipeline):
-  - non-positive `speed_up`, `mission_wall_seconds`, `sample_rate`,
-    `segment_duration_sec`, `max_batches_per_hour`, `max_storage_gb`
-  - `batch_size < 1`, `initial_downtime_days < 0`
-  - `session_duration_hours` outside `(0, 24]` (the daily session scheduler
-    wraps `Time` arithmetic at 24 h)
-  - less than one sample per segment, or a `segment_duration_sec` that is
-    not a whole number of milliseconds (the content clock's resolution)
-  - unknown `data_source`; `data_source = "external"` with a missing file
-  - `external_data_columns` that is not a list of unique, non-empty names,
-    that is set with `data_source = "synthetic"`, or that names a column
-    absent from the header of the external file
-  - unknown `bandwidth_profile`
-  - packet-loss probabilities outside `[0, 1]`, unknown loss `model` or
-    `on_loss` policy, negative `max_retries`
-  - disruption events with negative `start_day`, non-positive `duration_hours`,
-    negative `recovery_hours`, or `severity` outside `[0, 1]`
-  - `[[labels]]` entries that are not tables, or whose `label_start_index`
-    or `label_end_index` is missing, not an integer, or below 1
-  - type-mismatched values anywhere (a quoted `"3600"` where a number is
-    expected, a float where an integer is expected) — reported as a precise
-    `[CONFIG]` message instead of a raw conversion stacktrace
-  - retired configuration keys (`simulation.test_duration_sec`,
-    `simulation.max_storage_gb`, `physics.signal_injection_probability`,
-    `post_processing.generate_batch_matrix`) and the `[disaster]` section
-    name — rejected with the replacement named
+Errors:
+  - a missing required key: `simulation.start_sim_time` (and `speed_up` in
+    wall mode), `telemetry.session_start` and `session_duration_hours`, the
+    four core `[physics]` keys, and a link capacity
+  - a span key of the other clock mode, and
+    `dashboard.receiver_status_panel = true` in tick mode
+  - every type, bound, and enumeration enforced by the accessors it calls:
+    [`simulation_mode`](@ref), [`mission_wall_seconds`](@ref),
+    [`mission_days_setting`](@ref), [`telemetry_settings`](@ref),
+    [`physics_settings`](@ref), [`loss_channel_settings`](@ref),
+    [`disruption_event_settings`](@ref), [`contacts_settings`](@ref)
+    (with [`event_marker_settings`](@ref)), [`label_settings`](@ref),
+    [`ground_settings`](@ref), [`publication_settings`](@ref),
+    [`post_processing_settings`](@ref), [`dashboard_settings`](@ref),
+    [`supervision_settings`](@ref), and [`onboard_capacity`](@ref)
+  - a non-positive `speed_up` or `[storage]` value, a negative
+    `initial_downtime_days`, a non-integer `rng_seed`, a non-boolean
+    `retention.enabled` or non-positive `[retention]` value, and a
+    `retention.high_watermark_gb` above the storage budget
+  - `data_source = "external"` with a missing file or with an
+    `external_data_columns` entry absent from its header
+  - the retired keys of `REMOVED_CONFIG_KEYS` and the `[disaster]` section,
+    rejected with the replacement named
 
-Warnings (runnable but likely unintended):
-  - emitter wall-clock period `segment_duration_sec / speed_up` below
-    [`EMITTER_PERIOD_WARN_MS`](@ref) (the generation loop cannot keep pace;
-    simulation-time desynchronization)
-  - receiver nominal download slot `3600 / (max_batches_per_hour · speed_up)`
+Warnings:
+  - in wall mode, an emitter period `segment_duration_sec / speed_up` below
+    [`EMITTER_PERIOD_WARN_MS`](@ref) (the generation loop cannot keep pace)
+    or a receiver download slot `nominal_batch_transfer_sec / speed_up`
     below [`RECEIVER_SLOT_WARN_MS`](@ref) (the
-    [`RECEIVER_SLEEP_FLOOR_SEC`](@ref) sleep floor distorts the download
-    rate)
-  - the physical rate pair combined with a shaped `bandwidth_profile` (the
-    profile mean scales a link rate that the pass sustains; the capacity of
-    one nominal pass against the daily production is stated)
-  - `post_processing.state_raster` enabled while `generate_mask_timeline` is
-    disabled (the raster is drawn from the mask timeline and is skipped)
-  - non-integer `sample_rate * segment_duration_sec` (rounded)
-  - Gilbert–Elliott `p_bad_to_good = 0` (the channel never recovers)
-  - disruption events starting at or after mission end (never fire), events
-    whose blackout + recovery tail is truncated by mission end, blackouts
-    spanning the entire remaining mission, and events overlapping in time
-    (capacity composes as the minimum, loss multiplier as the maximum)
-  - unrecognized sections or keys anywhere in the config (typo guard — an
-    unknown key would otherwise silently fall back to its default)
-  - loss saturation — the worst-channel-state per-attempt loss composed with
-    the largest disruption `loss_multiplier` reaches ≥ 1 (every transfer
-    fails while that regime is active)
+    [`RECEIVER_SLEEP_FLOOR_SEC`](@ref) sleep floor distorts the download rate)
+  - the rate pair with a shaped `bandwidth_profile` (the profile mean scales
+    a rate the pass sustains; the warning states the capacity of one nominal
+    pass against the daily production)
+  - a non-integer `sample_rate × segment_duration_sec` (rounded)
+  - `initial_downtime_days`, or the longest interval without ground
+    contact, beyond the on-board recorder capacity
+  - with packet loss enabled, Gilbert–Elliott `p_bad_to_good = 0` (the
+    channel never recovers), and loss saturation: the worst-state
+    per-attempt loss times the largest `loss_multiplier` reaches 1, so every
+    transfer fails in that regime
+  - disruption events that start at or after mission end (they never
+    fire), black out the link to mission end, or have their blackout +
+    recovery tail truncated by it; overlapping events (capacity composes as
+    the minimum, the loss multiplier as the maximum); `loss_multiplier < 1`
+  - `post_processing.state_raster` with `generate_mask_timeline` disabled
+    (the raster is drawn from the mask timeline and is skipped)
+  - unrecognized sections and keys, which would otherwise fall back to
+    their defaults unnoticed
 """
 function validate_config(cfg::AbstractDict)
-    # Retired aliases fail fast with the replacement named — no fallback
-    # survives 1.0.0 — so the typo sweep below sees only live keys.
+    # Retired keys first, so that the typo sweep below sees only live keys.
     reject_removed_section(cfg)
     for (section, key) in keys(REMOVED_CONFIG_KEYS)
         content = get(cfg, section, nothing)
         content isa AbstractDict && reject_removed_key(content, section, key)
     end
-    # Unrecognized-key sweep (silent-failure guard): a mistyped key would
-    # otherwise fall back to a default without a trace.
+    # Unrecognized-key sweep.
     for (section, content) in cfg
         if !haskey(KNOWN_CONFIG_KEYS, section)
             @warn "[CONFIG] Unrecognized section [$section] — its keys are ignored."
@@ -2222,10 +2214,7 @@ function validate_config(cfg::AbstractDict)
         )
 
     # -- [simulation] --
-    # The two modes read disjoint span keys: wall mode paces
-    # mission_wall_seconds at speed_up, tick mode spans mission_days of
-    # logical time, and a key of the other mode is an error that names the
-    # mode rather than a value silently ignored.
+    # A span key of the other mode is an error, not a value silently ignored.
     speed_up = NaN # wall mode only; read below by the pacing warnings
     if mode == "tick"
         for key in ("speed_up", "mission_wall_seconds")
@@ -2254,8 +2243,6 @@ function validate_config(cfg::AbstractDict)
     downtime >= 0.0 || config_error(
         "[CONFIG] simulation.initial_downtime_days must be ≥ 0 (got $downtime).",
     )
-    # Budget positivity is checked through storage_budget, which also rejects
-    # the retired simulation.max_storage_gb alias.
     max_gb = storage_budget(cfg).max_gb
     max_gb > 0.0 ||
         config_error("[CONFIG] storage.max_storage_gb must be > 0 (got $max_gb).")
@@ -2268,8 +2255,6 @@ function validate_config(cfg::AbstractDict)
         config_error("[CONFIG] simulation.rng_seed must be an integer (got $(repr(seed))).")
 
     # -- [physics] --
-    # Types, bounds, and the enumeration through the shared accessor; the
-    # rounding warning and the input-file existence check live here.
     physics = physics_settings(cfg)
     segment_duration_sec = physics.segment_duration_sec
     n_samples = physics.sample_rate * segment_duration_sec
@@ -2293,9 +2278,6 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [telemetry] --
-    # Types, bounds, and the profile enumeration are enforced by the shared
-    # accessor (also consumed by the link builder, the receiver, and the
-    # entry point); only the capacity-balance warning lives here.
     tel_settings = telemetry_settings(cfg)
     # A physical link rate is sustained across the pass; a shaped profile
     # scales it by the profile mean and the daily balance changes regime.
@@ -2353,19 +2335,12 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [packet_loss] --
-    # Types, enumerations, and bounds are enforced by the shared accessor
-    # regardless of `enabled`: a malformed-but-disabled section must fail
-    # fast rather than surface once enabled. Only the cross-key physics
-    # warnings live here.
     loss = loss_channel_settings(cfg)
     events = disruption_event_settings(cfg)
     if loss.enabled
         if loss.model == "gilbert_elliott" && loss.p_bad_to_good == 0.0
             @warn "[CONFIG] packet_loss.p_bad_to_good = 0: once the channel enters the BAD state it never recovers."
         end
-        # Saturation: the worst-channel-state per-attempt loss composed with
-        # the largest disruption loss multiplier. At or above 1, every
-        # transfer fails while that regime is active.
         p_worst = loss.model == "gilbert_elliott" ? loss.p_loss_bad : loss.p_loss
         max_mult = maximum((ev.loss_multiplier for ev in events); init = 1.0)
         if p_worst * max_mult >= 1.0
@@ -2426,8 +2401,6 @@ function validate_config(cfg::AbstractDict)
 
     # -- [dashboard] / [post_processing] --
     dashboard_settings(cfg)
-    # Types, bounds, and the row canonicalization through the shared
-    # accessor; only the cross-key warning lives here.
     post_processing = post_processing_settings(cfg)
     if post_processing.figures.state_raster && !post_processing.generate_mask_timeline
         @warn "[CONFIG] post_processing.state_raster = true with post_processing.generate_mask_timeline = false: the raster is drawn from the mask timeline and is skipped."
@@ -2457,33 +2430,25 @@ function validate_config(cfg::AbstractDict)
     return cfg
 end
 
-# --- Storage Governance (pre-run safety gate + retention settings) ---
+# --- Component timing ---
 
 """
     RECEIVER_POLL_INTERVAL_SEC
 
-Receiver idle-poll / metrics-tick interval [wall-clock s]. Shared between the
-receiver loop and the artifact estimator so the metrics-row upper bound and
-the realized sampling cadence cannot drift apart.
+Receiver idle-poll and metrics-tick interval [wall-clock s], and the
+default polling period of `Supervisor.supervise!`.
 """
 const RECEIVER_POLL_INTERVAL_SEC = 0.2
 
-"""
-    METRICS_BANDWIDTH_HYSTERESIS_PCT
-
-Bandwidth change [percentage points] that admits a new `mission_profile.csv`
-row. Shared between the receiver's metrics write gate and the artifact
-estimator so the metrics-row bound and the realized sampling cadence cannot
-drift apart.
-"""
+# Bandwidth change [percentage points] that admits a mission_profile.csv row.
 const METRICS_BANDWIDTH_HYSTERESIS_PCT = 0.1
 
 """
     RECEIVER_SLEEP_FLOOR_SEC
 
-Minimum receiver download-slot sleep [s] — an OS scheduler property, not a
-tunable. Shared between the receiver loop and the validator warning about
-download-rate distortion so the two can never drift apart.
+Minimum receiver download-slot sleep [s], a property of the OS scheduler
+rather than a tunable; [`RECEIVER_SLOT_WARN_MS`](@ref) is the slot below
+which the validator warns that it distorts the download rate.
 """
 const RECEIVER_SLEEP_FLOOR_SEC = 0.001
 
@@ -2535,20 +2500,7 @@ Wall-clock interval between two touches of a component's liveness file
 """
 const HEARTBEAT_INTERVAL_MS = 1000
 
-"""
-    MS_PER_HOUR
-
-Milliseconds per hour, converting `Dates.Millisecond` periods of the
-mission clock to mission hours.
-"""
 const MS_PER_HOUR = 3_600_000
-
-"""
-    MS_PER_DAY
-
-Milliseconds per day, converting `Dates.Millisecond` periods of the mission
-clock to mission days.
-"""
 const MS_PER_DAY = 86_400_000
 
 """
@@ -2569,46 +2521,13 @@ function thread_advisory()
            "(or `auto`) for an independent thread per component."
 end
 
-"""
-    DEFAULT_WATERMARK_FRACTION
-
-Fraction of the storage budget at which the retention custodian begins
-pruning when `retention.high_watermark_gb` is not configured explicitly.
-"""
-const DEFAULT_WATERMARK_FRACTION = 0.75
-
-"""
-    STORAGE_WARN_FRACTION
-
-Fraction of a `[storage]` budget above which the pre-run gate warns without
-aborting.
-"""
-const STORAGE_WARN_FRACTION = 0.9
-
-"""
-    MASK_ROW_OVERHEAD_BYTES
-
-Estimator calibration: fixed per-row overhead of the mask-timeline CSV
-(timestamp column + separators) beyond its per-batch cells.
-"""
-const MASK_ROW_OVERHEAD_BYTES = 32.0
-
-"""
-    LOG_FIXED_OVERHEAD_BYTES
-
-Estimator calibration: mission-level fixed size of the emitter and receiver
-text logs (banners, startup and post-processing records) independent of the
-batch count.
-"""
-const LOG_FIXED_OVERHEAD_BYTES = 200_000.0
-
-"""
-    RUN_FILE_COUNT_SLACK
-
-Estimator calibration: fixed file-count slack for rotation backups and
-sentinel files beyond the per-class counts.
-"""
-const RUN_FILE_COUNT_SLACK = 8
+# --- Storage governance ---
+const DEFAULT_WATERMARK_FRACTION = 0.75 # of the budget, without retention.high_watermark_gb
+const STORAGE_WARN_FRACTION = 0.9 # of a [storage] budget: the pre-run gate warns above it
+# Estimator calibration:
+const MASK_ROW_OVERHEAD_BYTES = 32.0 # per mask-timeline row: timestamp column, separators
+const LOG_FIXED_OVERHEAD_BYTES = 200_000.0 # log banners, startup and post-processing lines
+const RUN_FILE_COUNT_SLACK = 8 # rotation backups and sentinels beyond the per-class counts
 
 """
     storage_budget(cfg::AbstractDict) -> (max_gb, max_files, max_ram_gb)
@@ -2673,25 +2592,26 @@ end
 """
     estimate_artifacts(cfg::AbstractDict) -> NamedTuple
 
-Closed-form per-class artifact estimate for a run, computed entirely from the
-configuration (upper bounds where exact counts depend on stochastic outcomes).
-Classes: payload segment CSVs, batch metadata, event logs, metrics, the 2D
-mask timeline, point-wise expansions, plots (session + summary figures, PNG
-and vector-PDF twins; the optional GIF is a manual post-processing product
-and is excluded), and text logs. `replay_ram_bytes` estimates the
-post-processing replay RAM (gated against `storage.max_ram_gb`).
-`figure_ram_bytes` estimates the RAM of the figure stage, one figure at a
-time, and is gated against the same budget. Calibration constants default to measured values and are overridable
-key-by-key in `[storage]`.
+Closed-form per-class footprint of a run, from the configuration alone;
+counts that depend on stochastic outcomes are upper bounds. The classes are
+payload segment CSVs, batch metadata, event logs, metrics, the 2D mask
+timeline, point-wise expansions, the HDF5 export, plots (the session and
+summary figures and those of [`FIGURE_PRODUCTS`](@ref), each as PNG and
+PDF; the optional GIF is a manual product and is excluded), and text logs.
+The calibration constants are measured defaults
+([`STORAGE_CALIBRATION_DEFAULTS`](@ref)), overridable key-by-key in
+`[storage]`.
 
-Returns counts (`n_segments`, `n_batches`, `n_points`, `n_columns` — the
-payload columns of each segment file, one for a synthetic run and the length
-of `physics.external_data_columns` otherwise, at least one —
-`mission_days`, `metrics_rows`), per-class byte fields, `total_bytes`, `file_count`, and the
-retention-prunable subset (`prunable_bytes`, `prunable_files`): the payload
-scaled by the expected *delivered* fraction under the configured loss model —
-terminally lost batches land in `lost/`, and metadata, event logs, metrics,
-masks, and `lost/` are never prunable by construction.
+Returns the counts `n_segments`, `n_batches`, `n_points`, `n_columns`
+(payload columns per segment file: one for a synthetic run, else the length
+of `physics.external_data_columns`, at least one), `mission_days`, and
+`metrics_rows`; the per-class byte fields, `total_bytes`, and `file_count`;
+`replay_ram_bytes` and `figure_ram_bytes`, the RAM of the post-processing
+replay and of the figure stage (one figure at a time), both gated against
+`storage.max_ram_gb`; and the retention-prunable subset `prunable_bytes`,
+`prunable_files`: the payload scaled by the expected delivered fraction
+under the configured loss model. Metadata, event logs, metrics, masks, and
+`lost/`, where terminally lost batches land, are not prunable.
 """
 function estimate_artifacts(cfg::AbstractDict)
     sim = get(cfg, "simulation", Dict{String,Any}())
@@ -2795,10 +2715,8 @@ function estimate_artifacts(cfg::AbstractDict)
         (do_matrix || do_expand) ? metrics_rows * n_batches * cal("bytes_replay_cell") : 0.0
     # Figure stage: every figure is released after saving, so the stage
     # holds one raster at a time plus the plot vertices of the mission
-    # summary, which scale with the metrics rows.
-    # The rows are the realized ones, not the polling bound of the metrics
-    # estimate: a row is admitted on a state change, and a batch changes the
-    # state at most three times (generation, transmission, ingestion).
+    # summary. These scale with the realized metrics rows: at most three per
+    # batch (generation, transmission, ingestion), and at most metrics_rows.
     figure_rows = min(metrics_rows, 3 * n_batches)
     figure_ram_bytes = cal("bytes_figure_stage") + figure_rows * cal("bytes_figure_row")
 
@@ -2813,22 +2731,18 @@ function estimate_artifacts(cfg::AbstractDict)
         plot_bytes +
         log_bytes
 
-    # Files: per batch one directory, one metadata.json, batch_size segment
-    # CSVs; plus event logs, profile, mask products, plots, the three logs, the
-    # configuration and manifest snapshots, sentinels and the six run subdirectories (small fixed slack for
-    # rotations).
     file_count =
-        n_batches * (batch_size + 2) +
-        2 +
-        1 +
+        n_batches * (batch_size + 2) + # batch directory, metadata.json, segment CSVs
+        2 + # event logs
+        1 + # mission profile
         (do_matrix ? 1 : 0) +
         n_expansions +
-        2 * n_figures +
+        2 * n_figures + # PNG and PDF
         (hdf5_bytes > 0 ? 1 : 0) +
-        3 +
-        2 +
-        2 +
-        6 +
+        3 + # emitter, receiver, and supervisor logs
+        2 + # configuration and manifest snapshots
+        2 + # sentinels
+        6 + # run subdirectories
         RUN_FILE_COUNT_SLACK
 
     # Retention-prunable subset: delivered payload CSVs only. Batches that
@@ -2876,8 +2790,8 @@ end
 """
     StorageBudgetError(msg::String)
 
-Raised by [`check_storage_limits`](@ref) when the projected run footprint —
-disk volume, file count, or post-processing replay RAM — exceeds the
+Raised by [`check_storage_limits`](@ref) when the projected disk volume,
+file count, or post-processing RAM (replay or figure stage) exceeds its
 `[storage]` budget and no configured mitigation bounds it. `msg` carries
 the `[STORAGE]` diagnosis: the estimate, the budget, and the remedies.
 """
@@ -3043,9 +2957,10 @@ struct SimulationClock <: MissionClock
 end
 
 """
-    get_current_sim_time(clock::SimulationClock)
+    get_current_sim_time(clock::SimulationClock) -> DateTime
 
-Returns the current accelerated simulation time.
+The current mission instant: `start_sim_time` plus `speed_up` times the wall
+time elapsed since `start_real_time`, rounded to the millisecond.
 """
 function get_current_sim_time(clock::SimulationClock)
     elapsed_real_ms = (now() - clock.start_real_time).value
@@ -3070,12 +2985,11 @@ end
     save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
 
 Persists the mission clock anchor (wall epoch, mission epoch, speed-up) and
-the absolute wall-clock deadline into `<run_dir>/clock_anchor.toml` (an
-existing file is rotated to `clock_anchor#k.toml` first, never
-overwritten). Written once at mission start; a re-attaching or restarted
-component reconstructs
-the identical clock from it ([`load_clock_anchor`](@ref)), so mission time
-survives component outages — the outage elapses as mission time.
+the absolute wall-clock deadline into `<run_dir>/clock_anchor.toml`,
+rotating an existing file to `clock_anchor#k.toml`. Written once at mission
+start; a re-attaching or restarted component reconstructs the identical
+clock from it ([`load_clock_anchor`](@ref)), so a component outage elapses
+as mission time.
 """
 function save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
     path = joinpath(run_dir, "clock_anchor.toml")
@@ -3158,13 +3072,13 @@ end
 The logical mission clock of `simulation.mode = "tick"`. Mission time
 advances only while every component task is parked, jumping to the earliest
 requested wakeup, so a mission is a deterministic sequence of events for a
-given seed and never waits on the wall clock. `now_sim` is the current
-instant, `horizon` the mission end (`start_sim_time + mission_days`),
-`wall_epoch` the wall instant of the start (recorded in the anchor, never
-read back). The components park through [`wait_until!`](@ref),
-[`wait_until_or_change!`](@ref), and [`wait_for_change!`](@ref), are
-created by [`tick_spawn`](@ref), and are driven by [`run_ticks!`](@ref) on
-the driver's own thread.
+given seed and does not wait on the wall clock. `now_sim` is the current
+instant, `horizon` the mission end (`start_sim_time + mission_days`), and
+`wall_epoch` the wall instant of the start, kept for the anchor only. The
+components are created by [`tick_spawn`](@ref), park through
+[`wait_until!`](@ref), [`wait_until_or_change!`](@ref), and
+[`wait_for_change!`](@ref), and are driven by [`run_ticks!`](@ref) on the
+driver's thread.
 """
 mutable struct TickClock <: MissionClock
     const start_sim_time::DateTime
@@ -3200,10 +3114,10 @@ end
 """
     save_clock_anchor(run_dir::String, clock::TickClock)
 
-Persists the anchor of a tick-mode mission into `<run_dir>/clock_anchor.toml`
-(rotated, never overwritten): `mode = "tick"`, the wall instant of the
-start (`wall_epoch`, recorded only), the mission epoch, and the horizon
-(`horizon_sim`). A tick run has no wall deadline.
+Persists the anchor of a tick-mode mission into `<run_dir>/clock_anchor.toml`,
+rotating an existing file ([`backup_existing`](@ref)): `mode = "tick"`,
+`wall_epoch`, the mission epoch `start_sim_time`, and the horizon
+`horizon_sim`. A tick run has no wall deadline.
 """
 function save_clock_anchor(run_dir::String, clock::TickClock)
     path = joinpath(run_dir, "clock_anchor.toml")
@@ -3367,15 +3281,15 @@ end
 """
     run_ticks!(clock::TickClock, tasks::Dict{Symbol,Task}; on_task_failed = (name, task) -> nothing)
 
-The driver of the tick clock: releases the parked task with the earliest
-wakeup — ties by component priority, then by registration order — after
-advancing the clock to its instant (never past the horizon: a wakeup beyond
-it resumes at the horizon, where the component sees
-[`horizon_reached`](@ref) and leaves), waits until that task parks again or
-ends, and repeats until no task is parked. A task that ended with an
-exception is handed to `on_task_failed(name, task)` once; the callback may
-return a replacement `Task` created by [`tick_spawn`](@ref), which takes
-the name in `tasks`, or `nothing`. Runs on the calling task's thread.
+The driver of the tick clock. It advances the clock to the earliest wakeup
+(ties broken by component priority, then by registration order), releases
+that task, waits until it parks again or ends, and repeats until no task is
+parked. The clock stops at the horizon: a later wakeup resumes there, where
+the component sees [`horizon_reached`](@ref) and leaves. A task that ended
+with an exception is handed to `on_task_failed(name, task)` once; the
+callback returns a replacement `Task` created by [`tick_spawn`](@ref),
+which takes the name in `tasks`, or `nothing`. Runs on the calling task's
+thread.
 """
 function run_ticks!(
     clock::TickClock,
@@ -3416,15 +3330,16 @@ const PAYLOAD_COLUMN_DEFAULT = "Amplitude"
     DataSegment(id::Int, timestamp::DateTime, data::Matrix{Float32}, columns::Vector{String})
     DataSegment(id::Integer, timestamp::DateTime, data::AbstractVector{<:Real})
 
-One contiguous segment of the observed time series: the `Float32` samples
-`data`, one row per sample and one column per payload column named in
-`columns`, of one `segment_duration_sec` span whose first sample lies at
-the mission instant `timestamp`; `id` is the segment's position on the
-payload grid, `(timestamp − origin) / segment_duration_sec + 1`
+One `segment_duration_sec` span of the observed time series: the `Float32`
+samples `data`, one row per sample and one column per payload column named
+in `columns`, the first sample at the mission instant `timestamp`. `id` is
+the segment's position on the payload grid,
+`(timestamp − origin) / segment_duration_sec + 1`
 ([`DeepSpaceTelemetry.VirtualInstrument.segment_id`](@ref)), unique within
 a run. The vector form builds a one-column segment named
-[`PAYLOAD_COLUMN_DEFAULT`](@ref). A `DimensionMismatch` when `data` has
-other than `length(columns)` columns; an `ArgumentError` without a column.
+[`PAYLOAD_COLUMN_DEFAULT`](@ref). Throws a `DimensionMismatch` when `data`
+does not have `length(columns)` columns and an `ArgumentError` when
+`columns` is empty.
 """
 struct DataSegment
     id::Int
@@ -3488,7 +3403,7 @@ struct DataBatch
     created_at::DateTime
 end
 
-# --- Metrics Structure for Human Analysis ---
+# --- Mission metrics ---
 """
     MissionMetrics
 
@@ -3550,13 +3465,15 @@ end
 """
     log_tx_event(run_dir::String, sim_t::DateTime, batch::String, event::String)
 
-Appends one emitter-side batch milestone to `events_tx.csv`. Events:
-`"gen"` (batch finalized onboard), `"tx"` (batch placed on the downlink),
-and `"marker"` (`sim_t` = an event-marker instant, `batch` = the batch
-holding it; state-preserving).
-Together with [`log_rx_event`](@ref) this forms the exact per-batch state
-history used by the mask/animation reconstruction — no heuristic replay.
-Only the emitter task writes this file (single-writer; no lock needed).
+Appends one row to `events_tx.csv`. Events: `"gen"` (batch finalized
+onboard), `"tx"` (batch placed on the downlink), `"marker"` (`sim_t` an
+event-marker instant, `batch` the batch holding it), and the
+`"gap_start"`/`"gap_end"` pair bounding a generation gap (`batch` =
+`SCHEDULED`, `RECORDER`, or `STREAM`); marker and gap rows preserve the
+batch states. With [`log_rx_event`](@ref) it records the exact per-batch
+state history that the mask and animation reconstruction replays. The
+emitter writes the file; the supervisor appends the `STREAM` pair only
+while no emitter is live, so there is one writer at a time and no lock.
 """
 function log_tx_event(run_dir::String, sim_t::DateTime, batch::String, event::String)
     path = joinpath(run_dir, "events_tx.csv")
@@ -3603,17 +3520,16 @@ const HOLE_FEED_COLUMNS =
     HoleFeed(run_dir, origin::DateTime, sample_rate::Real, points_per_batch::Integer)
 
 The writer of `<run_dir>/holes.csv`, the declared-hole feed: one row per
-hole of the delivered record, appended the moment the producer declares it
-— a lost or pruned batch by the receiver, a scheduled or recorder gap by
-the emitter, an emitter outage by the supervisor — and, after the mission
-phase, the end-of-run holes of the gap table (`Masks.settle_hole_feed!`),
-so that on a finished run the feed and `masks/gaps.csv` hold the same
-holes. One instance is shared by the components of a run; `lock`
-serializes their appends, which are threads under the wall clock. The
-feed carries the payload grid (`origin`, `sample_rate`) and
-`points_per_batch` so that a batch name alone fixes its rows. A consumer
-in any language tails the file (`read_hole_feed`,
-`RunAdapter.declared_holes`).
+hole of the delivered record, appended when its producer declares it. The
+receiver declares lost and pruned batches, the emitter scheduled and
+recorder gaps, and the supervisor emitter outages; after the mission phase
+`Masks.settle_hole_feed!` appends the end-of-run holes, so that the feed of
+a finished run and `masks/gaps.csv` hold the same holes. One instance is
+shared by the components of a run, and `lock` serializes their appends,
+which come from separate threads under the wall clock. The payload grid
+(`origin`, `sample_rate`) and `points_per_batch` let a batch name alone fix
+its rows. Consumers tail the file directly or through
+[`read_hole_feed`](@ref) and `RunAdapter.declared_holes`.
 """
 struct HoleFeed
     path::String
@@ -3781,13 +3697,14 @@ function max_logged_batch_id(run_dir::String)
     return maximum(batch_id(String(b)) for b in df.Batch)
 end
 
+# --- Backup rotation and table I/O ---
 """
     backup_existing_dir(path::String) -> Union{String, Nothing}
 
 Directory counterpart of [`backup_existing`](@ref): renames an existing
-directory to `<name>#<k>` (smallest unused `k`) so a same-named arrival never
-silently overwrites recorded data. Returns the backup path, or `nothing` when
-`path` did not exist.
+directory to `<name>#<k>` (smallest unused `k`) with a `[SAFESAVE]`
+warning, before a same-named arrival takes its place. Returns the backup
+path, or `nothing` when `path` did not exist.
 """
 function backup_existing_dir(path::String)
     isdir(path) || return nothing
@@ -3801,15 +3718,13 @@ function backup_existing_dir(path::String)
     return backup
 end
 
-# --- Safe File Writing (DrWatson `safesave` semantics for CSV/TOML) ---
 """
     backup_existing(path::String) -> Union{String, Nothing}
 
-If `path` exists, renames it to `<name>#<k><ext>` using the smallest unused
-`k`, mirroring DrWatson's `safesave` backup rotation so no result file is ever
-silently overwritten. The manual's "Provenance conventions" table lists every
-such equivalence; the package does not depend on DrWatson. Returns the backup
-path, or `nothing` if `path` did not exist.
+If `path` exists, renames it to `<name>#<k><ext>` with the smallest unused
+`k`: the backup rotation of DrWatson's `safesave`, without the dependency
+(the manual's "Provenance conventions" table lists the correspondences).
+Returns the backup path, or `nothing` if `path` did not exist.
 """
 function backup_existing(path::String)
     isfile(path) || return nothing
@@ -3946,15 +3861,13 @@ end
 Hardware and runtime fingerprint stamped into every run's
 `config_snapshot.toml` under `[provenance.platform]`: hostname, OS kernel
 and architecture, CPU model and logical core count, total memory, Julia
-version and `versioninfo()` report, thread/BLAS-thread counts, the package
-version, and the identity of the package source ([`source_identity`](@ref):
-`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`,
-`repo_rev`), which holds for a git checkout and for a copy installed by Pkg
-alike. Together with the configuration snapshot, the manifest snapshot
-([`save_manifest_snapshot`](@ref)), and the recorded input identity, every
-result is attributable to config + source + environment + platform. (No GPU
-fields: the pipeline is I/O- and event-loop-bound and uses no GPU
-backend.)
+version and `versioninfo()` report, thread and BLAS-thread counts, the
+package version, and the source identity of [`source_identity`](@ref)
+(`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`,
+`repo_rev`), valid for a git checkout and a Pkg-installed copy alike. The
+manifest is recorded beside the snapshot by [`save_manifest_snapshot`](@ref).
+There are no GPU fields: the pipeline is I/O- and event-loop-bound and uses
+no GPU backend.
 """
 function platform_provenance()
     cpu = Sys.cpu_info()
@@ -4195,10 +4108,10 @@ end
 """
     git_work_tree(root = PROJECT_ROOT) -> Bool
 
-Whether `root` is the top level of a git work tree with a commit at `HEAD`.
-A directory inside another repository is not — an installed copy under a
-version-controlled depot would otherwise be given that repository's commit
-— and neither is a checkout when git is not installed.
+Whether `root` is the top level of a git work tree with a commit at `HEAD`;
+`false` when git is not installed. A directory inside another repository
+does not count, since an installed copy under a version-controlled depot
+would otherwise be given that repository's commit.
 """
 function git_work_tree(root::AbstractString = PROJECT_ROOT)
     top = git_output(`rev-parse --show-toplevel`; root)
@@ -4270,18 +4183,18 @@ function save_manifest_snapshot(run_dir::String)
 end
 
 """
-    setup_run_dir(run_id::String; cfg=nothing)
+    setup_run_dir(run_id::String; cfg = nothing) -> String
 
-Creates and returns the base directory for a simulation run along with its
-required subdirectories; a non-empty directory under the same run ID is
-rejected with an `ArgumentError`. When the parsed configuration `cfg` is provided, a
-`config_snapshot.toml` is written into the run directory (with `safesave`-style
-backup rotation) so every run's exact parameters remain reproducible after
-`config.toml` changes; the snapshot additionally carries the
-[`platform_provenance`](@ref) fingerprint under `[provenance.platform]` and
-the parameter hash [`config_sha256`](@ref) at `provenance.config_sha256`,
-and the manifest of the active environment is copied beside it
-([`save_manifest_snapshot`](@ref)).
+Creates and returns the run directory of `run_id` with its subdirectories
+`onboard`, `link`, `ground`, `lost`, `plots`, and `masks`; a directory under
+the same run ID that holds anything but dotfiles is rejected with an
+`ArgumentError`. Given the parsed configuration `cfg`, it writes
+`config_snapshot.toml` (rotating an existing one, [`backup_existing`](@ref))
+so that the run's parameters survive later edits of `config.toml`. The
+snapshot adds the [`platform_provenance`](@ref) fingerprint under
+`[provenance.platform]` and the parameter hash [`config_sha256`](@ref) at
+`provenance.config_sha256`; the manifest of the active environment is
+copied beside it ([`save_manifest_snapshot`](@ref)).
 """
 function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothing)
     base_dir = run_directory(run_id)
@@ -4326,15 +4239,14 @@ end
 """
     save_batch(path::String, batch::DataBatch; markers = String[], payload_row = nothing)
 
-Serializes a `DataBatch` and its metadata to the specified physical directory.
-`metadata.json` carries `batch_id`, `segment_count`, `created_at` (mission
-time at which the batch was finalized and became transmittable),
-`content_epoch` (mission timestamp of the first sample of the payload —
-the physical epoch the segment data belong to), and, when given,
-`payload_row` — the 1-based row of the first sample in the payload series
-that starts at the payload origin — and `markers` — the labels of the event
-markers whose instant lies in the payload. Each segment is written to
-`seg_<id>.csv` ([`save_segment`](@ref)), one column per payload column.
+Writes `batch` into the directory `path`: `metadata.json` and one
+`seg_<id>.csv` per segment ([`save_segment`](@ref)), one column per payload
+column. The metadata carries `batch_id`, `segment_count`, `created_at` (the
+mission instant the batch was finalized and became transmittable),
+`content_epoch` (the mission timestamp of its first sample, the physical
+epoch of the data), and, when given, `payload_row` (the 1-based row of that
+sample in the payload series starting at the payload origin) and `markers`
+(the labels of the event markers whose instant lies in the payload).
 """
 function save_batch(
     path::String,
@@ -4443,8 +4355,8 @@ end
     save_segment(path::String, seg::DataSegment)
 
 Writes the samples of `seg` to the CSV at `path`, one column per payload
-column under its name; a one-column segment writes the `Amplitude` column of
-earlier releases.
+column under its name. A segment named [`PAYLOAD_COLUMN_DEFAULT`](@ref)
+writes the single `Amplitude` column of releases before 2.6.0.
 """
 function save_segment(path::String, seg::DataSegment)
     df = DataFrame([seg.data[:, j] for j in 1:length(seg.columns)], seg.columns)
@@ -4457,12 +4369,11 @@ end
 Reads a segment CSV written by [`save_segment`](@ref) back into a
 [`DataSegment`](@ref), one payload column per file column under its header
 name; the identifier comes from the file name `seg_<id>.csv` (0 when it does
-not conform). A column that is not numeric is an `ArgumentError` naming the
-file and the column. Segment CSVs persist only samples, so the mission
-timestamp cannot be recovered from the file: callers that know the epoch
-(the batch's `content_epoch` in `metadata.json` is that of its first
-segment) pass it via `timestamp`; otherwise the `DateTime(0)` sentinel marks
-it unknown — never a fabricated wall-clock time.
+not conform). A non-numeric column raises an `ArgumentError` naming the file
+and the column. The file holds samples only, so a caller that knows the
+mission timestamp passes it as `timestamp` (the batch's `content_epoch` in
+`metadata.json` is that of its first segment); the default `DateTime(0)`
+marks it unknown.
 """
 function load_segment(path::String; timestamp::DateTime = DateTime(0))
     df = read_table(path)
@@ -4497,16 +4408,16 @@ const BANDWIDTH_PROFILES = ("sine", "sigmoid", "gaussian", "flat")
     VisibilityModel
 
 Ground-contact model of the downlink. The nominal daily window opens at
-`session_start` for `session_duration` with the capacity `profile`
-(one of [`BANDWIDTH_PROFILES`](@ref); `sigmoid_steepness`, `gaussian_sigma`);
-`seasonal_extension` widens it
-symmetrically about its center, cosine-modulated with period
-`season_period_days` and peaking at `season_peak_day_of_year`;
-`exceptions` (`date => (start, duration)`, zero duration = missed pass)
-replace the window of a date verbatim; a non-empty `schedule` of explicit
-passes replaces the daily generator altogether; `low_latency` periods are
-additional windows at constant capacity outside the nominal passes. The
-three- to five-argument constructors build the plain daily model.
+`session_start` for `session_duration` with the capacity `profile` (one of
+[`BANDWIDTH_PROFILES`](@ref), shaped by `sigmoid_steepness` or
+`gaussian_sigma`; any other is an `ArgumentError`). `seasonal_extension`
+widens it symmetrically about its center, cosine-modulated with period
+`season_period_days` and peaking at `season_peak_day_of_year`. `exceptions`
+(`date => (start, duration)`, zero duration for a missed pass) replace the
+window of a date verbatim, and a non-empty `schedule` of explicit passes
+replaces the daily generator. `low_latency` periods are additional windows
+at constant capacity outside the nominal passes. The three- to
+five-argument constructors build the plain daily model.
 
 # Examples
 ```jldoctest
@@ -4689,7 +4600,7 @@ is_visible(model::VisibilityModel, t::DateTime) = active_window(model, t) !== no
 The capacity profile of a nominal pass at the normalized position
 `progress ∈ [0, 1]` within the window: `sin²(π p)` for `sine`,
 `[tanh(k p) + tanh(k (1 − p))] / 2` for `sigmoid`,
-`exp(−(p − ½)² / 2σ²)` for `gaussian`, and `1` for `flat`.
+`exp(−(p − ½)² / (2σ²))` for `gaussian`, and `1` for `flat`.
 """
 function profile_factor(model::VisibilityModel, progress::Float64)
     if model.profile == "sine"
@@ -4706,13 +4617,8 @@ function profile_factor(model::VisibilityModel, progress::Float64)
     end
 end
 
-"""
-    PROFILE_MEAN_SUBINTERVALS
-
-Number of composite-Simpson subintervals of [`profile_mean`](@ref): 1024
-gives 10⁻¹⁰ accuracy on the shipped profiles at negligible cost (one
-evaluation per validation and banner).
-"""
+# Composite-Simpson subintervals of profile_mean: 10⁻¹⁰ accuracy on the shipped
+# profiles at negligible cost (one evaluation per validation and banner).
 const PROFILE_MEAN_SUBINTERVALS = 1024
 
 """

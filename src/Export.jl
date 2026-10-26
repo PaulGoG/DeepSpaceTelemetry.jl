@@ -1,13 +1,13 @@
 """
     Export
 
-HDF5 product export: every consumer-facing product of a run — event logs,
-metrics profile, batch-state timeline, batch epochs, point-wise masks,
-metrology tables, markers, component events — in one self-describing file
-with the run's provenance as attributes, for analysis pipelines that read
-HDF5 rather than a directory of CSV files. The CSV products remain the
-primary interface; the export is a derived, regenerable view of them
-([`export_hdf5`](@ref)).
+HDF5 product export: the consumer-facing products of a run (event logs,
+hole feed, metrics profile, batch-state timeline, batch epochs, gap table,
+point-wise masks, metrology tables, markers, label spans, component events)
+in one self-describing file with the run's provenance as attributes, for
+analysis pipelines that read HDF5 rather than a directory of CSV files. The
+CSV products remain the primary interface; the export is a derived,
+regenerable view of them ([`export_hdf5`](@ref)).
 """
 module Export
 
@@ -119,11 +119,11 @@ end
 """
     write_mask_timeline!(file::HDF5.File, run_dir::String, epoch::DateTime)
 
-`masks/telemetry_mask_timeline.csv` as `masks/timeline`: `states` — the
-`Int8` state matrix laid out so that C-order readers (h5py, NumPy) index
-`states[snapshot, batch]` while Julia reads its transpose `(batch,
-snapshot)` — with `batch_id`, the snapshot instants (`SimTime`,
-`SimTime_iso`), and the state-code attribute. Nothing is written when the
+`masks/telemetry_mask_timeline.csv` as the group `masks/timeline`: the
+`Int8` state matrix `states`, laid out so that C-order readers (h5py, NumPy)
+index `states[snapshot, batch]` and Julia reads its transpose
+`(batch, snapshot)`; `batch_id`; the snapshot instants (`SimTime`,
+`SimTime_iso`); and the state-code attribute. Nothing is written when the
 timeline is absent.
 """
 function write_mask_timeline!(file::HDF5.File, run_dir::String, epoch::DateTime)

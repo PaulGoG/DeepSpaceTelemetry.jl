@@ -1,18 +1,9 @@
-"""
-Publication figure export (command-line wrapper)
-================================================
-
-Re-renders every figure of a run at the printed width and in the vector
-format declared in the run's `[post_processing.publication]` settings
-(`enabled` is ignored here), into the configured export directory
-(default `<run_dir>/publication`) with a `PROVENANCE.toml` sidecar
-(`Publication.export_publication_figures`).
-
-Usage:
-    julia export_publication_figures.jl [run_id]
-
-Without an argument the most recently modified run directory is exported.
-"""
+# Re-renders every figure of a run at the printed width and in the vector
+# format of its [post_processing.publication] settings (`enabled` is ignored
+# here) into the configured export directory, by default <run_dir>/publication,
+# with a PROVENANCE.toml sidecar (Publication.export_publication_figures).
+# Argument: the run ID, by default that of the most recently modified run
+# directory.
 
 include(joinpath(@__DIR__, "..", "activate.jl"))
 using DeepSpaceTelemetry

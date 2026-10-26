@@ -41,8 +41,8 @@ end
 
 println("Starting the DeepSpaceTelemetry dashboard.")
 
-# Load Config — any CLI argument ending in ".toml" selects an alternative
-# config file (forwarded to run_full_sim.jl below).
+# An argument ending in ".toml" selects the configuration; it is forwarded to
+# run_full_sim.jl below.
 config_idx = findfirst(a -> endswith(a, ".toml"), ARGS)
 config_arg = config_idx === nothing ? "" : ARGS[config_idx]
 cfg = DeepSpaceTelemetry.TelemetryCore.load_config(config_arg)
@@ -55,10 +55,9 @@ DeepSpaceTelemetry.TelemetryCore.simulation_mode(cfg) == "tick" && error(
     "[CONFIG] simulation.mode = \"tick\" runs on the logical clock and has no live dashboard: run scripts/run_full_sim.jl instead.",
 )
 
-# Generate a run ID. The run directory itself is created exactly once, by
-# run_full_sim.jl below — pre-creating it here would trip the run-ID reuse
-# guard in setup_run_dir. The viewer tolerates the not-yet-existing
-# directory and the log follower waits for absent log files to appear.
+# Only run_full_sim.jl below creates the run directory: creating it here
+# would trip the run-ID reuse guard of setup_run_dir. The viewer and the log
+# follower wait for it.
 run_id = DeepSpaceTelemetry.TelemetryCore.generate_run_id(cfg)
 run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
 
@@ -85,10 +84,8 @@ println(
 )
 println("="^55)
 
-# Give terminals a second to open before starting the data generation
-sleep(1.5)
+sleep(1.5) # lets the terminals open before data generation starts
 
-# Pass the run_id (and any config path) to the simulation script
 empty!(ARGS)
 push!(ARGS, run_id)
 isempty(config_arg) || push!(ARGS, config_arg)

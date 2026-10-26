@@ -5,7 +5,8 @@ Plotting standards shared by every figure: the Okabe–Ito semantic palette,
 the standard figure layout with its uniform print scaling
 ([`PlotStyle`](@ref)), the measured legend and figure sizing
 ([`figure_legend!`](@ref), [`size_to_panels!`](@ref)), and the CairoMakie
-theme ([`telemetry_theme`](@ref)).
+theme ([`telemetry_theme`](@ref)). Lengths are Makie units (1/96 inch) at
+the standard layout, which [`PlotStyle`](@ref) scales.
 """
 module PlotTheme
 
@@ -25,98 +26,52 @@ using MathTeXEngine: texfont
 # Okabe–Ito colorblind-safe palette: one semantic color per quantity,
 # consistent across every figure and the animation.
 
-"""
-    COLOR_LIVE
-
-Plot color for near-real-time (Live, FIFO-priority) data batches
-(Okabe–Ito sky blue).
-"""
+"Near-real-time (live, FIFO-priority) batches: Okabe–Ito sky blue."
 const COLOR_LIVE = colorant"#56B4E9"
 
-"""
-    COLOR_ARCHIVE
-
-Plot color for blind-spot archive (LIFO-backfilled) data batches
-(Okabe–Ito bluish green).
-"""
+"Blind-spot archive (LIFO-backfilled) batches: Okabe–Ito bluish green."
 const COLOR_ARCHIVE = colorant"#009E73"
 
-"""
-    COLOR_BANDWIDTH
-
-Plot color for the DSN link-capacity (bandwidth) curve (Okabe–Ito blue).
-"""
+"DSN link-capacity (bandwidth) curve: Okabe–Ito blue."
 const COLOR_BANDWIDTH = colorant"#0072B2"
 
-"""
-    COLOR_ONBOARD
-
-Plot color for the onboard SSD backlog curve (Okabe–Ito orange; role is
-additionally encoded by the dashed line style, so the figure survives
-grayscale).
-"""
+"Onboard SSD backlog curve, dashed so it survives grayscale: Okabe–Ito orange."
 const COLOR_ONBOARD = colorant"#E69F00"
 
-"""
-    COLOR_LOST
-
-Plot color for permanently lost (retry-exhausted) data batches (Okabe–Ito
-vermillion; role additionally encoded by ✕ markers).
-"""
+"Permanently lost (retry-exhausted) batches, drawn as ✕: Okabe–Ito vermillion."
 const COLOR_LOST = colorant"#D55E00"
 
-"""
-    COLOR_COUNTERFACTUAL
-
-Plot color for counterfactual quantities — the first-in, first-out drain
-the alert-latency figure contrasts with the realized doctrine (Okabe–Ito
-reddish purple; role additionally encoded by the dotted line style).
-"""
+"Counterfactual FIFO drain of the alert-latency figure, dotted: Okabe–Ito reddish purple."
 const COLOR_COUNTERFACTUAL = colorant"#CC79A7"
 
 """
-    COLOR_DISRUPTION
-
-Base color for disruption-event window shading: a neutral dark wash for the
-blackout span that fades to zero alpha across the recovery ramp, with dashed
-same-hue edge lines at higher alpha. Deliberately neutral so it never
-competes with the series palette.
+Neutral base of the disruption shading (blackout wash fading to zero alpha over the
+recovery ramp, dashed edges), kept apart from the series palette.
 """
 const COLOR_DISRUPTION = :black
 
 """
-    COLOR_OUTAGE
-
-Base color for component-outage window shading: a neutral wash at low alpha
-with dotted same-hue edge lines at higher alpha, so unscheduled
-infrastructure outages stay apart from the series palette and, by line
-style, from the dashed disruption shading.
+Neutral base of the shading of unscheduled component outages (low-alpha wash, dotted
+edges), apart from the series palette and, by line style, from the disruption shading.
 """
 const COLOR_OUTAGE = :black
 
 """
-    COLOR_MARKER
-
-Plot color for the per-event-marker realized latency curves of the
-alert-latency figure — a family apart from the population bands, its
-members told apart by cycling line styles.
+Event markers: their upright rules in the mission figures and their realized latency
+curves in the alert-latency figure, apart from the population bands and told apart by
+cycling line styles.
 """
 const COLOR_MARKER = :black
 
 """
-    COLOR_GUIDE
-
-Neutral gray for population aggregates and reference guides: the
-all-batches delivery curve, the delivery-requirement line, and its label.
+Neutral gray of population aggregates and reference guides: the all-batches delivery
+curve and the delivery-requirement rule with its label.
 """
 const COLOR_GUIDE = colorant"gray40"
 
 """
-    COLOR_FUTURE
-
-Wash of the not-yet-generated region of the batch-state raster: a near-white
-that reads as absence rather than as one more state, so the generation front
-appears as the boundary of the drawn area.
+Not-yet-generated cells of the batch-state raster: a near-white that reads as absence,
+so the generation front is the edge of the drawn area.
 """
 const COLOR_FUTURE = colorant"#F5F5F5"
 
@@ -128,115 +83,53 @@ const COLOR_FUTURE = colorant"#F5F5F5"
 # export enters LaTeX at native size.
 
 """
-    FIGURE_WIDTH
-
-Width of every figure at the standard layout, in Makie units. The figures of
-a mission are stacked time-series dashboards with one shared width, so
+Width of every figure, shared by the stacked time-series dashboards of a mission so that
 sibling figures print with identical type.
 """
 const FIGURE_WIDTH = 1200
 
-"""
-    PANEL_HEIGHT
-
-Axis height of a main panel at the standard layout, in Makie units.
-"""
+"Axis height of a main panel."
 const PANEL_HEIGHT = 380
 
-"""
-    STRIP_HEIGHT
-
-Axis height of an auxiliary strip (the Lost strip of the mission summary) at
-the standard layout, in Makie units.
-"""
+"Axis height of an auxiliary strip (the Lost strip of the mission summary)."
 const STRIP_HEIGHT = 150
 
-"""
-    FONTSIZE
-
-Font size of axis labels, legends, and legend headers at the standard
-layout, in Makie units.
-"""
+"Font size of axis labels, legends, and legend headers."
 const FONTSIZE = 26
 
-"""
-    FONTSIZE_TICK
-
-Tick-label font size at the standard layout, in Makie units.
-"""
+"Tick-label font size."
 const FONTSIZE_TICK = 22
 
-"""
-    FONTSIZE_ANNOTATION
-
-In-axis annotation font size at the standard layout, in Makie units.
-"""
+"In-axis annotation font size."
 const FONTSIZE_ANNOTATION = 21
 
-"""
-    LINEWIDTH_DATA
-
-Data-series line width at the standard layout, in Makie units.
-"""
+"Data-series line width."
 const LINEWIDTH_DATA = 3.0
 
-"""
-    LINEWIDTH_GUIDE
-
-Line width of reference and guide lines — thresholds, requirement rules,
-the edges of shaded event windows, event-marker rules — at the standard
-layout, in Makie units.
-"""
+"Width of guide lines: thresholds, requirement and event-marker rules, window edges."
 const LINEWIDTH_GUIDE = 1.5
 
-"""
-    LINEWIDTH_EDGE
-
-Line width of the same-hue edge drawn on an area fill at the standard
-layout, in Makie units.
-"""
+"Width of the same-hue edge of an area fill."
 const LINEWIDTH_EDGE = 2.5
 
-"""
-    MARKERSIZE_DATA
-
-Marker size of event pins and legend glyphs at the standard layout, in Makie
-units — one size everywhere, so every figure of the project draws it
-identically.
-"""
+"Marker size of event pins and legend glyphs, the same in every figure."
 const MARKERSIZE_DATA = 14
 
-"""
-    FILL_ALPHA
-
-Alpha of the area fills under cumulative curves; the fill carries a full-hue
-edge of [`LINEWIDTH_EDGE`](@ref).
-"""
+"Alpha of the fills under cumulative curves, edged in full hue ([`LINEWIDTH_EDGE`](@ref))."
 const FILL_ALPHA = 0.35
 
-"""
-    FIGURE_PADDING
-
-Outer padding of every figure at the standard layout, in Makie units.
-"""
+"Outer padding of every figure."
 const FIGURE_PADDING = 10
 
 """
-    FIGURE_PADDING_RIGHT
-
-Right-hand padding of every figure at the standard layout, in Makie units:
-the outer padding plus half the width of a tick label, which an x tick
-landing on the axis frame pushes past it.
+Right-hand padding of every figure: the outer padding plus half a tick label, which an
+x tick on the axis frame pushes past it.
 """
 const FIGURE_PADDING_RIGHT = 45
 
 """
-    AXIS_WIDTH_SHARE
-
-Share of the figure width a stacked panel's axis occupies once the y-axis
-decorations of both sides and the padding are taken out. An estimate, used
-only to express the width of an annotation relative to its axis
-([`annotation_fraction`](@ref)).
+Estimated share of the figure width left to a stacked panel's axis by the y-axis
+decorations of both sides and the padding; used only by [`annotation_fraction`](@ref).
 """
 const AXIS_WIDTH_SHARE = 0.84
 
@@ -337,13 +230,11 @@ annotation_fraction(style::PlotStyle, text) = min(
 """
     annotation_side(occupied, x_lo, x_hi, fraction) -> Symbol
 
-Which end of an axis an in-axis annotation block should occupy: `:right`
-unless one of the `occupied` x positions — the upright rules and shaded
-edges a figure draws — falls within `fraction` of the axis width of the
-right edge, in which case `:left`. `fraction` is the block's own width
-relative to the axis ([`annotation_fraction`](@ref)), so the test asks
-whether a rule would cross the text. When both ends are occupied it stays
-`:right`, since moving gains nothing.
+End of the axis for an in-axis annotation block of relative width
+`fraction` ([`annotation_fraction`](@ref)): `:left` when one of the
+`occupied` x positions (upright rules, shaded edges) lies within `fraction`
+of the right edge and none within `fraction` of the left edge, else
+`:right`.
 """
 function annotation_side(occupied, x_lo::Real, x_hi::Real, fraction::Real)
     span = x_hi - x_lo
@@ -354,8 +245,6 @@ function annotation_side(occupied, x_lo::Real, x_hi::Real, fraction::Real)
 end
 
 """
-    ANNOTATION_EDGE_INSET
-
 Relative distance between an in-axis annotation block and the axis frame at
 the end it is aligned to ([`annotation_anchor`](@ref)).
 """
@@ -366,12 +255,11 @@ const ANNOTATION_EDGE_INSET = 0.015
 
 Relative x position and horizontal alignment of an in-axis annotation block
 of relative width `fraction` ([`annotation_fraction`](@ref)) on an axis
-spanning `[x_lo, x_hi]`, against the `occupied` x positions — the upright
-rules and shaded edges the axis draws; positions outside the axis are
-ignored. The right end is taken when no position falls within the block and
-its insets there, the left end likewise; with both ends occupied the block
-is centered in the widest interval between two consecutive positions that
-holds it, and it stays at the right end when no interval does.
+spanning `[x_lo, x_hi]`, clear of the `occupied` x positions (upright rules
+and shaded edges; those outside the axis are ignored). The block with its
+two insets ([`ANNOTATION_EDGE_INSET`](@ref)) takes the right end, else the
+left end, else the middle of the widest interval between consecutive
+positions; it stays at the right end when no interval holds it.
 
 ```jldoctest
 julia> DeepSpaceTelemetry.PlotTheme.annotation_anchor([0.5, 9.5], 0.0, 10.0, 0.2)
@@ -397,8 +285,6 @@ function annotation_anchor(occupied, x_lo::Real, x_hi::Real, fraction::Real)
 end
 
 """
-    POWER_OF_TEN_THRESHOLD
-
 Magnitude from which the tick labels of a count axis are written with a power
 of ten ([`power_of_ten_labels`](@ref), [`count_tickformat`](@ref)).
 """
@@ -460,8 +346,6 @@ count_tickformat(top::Real) =
     abs(top) >= POWER_OF_TEN_THRESHOLD ? power_of_ten_labels : Makie.automatic
 
 """
-    TICK_PRUNE_FRACTION
-
 Fraction of the axis range below the upper limit within which
 [`UpperPrunedTicks`](@ref) discards a tick.
 """
@@ -589,14 +473,13 @@ end
     figure_scope(f, style::PlotStyle = PlotStyle())
 
 Runs `f()`, the drawing and saving of one figure, inside a telemetry theme
-scope of its own ([`telemetry_theme`](@ref)), collects afterwards, and
-returns the value of `f`. Makie keeps every figure drawn inside a theme
-scope reachable until the scope ends, so one scope around a loop of figures
-accumulates them, about 70 MiB per standard PNG; a year-long mission with a
-session figure per day exhausted the memory of its host that way. A scope
-per figure, the release in [`save_figure`](@ref), and the collection bound
-the stage at one figure. It must not be nested in another theme scope: the
-outer scope would hold the figures.
+scope of its own ([`telemetry_theme`](@ref)), runs the garbage collector,
+and returns the value of `f`. Makie keeps every figure drawn in a theme
+scope reachable until the scope ends, about 70 MiB per standard PNG, so a
+scope around a loop accumulates them (a year of daily session figures
+exhausted a host); a scope per figure and the release in
+[`save_figure`](@ref) bound the loop at one figure. Must not be nested in
+another theme scope, which would hold the figures.
 """
 function figure_scope(f, style::PlotStyle = PlotStyle())
     result = with_theme(f, telemetry_theme(style))
@@ -607,13 +490,12 @@ end
 """
     telemetry_theme(style::PlotStyle = PlotStyle())
 
-The CairoMakie theme of every figure at the scale of `style`: (New) Computer
-Modern faces via MathTeXEngine (a plain `font = "Computer Modern"` string is
-ignored by current Makie and silently falls back to DejaVu), boxed axes with
-inward ticks, no titles, no minor ticks, a faint dashed grid, guide-weight
-upright and level rules, stroked markers, and frameless horizontal legends
-with bold group headers aligned at the top. Tick-label rotation is applied
-per axis where labels crowd (session HH:MM axes), not globally.
+The CairoMakie theme of every figure at the scale of `style`: boxed axes with
+inward ticks, no titles or minor ticks, a faint dashed grid, guide-weight
+rules, stroked markers, and frameless legends with top-aligned bold group
+headers. Faces are (New) Computer Modern via MathTeXEngine; current Makie
+ignores a plain `font = "Computer Modern"` and falls back to DejaVu. Tick
+labels are rotated per axis where they crowd (session HH:MM), not here.
 """
 function telemetry_theme(style::PlotStyle = PlotStyle())
     u(length) = scaled(style, length)
@@ -677,7 +559,7 @@ function telemetry_theme(style::PlotStyle = PlotStyle())
             xticklabelsize = style.fontsize_tick,
             yticklabelsize = style.fontsize_tick,
             # Clearance of tick labels from the frame and of axis labels
-            # from the tick labels (spacing discipline).
+            # from the tick labels.
             xticklabelpad = u(5),
             yticklabelpad = u(6),
             xlabelpadding = u(8),

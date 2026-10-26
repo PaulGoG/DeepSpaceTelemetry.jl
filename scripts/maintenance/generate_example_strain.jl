@@ -10,7 +10,7 @@ total_points = round(Int, sample_rate * 3600 * duration_hours)
 
 println("Generating $total_points points of example external strain data...")
 
-# Surrogate inspiral-like waveform: a sinusoid with a linearly growing envelope.
+# Surrogate signal: a 0.1 Hz sinusoid with a linearly growing envelope.
 t = range(0, stop = duration_hours * 3600, length = total_points)
 amplitude = sin.(2π .* 0.1 .* t) .* (1.0 .+ t ./ 10000.0)
 

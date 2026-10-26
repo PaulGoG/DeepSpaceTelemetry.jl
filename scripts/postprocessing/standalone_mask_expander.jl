@@ -15,8 +15,7 @@ Example:
     julia standalone_mask_expander.jl telemetry_mask_timeline.csv 921600 100 pointwise_mask.csv
 """
 
-# Required registered packages; never installed implicitly — installation into
-# the caller's active environment requires explicit consent.
+# Not installed automatically: that would modify the caller's active environment.
 try
     using CSV, DataFrames
 catch e
@@ -32,13 +31,12 @@ end
 """
     expand_pointwise_mask(matrix_path::String, points_per_batch::Int, event_idx::Int, output_path::String)
 
-Reads a given `telemetry_mask_timeline.csv` matrix and extracts a single row
-(specified by `event_idx`). It then expands each batch status (0-4) into a
-high-resolution pointwise boolean array of size `points_per_batch` per batch.
-Only successfully downlinked batches (status == 3) result in 1s; batches that
-were still onboard/in transit (1, 2), not yet generated (0), or permanently
-lost to packet loss (4) stay 0.
-Saves the resulting integer array to `output_path`.
+Expands row `event_idx` (`-1`: the last row) of the mask timeline at
+`matrix_path` into `points_per_batch` samples per batch and writes them to
+`output_path` as an `Int8` 0/1 column. Only batches on the ground (state 3)
+give 1; not yet generated (0), onboard (1), on the link (2), and
+permanently lost (4) give 0. An existing `output_path` is rotated to
+`<stem>#k<ext>`, not overwritten.
 """
 function expand_pointwise_mask(
     matrix_path::String,
@@ -79,8 +77,6 @@ function expand_pointwise_mask(
     point_mask = zeros(Int8, total_points)
 
     for (batch_index, status) in enumerate(batch_statuses)
-        # Status 3 means 'Ground Archive' (Successfully downlinked).
-        # 0/1/2 (not yet down) and 4 (Lost) stay masked.
         if status == 3
             start_idx = (batch_index - 1) * points_per_batch + 1
             end_idx = start_idx + points_per_batch - 1

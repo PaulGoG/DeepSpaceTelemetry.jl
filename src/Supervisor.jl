@@ -30,15 +30,15 @@ using SHA: sha256
 """
     CleanFileLogger(path::String, rotate_bytes::Int)
 
-Component log sink: one line per record — `[Level] message`, with
-structured keyword values on indented lines and exceptions rendered
-compactly — without the `└ @ Module file:line` source-location suffix,
-which is noise when the file is followed in a dashboard terminal. ANSI
-escape sequences are stripped so the file reads cleanly after the run.
-Records are appended per write (log rates are a few lines per batch), which
-allows size-capped rotation to `name#k.log` (`retention.log_rotate_mb`)
-without a held-open stream across the rotation boundary. Formatting never
-throws: a throwing logger would terminate the task it logs for.
+Component log sink: one `[Level] message` line per record, structured
+keyword values on indented lines, exceptions rendered compactly, and no
+`└ @ Module file:line` source-location suffix, which is noise when the file
+is followed in a dashboard terminal. ANSI escape sequences are stripped so
+the file reads cleanly after the run. Each record is appended with its own
+open (log rates are a few lines per batch), which allows size-capped
+rotation to `name#k.log` (`retention.log_rotate_mb`) without a stream held
+open across the rotation boundary. Formatting does not throw: a throwing
+logger would terminate the task it logs for.
 """
 struct CleanFileLogger <: Logging.AbstractLogger
     path::String
@@ -177,14 +177,14 @@ end
 """
     stamp_external_provenance!(cfg, physics, needed_days)
 
-External-input coverage report and provenance stamp: row count and SHA-256
-of the input file are computed up front — before any directory exists — so
-exhaustion is predicted at startup rather than discovered mid-mission, and
-the run snapshot pins the exact input consumed (no sidecar or generator
-metadata is assumed). Adds `external_data_path`, `external_data_rows`,
-`external_data_sha256`, `declared_sample_rate`, and `external_data_columns`
-(the names of the payload columns, `["Amplitude"]` when
-`physics.external_data_columns` is empty) to `cfg["provenance"]`.
+Adds `external_data_path`, `external_data_rows`, `external_data_sha256`,
+`declared_sample_rate`, and `external_data_columns` (the names of the
+payload columns, `["Amplitude"]` when `physics.external_data_columns` is
+empty) to `cfg["provenance"]`, and logs whether the input covers
+`needed_days`. Row count and SHA-256 are computed before any directory
+exists, so exhaustion is predicted at startup rather than discovered
+mid-mission, and the run snapshot pins the exact input consumed without
+assuming sidecar or generator metadata.
 """
 function stamp_external_provenance!(
     cfg::AbstractDict,
@@ -222,14 +222,14 @@ end
     mission_plan(cfg::Dict{String,Any}; run_id = "") -> MissionPlan
 
 Validates `cfg` (safe intervals, then the storage budget), builds the
-channel models — the loss channel, the run's only random stream, is seeded
-with `simulation.rng_seed` — stamps the payload origin (`payload_origin`,
-the content instant of payload row 1 as an ISO-8601 string) and, when
-`physics.data_source = "external"`, the external-input provenance into
-`cfg["provenance"]`, and fixes the run ID (generated when empty). Writes
-nothing to disk and leaves `cfg` unmodified: the plan carries a shallow copy
-of it, which is what receives the provenance stamp and becomes the run's
-configuration snapshot.
+channel models, and fixes the run ID (generated when empty); the loss
+channel, the run's only random stream, is seeded with
+`simulation.rng_seed`. Writes nothing to disk and leaves `cfg` unmodified:
+the plan carries a shallow copy, which becomes the run's configuration
+snapshot and receives in `cfg["provenance"]` the payload origin
+(`payload_origin`, the content instant of payload row 1 as an ISO-8601
+string) and, when `physics.data_source = "external"`, the external-input
+provenance.
 """
 function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
     TelemetryCore.validate_config(cfg)
@@ -290,19 +290,18 @@ end
     record_generation_gap!(run_dir, clock, resume; origin, sample_rate,
                            points_per_batch, hole_feed = nothing)
 
-Bounds an emitter outage in `events_tx.csv` (Batch = `STREAM`): a
-`gap_start` row at the content end of the last finalized batch — the
-instant of row `payload_row + points_per_batch` of the highest
+Bounds an emitter outage in `events_tx.csv` (Batch = `STREAM`): `gap_start`
+at the content end of the last finalized batch, `gap_end` at `resume`, the
+content instant at which the replacement instrument resumes. The content end
+is the instant of row `payload_row + points_per_batch` of the highest
 `payload_row` stamp, on the payload grid of `origin` and `sample_rate`, or
-`origin` when no batch has been finalized — and a `gap_end` row at
-`resume`, the content instant at which the replacement instrument resumes.
-The start is a content instant, not the finalization or transmission
-instant of a logged event, so the rows of the partial batch the failed
-emitter held, which no batch carries, fall inside the gap. With a
-`hole_feed`, the same interval is appended to the declared-hole feed as a
-`stream` hole declared at the current mission time. Called before a
-replacement emitter is spawned — no live `events_tx` writer exists at that
-instant.
+`origin` when no batch has been finalized. A content instant, rather than
+the finalization or transmission instant of a logged event, places the rows
+of the partial batch the failed emitter held, which no batch carries, inside
+the gap. With a `hole_feed`, the same interval is appended to the
+declared-hole feed as a `stream` hole declared at the current mission time.
+Called before the replacement emitter is spawned, when no live `events_tx`
+writer exists.
 """
 function record_generation_gap!(
     run_dir::String,
@@ -359,14 +358,14 @@ end
     apply_failure_policy!(name, task, run_dir, clock, stop_flag, policy, restart_counts, spawners, on_restart) -> Union{Task,Nothing}
 
 The supervisor's response to a component task that ended with an
-exception, shared by [`supervise!`](@ref) and [`supervise_ticks!`](@ref):
-the failure is reported and recorded as `down`, then the policy
-(`policy.on_component_failure`) decides — `"restart"` relaunches through
-`spawners[name]` up to `policy.max_restarts` times after calling
-`on_restart(name, attempt)` and returns the replacement task; `"continue"`
-leaves the partner running one-sided; `"abort"` raises `stop_flag` so the
-partner stops cooperatively. Returns the replacement task, or `nothing`
-when the component stays down.
+exception, shared by [`supervise!`](@ref) and [`supervise_ticks!`](@ref).
+The failure is reported and recorded as `down`; `policy.on_component_failure`
+then decides. `"restart"` calls `on_restart(name, attempt)`, relaunches
+through `spawners[name]`, and returns the replacement task, up to
+`policy.max_restarts` times; an exhausted budget is treated as `"abort"`.
+`"continue"` leaves the partner running one-sided. `"abort"` raises
+`stop_flag` so the partner stops cooperatively. Returns `nothing` when the
+component stays down.
 """
 function apply_failure_policy!(
     name::Symbol,
@@ -405,21 +404,19 @@ end
                on_restart = (name, attempt) -> nothing,
                poll_sec = TelemetryCore.RECEIVER_POLL_INTERVAL_SEC) -> Dict{Symbol,Int}
 
-Runs the components until all of them have finished. `spawners[name](attempt)`
-returns the component's `Task` (attempt 0 is the primary launch, attempt
-≥ 1 a supervised restart). On a failed task the policy
-(`policy.on_component_failure`) decides: `"abort"` raises `stop_flag` so the
-partner stops cooperatively, `"continue"` leaves the partner running
-one-sided, `"restart"` relaunches up to `policy.max_restarts` times after
-calling `on_restart(name, attempt)`. A component whose heartbeat file in
-`heartbeats` stays untouched for longer than `policy.watchdog_sec` is
-recorded as `stalled` (and `recovered` when it resumes); the watchdog only
-records, it never intervenes. Every lifecycle transition is appended to
-`component_events.csv`, and failures, policy decisions, restarts, and
-watchdog trips are reported as `[SUPERVISOR]` log records through the
-logger active in the calling task (the global logger under
-[`run_mission`](@ref); the component tasks log to their own files).
-Returns the restart count per component.
+Runs the components until all of them have finished and returns the restart
+count per component. `spawners[name](attempt)` returns the component's
+`Task` (attempt 0 is the primary launch, attempt ≥ 1 a supervised restart);
+a failed task meets `policy.on_component_failure` through
+[`apply_failure_policy!`](@ref), a restart calling `on_restart(name, attempt)`
+first, up to `policy.max_restarts` times. A component whose heartbeat file
+in `heartbeats` stays untouched for longer than `policy.watchdog_sec` is
+recorded as `stalled`, and as `recovered` when it resumes; the watchdog
+records and does not intervene. Lifecycle transitions are appended to
+`component_events.csv`; failures, policy decisions, restarts, and watchdog
+trips are logged as `[SUPERVISOR]` records through the logger of the calling
+task (the global logger under [`run_mission`](@ref); the component tasks log
+to their own files).
 """
 function supervise!(
     spawners::Dict{Symbol,<:Function},
@@ -551,18 +548,17 @@ end
                        hole_feed = nothing) -> Dict{Symbol,Function}
 
 The emitter and receiver launchers consumed by [`supervise!`](@ref) and
-[`supervise_ticks!`](@ref); `spawn(name, f)` turns a component body into
-its task (a thread of its own under the wall clock,
+[`supervise_ticks!`](@ref). `spawn(name, f)` turns a component body into its
+task: a thread of its own under the wall clock,
 [`TelemetryCore.tick_spawn`](@ref) under the tick clock, where `deadline`
-and the heartbeat paths are `nothing`).
-Attempt 0 continues the pre-populated instrument and partial batch. A
-restarted emitter (attempt ≥ 1) takes no carried-over partial batch and the
-instrument [`VirtualInstrument.resumed`](@ref) from its predecessor at the
-current mission time — a genuine generation gap, bounded in `events_tx.csv`
-by [`record_generation_gap!`](@ref) at the resumption instant before the
-replacement task starts. `hole_feed` is the run's declared-hole feed
-([`TelemetryCore.HoleFeed`](@ref)), shared by the emitter, the receiver,
-and the outage record; `nothing` writes no feed.
+and the heartbeat paths are `nothing`. Attempt 0 continues the pre-populated
+instrument and partial batch. A restarted emitter (attempt ≥ 1) starts
+without a partial batch, on the instrument [`VirtualInstrument.resumed`](@ref)
+from its predecessor at the current mission time; the generation gap this
+leaves is bounded in `events_tx.csv` by [`record_generation_gap!`](@ref) at
+the resumption instant, before the replacement task starts. `hole_feed` is
+the run's declared-hole feed ([`TelemetryCore.HoleFeed`](@ref)), shared by
+the emitter, the receiver, and the outage record; `nothing` writes no feed.
 """
 function component_spawners(
     plan::MissionPlan,
@@ -689,34 +685,42 @@ end
 """
     post_process!(plan, run_dir; orig_stdout = stdout)
 
-The derived products after both components have finished, in this order:
-the flagged figure products of [`TelemetryCore.FIGURE_PRODUCTS`](@ref) that
-do not read the mask timeline (alert latency and delivery delay, tables
-with their figures), the 2D batch-state timeline
-(`post_processing.generate_mask_timeline`), the flagged products drawn from
-it ([`TIMELINE_PRODUCTS`](@ref), the batch-state raster), the mission
-summary and session figures ([`MissionFigures.generate_mission_plots`](@ref)),
-the point-wise 0/1 expansions (`expand_to_pointwise_masks`, rows from
-`target_event_rows`), the HDF5 product export (`hdf5_export`), and the
-publication figure export (`[post_processing.publication]`). The gap table
-([`Masks.write_gap_table`](@ref)) and the metrology tables are cheap and
-are written first so that they survive a failure of the mask replay or of
-the figure stage, which are the long ones. The declared-hole feed
-`holes.csv` is then settled from the gap table
-([`Masks.settle_hole_feed!`](@ref)): the end-of-run holes — undelivered,
-not generated, a recorder gap still open — are appended with the nominal
-mission end as `DeclaredAt`, so the feed and the table agree. The label-span table
-([`Masks.write_label_spans`](@ref)) is written at mission start and is
-regenerated here only when absent, as for runs recorded before 2.6.0. Each
-stage
-is failure-isolated: the simulation data is already on disk, so an error is
-reported as an error but never aborts the remaining stages (every product
-can be regenerated by the standalone post-processing scripts).
+The derived products after both components have finished. Each stage is
+failure-isolated: the simulation data is already on disk, so an error is
+reported but does not abort the remaining stages, and every product can be
+regenerated by the standalone post-processing scripts. In order:
+
+ 1. the gap table ([`Masks.write_gap_table`](@ref)), then the declared-hole
+    feed `holes.csv` settled from it ([`Masks.settle_hole_feed!`](@ref)):
+    the end-of-run holes (undelivered, not generated, a recorder gap still
+    open) are appended with the nominal mission end as `DeclaredAt`, so the
+    feed and the table agree;
+ 2. the label-span table ([`Masks.write_label_spans`](@ref)), only when
+    absent, as for runs recorded before 2.6.0 (it is written at mission
+    start);
+ 3. the flagged figure products of [`TelemetryCore.FIGURE_PRODUCTS`](@ref)
+    that do not read the mask timeline (alert latency and delivery delay,
+    tables with their figures);
+ 4. the 2D batch-state timeline (`post_processing.generate_mask_timeline`)
+    and the flagged products drawn from it ([`TIMELINE_PRODUCTS`](@ref), the
+    batch-state raster);
+ 5. the mission summary and session figures
+    ([`MissionFigures.generate_mission_plots`](@ref));
+ 6. the point-wise 0/1 expansions (`expand_to_pointwise_masks`, rows from
+    `target_event_rows`);
+ 7. the HDF5 product export (`hdf5_export`) and the publication figure
+    export (`[post_processing.publication]`);
+ 8. the run descriptor ([`TelemetryCore.write_run_descriptor`](@ref)), last
+    because its hashes cover the products above.
+
+The gap table and the metrology tables are cheap and precede the mask
+replay and the figure stage, the long ones, so that they survive a failure
+of either.
 
 `plan` is a [`MissionPlan`](@ref) or any object with the properties read
-here: `post_processing`, `ground`, `publication`, `physics`,
-`mission_wall_seconds`, `speed_up`, and `initial_downtime_days`, such as the
-result of [`post_processing_plan`](@ref).
+here: `post_processing`, `ground`, `publication`, `physics`, `mission_days`,
+and `initial_downtime_days`, such as the result of
+[`post_processing_plan`](@ref).
 """
 function post_process!(plan, run_dir::String; orig_stdout::IO = stdout)
     post_processing = plan.post_processing
@@ -1153,15 +1157,17 @@ end
     execute_mission!(plan, run_dir, orig_stdout)
 
 The mission proper inside an existing run directory: fresh component logs,
-sequential pre-population of the onboard buffer, then by `plan.mode` either
-the wall path — the component warm-up ([`warm_up_components!`](@ref)), the
+the sequential pre-population of the onboard buffer, the mission phase on
+the clock of `plan.mode`, and the post-processing stages. The wall path runs
+the component warm-up ([`warm_up_components!`](@ref)), then the
 [`TelemetryCore.SimulationClock`](@ref) with its persisted anchor and
-absolute deadline, the supervised component threads ([`supervise!`](@ref))
-— or the tick path — the [`TelemetryCore.TickClock`](@ref) spanning
-`plan.mission_days`, its anchor, and the cooperative component tasks
-driven on this thread ([`supervise_ticks!`](@ref)) — and the
-post-processing stages. Called by [`run_mission`](@ref), which owns the
-lifecycle sentinels.
+absolute deadline and the supervised component threads
+([`supervise!`](@ref)). The tick path runs the
+[`TelemetryCore.TickClock`](@ref) spanning `plan.mission_days`, with its
+anchor, and the cooperative component tasks driven on this thread
+([`supervise_ticks!`](@ref)). Touches `RUN_POSTPROCESSING` at the end of the
+mission phase; the other lifecycle sentinels belong to
+[`run_mission`](@ref), its caller.
 """
 function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
     emitter_log = joinpath(run_dir, "emitter.log")
@@ -1288,7 +1294,8 @@ function execute_mission!(plan::MissionPlan, run_dir::String, orig_stdout::IO)
     end
     rm(joinpath(run_dir, "HALT"), force = true) # consumed if an operator halted the run
 
-    # The components have stopped: payload and event logs are final from here on, and only derived products are still written.
+    # Mission phase over: payload and event logs are final; only derived
+    # products are written from here on.
     touch(joinpath(run_dir, "RUN_POSTPROCESSING"))
     post_process!(plan, run_dir; orig_stdout = orig_stdout)
     println(orig_stdout, "\n=== MISSION COMPLETE ===")
@@ -1300,17 +1307,19 @@ end
 """
     run_mission(cfg::Dict{String,Any}; run_id = "", orig_stdout = stdout) -> String
 
-The headless pipeline end to end: single-thread advisory, [`mission_plan`](@ref)
-(validation, storage gate, models, provenance), the run directory with its
-configuration snapshot, the lifecycle sentinels — `RUN_ACTIVE` while the
-pipeline may still write, then `RUN_COMPLETE` at lifecycle end (not
+The headless pipeline end to end: [`mission_plan`](@ref) (validation,
+storage gate, models, provenance), the single-thread advisory in wall mode,
+the run directory with its configuration snapshot, and
+[`execute_mission!`](@ref) under [`with_supervisor_log`](@ref). Returns the
+run directory.
+
+Lifecycle sentinels: `RUN_ACTIVE` while the pipeline may still write, with
+`RUN_POSTPROCESSING` beside it from the end of the mission phase to the end
+of the lifecycle; then `RUN_COMPLETE` at lifecycle end or `RUN_ABORTED` on
+any escaping exception. `RUN_COMPLETE` marks the end of the lifecycle, not
 success: a failed component still reaches it after the failure-isolated
-post-processing) or `RUN_ABORTED` on any escaping exception — and
-[`execute_mission!`](@ref) under [`with_supervisor_log`](@ref).
-`RUN_POSTPROCESSING` is present beside `RUN_ACTIVE` from the end of the
-mission phase to the end of the lifecycle; a directory left with
-`RUN_ACTIVE` and no process is settled by [`complete_run`](@ref). Returns
-the run directory.
+post-processing. A directory left with `RUN_ACTIVE` and no process is
+settled by [`complete_run`](@ref).
 """
 function run_mission(
     cfg::Dict{String,Any};

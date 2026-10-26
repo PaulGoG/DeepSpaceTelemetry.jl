@@ -30,8 +30,9 @@ end
 """
     pre_populate(instrument, start_sim_time, run_id; batch_size, kwargs...) -> (instrument, pending_segments)
 
-Simulates satellite downtime prior to the start of the active mission window.
-Fills the onboard SSD buffer with archived data batches to create a starting backlog.
+Fills the on-board recorder (`onboard/`) with the `ARCH_` batches produced
+during the initial downtime, the backlog the active mission window starts
+with.
 
 `instrument` is the [`VirtualInstrument.InstrumentState`](@ref) anchored at
 the start of the blind spot ([`instrument_epoch`](@ref)); the pre-population
@@ -114,10 +115,9 @@ function pre_populate(
             empty!(pending)
         elseif length(pending) >= batch_size
             # created_at is the finalization instant on the mission timeline
-            # (the instrument has observed the whole payload; inside the blind
-            # spot, i.e. before mission start), never wall-clock time. The
-            # content epoch (first-sample timestamp) is persisted alongside by
-            # save_batch — the same contract as the mission-phase path.
+            # (the content end, inside the blind spot), not wall-clock time;
+            # save_batch persists the content epoch beside it, as on the
+            # mission-phase path.
             finalized_at = vi.last_t
             batch = TelemetryCore.DataBatch(batch_counter, copy(pending), finalized_at)
             batch_name = TelemetryCore.batch_name(batch_counter, false)
@@ -223,12 +223,12 @@ end
     transmit_onboard!(live_queue, arch_queue, link, sim_t, run_dir; max_inflight_batches) -> Int
 
 Places on-board batches on the downlink while `link` is transmittable at
-`sim_t` (visibility and no blackout): every free in-flight slot — the
-`link/` listing below `max_inflight_batches`, a slot freeing the moment the
-receiver moves a batch out — is refilled from `live_queue` (FIFO,
-absolute priority), then from `arch_queue` (held newest first, so the
-archive drains LIFO). Each move from `onboard/` to `link/` is appended to
-`events_tx.csv` as a `tx` row. Returns the number of batches placed.
+`sim_t` (visibility and no blackout). Free in-flight slots, the `link/`
+listing below `max_inflight_batches` (a slot frees the moment the receiver
+moves a batch out), are refilled from `live_queue` (FIFO, absolute
+priority), then from `arch_queue` (held newest first, so the archive drains
+LIFO). Each move from `onboard/` to `link/` is appended to `events_tx.csv`
+as a `tx` row. Returns the number of batches placed.
 """
 function transmit_onboard!(
     live_queue::Vector{String},
@@ -265,41 +265,38 @@ end
 """
     run_emitter(clock, link, run_id, instrument; batch_size, kwargs...)
 
-The main satellite payload loop. Continuously generates scientific data (or reads from external CSV),
-packages it into batches, and manages the DSN transmission queue using strict priority logic
-(Live FIFO > Archive LIFO).
-
+The spacecraft loop: segments from `instrument` (synthetic, or read from an
+external CSV) are batched and placed on the downlink, live FIFO with
+absolute priority over the archive LIFO ([`transmit_onboard!`](@ref)).
 `link` is the composite [`ChannelEffects.LinkModel`](@ref) (visibility ×
-disruption timeline): batches are stamped `LIVE_` and transmitted only while
-the link is transmittable — during a disruption blackout the satellite keeps
-generating `ARCH_` batches that accumulate onboard.
+disruption timeline): a batch finalized while the link is transmittable is
+stamped `LIVE_`, any other `ARCH_`, so the batches generated during a
+disruption blackout accumulate onboard.
 
 `instrument` is the [`VirtualInstrument.InstrumentState`](@ref) the stream
-continues from: the one returned by [`pre_populate`](@ref), with its
-`pending_segments`, on the first start; on a restart, the instrument
+continues from: on the first start the one returned by
+[`pre_populate`](@ref); on a restart the instrument
 [`VirtualInstrument.resumed`](@ref) at the first segment boundary at or
-after the current mission time, with the payload origin of the first start
-— a genuine generation gap.
+after the current mission time, with the payload origin of the first start,
+which leaves a genuine generation gap.
 
 Generation is paced by the mission clock, not by the loop's own start: a
-segment is produced once the mission clock has passed the end of its content
-interval (`vi.last_t + segment_duration_sec`), and the loop sleeps until the exact wall
-instant of the next due segment ([`TelemetryCore.due_wall_time`](@ref)).
-A late start or a stall is recovered by generating back-to-back (yielding to
-the partner task on every catch-up iteration) until the content has caught
-up with the clock, so the content epoch of the stream tracks mission time
-within one segment period. The downlink is served on every iteration
-([`transmit_onboard!`](@ref)): while no segment is due the loop wakes at each
-boundary of the payload grid, so a scheduled generation gap interrupts
-production but not transmission. Each sleep is capped at
-[`TelemetryCore.EMITTER_MAX_SLEEP_SEC`](@ref) so the heartbeat and the
-stop/deadline checks stay responsive at low `speed_up`. Under a
-[`TelemetryCore.TickClock`](@ref) the same waits park the task on the
-logical clock ([`TelemetryCore.wait_until!`](@ref)) and the loop ends at
-the horizon ([`TelemetryCore.horizon_reached`](@ref)). A content lag that
-persists above one period for longer than
-[`TelemetryCore.EMITTER_LAG_WARN_SEC`](@ref) is reported once as a warning
-(the host cannot keep pace); the maximum lag is logged at loop exit.
+segment is produced once the clock has passed the end of its content
+interval (`vi.last_t + segment_duration_sec`), the loop sleeping until that
+wall instant ([`TelemetryCore.due_wall_time`](@ref)). After a late start or
+a stall the loop generates back to back, yielding to the partner task on
+every catch-up iteration, so the content epoch tracks mission time within
+one segment period. While no segment is due the loop wakes at each boundary
+of the payload grid and serves the downlink, so a scheduled generation gap
+interrupts production but not transmission. Sleeps are capped at
+[`TelemetryCore.EMITTER_MAX_SLEEP_SEC`](@ref) to keep the heartbeat and the
+stop and deadline checks responsive at low `speed_up`. Under a
+[`TelemetryCore.TickClock`](@ref) the waits park the task on the logical
+clock ([`TelemetryCore.wait_until!`](@ref)) and the loop ends at the horizon
+([`TelemetryCore.horizon_reached`](@ref)). On the wall clock a content lag
+above one period that persists longer than
+[`TelemetryCore.EMITTER_LAG_WARN_SEC`](@ref) is warned about once (the host
+cannot keep pace); the maximum lag is logged at exit.
 
 # Keyword arguments
 
@@ -310,17 +307,16 @@ persists above one period for longer than
   - `heartbeat_path`: liveness file touched every
     [`TelemetryCore.HEARTBEAT_INTERVAL_MS`](@ref) when set; removed on exit.
   - `max_inflight_batches`: cap on batches simultaneously on the link.
-  - `markers`: event markers, stamped into the batch holding their instant
-    and flagged in the synthetic payload
-    ([`VirtualInstrument.FlaggedSignal`](@ref)).
+  - `markers`: event markers, stamped into the batch holding their instant.
+    The synthetic payload flags them through the instrument
+    ([`VirtualInstrument.FlaggedSignal`](@ref)), not through this argument.
   - `generation_gaps`: scheduled `(start, stop)` intervals without data
     production ([`skip_generation_gaps!`](@ref)).
   - `onboard_capacity_batches`: recorder ceiling; new data is discarded
     while the buffer holds that many batches.
-  - `hole_feed`: the declared-hole feed the emitter appends its scheduled
-    and recorder gaps to, `nothing` for none. A scheduled gap is declared
-    at the mission instant it is skipped at, a recorder gap at the
-    finalization that closes it.
+  - `hole_feed`: the declared-hole feed for the scheduled and recorder gaps,
+    `nothing` for none. A scheduled gap is declared at the mission instant
+    it is skipped at, a recorder gap at the finalization that closes it.
 """
 function run_emitter(
     clock::TelemetryCore.MissionClock,
@@ -348,11 +344,11 @@ function run_emitter(
     onboard_live_queue = String[]
     onboard_arch_queue = String[]
 
-    # Re-entrant census: rebuild BOTH queues (a restarted emitter must not
-    # orphan LIVE batches stranded onboard at the crash) and resume the
-    # batch counter from the ground-truth event log — directory counts alone
-    # would collide with batches already delivered downstream. Stray
-    # directories that merely share the prefix parse to ID 0.
+    # Re-entrant census: both queues are rebuilt, so a restart does not
+    # orphan LIVE batches stranded onboard, and the batch counter resumes
+    # from the event log, since onboard directory counts alone would reuse
+    # the IDs of batches already delivered. Stray directories sharing the
+    # prefix parse to ID 0.
     all_onboard = filter(f -> isdir(joinpath(buffer_path, f)), readdir(buffer_path))
     archived = filter(TelemetryCore.is_archive_batch, all_onboard)
     sort!(archived, by = TelemetryCore.batch_id, rev = true) # LIFO internal
@@ -412,15 +408,11 @@ function run_emitter(
                 last_heartbeat = now()
             end
 
-            # 1. Pacing on the mission clock: the next segment is due once its
-            #    content interval has elapsed (causality — the instrument
-            #    delivers a segment after observing it). Until then the
-            #    downlink is served and the loop sleeps until the next boundary
-            #    of the payload grid — the due instant, or, inside a scheduled
-            #    generation gap, the boundary the segment would have closed —
-            #    capped so the checks above stay responsive; on the catch-up
-            #    path yield so a partner task on the same thread is never
-            #    starved.
+            # 1. Pacing (see the docstring): a segment is due once its content
+            #    interval has elapsed, since the instrument delivers what it
+            #    has observed. Until then serve the downlink and sleep to the
+            #    next grid boundary; on the catch-up path, yield so a partner
+            #    task on the same thread is not starved.
             skip_generation_gaps!(
                 vi,
                 pending,
@@ -501,13 +493,12 @@ function run_emitter(
                     @info "[EMITTER] On-board recorder has room again: recording resumes at $(pending[1].timestamp)."
                     recorder_full = false
                 end
-                # Classification ruling: LIVE/ARCH follows the
-                # link state at finalization time — flight software marks data
-                # near-real-time only if the link is up when it is ready to send.
-                # The payload's content epoch is persisted independently
-                # (metadata.json `content_epoch`, masks/batch_epochs.csv), so
-                # pacing lag can shift classification but never science
-                # provenance.
+                # LIVE/ARCH follows the link state at finalization: flight
+                # software marks data near-real-time only if the link is up
+                # when it is ready to send. The content epoch is persisted
+                # independently (metadata.json `content_epoch`,
+                # masks/batch_epochs.csv), so pacing lag can shift the
+                # classification but not the science provenance.
                 is_live = ChannelEffects.is_transmittable(link, sim_t)
                 # created_at = finalization instant on the mission timeline.
                 batch = TelemetryCore.DataBatch(batch_counter, copy(pending), sim_t)
@@ -524,7 +515,6 @@ function run_emitter(
                     payload_row = VirtualInstrument.payload_row(vi, batch.segments[1].id),
                 )
 
-                # Add to internal queue
                 if is_live
                     # LIVE queue is FIFO: append at the tail, drain from the head.
                     push!(onboard_live_queue, batch_name)

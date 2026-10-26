@@ -15,10 +15,9 @@ content instant of payload row 1. A generation gap suppresses whole segments
 of that grid and a restarted instrument resumes on it, so segment
 identifiers and payload rows follow from the content epoch alone.
 
-The telemetry layers never read the payload. The flag series carries what a
-downstream consumer needs from it — which delivered samples belong to an
-event — and nothing else; a physical noise or waveform model is supplied
-through the external source.
+The telemetry layers do not read the payload. The flag series states which
+delivered samples belong to an event; a physical noise or waveform model is
+supplied through the external source.
 """
 module VirtualInstrument
 
@@ -63,6 +62,9 @@ struct ExternalSeries <: PayloadSource
     samples::Matrix{Float32}
 end
 
+# Named apart from the module: a struct sharing the module's name, once
+# exported, shadows the module binding in downstream `using` scopes and
+# breaks qualified access (`VirtualInstrument.next_segment!`).
 """
     InstrumentState(origin, sample_rate, segment_duration_sec, data_source, ext_path;
                     markers = EventMarker[], columns = String[])
@@ -77,27 +79,19 @@ Segments open on the grid `origin + k · segment_duration_sec`, `k ≥ 0`: the
 segment opening at `epoch` has the identifier
 `(epoch − origin) / segment_duration_sec + 1` ([`segment_id`](@ref)) and
 starts at payload row [`payload_row`](@ref). The content clock starts at the
-origin; it leaves the grid neither across a generation gap
-([`advance_to!`](@ref)) nor in the instrument of a restarted emitter
-([`resumed`](@ref)), so identifiers never repeat within a run and the
-payload continues at the rows of the resumed content instant.
+origin and stays on the grid across a generation gap ([`advance_to!`](@ref))
+and in the instrument of a restarted emitter ([`resumed`](@ref)), so
+identifiers do not repeat within a run and the payload continues at the rows
+of the resumed content instant.
 
 `data_source = "synthetic"` builds a [`FlaggedSignal`](@ref) from the
 instants of `markers`, one column named
 [`TelemetryCore.PAYLOAD_COLUMN_DEFAULT`](@ref); a non-empty `columns` is
-then an `ArgumentError`. `"external"` reads the CSV at `ext_path` (relative
-paths resolve against the project root) into an [`ExternalSeries`](@ref)
-([`read_external_series`](@ref)): the listed `columns` in that order, or,
-when `columns` is empty, the column `Amplitude` when present and the first
-column otherwise, named `Amplitude`. A missing, unreadable, or empty file, an
-absent column, or a non-numeric column is a `[CONFIG]` error.
-
+then an `ArgumentError`. `"external"` reads the CSV at `ext_path` into an
+[`ExternalSeries`](@ref) through [`read_external_series`](@ref), which
+states the column selection and the `[CONFIG]` errors.
 `segment_duration_sec` must be a whole number of milliseconds
 ([`TelemetryCore.segment_period`](@ref)) and hold at least one sample.
-
-The struct is named differently from its parent module: an exported struct
-sharing the module's name shadows the module binding in downstream `using`
-scopes and breaks qualified access (`VirtualInstrument.next_segment!`).
 """
 mutable struct InstrumentState{S<:PayloadSource}
     const origin::DateTime

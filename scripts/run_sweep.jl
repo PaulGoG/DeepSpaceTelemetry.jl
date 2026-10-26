@@ -9,8 +9,7 @@ using DeepSpaceTelemetry
 #
 # `--seeds` takes a range (a:b) or a comma-separated list; `--workers N`
 # distributes the runs over N worker processes (serial without it); every
-# `--set section.key=value` applies to all runs. Nothing else is needed:
-# the runs are reproducible to the byte, so the table is the result.
+# `--set section.key=value` applies to all runs.
 config_arg = ""
 prefix = ""
 seeds = Int[]

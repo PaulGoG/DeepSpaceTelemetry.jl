@@ -3,12 +3,8 @@ using DeepSpaceTelemetry
 
 # Completes a run whose supervisor died during post-processing: recomputes the
 # products from the data on disk and settles RUN_ACTIVE into RUN_COMPLETE, or
-# into RUN_ABORTED when the mission itself was cut short.
-#
-# Usage:
-#     julia --threads=3 scripts/postprocessing/complete_run.jl <RUN_ID> [--force]
-#
-# --force skips the test for recent writes to the run directory.
+# into RUN_ABORTED when the mission itself was cut short. --force skips the
+# test for recent writes to the run directory.
 
 const USAGE = "Usage: julia --threads=3 scripts/postprocessing/complete_run.jl <RUN_ID> [--force]"
 

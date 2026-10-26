@@ -37,18 +37,17 @@ const BatchStates = NamedTuple{
 """
     reconstruct_batch_states(run_dir::String, df::DataFrame)
 
-Exact replay of every batch's location from the ground-truth event logs
-(`events_tx.csv`: `gen`/`tx` milestones written by the emitter;
-`events_rx.csv`: `ingested`/`lost` milestones written by the receiver — the
-state-preserving `retry` events are skipped). Returns one [`BatchStates`](@ref)
-record per `mission_profile.csv` row, evaluated at that row's `SimTime`.
-
-Each packet loss is attributed to its exact batch ID, which is what makes
-mask state `4 = Lost` possible. Emitter and
-receiver stamp milestones from separate clock reads, so recorded timestamps
-can invert within a batch at high speed-up; the replay enforces per-batch
-causal order (`gen` → `tx` → terminal) with later stages absorbing, keeping
-every batch's state sequence monotone.
+Exact replay of every batch's location from the ground-truth event logs:
+the `gen`/`tx` milestones of `events_tx.csv` (emitter) and the
+`ingested`/`lost` milestones of `events_rx.csv` (receiver); the
+state-preserving `retry` and `pruned` rows are skipped. Returns one
+[`BatchStates`](@ref) record per `mission_profile.csv` row, evaluated at
+that row's `SimTime`. Each loss is attributed to its batch ID, which gives
+mask state `4 = Lost`. Emitter and receiver stamp milestones from separate
+clock reads, so recorded timestamps can invert within a batch at high
+speed-up; the replay enforces per-batch causal order (`gen` → `tx` →
+terminal) with later stages absorbing, keeping every batch's state sequence
+monotone.
 """
 function reconstruct_batch_states(run_dir::String, df::DataFrame)
     tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
@@ -116,12 +115,8 @@ function reconstruct_batch_states(run_dir::String, df::DataFrame)
         delete!(position, id)
         return nothing
     end
-    # Causal stage rank: emitter and receiver stamp events from separate
-    # clock reads, so at high speed-up a batch's `ingested` record can carry
-    # an earlier timestamp than its own `tx` record. Per-batch causality
-    # (gen < tx < terminal) outranks recorded timestamps: a later-stage
-    # placement is absorbing and an earlier-stage event arriving late is
-    # dropped.
+    # Causal stage rank (see the docstring): a later-stage placement is
+    # absorbing, and an earlier-stage event arriving late is dropped.
     stage_rank = Dict(
         :onboard_live => 1,
         :onboard_archive => 1,
@@ -201,11 +196,12 @@ end
 """
     generate_telemetry_masks(run_dir::String)
 
-A post-processing utility that reconstructs the LIFO/FIFO transmission state
-machine from the event logs (see [`batch_states`](@ref)). It outputs a 2D matrix `telemetry_mask_timeline.csv`
-where rows are time steps and columns are specific `Batch_ID`s, indicating
-their exact physical location (0=Future, 1=Onboard, 2=Link, 3=Ground,
-4=Lost).
+Writes the replay of the LIFO/FIFO transmission state machine
+([`batch_states`](@ref)) as the 2D matrix `telemetry_mask_timeline.csv`:
+rows are time steps, columns the `Batch_ID`s, entries the batch's location
+(0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost). Also writes the batch-epoch
+map `masks/batch_epochs.csv`; returns without output, with a warning, when
+`mission_profile.csv` is absent.
 """
 function generate_telemetry_masks(run_dir::String)
     log_path = joinpath(run_dir, "mission_profile.csv")
@@ -408,12 +404,12 @@ end
     settle_hole_feed!(run_dir::String) -> Int
 
 Appends to `holes.csv`, the declared-hole feed, every row of
-[`gap_table`](@ref) it does not yet hold — the end-of-run causes a feed
+[`gap_table`](@ref) it does not yet hold, with the nominal mission end
+(`TelemetryCore.mission_end`) as `DeclaredAt`: the end-of-run causes a feed
 cannot announce during the run (`undelivered`, `not_generated`) and a
-recorder gap still open at the mission's end — with the nominal mission
-end (`TelemetryCore.mission_end`) as `DeclaredAt`, so that on a finished
-run the feed and `masks/gaps.csv` hold the same holes. Idempotent: a
-second call appends nothing. Returns the number of rows appended.
+recorder gap still open at the mission's end. On a finished run the feed and
+`masks/gaps.csv` then hold the same holes. Idempotent: a second call appends
+nothing. Returns the number of rows appended.
 """
 function settle_hole_feed!(run_dir::String)
     table = gap_table(run_dir)
@@ -561,13 +557,13 @@ end
 
 Expands one row of `masks/telemetry_mask_timeline.csv` (`event_idx`; `-1`
 selects the final snapshot) into a point-wise 0/1 availability array of
-`total_points` samples — 1 where the owning batch is on the ground
-(state 3); states 0 (future), 1 (onboard), 2 (link), and 4 (lost) stay 0, a
-lost batch never becoming available — and writes it as
-`Time_Index, Ground_Available` to `output_path` (with `safe_csv_write`
-rotation). Points per batch follow the run's own configuration snapshot.
-Returns the number of available points; throws an `ArgumentError` when the
-mask file is absent or `event_idx` lies outside the timeline.
+`total_points` samples, 1 where the owning batch is on the ground (state 3)
+and 0 in states 0 (future), 1 (onboard), 2 (link), and 4 (lost), and writes
+it as `Time_Index, Ground_Available` to `output_path` (with `safe_csv_write`
+rotation). Batch `k` owns the samples from `(k − 1) · points_per_batch + 1`,
+points per batch following the run's own configuration snapshot. Returns the
+number of available points; throws an `ArgumentError` when the mask file is
+absent or `event_idx` lies outside the timeline.
 """
 function expand_pointwise_mask(
     run_dir::String,

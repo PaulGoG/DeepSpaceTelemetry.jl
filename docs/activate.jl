@@ -1,16 +1,7 @@
-"""
-Activate and instantiate the documentation environment, silently.
-
-    julia -i docs/activate.jl
-
-Run this way it leaves a REPL with the environment active and its manifest
-instantiated; from an existing REPL, `include` it for the same effect. The
-first instantiation of an environment resolves and precompiles and is
-therefore slow; afterwards it is a no-op.
-
-Every entry point of this environment includes this file as its first
-statement, so running a script directly needs no preparation.
-"""
+# Activates and instantiates the documentation environment silently. Every
+# entry point of the environment includes it first; `julia -i docs/activate.jl`,
+# or `include` from a REPL, opens an interactive session in it. The first
+# instantiation resolves and precompiles and is slow; later ones are no-ops.
 
 using Pkg
 Pkg.activate(@__DIR__; io = devnull)

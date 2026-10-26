@@ -5,9 +5,9 @@ Publication figure export: every figure of a run re-rendered at a declared
 printed width in a vector format, into one directory with a provenance
 sidecar, so a manuscript's figure directory is populated from the run
 that produced the numbers ([`export_publication_figures`](@ref)). The
-figures are the same functions the post-processing renders — the export
-changes only the print scale ([`PlotTheme.style_for_width`](@ref)), the
-format, the destination, and the file-name suffix carrying the run ID.
+figures are drawn by the post-processing's own functions; the export changes
+only the print scale ([`PlotTheme.style_for_width`](@ref)), the format, the
+destination, and the file-name suffix carrying the run ID.
 """
 module Publication
 
@@ -21,14 +21,14 @@ using TOML: TOML
 """
     export_publication_figures(run_dir::String; format = "pdf", column_width_mm = 178.0, export_dir = "") -> Vector{String}
 
-Renders the mission summary, every session figure, the metrology figures,
-and the batch-state raster of the run at
-`column_width_mm` (the standard layout scaled as a whole to this printed
-width) in `format` (`"pdf"` or `"svg"`) into
-`export_dir` (default `<run_dir>/publication`), each file named
-`<stem>__<run_id>.<format>`, and writes `PROVENANCE.toml` beside them
-([`write_provenance`](@ref)). The metrology tables of the run are not
-rewritten. Returns the figure paths.
+Renders the mission summary, the session figures (as the run's configuration
+switches and caps them), and the figure products flagged in
+`post_processing.figures` (the metrology figures, the batch-state raster) at
+`column_width_mm`, the standard layout scaled as a whole to this printed
+width, in `format` (`"pdf"` or `"svg"`) into `export_dir` (default
+`<run_dir>/publication`). Each file is named `<stem>__<run_id>.<format>`, and
+`PROVENANCE.toml` is written beside them ([`write_provenance`](@ref)). The
+metrology tables of the run are not rewritten. Returns the figure paths.
 """
 function export_publication_figures(
     run_dir::String;

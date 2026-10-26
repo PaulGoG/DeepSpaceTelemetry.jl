@@ -1,18 +1,18 @@
 """
     RunAdapter
 
-The reference run adapter: the six questions a consumer asks of a run
-directory — geometry, batches, payload, arrivals, state, and the labeled
-intervals of the scenario — answered from the file contract alone (the
-configuration snapshot, the batch directories, `events_rx.csv`,
-`label_spans.csv`, the lifecycle sentinels), the same way for an active run
-followed through its arrival feed and for a finished one replayed from it.
-[`open_run`](@ref) checks the producer's version against
+Run adapter for consumers: the geometry, batches, payload, arrivals, state,
+and labeled intervals of the scenario of a run directory, read from the
+file contract alone (the configuration snapshot, the batch directories,
+`events_rx.csv`, `label_spans.csv`, the lifecycle sentinels), the same way
+for an active run followed through its arrival feed and for a finished one
+replayed from it. [`open_run`](@ref) checks the producer's version against
 [`MINIMUM_PRODUCER_VERSION`](@ref); [`GapTracker`](@ref) declares the holes
 of the delivered record as the feeds announce them, with the rules of
-[`DeepSpaceTelemetry.Masks.gap_table`](@ref), and [`declared_holes`](@ref)
-reads the producer's own feed, `holes.csv`. A consumer in another language reads the same
-files; the manual's Analysis Interfaces chapter is the contract.
+[`DeepSpaceTelemetry.Masks.gap_table`](@ref); [`declared_holes`](@ref) reads
+the producer's own feed, `holes.csv`. The contract is the Analysis
+Interfaces chapter of the manual; a consumer in another language reads the
+same files.
 """
 module RunAdapter
 
@@ -55,11 +55,7 @@ exact across generation gaps and emitter restarts.
 """
 const MINIMUM_PRODUCER_VERSION = v"2.1.0"
 
-"""
-    GAP_LABELS
-
-The `Batch` values of the generation-gap rows of `events_tx.csv`.
-"""
+# The `Batch` values of the generation-gap rows of `events_tx.csv`.
 const GAP_LABELS = ("STREAM", "SCHEDULED", "RECORDER")
 
 """
@@ -204,14 +200,14 @@ end
 """
     run_geometry(run::RunHandle) -> RunGeometry
 
-The first question: the run's [`RunGeometry`](@ref).
+The run's [`RunGeometry`](@ref).
 """
 run_geometry(run::RunHandle) = run.geometry
 
 """
     run_state(run::RunHandle) -> Symbol
 
-The fifth question, from the sentinels: `:complete`, `:aborted`, or
+The lifecycle state, from the sentinels: `:complete`, `:aborted`, or
 `:active` (the pipeline may still write).
 """
 function run_state(run::RunHandle)
@@ -269,7 +265,7 @@ end
 """
     list_batches(run::RunHandle) -> Vector{BatchRecord}
 
-The second question: every batch under `ground/` and `lost/`, sorted by
+Every batch under `ground/` and `lost/`, sorted by
 index, with its rows, content epoch, and state (a delivered batch whose
 payload the custodian removed is `:pruned`).
 """
@@ -361,7 +357,7 @@ end
     read_batch(run::RunHandle, name::AbstractString;
                column::Union{Integer,AbstractString} = 1) -> Vector{Float32}
 
-The third question: the samples of one payload column of one batch, by
+The samples of one payload column of one batch, by
 index or by name, its segments concatenated in ascending segment
 identifier, from `ground/` or, for a lost batch, from `lost/`
 ([`read_batch_matrix`](@ref) holds every column). For a one-column run the
@@ -391,7 +387,7 @@ end
 """
     arrival_events(run::RunHandle; after::Int = 0) -> Vector{ArrivalEvent}
 
-The fourth question: the rows of `events_rx.csv` in file order, which is
+The rows of `events_rx.csv` in file order, which is
 mission-time order, beyond the first `after` rows. A streaming consumer
 keeps the count of rows it has consumed and passes it here on every poll;
 the feed is append-only, and a batch's payload is in `ground/` before its
@@ -504,7 +500,9 @@ producer does rather than discovering it from the spacing of the content
 epochs. [`declare!`](@ref) returns the holes new since the last call;
 [`open_gaps`](@ref) lists the generation gaps that have opened and not
 closed. On a finished run one call declares the same lost, pruned, and
-generation-gap holes as [`DeepSpaceTelemetry.Masks.gap_table`](@ref); the undelivered and
+generation-gap holes as [`DeepSpaceTelemetry.Masks.gap_table`](@ref), except
+a generation gap still open at run end, which `gap_table` closes at the
+mission end and the tracker leaves in `open_gaps`; the undelivered and
 unreached rows of that table are end-of-run categories a feed cannot
 announce.
 """

@@ -1,14 +1,12 @@
-# Log follower for the dashboard terminals: prints a file from its start and
-# follows appends; waits for a file that does not exist yet and restarts from
-# the beginning when the file is truncated or rotated (retention.log_rotate_mb).
-# Pure Julia with no package dependency, so it does not include activate.jl
-# and the dashboard carries no shell-utility dependency.
+# Log follower of the dashboard terminals, so the dashboard needs no shell
+# utility. It has no package dependency and does not include activate.jl.
 """
     follow_log(path::AbstractString; poll_sec::Float64 = 0.2)
 
 Streams `path` to `stdout` indefinitely: existing content first, then every
 appended byte as it arrives. A missing file is awaited; a shrinking file
-(truncation or rotation) is re-read from the start.
+(truncation, or rotation under `retention.log_rotate_mb`) is re-read from
+the start.
 """
 function follow_log(path::AbstractString; poll_sec::Float64 = 0.2)
     offset = 0

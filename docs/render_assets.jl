@@ -13,62 +13,25 @@ using TOML
 # Run IDs are <PREFIX>_<SCENARIO>, the default prefix is DOCS. A completed run
 # of the same ID is reused, so a refresh at a new commit takes a new prefix or
 # a purge of the old runs with scripts/maintenance/cleanup.jl. Every scenario
-# runs on the tick clock (`--tick`), so the figures are reproducible to the
-# byte for the recorded commit and seed and the host's load plays no part.
-# ImageMagick (magick) must be on the PATH.
+# runs on the tick clock (`--tick`), so its figures are determined by the
+# recorded commit, seed, and platform, whatever the host's load. ImageMagick
+# (magick) must be on the PATH.
 
-"""
-Root of the package repository; child processes run here and recorded source
-paths are relative to it.
-"""
+# Child processes run in REPO; recorded source paths are relative to it.
 const REPO = normpath(joinpath(@__DIR__, ".."))
-
-"""
-Asset directory of the manual; the published files and `PROVENANCE.toml` live here.
-"""
-const ASSET_DIR = joinpath(@__DIR__, "src", "assets")
-
-"""
-Subdirectory of [`ASSET_DIR`](@ref) that receives the gallery files.
-"""
+const ASSET_DIR = joinpath(@__DIR__, "src", "assets") # published files, PROVENANCE.toml
 const GALLERY_SUBDIR = "gallery"
-
-"""
-Run-ID prefix used when none is given on the command line.
-"""
 const DEFAULT_PREFIX = "DOCS"
-
-"""
-Thread count of every child process.
-"""
-const RUN_THREADS = 3
-
-"""
-Published width of every PNG, in pixels.
-"""
+const RUN_THREADS = 3 # per child process
 const PNG_WIDTH_PX = 1400
-
-"""
-File name of the web-profile batch-routing animation inside `<run_dir>/plots/`.
-"""
-const WEB_ANIMATION = "telemetry_animation_web.gif"
-
-"""
-Series written by `scripts/maintenance/generate_example_strain.jl`, relative to
-the repository; the one external input this script generates when absent.
-"""
+const WEB_ANIMATION = "telemetry_animation_web.gif" # in <run_dir>/plots/
+# Written by scripts/maintenance/generate_example_strain.jl: the one external
+# input this script generates when absent.
 const EXAMPLE_SERIES = joinpath("data", "example_external_strain.csv")
-
-"""
-Accessor of the canonical run directory, `TelemetryCore.run_directory`.
-"""
 const run_directory = DeepSpaceTelemetry.TelemetryCore.run_directory
 
-"""
-Gallery table. Each entry names a scenario file stem under `scenarios/`, the
-stems of the figures taken from `<run_dir>/plots/` (PNG), and whether the
-web-profile batch-routing animation is published.
-"""
+# Per scenario: the file stem under scenarios/, the figure stems taken from
+# <run_dir>/plots/ (PNG), and whether the web-profile animation is published.
 const GALLERY = (
     (scenario = "nominal_8h", figures = ("mission_summary_global",), animation = false),
     (
@@ -127,8 +90,8 @@ const GALLERY = (
 """
     julia_command() -> Cmd
 
-Julia executable of the running session with [`RUN_THREADS`](@ref) threads and
-no startup file. Returns the command prefix shared by every child process.
+Julia executable of the running session with `RUN_THREADS` threads and no
+startup file: the command prefix shared by every child process.
 """
 function julia_command()
     julia = joinpath(Sys.BINDIR, Base.julia_exename())
@@ -221,7 +184,7 @@ end
 """
     publish_png(source::String, target::String) -> String
 
-Reduces a PNG run product to [`PNG_WIDTH_PX`](@ref) pixels wide with
+Reduces a PNG run product to `PNG_WIDTH_PX` pixels wide with
 ImageMagick, in full color: a reduced palette bands the fading wash of the
 recovery ramps. Returns `target`; throws when `source` is missing.
 """
@@ -395,9 +358,9 @@ function write_provenance(path::String, record::Dict{String,Any})
             # Provenance of the figures shown in README.md and in the manual. Written by
             # docs/render_assets.jl, which runs every listed scenario, reduces the run
             # products to the published size, and records each run and each file here.
-            # Every run is a tick-mode run (`--tick`): the realized totals are
-            # reproducible to the byte from the scenario, the seed, and the commit
-            # recorded with each run; the platform of each run is stated with it.
+            # Every run is a tick-mode run (`--tick`): its realized totals follow
+            # from the scenario, the seed, and the commit recorded with it, on the
+            # platform stated with it.
             """,
         )
         TOML.print(io, record; sorted = true)
@@ -409,7 +372,7 @@ end
     main(args) -> Nothing
 
 Runs every gallery scenario in order, then publishes the listed run products
-under [`ASSET_DIR`](@ref), warns about gallery files the table does not
+under `ASSET_DIR`, warns about gallery files the table does not
 produce, and writes `PROVENANCE.toml`. Throws on a malformed argument list or
 prefix.
 """

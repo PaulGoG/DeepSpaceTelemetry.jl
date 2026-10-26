@@ -1,9 +1,9 @@
 # Provenance of the figures shown in README.md and in the manual. Written by
 # docs/render_assets.jl, which runs every listed scenario, reduces the run
 # products to the published size, and records each run and each file here.
-# Every run is a tick-mode run (`--tick`): the realized totals are
-# reproducible to the byte from the scenario, the seed, and the commit
-# recorded with each run; the platform of each run is stated with it.
+# Every run is a tick-mode run (`--tick`): its realized totals follow
+# from the scenario, the seed, and the commit recorded with it, on the
+# platform stated with it.
 
 [assets."gallery/abstraction_gaussian_peak_mission_summary_global.png"]
 bytes = 346449

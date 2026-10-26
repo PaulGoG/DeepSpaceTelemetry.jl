@@ -35,6 +35,5 @@ DeepSpaceTelemetry.RunAdapter.declared_holes
 ## Internals
 
 ```@docs
-DeepSpaceTelemetry.RunAdapter.GAP_LABELS
 DeepSpaceTelemetry.RunAdapter.segment_files
 ```
