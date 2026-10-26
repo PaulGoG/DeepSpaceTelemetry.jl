@@ -1,11 +1,12 @@
 # TelemetryCore: clock and visibility models, configuration validation and accessors, storage governance, batch I/O.
 
-@testset "SimulationClock" begin
-    start = now()
-    clock = TelemetryCore.SimulationClock(start, start, 1.0)
-    sleep(0.05)
-    sim_t = TelemetryCore.get_current_sim_time(clock)
-    @test sim_t > start
+@testset "TickClock pacing fields" begin
+    start = DateTime(2035, 1, 1, 6)
+    clock = TelemetryCore.TickClock(start, start + Hour(1); pace = 2.0)
+    @test clock.pace == 2.0
+    @test_throws ArgumentError TelemetryCore.TickClock(start, start + Hour(1); pace = 0.0)
+    @test_throws ArgumentError TelemetryCore.TickClock(start, start + Hour(1); pace = -1.0)
+    @test TelemetryCore.TickClock(start, start + Hour(1)).pace === nothing
 end
 
 @testset "VisibilityModel" begin
@@ -210,13 +211,6 @@ end
 end
 
 @testset "Config validation: warnings" begin
-    # Emitter pacing: 60 s segments at 10^6× → 0.06 ms real period
-    cfg = valid_test_cfg()
-    cfg["simulation"]["speed_up"] = 1.0e6
-    @test_logs (:warn, r"cannot keep pace") match_mode=:any TelemetryCore.validate_config(
-        cfg,
-    )
-
     # Disruption scheduled after mission end never fires
     cfg = valid_test_cfg()
     cfg["disruption"] =
@@ -689,16 +683,6 @@ end
         @test isfile(joinpath(tmp, "res#2.csv"))
         @test TelemetryCore.read_table(p).a == [3]
         @test TelemetryCore.read_table(joinpath(tmp, "res#1.csv")).a == [1]
-    end
-end
-
-@testset "Thread advisory" begin
-    advisory = TelemetryCore.thread_advisory()
-    if Threads.nthreads() >= 2
-        @test advisory === nothing
-    else
-        @test advisory isa String
-        @test occursin("single Julia thread", advisory)
     end
 end
 

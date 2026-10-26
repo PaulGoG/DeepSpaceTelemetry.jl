@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "nominal_8h": nominal operations: 7 days, 8 h passes on the physical rate pair, 1 % Bernoulli loss, no backlog, no disruptions.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/nominal_8h.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/nominal_8h.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

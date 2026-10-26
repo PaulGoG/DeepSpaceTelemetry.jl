@@ -12,7 +12,6 @@ DeepSpaceTelemetry.Supervisor.stamp_external_provenance!
 DeepSpaceTelemetry.Supervisor.record_generation_gap!
 DeepSpaceTelemetry.Supervisor.log_component_event!
 DeepSpaceTelemetry.Supervisor.apply_failure_policy!
-DeepSpaceTelemetry.Supervisor.supervise!
 DeepSpaceTelemetry.Supervisor.supervise_ticks!
 DeepSpaceTelemetry.Supervisor.build_instrument
 DeepSpaceTelemetry.Supervisor.component_spawners
@@ -26,7 +25,6 @@ DeepSpaceTelemetry.Supervisor.mission_ended
 DeepSpaceTelemetry.Supervisor.complete_run
 DeepSpaceTelemetry.Supervisor.contact_summary
 DeepSpaceTelemetry.Supervisor.print_banner
-DeepSpaceTelemetry.Supervisor.warm_up_components!
 DeepSpaceTelemetry.Supervisor.execute_mission!
 DeepSpaceTelemetry.Supervisor.run_mission
 ```

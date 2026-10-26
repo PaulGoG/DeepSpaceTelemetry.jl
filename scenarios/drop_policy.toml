@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "drop_policy": drop policy: 3 days on the physical rate pair, 20 % Bernoulli loss without retransmission, one partial outage.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/drop_policy.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/drop_policy.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

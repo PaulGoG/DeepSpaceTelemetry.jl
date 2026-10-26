@@ -11,8 +11,7 @@ module Receiver
 
 using ..TelemetryCore
 using ..ChannelEffects
-using Dates: DateTime, Millisecond, Second, now
-using FileWatching: watch_folder
+using Dates: DateTime, Millisecond, now
 
 """
     delivered_payload_queue(run_dir::String, ground_path::String)
@@ -56,41 +55,24 @@ end
 """
     ServicePacer
 
-The running completion deadline of the receiver's download slot: `wall`
-seconds under a [`TelemetryCore.SimulationClock`](@ref), the mission
-instant `sim` under a [`TelemetryCore.TickClock`](@ref). Completions are
-paced against it so that the loop's own overhead (directory scans, the
-metrics row, the file moves) is absorbed into the slot rather than added to
-each one.
+The running completion instant `sim` of the receiver's download slot on the
+mission timeline of the [`TelemetryCore.TickClock`](@ref). Consecutive slots
+are chained against it ([`serve_slot!`](@ref)), so back-to-back transfers
+follow one another at the modeled rate.
 """
 mutable struct ServicePacer
-    wall::Float64
     sim::DateTime
 end
 
 """
-    serve_slot!(pacer::ServicePacer, clock::TelemetryCore.MissionClock, slot_sim_sec::Real)
+    serve_slot!(pacer::ServicePacer, clock::TelemetryCore.TickClock, slot_sim_sec::Real)
 
 Waits out one download slot of `slot_sim_sec` mission seconds. The slot
 starts when the previous one completed, or now after an idle stretch of at
-least one slot. On the wall clock the slot is `slot_sim_sec / speed_up`
-wall seconds, floored at [`TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC`](@ref);
-a completion deadline still in the past after chaining means the host
-cannot keep the modeled rate, and the loop yields instead of sleeping. On
-the tick clock the slot elapses as mission time exactly.
+least one slot, and the task parks on the tick clock until it ends
+([`TelemetryCore.wait_until!`](@ref)), so the slot elapses as mission time
+exactly.
 """
-function serve_slot!(
-    pacer::ServicePacer,
-    clock::TelemetryCore.SimulationClock,
-    slot_sim_sec::Real,
-)
-    effective = max(TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC, slot_sim_sec / clock.speed_up)
-    now_wall = time()
-    pacer.wall = (now_wall - pacer.wall >= effective ? now_wall : pacer.wall) + effective
-    wait_sec = pacer.wall - time()
-    wait_sec > 0.0 ? sleep(wait_sec) : yield()
-    return nothing
-end
 function serve_slot!(
     pacer::ServicePacer,
     clock::TelemetryCore.TickClock,
@@ -104,19 +86,12 @@ function serve_slot!(
 end
 
 """
-    idle_wait!(clock::TelemetryCore.MissionClock, link_path::String)
+    idle_wait!(clock::TelemetryCore.TickClock, link_path::String)
 
-The receiver's wait while nothing is on the link: on the wall clock a
-filesystem watch of `link_path` capped at
-[`TelemetryCore.RECEIVER_POLL_INTERVAL_SEC`](@ref); on the tick clock a
-park until another component has run
-([`TelemetryCore.wait_for_change!`](@ref)), since the link changes only
-when the emitter does.
+The receiver's wait while nothing is on the link: a park on the tick clock
+until another component has run ([`TelemetryCore.wait_for_change!`](@ref)),
+since the link changes only when the emitter does.
 """
-function idle_wait!(::TelemetryCore.SimulationClock, link_path::String)
-    watch_folder(link_path, TelemetryCore.RECEIVER_POLL_INTERVAL_SEC)
-    return nothing
-end
 idle_wait!(clock::TelemetryCore.TickClock, ::String) =
     TelemetryCore.wait_for_change!(clock; priority = TelemetryCore.RECEIVER_PRIORITY)
 
@@ -131,6 +106,13 @@ taking `batch_transfer_sec` divided by the effective link capacity
 and retry-exhausted ones to `lost/`. Every milestone is appended to
 `events_rx.csv`, from which the post-processing reconstructs the run
 exactly.
+
+`clock` is the [`TelemetryCore.TickClock`](@ref) of the mission, paced or
+not: in wall mode the driver ([`TelemetryCore.run_ticks!`](@ref)) holds each
+wakeup back to its wall instant, which changes when the loop runs but not
+what it records. Every wait parks the task on the clock, and the loop ends
+at the horizon ([`TelemetryCore.horizon_reached`](@ref)), on the stop flag,
+or on the `HALT` sentinel.
 
 A lost transfer leaves the batch on the link; its retransmission is served
 no earlier than `round_trip_light_time_sec` after the loss was detected
@@ -163,12 +145,7 @@ materialized on watermark breach ([`delivered_payload_queue`](@ref)).
   - `max_retries`: retransmissions allowed per batch; `0` moves a batch to
     `lost/` at its first failed transfer.
   - `retention`: the custodian's [`TelemetryCore.RetentionPolicy`](@ref).
-  - `deadline`: absolute wall-clock stop shared by both components (wall
-    clock); under a [`TelemetryCore.TickClock`](@ref) the loop ends at the
-    horizon instead and every wait parks the task on the logical clock.
   - `stop`: cooperative stop flag raised by the supervisor.
-  - `heartbeat_path`: liveness file touched every
-    [`TelemetryCore.HEARTBEAT_INTERVAL_MS`](@ref) when set; removed on exit.
   - `min_link_factor`: capacity floor below which no transfer is attempted.
   - `round_trip_light_time_sec`: earliest retransmission delay after a
     detected loss [mission s]; `0.0` retries immediately.
@@ -176,7 +153,7 @@ materialized on watermark breach ([`delivered_payload_queue`](@ref)).
     pruned batches to, `nothing` for none.
 """
 function run_receiver(
-    clock::TelemetryCore.MissionClock,
+    clock::TelemetryCore.TickClock,
     link::ChannelEffects.LinkModel,
     run_id::String;
     orig_stdout::IO = stdout,
@@ -187,9 +164,7 @@ function run_receiver(
     retention::TelemetryCore.RetentionPolicy = TelemetryCore.retention_settings(
         Dict{String,Any}(),
     ),
-    deadline::Union{DateTime,Nothing} = nothing,
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
-    heartbeat_path::Union{String,Nothing} = nothing,
     min_link_factor::Float64 = 0.05,
     round_trip_light_time_sec::Float64 = 0.0,
     hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
@@ -202,7 +177,6 @@ function run_receiver(
     foreach(mkpath, (link_path, onboard_path, ground_path, lost_path)) # idempotent
 
     halt_path = joinpath(run_dir, "HALT")
-    last_heartbeat = now() - Second(2)
 
     last_onboard = -1
     last_link = -1
@@ -280,7 +254,7 @@ function run_receiver(
 
     @info "[RECEIVER] Ground-station loop started."
 
-    pacer = ServicePacer(time(), TelemetryCore.get_current_sim_time(clock))
+    pacer = ServicePacer(TelemetryCore.get_current_sim_time(clock))
 
     try
         while true
@@ -292,15 +266,7 @@ function run_receiver(
                 @info "[RECEIVER] HALT sentinel detected. Shutting down."
                 break
             end
-            if deadline !== nothing && now() >= deadline
-                break
-            end
             TelemetryCore.horizon_reached(clock) && break
-            if heartbeat_path !== nothing &&
-               (now() - last_heartbeat).value >= TelemetryCore.HEARTBEAT_INTERVAL_MS
-                touch(heartbeat_path)
-                last_heartbeat = now()
-            end
 
             sim_t = TelemetryCore.get_current_sim_time(clock)
             nominal_factor = TelemetryCore.get_bandwidth_factor(link.visibility, sim_t)
@@ -523,14 +489,12 @@ function run_receiver(
                     end
                 end
             elseif !isempty(pending_batches) && bw_factor > min_link_factor
-                # Every in-flight batch awaits its round trip: sleep until the
-                # earliest becomes eligible, capped at the poll interval.
+                # Every in-flight batch awaits its round trip: park until the
+                # earliest becomes eligible or another component has run.
                 earliest = minimum(get(retry_after, f, sim_t) for f in pending_batches)
                 TelemetryCore.wait_until_or_change!(
                     clock,
                     earliest;
-                    floor_sec = TelemetryCore.RECEIVER_SLEEP_FLOOR_SEC,
-                    cap_sec = TelemetryCore.RECEIVER_POLL_INTERVAL_SEC,
                     priority = TelemetryCore.RECEIVER_PRIORITY,
                 )
             else
@@ -538,9 +502,6 @@ function run_receiver(
             end
         end
     finally
-        # Heartbeat exists only while the loop runs: removing it tells the
-        # watchdog this component finished rather than stalled.
-        heartbeat_path !== nothing && rm(heartbeat_path; force = true)
         status_panel && println(orig_stdout, "\n")
     end
 end

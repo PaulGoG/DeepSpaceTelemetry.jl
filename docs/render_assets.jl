@@ -22,7 +22,7 @@ const REPO = normpath(joinpath(@__DIR__, ".."))
 const ASSET_DIR = joinpath(@__DIR__, "src", "assets") # published files, PROVENANCE.toml
 const GALLERY_SUBDIR = "gallery"
 const DEFAULT_PREFIX = "DOCS"
-const RUN_THREADS = 3 # per child process
+const RUN_THREADS = 1 # per child process: the tick driver runs on one thread
 const PNG_WIDTH_PX = 1400
 const WEB_ANIMATION = "telemetry_animation_web.gif" # in <run_dir>/plots/
 # Written by scripts/maintenance/generate_example_strain.jl: the one external

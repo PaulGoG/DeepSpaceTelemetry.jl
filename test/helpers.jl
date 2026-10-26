@@ -52,6 +52,47 @@ function assert_clean_run(run_dir::AbstractString; faults::Bool = false)
 end
 
 """
+    drive_components(clock; emitter, receiver, should_stop) -> Nothing
+
+Runs one emitter and one receiver on the tick driver until the clock's
+horizon (or a HALT). `emitter(clock)` and `receiver(clock)` are closures
+that call `Emitter.run_emitter` / `Receiver.run_receiver` with their test
+keywords; a `nothing` closure skips that component. `should_stop` is
+forwarded to `run_ticks!`, which ends a pacing sleep once it holds.
+"""
+function drive_components(
+    clock::TelemetryCore.TickClock;
+    emitter = nothing,
+    receiver = nothing,
+    should_stop = () -> false,
+)
+    tasks = Dict{Symbol,Task}()
+    emitter === nothing || (
+        tasks[:emitter] = TelemetryCore.tick_spawn(
+            clock,
+            TelemetryCore.EMITTER_PRIORITY,
+            () -> with_logger(NullLogger()) do
+                emitter(clock)
+            end,
+        )
+    )
+    receiver === nothing || (
+        tasks[:receiver] = TelemetryCore.tick_spawn(
+            clock,
+            TelemetryCore.RECEIVER_PRIORITY,
+            () -> with_logger(NullLogger()) do
+                receiver(clock)
+            end,
+        )
+    )
+    TelemetryCore.run_ticks!(clock, tasks; should_stop = should_stop)
+    for t in values(tasks)
+        istaskfailed(t) && wait(t) # rethrow a component failure into the test
+    end
+    return nothing
+end
+
+"""
     ramp_alignment(run_dir, origin, sample_rate) -> NamedTuple
 
 Checks every batch directory of `run_dir` against a ramp payload, the value

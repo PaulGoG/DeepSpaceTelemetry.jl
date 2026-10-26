@@ -22,9 +22,10 @@ a single telemetry run.
    A consumer developed against an accelerated run (`speed_up = 3600`)
    works unchanged against a real-time run (`speed_up = 1.0`) or a tick-mode
    run (`simulation.mode = "tick"`); only the wall-clock arrival cadence
-   differs, and a tick-mode run writes no heartbeats and no wall deadline.
-   Development runs accelerated or on the tick clock (Reproducibility
-   below); rehearsal runs at mission cadence.
+   differs. Both modes write the heartbeats and the anchor's horizon; a
+   wall run adds its speed-up and nominal wall deadline. Development runs
+   accelerated or on the tick clock (Reproducibility below); rehearsal runs
+   at mission cadence.
 4. **`config_snapshot.toml` is the only source of derived quantities.**
    Sample rates, segment/batch geometry, and session parameters are read from
    the run's own snapshot, never from the live `config.toml`.
@@ -86,9 +87,9 @@ what a streaming consumer saw (The arrival stream, replayed, below).
 | `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters and the `[provenance]` section ([Snapshot provenance](@ref)). |
 | `manifest_snapshot.toml` | pipeline (at startup) | Read. The manifest of the environment the run was resolved on: the exact version of every dependency. Manifests are not tracked in the repository, so this file and the source identity in `config_snapshot.toml` together fix the code state. |
 | `RUN_ACTIVE` / `RUN_POSTPROCESSING` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
-| `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor: `mode`, `wall_epoch`, `start_sim_time`, and, for a wall-mode run, `speed_up` and the absolute deadline `deadline_wall`, for a tick-mode run the mission end `horizon_sim`; re-attaching components reconstruct the identical clock from it. |
-| `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` one of `down`, `restart`, `stalled`, `recovered`. |
-| `emitter_alive` / `receiver_alive` | components (heartbeats, wall mode only) | Read mtime. Liveness signals, refreshed ≈ 1 s while a component runs and deleted when it exits: absence means finished, a stale mtime means stalled. A tick-mode run writes none. |
+| `clock_anchor.toml` | pipeline (at mission start) | Read. Persisted mission-clock anchor: `mode`, `wall_epoch`, `start_sim_time`, the mission end `horizon_sim`, and, for a wall-mode run, `speed_up` and the nominal wall deadline `deadline_wall` (anchors of wall runs before 2.8.0 carry no `horizon_sim`). |
+| `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` `down` or `restart` (runs before 2.8.0 may also hold `stalled` and `recovered`). |
+| `emitter_alive` / `receiver_alive` | the driver (heartbeats, both modes) | Read mtime. Liveness signals, refreshed at most once per second while the mission phase runs and deleted when it ends: absence means finished, a stale mtime means the driver is stalled. |
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run, columns `SimTime, Label, PayloadRow` (`PayloadRow`, the payload row of the instant, since 2.5.0): the instants at which the alert-latency metric is evaluated (`alert_latency_markers.csv`). Absent when the scenario declares no markers. |
 | `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid (since 2.6.0), columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd`, rows as in `masks/gaps.csv`. `Class` is `label` (a `[[labels]]` span a payload exporter declares in payload rows), `blackout` or `recovery` (the phases of a link disruption, `Type` the event type), `generation_gap` (a scheduled generation gap as configured, `Type` the event type; the realized gap of the gap table may differ by the segment-grid snap), `contact` (`Type = pass`), `low_latency` (`Type = triggered` for a marker's period, `scheduled` otherwise), or `initial_downtime`. A consumer reads the labels of a scenario from the run directory, not from the scenario file. |
 | `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema`, `run_id`, the producer's `package_version` and source identity (the fields of Source identity), `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry (`sample_rate`, `segment_duration_sec`, `batch_size`, `points_per_batch`), `payload_columns`, the external record's `external_data_sha256` and `external_data_rows`, `written_at`, and under `[products]` the `bytes` and `sha256` of every table present. |
@@ -237,19 +238,19 @@ come first; `descriptor.toml` comes last.
 The terminal sentinels are written by the supervisor process as it leaves.
 A process killed from outside (by the kernel's out-of-memory handler, by a
 scheduler at its time limit) leaves `RUN_ACTIVE` behind with no process to
-remove it. Such a directory is a stranded run, not a live one: its deadline
-in `clock_anchor.toml` has passed and nothing writes to it. It is settled
-with
+remove it. Such a directory is a stranded run, not a live one: its
+heartbeats are stale and nothing writes to it. It is settled with
 ```bash
-julia --threads=3 scripts/postprocessing/complete_run.jl <RUN_ID>
+julia scripts/postprocessing/complete_run.jl <RUN_ID>
 ```
 which runs the post-processing again from the data on disk, with the
 settings of the run's own snapshot, and replaces `RUN_ACTIVE` by
 `RUN_COMPLETE` when the mission phase had ended, or by `RUN_ABORTED` when
-the process died before the mission deadline and the record is truncated.
-The mission phase counts as ended when `RUN_POSTPROCESSING` is present; for
-a run made before that sentinel existed, when the metrics profile reaches
-the deadline. The script refuses a run whose deadline has not passed and,
+the process died before the horizon and the record is truncated. The
+mission phase counts as ended when `RUN_POSTPROCESSING` is present; for a
+run made before that sentinel existed, when the last metrics row reaches
+the anchor's `horizon_sim` (for anchors without one, the wall deadline).
+The script refuses a wall run whose nominal deadline has not passed and,
 without `--force`, a directory written to within the last minute.
 
 ## Component Outages & Generation Gaps
@@ -392,9 +393,9 @@ A streaming consumer follows an active run through its arrival feed. The
 loop has five parts: attach, follow the feed, maintain coverage, treat the
 holes, and leave when the run ends.
 
-**Attach.** Check that `RUN_ACTIVE` exists and, in a wall-mode run, that
-`receiver_alive` is fresh (its mtime refreshes about once per wall second;
-a tick-mode run writes no heartbeats). Then read once:
+**Attach.** Check that `RUN_ACTIVE` exists and that `receiver_alive` is
+fresh (its mtime refreshes about once per wall second in both modes). Then
+read once:
 
 * `config_snapshot.toml`: the geometry from `[physics]` (`sample_rate`,
   `segment_duration_sec`, `batch_size`, hence `points_per_batch`), the
@@ -404,8 +405,9 @@ a tick-mode run writes no heartbeats). Then read once:
   the producer pads with zeros.
 * `clock_anchor.toml`, if the consumer paces itself against mission time:
   `wall_epoch`, `start_sim_time`, and `speed_up` convert a wall instant to a
-  mission instant, and `deadline_wall` is when the mission phase ends (a
-  tick-mode anchor carries `horizon_sim` instead of the last two).
+  mission instant, `horizon_sim` is the mission end and `deadline_wall` its
+  nominal wall instant (a tick-mode anchor carries neither of the last
+  two wall quantities).
 * `label_spans.csv`, present from mission start: the labeled intervals of
   the scenario on the payload grid.
 
@@ -467,8 +469,8 @@ components have stopped; the payload, the event logs, and
 `mission_profile.csv` are then final ([Availability Window & Lifecycle Sentinels](@ref)).
 `RUN_COMPLETE` or `RUN_ABORTED` replaces `RUN_ACTIVE` when the lifecycle
 ends; either is the signal to finish as a stationary consumer. A run whose
-deadline has passed, whose heartbeats are stale, and which still shows
-`RUN_ACTIVE` is stranded, not live; `complete_run.jl` settles it. The
+heartbeats are stale and which still shows `RUN_ACTIVE` is stranded, not
+live; `complete_run.jl` settles it. The
 end-of-run rows of `holes.csv` land during post-processing, so read the
 feed once more after the terminal sentinel.
 

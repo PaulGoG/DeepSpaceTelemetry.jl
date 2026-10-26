@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "long_30d_seasonal": long horizon: 30 days from 20 July at 7200× on the physical rate pair with the seasonal window, missed and shortened passes, a 12-day contact gap, five disruptions, two markers.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/long_30d_seasonal.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/long_30d_seasonal.toml
 
 [simulation]
 speed_up = 7200.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

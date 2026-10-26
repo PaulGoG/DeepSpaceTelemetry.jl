@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry default configuration: a copy of scenarios/recovery_12h_seasonal.toml, the reference scenario (see scenarios/README.md).
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID]
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID]
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

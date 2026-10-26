@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "long_segments_2400s": long segments: 7 days on the physical rate pair with 2400 s segments, 1 % Bernoulli loss, no disruptions.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/long_segments_2400s.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/long_segments_2400s.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

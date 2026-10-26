@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "external_ingest": external ingestion: 2 days on the physical rate pair reading the generated example strain series (16 Hz), 1 % Bernoulli loss, no disruptions.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/external_ingest.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/external_ingest.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

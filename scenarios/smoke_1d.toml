@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "smoke_1d": smoke run: half a mission day in 12 s wall-clock on the physical rate pair, 1 % Bernoulli loss, 6 h backlog, no disruptions.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/smoke_1d.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/smoke_1d.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

@@ -62,13 +62,9 @@ jobs:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
-      # The emitter and the receiver run as concurrent tasks paced against
-      # the wall clock; on a single thread one component stalls the other.
       - uses: julia-actions/julia-runtest@v1
         with:
           coverage: ${{ matrix.coverage }}
-        env:
-          JULIA_NUM_THREADS: 3
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.coverage
       - uses: codecov/codecov-action@v7

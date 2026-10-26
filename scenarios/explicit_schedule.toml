@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "explicit_schedule": explicit pass schedule: 7 days on the physical rate pair with a missed, a shortened, and an extended pass, bursty loss, one repointing gap.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/explicit_schedule.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/explicit_schedule.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

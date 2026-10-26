@@ -15,7 +15,7 @@
 
 ## Tests and static analysis
 
-- Run `julia --threads=3 test/runtests.jl`. The suite includes the Aqua, JET,
+- Run `julia test/runtests.jl`. The suite includes the Aqua, JET,
   and ExplicitImports checks and four integration missions, and takes about
   four minutes.
 - CI runs the suite on Linux for Julia 1.12 (the compat floor), the current

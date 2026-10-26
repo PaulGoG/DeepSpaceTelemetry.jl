@@ -35,42 +35,44 @@ end
 end
 
 @testset "Supervisor policies (synthetic components)" begin
-    policy(p; restarts = 2, watchdog = 0.3) =
-        (on_component_failure = p, max_restarts = restarts, watchdog_sec = watchdog)
-    clock = TelemetryCore.SimulationClock(now(), DateTime(2035), 1.0)
+    policy(p; restarts = 2) =
+        (on_component_failure = p, max_restarts = restarts, watchdog_sec = 30.0)
+    new_clock() = TelemetryCore.TickClock(DateTime(2035), DateTime(2035) + Hour(1))
     events(dir) = TelemetryCore.read_table(joinpath(dir, "component_events.csv"))
+    # A failing component errors after its first park; a healthy one parks
+    # once per mission minute until the horizon or the stop flag.
+    failing(clock, message) =
+        () -> begin
+            TelemetryCore.wait_until!(clock, clock.now_sim + Minute(1))
+            error(message)
+        end
+    healthy(clock, stop) =
+        () -> begin
+            while !stop[] && !TelemetryCore.horizon_reached(clock)
+                TelemetryCore.wait_until!(clock, clock.now_sim + Minute(1))
+            end
+            :stopped
+        end
     # The [SUPERVISOR] failure and policy records go to the active logger.
     with_logger(NullLogger()) do
         mktempdir() do tmp
             # abort: a failure raises the stop flag and the partner stops.
             dir = mkpath(joinpath(tmp, "abort"))
             stop = Threads.Atomic{Bool}(false)
-            heartbeats = Dict{Symbol,String}(
-                :a => joinpath(dir, "a_alive"),
-                :b => joinpath(dir, "b_alive"),
-            )
+            clock = new_clock()
             spawners = Dict{Symbol,Function}(
-                :a => attempt -> Threads.@spawn(begin
-                    sleep(0.2)
-                    error("component a failed")
-                end),
-                :b => attempt -> Threads.@spawn(begin
-                    while !stop[]
-                        sleep(0.02)
-                    end
-                    :stopped
-                end),
+                :a =>
+                    attempt -> TelemetryCore.tick_spawn(
+                        clock,
+                        0,
+                        failing(clock, "component a failed"),
+                    ),
+                :b =>
+                    attempt -> TelemetryCore.tick_spawn(clock, 0, healthy(clock, stop)),
             )
             t0 = time()
-            counts = Supervisor.supervise!(
-                spawners,
-                dir,
-                clock,
-                stop,
-                heartbeats,
-                policy("abort");
-                poll_sec = 0.05,
-            )
+            counts =
+                Supervisor.supervise_ticks!(spawners, dir, clock, stop, policy("abort"))
             @test stop[] && time() - t0 < 5.0
             @test counts == Dict(:a => 0, :b => 0)
             ev = events(dir)
@@ -79,22 +81,25 @@ end
             # restart: the failed component is relaunched after the hook ran.
             dir = mkpath(joinpath(tmp, "restart"))
             stop = Threads.Atomic{Bool}(false)
+            clock = new_clock()
             hook_calls = Tuple{Symbol,Int}[]
             spawners = Dict{Symbol,Function}(
                 :a =>
-                    attempt -> Threads.@spawn(
-                        attempt == 0 ? error("first launch fails") : sleep(0.05)
+                    attempt -> TelemetryCore.tick_spawn(
+                        clock,
+                        0,
+                        attempt == 0 ? failing(clock, "first launch fails") :
+                        healthy(clock, stop),
                     ),
-                :b => attempt -> Threads.@spawn(sleep(0.05)),
+                :b =>
+                    attempt -> TelemetryCore.tick_spawn(clock, 0, healthy(clock, stop)),
             )
-            counts = Supervisor.supervise!(
+            counts = Supervisor.supervise_ticks!(
                 spawners,
                 dir,
                 clock,
                 stop,
-                heartbeats,
                 policy("restart");
-                poll_sec = 0.05,
                 on_restart = (name, attempt) -> push!(hook_calls, (name, attempt)),
             )
             @test counts[:a] == 1 && counts[:b] == 0 && !stop[]
@@ -105,47 +110,22 @@ end
             # continue: the partner keeps running one-sided.
             dir = mkpath(joinpath(tmp, "continue"))
             stop = Threads.Atomic{Bool}(false)
+            clock = new_clock()
             spawners = Dict{Symbol,Function}(
-                :a => attempt -> Threads.@spawn(error("down for good")),
-                :b => attempt -> Threads.@spawn(sleep(0.4)),
+                :a =>
+                    attempt -> TelemetryCore.tick_spawn(
+                        clock,
+                        0,
+                        failing(clock, "down for good"),
+                    ),
+                :b =>
+                    attempt -> TelemetryCore.tick_spawn(clock, 0, healthy(clock, stop)),
             )
-            counts = Supervisor.supervise!(
-                spawners,
-                dir,
-                clock,
-                stop,
-                heartbeats,
-                policy("continue");
-                poll_sec = 0.05,
-            )
+            counts =
+                Supervisor.supervise_ticks!(spawners, dir, clock, stop, policy("continue"))
             @test !stop[] && counts[:a] == 0
             ev = events(dir)
             @test all(==("down"), ev.Event) && nrow(ev) == 1
-
-            # watchdog: a silent heartbeat is recorded as stalled, then recovered.
-            dir = mkpath(joinpath(tmp, "watchdog"))
-            stop = Threads.Atomic{Bool}(false)
-            spawners = Dict{Symbol,Function}(
-                :a => attempt -> Threads.@spawn(begin
-                    touch(heartbeats[:a])
-                    sleep(1.0) # silent for longer than the watchdog threshold
-                    touch(heartbeats[:a])
-                    sleep(0.2) # heartbeat fresh again, observed by at least one poll
-                    rm(heartbeats[:a]; force = true)
-                end),
-                :b => attempt -> Threads.@spawn(sleep(0.05)),
-            )
-            Supervisor.supervise!(
-                spawners,
-                dir,
-                clock,
-                stop,
-                heartbeats,
-                policy("abort"; watchdog = 0.3);
-                poll_sec = 0.05,
-            )
-            ev = events(dir)
-            @test [String(e) for e in ev[ev.Component .== "a", :Event]] == ["stalled", "recovered"]
         end
     end
 end
@@ -183,6 +163,7 @@ end
             ),],
         )
         run_id = "TEST_RUN_mission_pid$(getpid())"
+        tick_id = "TEST_RUN_mission_tick_pid$(getpid())"
         # mission_plan leaves the caller's configuration untouched: the
         # provenance stamp lands on the plan's own copy.
         original = deepcopy(cfg)
@@ -216,6 +197,17 @@ end
             @test !isfile(joinpath(run_dir, "component_events.csv"))
             tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
             @test count(==("gen"), tx.Event) > 5
+            # The paced run and the unpaced run of the same configuration
+            # write the same transmission log.
+            tick_dir = with_logger(NullLogger()) do
+                Supervisor.run_mission(
+                    TelemetryCore.tick_configuration(cfg);
+                    run_id = tick_id,
+                    orig_stdout = devnull,
+                )
+            end
+            @test read(joinpath(tick_dir, "events_tx.csv"), String) ==
+                  read(joinpath(run_dir, "events_tx.csv"), String)
             scheduled = tx[tx.Batch .== "SCHEDULED", :]
             @test String.(scheduled.Event) == ["gap_start", "gap_end"]
             @test DateTime(scheduled.SimTime[2]) == DateTime(2035, 1, 1, 6, 44, 36)
@@ -294,23 +286,25 @@ end
                 read(joinpath(run_dir, "supervisor.log"), String),
             )
             # Without the sentinel, as in a run of an earlier version, the
-            # verdict comes from the record: the profile reaches the deadline.
+            # verdict comes from the record: the profile reaches the horizon.
             strand!(false)
             complete(true)
             @test isfile(joinpath(run_dir, "RUN_COMPLETE"))
-            # A profile that stops well before the deadline is a mission that
+            # A profile that stops well before the horizon is a mission that
             # did not end: the products are computed, the run is aborted.
             # The profile is written on state and bandwidth changes, so a
-            # short mission holds few rows, and on a loaded host the first
-            # may fall within the tolerance of the deadline; the kept row is
-            # therefore stamped at the clock's start.
+            # short mission holds few rows, and the first may fall within the
+            # tolerance of the horizon; the kept row is therefore stamped at
+            # the clock's start, in mission and in wall time.
             strand!(false)
             profile = joinpath(run_dir, "mission_profile.csv")
             rows = readlines(profile)
-            column = findfirst(==("WallTime"), strip.(split(rows[1], ',')))
+            header = strip.(split(rows[1], ','))
             fields = split(rows[2], ',')
             anchor = TelemetryCore.load_clock_anchor(run_dir)
-            fields[column] = string(anchor.clock.start_real_time)
+            @test anchor.horizon !== nothing && anchor.deadline_wall !== nothing
+            fields[findfirst(==("SimTime"), header)] = string(anchor.start_sim_time)
+            fields[findfirst(==("WallTime"), header)] = string(anchor.wall_epoch)
             write(profile, rows[1] * "\n" * join(fields, ',') * "\n")
             @test !Supervisor.mission_ended(run_dir, anchor)
             complete(true)
@@ -321,13 +315,14 @@ end
             @test nrow(TelemetryCore.read_hole_feed(run_dir)) == n_feed
         finally
             rm(run_dir; recursive = true, force = true)
+            rm(TelemetryCore.run_directory(tick_id); recursive = true, force = true)
         end
     end
 end
 
 @testset "Emitter restart through the supervisor (external payload)" begin
-    # The production restart path: the first emitter fails after 2 s, the
-    # supervisor records the STREAM gap and spawns a replacement with the
+    # The production restart path: the first emitter fails after two mission
+    # minutes, the supervisor records the STREAM gap and spawns a replacement with the
     # payload origin of the first start. Geometry of the consumer report
     # (0.2 Hz, 50 s segments, 10 per batch), ramp payload.
     mktempdir() do tmp
@@ -369,49 +364,54 @@ end
                     batch_size = plan.physics.batch_size,
                 )
             end
-            clock = TelemetryCore.SimulationClock(now(), plan.start_sim, plan.speed_up)
-            stop_flag = Threads.Atomic{Bool}(false)
-            heartbeats = Dict{Symbol,String}(
-                :emitter => joinpath(run_dir, "emitter_alive"),
-                :receiver => joinpath(run_dir, "receiver_alive"),
+            # The former 5 s wall budget at the plan's speed-up.
+            clock = TelemetryCore.TickClock(
+                plan.start_sim,
+                plan.start_sim + Second(5 * round(Int, plan.speed_up)),
             )
+            stop_flag = Threads.Atomic{Bool}(false)
             loggers = (
                 Supervisor.CleanFileLogger(joinpath(run_dir, "emitter.log"), 10^8),
                 Supervisor.CleanFileLogger(joinpath(run_dir, "receiver.log"), 10^8),
             )
-            spawners_until(deadline) = Supervisor.component_spawners(
+            priority = Dict(
+                :emitter => TelemetryCore.EMITTER_PRIORITY,
+                :receiver => TelemetryCore.RECEIVER_PRIORITY,
+            )
+            launches = Supervisor.component_spawners(
                 plan,
                 run_dir,
                 clock,
-                deadline,
                 stop_flag,
-                heartbeats,
                 instrument,
                 pending,
                 loggers...,
                 devnull;
+                spawn = (name, f) -> TelemetryCore.tick_spawn(clock, priority[name], f),
                 hole_feed = feed,
             )
-            first_launch = spawners_until(now() + Second(2))
-            launches = spawners_until(now() + Second(5))
+            # The faulting first launch parks once, so that the receiver has
+            # run, and then fails.
+            injected_fault() = begin
+                TelemetryCore.wait_until!(clock, clock.now_sim + Second(2 * 60))
+                error("injected emitter fault")
+            end
+            spawn_emitter(attempt) =
+                attempt == 0 ?
+                TelemetryCore.tick_spawn(clock, priority[:emitter], injected_fault) :
+                launches[:emitter](attempt)
             spawners = Dict{Symbol,Function}(
-                :emitter =>
-                    attempt ->
-                        attempt == 0 ?
-                        Threads.@spawn(begin
-                            wait(first_launch[:emitter](0))
-                            error("injected emitter fault")
-                        end) : launches[:emitter](attempt),
+                :emitter => spawn_emitter,
                 :receiver => launches[:receiver],
             )
             restarts = with_logger(NullLogger()) do
-                Supervisor.supervise!(
+                Supervisor.supervise_ticks!(
                     spawners,
                     run_dir,
                     clock,
                     stop_flag,
-                    heartbeats,
-                    plan.supervision,
+                    plan.supervision;
+                    heartbeats = Dict{Symbol,String}(),
                 )
             end
             @test restarts == Dict(:emitter => 1, :receiver => 0)
@@ -513,10 +513,8 @@ end
         @test isfile(joinpath(run_dir, "delivery_delay.csv"))
         @test isfile(joinpath(run_dir, "plots", "mission_summary_global.png"))
         rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
-        # How many batches the scenario delivers within its 12 s wall-clock
-        # budget depends on the host keeping pace with the accelerated clock,
-        # so the floor only separates a pipeline that moved data from one that
-        # stalled; the per-segment cost that sets the rate is measured by the
+        # The floor separates a pipeline that moved data from one that moved
+        # none; the per-segment cost that sets the run time is measured by the
         # physics/next_segment and io/batch_save_load benchmarks.
         @test count(==("ingested"), rx.Event) > 10
         # The dependency-light standalone expander agrees with the library on

@@ -60,10 +60,20 @@ end
         clock = TelemetryCore.TickClock(epoch, epoch + Day(1))
         TelemetryCore.save_clock_anchor(tmp, clock)
         restored = TelemetryCore.load_clock_anchor(tmp)
-        @test restored.mode == "tick" && restored.deadline === nothing
+        @test restored.mode == "tick" && restored.deadline_wall === nothing
         @test restored.horizon == epoch + Day(1)
-        @test restored.clock isa TelemetryCore.TickClock &&
-              restored.clock.start_sim_time == epoch
+        @test restored.start_sim_time == epoch && isnan(restored.speed_up)
+        # A paced clock records its pace and the nominal wall end of its span.
+        paced = TelemetryCore.TickClock(
+            epoch,
+            epoch + Hour(1);
+            wall_epoch = DateTime(2026, 1, 1),
+            pace = 3600.0,
+        )
+        TelemetryCore.save_clock_anchor(tmp, paced)
+        restored = TelemetryCore.load_clock_anchor(tmp)
+        @test restored.mode == "wall" && restored.speed_up == 3600.0
+        @test restored.deadline_wall == DateTime(2026, 1, 1) + Second(1)
     end
     # Two tasks interleave by instant, then by priority, then by
     # registration; a wakeup beyond the horizon resumes at the horizon.
@@ -198,6 +208,26 @@ end
         # byte; another seed draws other losses.
         @test products(a) == products(b)
         @test products(a) != products(c)
+        # The paced wall run of the same span and seed reproduces the tick
+        # run to the byte: pacing delays the releases, not the content.
+        w = deepcopy(cfg)
+        mission_days = w["simulation"]["mission_days"]
+        w["simulation"]["rng_seed"] = 7
+        w["simulation"]["mode"] = "wall"
+        w["simulation"]["mission_wall_seconds"] = 2.0
+        w["simulation"]["speed_up"] = mission_days * 86_400 / 2.0
+        delete!(w["simulation"], "mission_days")
+        d = with_logger(NullLogger()) do
+            Supervisor.run_mission(
+                w;
+                run_id = "TEST_RUN_tick_d_pid$(getpid())",
+                orig_stdout = devnull,
+            )
+        end
+        push!(runs, d)
+        assert_clean_run(d)
+        @test products(d) == products(a)
+        @test TelemetryCore.load_clock_anchor(d).mode == "wall"
         # The metrics profile agrees apart from its wall-clock column.
         profile(dir) = select(
             TelemetryCore.read_table(joinpath(dir, "mission_profile.csv")),

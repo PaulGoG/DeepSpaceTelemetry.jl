@@ -82,7 +82,7 @@ Any CLI argument ending in `.toml` selects the configuration (relative
 paths resolve against the current directory, then the package root); any
 other argument sets the run ID (both optional, order-independent):
 ```bash
-julia --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
+julia scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
 ```
 Each run archives the exact configuration it used as `config_snapshot.toml`,
 and post-processing reads that snapshot rather than the driving file.
@@ -197,26 +197,22 @@ Row `r` of the series is the sample at `start_sim_time − initial_downtime_days
 A file may carry several columns. `external_data_columns` names those to ingest, in that order; left empty, the `Amplitude` column is taken, or else the first column, under the name `Amplitude`. Every ingested column is delivered as one payload — one batch, one transfer, one loss draw — and each segment file carries one column per payload column under its name; the names are stamped into the run's provenance and descriptor, and the adapter reads one column (`read_batch`) or all (`read_batch_matrix`). A listed column absent from the file's header is rejected at validation.
 
 ## Running the Simulation
-In wall mode the emitter, the receiver, and the supervisor are three
-cooperative tasks; launch with `--threads=3` so each owns a thread (`auto`
-is equivalent in effect, more threads bring nothing). On a single thread
-the run is still correct — the emitter paces itself on the mission clock
-and recovers stalls by catch-up — but a non-yielding stretch in one
-component (compilation warm-up, garbage collection, figure rendering)
-pauses the others until it yields, and the entry point prints an advisory.
-In tick mode the two components are cooperative tasks of one thread under
-the driver; no `--threads` option is needed, no thread advisory is printed,
-and the run takes as long as its events take to process.
+The emitter and the receiver are cooperative tasks of one driver on one
+thread in both modes; no thread option is needed. In wall mode the driver
+paces the wakeups against the wall clock and the run lasts about
+`mission_wall_seconds` (longer on a host that lags, with the same content);
+in tick mode it runs unpaced and the run takes as long as its events take
+to process.
 
 **Interactive Dashboard:**
 ```bash
-julia --threads=3 scripts/launch_dashboard.jl
+julia scripts/launch_dashboard.jl
 ```
 This spawns the log terminals and the `UnicodePlots` live viewer, which redraws only on a state change.
 
 **Headless Mode:**
 ```bash
-julia --threads=3 scripts/run_full_sim.jl
+julia scripts/run_full_sim.jl
 julia scripts/run_full_sim.jl --tick MY_RUN scenarios/stress_8h_bursty.toml
 ```
 `--tick` runs the configuration on the tick clock with its span unchanged;

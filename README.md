@@ -104,27 +104,24 @@ and precompiles it, which is slow; later ones are no-ops.
 
 ## Usage and execution
 
-In wall mode, the default, mission time is paced against the wall clock at
-`simulation.speed_up` for `mission_wall_seconds`. The satellite emitter, the
-ground receiver, and their supervisor run as three cooperative tasks, so
-launch with `--threads=3` to give each its own thread; `--threads=auto` does
-the same, and more threads bring no benefit. A single thread still runs the
-pipeline correctly, but a non-yielding stretch in one component (compilation
-warm-up, garbage collection, figure rendering) pauses the others until it
-yields; the entry point prints an advisory in that case.
-
-In tick mode (`simulation.mode = "tick"`, span `mission_days`), mission time
-advances on one thread from one component wakeup to the next. A run takes as
-long as its events take to process and needs no `--threads` option. For a
-given seed on a given platform it reproduces its event logs and mask products
-to the byte.
+The emitter, the receiver, and their supervisor are cooperative tasks of one
+driver on one thread: mission time advances from one component wakeup to the
+next, so a run reproduces its event logs and mask products to the byte for a
+given seed on a given platform. In wall mode, the default, the driver paces
+those wakeups against the wall clock, `simulation.speed_up` mission seconds
+per wall second for `mission_wall_seconds`; the budget is nominal, since a
+host that lags releases the next wakeup late and finishes later with the same
+content. In tick mode (`simulation.mode = "tick"`, span `mission_days`) the
+driver runs unpaced and a run takes as long as its events take to process; a
+wall run and the tick run of the same configuration produce the same
+record.
 
 ### Run a mission
 
 Headless, on the default configuration:
 
 ```bash
-julia --threads=3 scripts/run_full_sim.jl
+julia scripts/run_full_sim.jl
 ```
 
 The arguments are optional and order-independent. One ending in `.toml`
@@ -134,7 +131,7 @@ repository. `--tick` runs the configuration on the tick clock with its span
 unchanged, and any other argument sets the run ID:
 
 ```bash
-julia --threads=3 scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
+julia scripts/run_full_sim.jl MY_RUN scenarios/stress_8h_bursty.toml
 julia scripts/run_full_sim.jl --tick MY_RUN scenarios/stress_8h_bursty.toml
 ```
 
@@ -151,7 +148,7 @@ Interactively, with the live viewer and the two log followers in their own
 terminal windows:
 
 ```bash
-julia --threads=3 scripts/launch_dashboard.jl
+julia scripts/launch_dashboard.jl
 ```
 
 The mission itself runs in the primary terminal, which shows the supervisor's
@@ -161,7 +158,7 @@ default and enabled with `dashboard.receiver_status_panel = true`.
 ### Tests, benchmarks, and the manual
 
 ```bash
-julia --threads=3 test/runtests.jl   # static QA, unit, physics, integration
+julia test/runtests.jl   # static QA, unit, physics, integration
 julia bench/benchmarks.jl   # BenchmarkTools, incl. the channel hot paths
 julia docs/make.jl       # the manual into docs/build/
 ```
@@ -199,7 +196,7 @@ julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 
 # Complete a run whose supervisor was killed during post-processing:
 # recompute the products, settle RUN_ACTIVE (--force skips the recent-write test)
-julia --threads=3 scripts/postprocessing/complete_run.jl <RUN_ID> [--force]
+julia scripts/postprocessing/complete_run.jl <RUN_ID> [--force]
 
 # Expand one mask-timeline row into a point-wise 0/1 column
 julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> 102400 100 output.csv
@@ -395,10 +392,10 @@ freely, as in `[-1, "10:20", 45]`. The
   `onboard_data_rate_kbps`); seasonal pass-duration modulation, per-date
   exceptions for missed and shortened passes, explicit pass lists in TOML or
   CSV, and low-latency periods at a station-availability capacity fraction.
-- **Two clocks** — wall mode adds heartbeats, a watchdog, restart-on-death,
-  and the live dashboards; tick mode runs as fast as the host processes the
-  events and reproduces a run for a given seed on a given platform. The
-  physics is written in mission time and is the same under both clocks.
+- **Two clocks** — one driver: wall mode paces it against the wall clock,
+  for rehearsals with the live dashboards; tick mode runs it unpaced. Both
+  reproduce a run for a given seed on a given platform, and both write the
+  same record for the same configuration.
 - **FIFO/LIFO routing** — live data is transmitted immediately with absolute
   priority; the blind-spot backlog is downlinked newest-first, so the data
   most tightly coupled to a live event is recovered first.

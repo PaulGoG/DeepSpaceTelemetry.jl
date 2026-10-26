@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "abstraction_gaussian_peak": peak-capacity abstraction: 7 January days, 60 batches/h under a Gaussian pass profile, bursty Gilbert–Elliott loss, 2-day backlog, three disruptions, one marker.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/abstraction_gaussian_peak.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/abstraction_gaussian_peak.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

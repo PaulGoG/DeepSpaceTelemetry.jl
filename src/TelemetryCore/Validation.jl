@@ -32,11 +32,6 @@ Errors:
     rejected with the replacement named
 
 Warnings:
-  - in wall mode, an emitter period `segment_duration_sec / speed_up` below
-    [`EMITTER_PERIOD_WARN_MS`](@ref) (the generation loop cannot keep pace)
-    or a receiver download slot `nominal_batch_transfer_sec / speed_up`
-    below [`RECEIVER_SLOT_WARN_MS`](@ref) (the
-    [`RECEIVER_SLEEP_FLOOR_SEC`](@ref) sleep floor distorts the download rate)
   - the rate pair with a shaped `bandwidth_profile` (the profile mean scales
     a rate the pass sustains; the warning states the capacity of one nominal
     pass against the daily production)
@@ -153,7 +148,6 @@ function validate_config(cfg::AbstractDict)
 
     # -- [simulation] --
     # A span key of the other mode is an error, not a value silently ignored.
-    speed_up = NaN # wall mode only; read below by the pacing warnings
     if mode == "tick"
         for key in ("speed_up", "mission_wall_seconds")
             haskey(sim, key) && config_error(
@@ -229,23 +223,6 @@ function validate_config(cfg::AbstractDict)
               "a shaped profile with max_batches_per_hour is the abstraction of a partially usable pass."
     end
 
-    # -- Real-time pacing sanity (loop-scheduler corner cases; wall mode
-    #    only — the tick clock has no sleep to distort) --
-    if mode == "wall"
-        emitter_period_ms = segment_duration_sec / speed_up * 1000.0
-        if emitter_period_ms < EMITTER_PERIOD_WARN_MS
-            @warn "[CONFIG] Emitter wall-clock period is $(round(emitter_period_ms, digits=2)) ms " *
-                  "(segment_duration_sec / speed_up). Below $(EMITTER_PERIOD_WARN_MS) ms the generation loop cannot keep " *
-                  "pace with the accelerated clock and batch timestamps desynchronize. " *
-                  "Increase segment_duration_sec or decrease speed_up."
-        end
-        rx_slot_ms = tel_settings.nominal_batch_transfer_sec / speed_up * 1000.0
-        if rx_slot_ms < RECEIVER_SLOT_WARN_MS
-            @warn "[CONFIG] Receiver download slot is $(round(rx_slot_ms, digits=2)) ms " *
-                  "(batch transfer time / speed_up). The $(RECEIVER_SLEEP_FLOOR_SEC * 1000) ms sleep floor distorts " *
-                  "the effective downlink rate. Decrease speed_up or the link capacity."
-        end
-    end
     # -- [contacts], [[events.markers]], [[labels]], [ground], [post_processing.publication] --
     contacts_settings(cfg)
     label_settings(cfg)

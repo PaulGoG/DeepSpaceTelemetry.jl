@@ -6,6 +6,34 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Changed
+- One execution model. Wall mode is the tick driver with pacing: before
+  releasing a component wakeup at mission instant `t`, the driver sleeps
+  until `speed_up` mission seconds per wall second have elapsed since the
+  start, for the span `speed_up · mission_wall_seconds`; a host that lags
+  releases late and finishes later with the same content. A wall run now
+  reproduces the tick run of the same configuration to the byte, and the
+  suite asserts it. The components no longer run as threads: one thread
+  suffices, and the `--threads=3` advice and the thread advisory are gone.
+- Heartbeats in both modes: the driver refreshes `emitter_alive` and
+  `receiver_alive` at most once per second, during a pacing sleep as well,
+  and removes them when the mission phase ends. `clock_anchor.toml` always
+  carries `mode`, `wall_epoch`, `start_sim_time` and `horizon_sim`; a wall
+  run adds `speed_up` and the nominal `deadline_wall`. A stranded run counts
+  as ended when its last metrics row reaches the horizon (runs made before
+  2.8.0 keep the wall-deadline rule).
+- The tests of the component loops drive the tick clock directly and assert
+  exact counts; the gates that tolerated a slow host are gone.
+
+### Removed
+- The wall clock type and its machinery: `SimulationClock`, `due_wall_time`,
+  the compile warm-up, the threaded `supervise!` with its heartbeat watchdog
+  (`stalled`/`recovered` are no longer written to `component_events.csv`),
+  the pacing warnings of `validate_config`, the sleep floor, the lag
+  telemetry, the `thread_advisory`, and the `deadline`/`heartbeat_path`
+  keywords of `run_emitter` and `run_receiver`. `FileWatching` is no longer
+  a dependency.
+
 ## [2.7.0] - 2026-10-26
 
 ### Changed

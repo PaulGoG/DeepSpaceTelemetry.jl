@@ -12,7 +12,7 @@ module Emitter
 using ..TelemetryCore
 using ..ChannelEffects
 using ..VirtualInstrument
-using Dates: Dates, DateTime, Millisecond, Second, now
+using Dates: Dates, DateTime, Millisecond
 using ProgressMeter: ProgressMeter, @showprogress
 
 """
@@ -280,32 +280,24 @@ continues from: on the first start the one returned by
 after the current mission time, with the payload origin of the first start,
 which leaves a genuine generation gap.
 
-Generation is paced by the mission clock, not by the loop's own start: a
-segment is produced once the clock has passed the end of its content
-interval (`vi.last_t + segment_duration_sec`), the loop sleeping until that
-wall instant ([`TelemetryCore.due_wall_time`](@ref)). After a late start or
-a stall the loop generates back to back, yielding to the partner task on
-every catch-up iteration, so the content epoch tracks mission time within
-one segment period. While no segment is due the loop wakes at each boundary
-of the payload grid and serves the downlink, so a scheduled generation gap
-interrupts production but not transmission. Sleeps are capped at
-[`TelemetryCore.EMITTER_MAX_SLEEP_SEC`](@ref) to keep the heartbeat and the
-stop and deadline checks responsive at low `speed_up`. Under a
-[`TelemetryCore.TickClock`](@ref) the waits park the task on the logical
-clock ([`TelemetryCore.wait_until!`](@ref)) and the loop ends at the horizon
-([`TelemetryCore.horizon_reached`](@ref)). On the wall clock a content lag
-above one period that persists longer than
-[`TelemetryCore.EMITTER_LAG_WARN_SEC`](@ref) is warned about once (the host
-cannot keep pace); the maximum lag is logged at exit.
+`clock` is the [`TelemetryCore.TickClock`](@ref) of the mission, paced or
+not: in wall mode the driver ([`TelemetryCore.run_ticks!`](@ref)) holds each
+wakeup back to its wall instant, which changes when the loop runs but not
+what it produces. Generation is paced by the mission clock, not by the
+loop's own start: a segment is produced once the clock has passed the end
+of its content interval (`vi.last_t + segment_duration_sec`). While no
+segment is due the loop serves the downlink and parks the task
+([`TelemetryCore.wait_until!`](@ref)) until that instant or the next
+boundary of the payload grid, whichever comes first, so a scheduled
+generation gap interrupts production but not transmission. The loop ends at
+the horizon ([`TelemetryCore.horizon_reached`](@ref)), on the stop flag, or
+on the `HALT` sentinel.
 
 # Keyword arguments
 
   - `batch_size`: segments per batch (required).
   - `pending_segments`: the partial batch returned by [`pre_populate`](@ref).
-  - `deadline`: absolute wall-clock stop shared by both components.
   - `stop`: cooperative stop flag raised by the supervisor.
-  - `heartbeat_path`: liveness file touched every
-    [`TelemetryCore.HEARTBEAT_INTERVAL_MS`](@ref) when set; removed on exit.
   - `max_inflight_batches`: cap on batches simultaneously on the link.
   - `markers`: event markers, stamped into the batch holding their instant.
     The synthetic payload flags them through the instrument
@@ -319,15 +311,13 @@ cannot keep pace); the maximum lag is logged at exit.
     it is skipped at, a recorder gap at the finalization that closes it.
 """
 function run_emitter(
-    clock::TelemetryCore.MissionClock,
+    clock::TelemetryCore.TickClock,
     link::ChannelEffects.LinkModel,
     run_id::String,
     instrument::VirtualInstrument.InstrumentState;
     batch_size::Int,
     pending_segments::Vector{TelemetryCore.DataSegment} = TelemetryCore.DataSegment[],
-    deadline::Union{DateTime,Nothing} = nothing,
     stop::Union{Threads.Atomic{Bool},Nothing} = nothing,
-    heartbeat_path::Union{String,Nothing} = nothing,
     max_inflight_batches::Int = 5,
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
@@ -365,7 +355,6 @@ function run_emitter(
         )
     pending = copy(pending_segments)
     halt_path = joinpath(run_dir, "HALT")
-    last_heartbeat = now() - Second(2)
     # Recorder-overflow gap left open by the pre-population or a previous
     # emitter: closed at the first finalization that finds room. Its start
     # is kept for the declared-hole feed.
@@ -376,181 +365,37 @@ function run_emitter(
     @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $run_id"
 
     seg_period = TelemetryCore.segment_period(vi.segment_duration_sec)
-    # Content-lag telemetry: lag = mission time at finalization − content end
-    # of the finalized batch. A persistent lag means the host cannot keep
-    # pace; a transient one (startup compilation, GC, a partner stall on a
-    # single thread) is recovered by the catch-up burst below.
-    max_lag = Millisecond(0)
-    lag_since = DateTime(0) # sentinel: not currently lagging
-    lag_warned = false
 
-    try
-        while true
-            if stop !== nothing && stop[]
-                @info "[EMITTER] Stop signal received. Shutting down."
-                break
-            end
-            if isfile(halt_path)
-                @info "[EMITTER] HALT sentinel detected. Shutting down."
-                break
-            end
-            if deadline !== nothing && now() >= deadline
-                @info "[EMITTER] Mission deadline reached. Shutting down."
-                break
-            end
-            if TelemetryCore.horizon_reached(clock)
-                @info "[EMITTER] Mission horizon reached. Shutting down."
-                break
-            end
-            if heartbeat_path !== nothing &&
-               (now() - last_heartbeat).value >= TelemetryCore.HEARTBEAT_INTERVAL_MS
-                touch(heartbeat_path)
-                last_heartbeat = now()
-            end
+    while true
+        if stop !== nothing && stop[]
+            @info "[EMITTER] Stop signal received. Shutting down."
+            break
+        end
+        if isfile(halt_path)
+            @info "[EMITTER] HALT sentinel detected. Shutting down."
+            break
+        end
+        if TelemetryCore.horizon_reached(clock)
+            @info "[EMITTER] Mission horizon reached. Shutting down."
+            break
+        end
 
-            # 1. Pacing (see the docstring): a segment is due once its content
-            #    interval has elapsed, since the instrument delivers what it
-            #    has observed. Until then serve the downlink and sleep to the
-            #    next grid boundary; on the catch-up path, yield so a partner
-            #    task on the same thread is not starved.
-            skip_generation_gaps!(
-                vi,
-                pending,
-                generation_gaps,
-                run_dir;
-                hole_feed = hole_feed,
-                declared_at = TelemetryCore.get_current_sim_time(clock),
-            ) && continue
-            sim_t = TelemetryCore.get_current_sim_time(clock)
-            content_end = vi.last_t + seg_period
-            if content_end > sim_t
-                transmit_onboard!(
-                    onboard_live_queue,
-                    onboard_arch_queue,
-                    link,
-                    sim_t,
-                    run_dir;
-                    max_inflight_batches = max_inflight_batches,
-                )
-                wake = min(
-                    content_end,
-                    VirtualInstrument.segment_boundary(
-                        vi.origin,
-                        seg_period,
-                        sim_t + Millisecond(1),
-                    ),
-                )
-                TelemetryCore.wait_until!(
-                    clock,
-                    wake;
-                    deadline = deadline,
-                    cap_sec = TelemetryCore.EMITTER_MAX_SLEEP_SEC,
-                    priority = TelemetryCore.EMITTER_PRIORITY,
-                )
-                continue
-            end
-            yield()
-
-            # 2. Generation
-            seg = VirtualInstrument.next_segment!(vi)
-            push!(pending, seg)
-
-            # 3. Batch Finalization — or discard at the recorder ceiling
-            #    (no eviction: the buffer keeps what it holds, new data is
-            #    lost until a batch leaves for the link).
-            if length(pending) >= batch_size &&
-               length(onboard_live_queue) + length(onboard_arch_queue) >=
-               onboard_capacity_batches
-                recorder_full || TelemetryCore.log_tx_event(
-                    run_dir,
-                    pending[1].timestamp,
-                    "RECORDER",
-                    "gap_start",
-                )
-                recorder_full || (recorder_gap_start = pending[1].timestamp)
-                recorder_full ||
-                    @warn "[EMITTER] On-board recorder full ($onboard_capacity_batches batches): new data is discarded until the buffer drains."
-                recorder_full = true
-                empty!(pending)
-            elseif length(pending) >= batch_size
-                if recorder_full
-                    TelemetryCore.log_tx_event(
-                        run_dir,
-                        pending[1].timestamp,
-                        "RECORDER",
-                        "gap_end",
-                    )
-                    hole_feed === nothing ||
-                        recorder_gap_start === nothing ||
-                        TelemetryCore.declare_gap_hole!(
-                            hole_feed,
-                            sim_t,
-                            "recorder",
-                            recorder_gap_start,
-                            pending[1].timestamp,
-                        )
-                    recorder_gap_start = nothing
-                    @info "[EMITTER] On-board recorder has room again: recording resumes at $(pending[1].timestamp)."
-                    recorder_full = false
-                end
-                # LIVE/ARCH follows the link state at finalization: flight
-                # software marks data near-real-time only if the link is up
-                # when it is ready to send. The content epoch is persisted
-                # independently (metadata.json `content_epoch`,
-                # masks/batch_epochs.csv), so pacing lag can shift the
-                # classification but not the science provenance.
-                is_live = ChannelEffects.is_transmittable(link, sim_t)
-                # created_at = finalization instant on the mission timeline.
-                batch = TelemetryCore.DataBatch(batch_counter, copy(pending), sim_t)
-                batch_name = TelemetryCore.batch_name(batch_counter, is_live)
-                batch_dir = joinpath(buffer_path, batch_name)
-
-                stamp_markers!(
-                    batch_dir,
-                    batch,
-                    batch_name,
-                    run_dir,
-                    markers,
-                    vi.last_t;
-                    payload_row = VirtualInstrument.payload_row(vi, batch.segments[1].id),
-                )
-
-                if is_live
-                    # LIVE queue is FIFO: append at the tail, drain from the head.
-                    push!(onboard_live_queue, batch_name)
-                else
-                    # ARCH queue is LIFO: insert at the head so popfirst! yields newest-first.
-                    pushfirst!(onboard_arch_queue, batch_name)
-                end
-
-                @info "[EMITTER] Gen  | $batch_name @ SimTime: $(batch.segments[1].timestamp)"
-                TelemetryCore.log_tx_event(run_dir, sim_t, batch_name, "gen")
-                empty!(pending)
-                batch_counter += 1
-
-                lag = sim_t - vi.last_t
-                lag > max_lag && (max_lag = lag)
-                # The lag warning concerns the wall clock: under the tick
-                # clock generation is never late, time waits for it.
-                if lag > seg_period && clock isa TelemetryCore.SimulationClock
-                    lag_since == DateTime(0) && (lag_since = now())
-                    if !lag_warned &&
-                       (now() - lag_since).value / 1000.0 >
-                       TelemetryCore.EMITTER_LAG_WARN_SEC
-                        lag_warned = true
-                        @warn "[EMITTER] Generation runs $(round(lag.value / 1000, digits = 1)) mission-s " *
-                              "($(round(lag.value / 1000 / clock.speed_up, digits = 2)) wall-s) behind the " *
-                              "mission clock for more than $(TelemetryCore.EMITTER_LAG_WARN_SEC) s: " *
-                              "the host cannot keep pace (per-segment cost exceeds " *
-                              "segment_duration_sec / speed_up). Increase segment_duration_sec or " *
-                              "decrease speed_up."
-                    end
-                else
-                    lag_since = DateTime(0)
-                end
-            end
-
-            # 4. Transmission
+        # 1. Pacing (see the docstring): a segment is due once its content
+        #    interval has elapsed, since the instrument delivers what it
+        #    has observed. Until then serve the downlink and sleep to the
+        #    next grid boundary; on the catch-up path, yield so a partner
+        #    task on the same thread is not starved.
+        skip_generation_gaps!(
+            vi,
+            pending,
+            generation_gaps,
+            run_dir;
+            hole_feed = hole_feed,
+            declared_at = TelemetryCore.get_current_sim_time(clock),
+        ) && continue
+        sim_t = TelemetryCore.get_current_sim_time(clock)
+        content_end = vi.last_t + seg_period
+        if content_end > sim_t
             transmit_onboard!(
                 onboard_live_queue,
                 onboard_arch_queue,
@@ -559,18 +404,112 @@ function run_emitter(
                 run_dir;
                 max_inflight_batches = max_inflight_batches,
             )
+            wake = min(
+                content_end,
+                VirtualInstrument.segment_boundary(
+                    vi.origin,
+                    seg_period,
+                    sim_t + Millisecond(1),
+                ),
+            )
+            TelemetryCore.wait_until!(
+                clock,
+                wake;
+                priority = TelemetryCore.EMITTER_PRIORITY,
+            )
+            continue
         end
-        wall_note =
-            clock isa TelemetryCore.SimulationClock ?
-            " ($(round(max_lag.value / 1000 / clock.speed_up, digits = 3)) wall-s)" : ""
-        @info "[EMITTER] Pacing summary: maximum content lag $(round(max_lag.value / 1000, digits = 1)) mission-s" *
-              "$wall_note; content end $(vi.last_t)."
-    finally
-        # Heartbeat exists only while the loop runs — removed on every exit
-        # path (including a throw), so the watchdog reads "finished", never a
-        # stale "stalled".
-        heartbeat_path !== nothing && rm(heartbeat_path; force = true)
+        yield()
+
+        # 2. Generation
+        seg = VirtualInstrument.next_segment!(vi)
+        push!(pending, seg)
+
+        # 3. Batch Finalization — or discard at the recorder ceiling
+        #    (no eviction: the buffer keeps what it holds, new data is
+        #    lost until a batch leaves for the link).
+        if length(pending) >= batch_size &&
+           length(onboard_live_queue) + length(onboard_arch_queue) >=
+           onboard_capacity_batches
+            recorder_full || TelemetryCore.log_tx_event(
+                run_dir,
+                pending[1].timestamp,
+                "RECORDER",
+                "gap_start",
+            )
+            recorder_full || (recorder_gap_start = pending[1].timestamp)
+            recorder_full ||
+                @warn "[EMITTER] On-board recorder full ($onboard_capacity_batches batches): new data is discarded until the buffer drains."
+            recorder_full = true
+            empty!(pending)
+        elseif length(pending) >= batch_size
+            if recorder_full
+                TelemetryCore.log_tx_event(
+                    run_dir,
+                    pending[1].timestamp,
+                    "RECORDER",
+                    "gap_end",
+                )
+                hole_feed === nothing ||
+                    recorder_gap_start === nothing ||
+                    TelemetryCore.declare_gap_hole!(
+                        hole_feed,
+                        sim_t,
+                        "recorder",
+                        recorder_gap_start,
+                        pending[1].timestamp,
+                    )
+                recorder_gap_start = nothing
+                @info "[EMITTER] On-board recorder has room again: recording resumes at $(pending[1].timestamp)."
+                recorder_full = false
+            end
+            # LIVE/ARCH follows the link state at finalization: flight
+            # software marks data near-real-time only if the link is up
+            # when it is ready to send. The content epoch is persisted
+            # independently (metadata.json `content_epoch`,
+            # masks/batch_epochs.csv), so pacing lag can shift the
+            # classification but not the science provenance.
+            is_live = ChannelEffects.is_transmittable(link, sim_t)
+            # created_at = finalization instant on the mission timeline.
+            batch = TelemetryCore.DataBatch(batch_counter, copy(pending), sim_t)
+            batch_name = TelemetryCore.batch_name(batch_counter, is_live)
+            batch_dir = joinpath(buffer_path, batch_name)
+
+            stamp_markers!(
+                batch_dir,
+                batch,
+                batch_name,
+                run_dir,
+                markers,
+                vi.last_t;
+                payload_row = VirtualInstrument.payload_row(vi, batch.segments[1].id),
+            )
+
+            if is_live
+                # LIVE queue is FIFO: append at the tail, drain from the head.
+                push!(onboard_live_queue, batch_name)
+            else
+                # ARCH queue is LIFO: insert at the head so popfirst! yields newest-first.
+                pushfirst!(onboard_arch_queue, batch_name)
+            end
+
+            @info "[EMITTER] Gen  | $batch_name @ SimTime: $(batch.segments[1].timestamp)"
+            TelemetryCore.log_tx_event(run_dir, sim_t, batch_name, "gen")
+            empty!(pending)
+            batch_counter += 1
+        end
+
+        # 4. Transmission
+        transmit_onboard!(
+            onboard_live_queue,
+            onboard_arch_queue,
+            link,
+            sim_t,
+            run_dir;
+            max_inflight_batches = max_inflight_batches,
+        )
     end
+    return nothing
 end
 
 end # module Emitter

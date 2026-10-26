@@ -75,37 +75,37 @@ capacity profile, loss channel, the round-trip deferral of retransmissions,
 the recorder ceiling, the routing doctrine) is written in mission time and
 is the same under both. The clocks differ only in how mission time advances.
 
-**Wall mode** (`"wall"`, the default and the operational mode) paces
-mission time against the wall clock: `speed_up` mission seconds elapse per
-wall second for `mission_wall_seconds`, the emitter sleeps until the wall
-instant at which the next segment is due, the receiver sleeps out each
-download slot, and the supervisor watches heartbeats and restarts a dead
-component. A consumer developed against an accelerated run follows a
-real-time rehearsal (`speed_up = 1`) unchanged. The price is that how much
-of the mission a run completes depends on the host: everything that
-competes for it — synthesis, I/O, the figure stage, another process — moves
-the totals, so the counts of a wall run are one realization on one host.
-
-**Tick mode** (`"tick"`, the analysis mode) advances mission time
-logically. The emitter and the receiver run as cooperative tasks on one
-thread under a driver (`TelemetryCore.run_ticks!`): each task computes the
-mission instant it next needs — the end of the segment being observed, the
-completion of a download slot, the earliest deferred retransmission — and
+Both modes run on one driver (`TelemetryCore.run_ticks!`). The emitter and
+the receiver are cooperative tasks on one thread: each task computes the
+mission instant it next needs (the end of the segment being observed, the
+completion of a download slot, the earliest deferred retransmission) and
 parks; when every task is parked the clock jumps to the earliest request
-and releases that task alone. Nothing sleeps, nothing is paced against the
-host, and the run takes as long as its events take to process. The span is
+and releases that task alone. The record is therefore a deterministic
+function of the configuration and the seed in both modes.
+
+**Wall mode** (`"wall"`, the default and the operational mode) paces the
+driver against the wall clock: before releasing a wakeup at mission instant
+`t` it sleeps until `speed_up` mission seconds per wall second have passed
+since the start, for a span of `speed_up · mission_wall_seconds`. A consumer
+developed against an accelerated run follows a real-time rehearsal
+(`speed_up = 1`) unchanged. The wall budget is nominal: a host that lags
+releases late and finishes later, with the same content. The driver also
+refreshes the liveness files `emitter_alive` and `receiver_alive` and
+restarts a component that fails, under `[supervision]`.
+
+**Tick mode** (`"tick"`, the analysis mode) runs the driver unpaced: nothing
+sleeps and the run takes as long as its events take to process. The span is
 `mission_days`; `speed_up` and `mission_wall_seconds` have no meaning and
 are rejected, as is the console status panel, and the dashboard launcher
 refuses the mode. The run directory, the sentinels, and every product are
-those of a wall run; `clock_anchor.toml` records `mode = "tick"` and the
-horizon in place of a wall deadline.
+those of a wall run; `clock_anchor.toml` records the mode and the horizon,
+and for a wall run the speed-up and the nominal wall deadline as well.
 
 Two rules make the schedule total. At an equal instant the emitter runs
 before the receiver (`TelemetryCore.EMITTER_PRIORITY`,
 `RECEIVER_PRIORITY`): the instrument delivers a segment after observing
 it, and the ground serves what is on the link once it is there — a
-semantic choice, since the two tasks never share an instant on the wall
-clock. Among a task's own requests, registration order decides. The
+semantic choice. Among a task's own requests, registration order decides. The
 receiver's idle wait resumes after the emitter's next wakeup, since the
 link changes only when the emitter runs, and its wait for a deferred
 retransmission is cut short by the emitter's activity in the same way, so a
@@ -113,8 +113,7 @@ batch placed on the link in the meantime is served without waiting out the
 round trip (`TelemetryCore.wait_until_or_change!`). At the horizon the
 clock stops: a segment whose content interval ends at the horizon is not
 generated, a transfer in service at the horizon completes in the record at
-its start instant, as on the wall clock, and both tasks leave at their
-next iteration.
+its start instant, and both tasks leave at their next iteration.
 
 What the mode guarantees, and what it does not. On one platform and one
 Julia version, two runs of the same configuration and seed produce the
@@ -123,9 +122,10 @@ metrics profile apart from its wall-clock column. The test suite asserts
 exactly this, and asserts the production count from the span alone. Across
 platforms the record should agree as well: routing, counts, and event
 order follow from integer arithmetic on the millisecond grid and from the
-Xoshiro stream of the loss channel. Determinism holds within a mode only.
-A wall run and a tick run of the same seed attempt different numbers of
-transfers, so their records differ.
+Xoshiro stream of the loss channel. A wall run and the tick run of the same
+configuration, with `mission_days = speed_up · mission_wall_seconds / 86 400`,
+produce the same record; the suite asserts this too. Only the `WallTime`
+column of the metrics profile tells them apart.
 
 ## References
 

@@ -2,95 +2,30 @@
 """
     MissionClock
 
-The clock a mission runs on. [`SimulationClock`](@ref) paces mission time
-against the wall clock (`simulation.mode = "wall"`); [`TickClock`](@ref)
-advances it logically, from one component wakeup to the next
-(`simulation.mode = "tick"`). The components read the current instant
+The clock a mission runs on. [`TickClock`](@ref) is the only mission clock:
+it advances mission time logically, from one component wakeup to the next,
+either unpaced (`simulation.mode = "tick"`) or paced against the wall clock
+(`simulation.mode = "wall"`). The components read the current instant
 through [`get_current_sim_time`](@ref), wait through [`wait_until!`](@ref),
-[`wait_until_or_change!`](@ref), and the receiver's idle wait, and stop at
-[`horizon_reached`](@ref); the mission's physics is expressed in mission
-time and is the same under both.
+[`wait_until_or_change!`](@ref), and [`wait_for_change!`](@ref), and stop
+at [`horizon_reached`](@ref); the mission's physics is expressed in mission
+time and is the same in both modes.
 """
 abstract type MissionClock end
 
 """
-    SimulationClock(start_real_time::DateTime, start_sim_time::DateTime, speed_up::Float64) <: MissionClock
-
-The accelerated mission clock: mission time advances `speed_up` times
-faster than wall-clock time from the anchor pair `start_real_time` (the
-wall instant of the anchor) and `start_sim_time` (the mission instant at
-that anchor). [`get_current_sim_time`](@ref) maps the wall clock to mission
-`SimTime`; [`due_wall_time`](@ref) is its inverse.
-"""
-struct SimulationClock <: MissionClock
-    start_real_time::DateTime
-    start_sim_time::DateTime
-    speed_up::Float64
-end
-
-"""
-    get_current_sim_time(clock::SimulationClock) -> DateTime
-
-The current mission instant: `start_sim_time` plus `speed_up` times the wall
-time elapsed since `start_real_time`, rounded to the millisecond.
-"""
-function get_current_sim_time(clock::SimulationClock)
-    elapsed_real_ms = (now() - clock.start_real_time).value
-    sim_ms = elapsed_real_ms * clock.speed_up
-    return clock.start_sim_time + Millisecond(round(Int, sim_ms))
-end
-
-"""
-    due_wall_time(clock::SimulationClock, sim_time::DateTime) -> DateTime
-
-Wall-clock instant at which the mission clock reaches `sim_time` — the
-inverse of [`get_current_sim_time`](@ref). Each due time is computed from
-the clock anchor and the absolute mission instant, so pacing loops that
-sleep until a due time accumulate no rounding across iterations.
-"""
-function due_wall_time(clock::SimulationClock, sim_time::DateTime)
-    sim_ms = (sim_time - clock.start_sim_time).value
-    return clock.start_real_time + Millisecond(round(Int, sim_ms / clock.speed_up))
-end
-
-"""
-    save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
-
-Persists the mission clock anchor (wall epoch, mission epoch, speed-up) and
-the absolute wall-clock deadline into `<run_dir>/clock_anchor.toml`,
-rotating an existing file to `clock_anchor#k.toml`. Written once at mission
-start; a re-attaching or restarted component reconstructs the identical
-clock from it ([`load_clock_anchor`](@ref)), so a component outage elapses
-as mission time.
-"""
-function save_clock_anchor(run_dir::String, clock::SimulationClock, deadline::DateTime)
-    path = joinpath(run_dir, "clock_anchor.toml")
-    backup_existing(path)
-    open(path, "w") do io
-        TOML.print(
-            io,
-            Dict(
-                "mode" => "wall",
-                "wall_epoch" => string(clock.start_real_time),
-                "start_sim_time" => string(clock.start_sim_time),
-                "speed_up" => clock.speed_up,
-                "deadline_wall" => string(deadline),
-            ),
-        )
-    end
-end
-
-"""
     load_clock_anchor(run_dir::String) -> NamedTuple
 
-Reconstructs the anchor persisted by [`save_clock_anchor`](@ref):
-`(mode, clock, deadline, horizon)` with `mode` `"wall"` (also for anchors
-written before the key existed) or `"tick"`, `clock` the
-[`SimulationClock`](@ref) or the [`TickClock`](@ref) at its epoch,
-`deadline` the absolute wall deadline of a wall run (`nothing` for a tick
-run), and `horizon` the mission end of a tick run (`nothing` for a wall
-run). Throws an `ArgumentError` when the anchor file is absent (runs
-started by an older pipeline cannot be re-attached).
+Reads the anchor persisted by [`save_clock_anchor`](@ref) as
+`(mode, start_sim_time, wall_epoch, horizon, speed_up, deadline_wall)`:
+`mode` is `"wall"` (also for anchors written before the key existed) or
+`"tick"`; `start_sim_time` and `wall_epoch` are the mission and wall
+instants of the start; `horizon` is the mission end `horizon_sim`, or
+`nothing` when the file has none (the anchors of wall runs made before
+2.8.0 carry no horizon); `speed_up` is the pace of a wall run (`NaN` when
+absent); and `deadline_wall` is the nominal wall end of a wall run
+(`nothing` when absent). Throws an `ArgumentError` when the anchor file is
+absent (runs started by an older pipeline cannot be re-attached).
 """
 function load_clock_anchor(run_dir::String)
     path = joinpath(run_dir, "clock_anchor.toml")
@@ -100,25 +35,15 @@ function load_clock_anchor(run_dir::String)
         ),
     )
     a = TOML.parsefile(path)
-    mode = String(get(a, "mode", "wall"))
-    if mode == "tick"
-        clock = TickClock(
-            DateTime(a["start_sim_time"]),
-            DateTime(a["horizon_sim"]);
-            wall_epoch = DateTime(a["wall_epoch"]),
-        )
-        return (mode = mode, clock = clock, deadline = nothing, horizon = clock.horizon)
-    end
-    clock = SimulationClock(
-        DateTime(a["wall_epoch"]),
-        DateTime(a["start_sim_time"]),
-        Float64(a["speed_up"]),
-    )
+    horizon = get(a, "horizon_sim", nothing)
+    deadline = get(a, "deadline_wall", nothing)
     return (
-        mode = mode,
-        clock = clock,
-        deadline = DateTime(a["deadline_wall"]),
-        horizon = nothing,
+        mode = String(get(a, "mode", "wall")),
+        start_sim_time = DateTime(a["start_sim_time"]),
+        wall_epoch = DateTime(a["wall_epoch"]),
+        horizon = horizon === nothing ? nothing : DateTime(horizon),
+        speed_up = Float64(get(a, "speed_up", NaN)),
+        deadline_wall = deadline === nothing ? nothing : DateTime(deadline),
     )
 end
 
@@ -139,23 +64,30 @@ struct TickWakeup
 end
 
 """
-    TickClock(start_sim_time::DateTime, horizon::DateTime; wall_epoch = now()) <: MissionClock
+    TickClock(start_sim_time::DateTime, horizon::DateTime;
+              wall_epoch = now(), pace = nothing) <: MissionClock
 
-The logical mission clock of `simulation.mode = "tick"`. Mission time
-advances only while every component task is parked, jumping to the earliest
-requested wakeup, so a mission is a deterministic sequence of events for a
-given seed and does not wait on the wall clock. `now_sim` is the current
-instant, `horizon` the mission end (`start_sim_time + mission_days`), and
-`wall_epoch` the wall instant of the start, kept for the anchor only. The
-components are created by [`tick_spawn`](@ref), park through
-[`wait_until!`](@ref), [`wait_until_or_change!`](@ref), and
-[`wait_for_change!`](@ref), and are driven by [`run_ticks!`](@ref) on the
-driver's thread.
+The mission clock, and the only one. Mission time advances only while
+every component task is parked, jumping to the earliest requested wakeup,
+so a mission is a deterministic sequence of events for a given seed.
+`now_sim` is the current instant, `horizon` the mission end
+(`start_sim_time` plus [`mission_span_days`](@ref)), and `wall_epoch` the
+wall instant of the start. `pace` is the speed-up of a paced run
+(`simulation.mode = "wall"`), under which the driver releases a wakeup at
+logical instant `t` no earlier than `wall_epoch + (t − start_sim_time) /
+pace` of wall time, and catches up without sleeping when the host lags, so
+the content is that of the unpaced run; `nothing` for an unpaced run
+(`--tick`), which does not wait on the wall clock. A given `pace` must
+exceed 0 and is stored as `Float64`. The components are created by
+[`tick_spawn`](@ref), park through [`wait_until!`](@ref),
+[`wait_until_or_change!`](@ref), and [`wait_for_change!`](@ref), and are
+driven by [`run_ticks!`](@ref) on the driver's thread.
 """
 mutable struct TickClock <: MissionClock
     const start_sim_time::DateTime
     const horizon::DateTime
     const wall_epoch::DateTime
+    const pace::Union{Nothing,Float64}
     now_sim::DateTime
     const wakeups::Vector{TickWakeup}
     sequence::Int
@@ -166,16 +98,21 @@ function TickClock(
     start_sim_time::DateTime,
     horizon::DateTime;
     wall_epoch::DateTime = now(),
+    pace::Union{Nothing,Real} = nothing,
 )
     horizon > start_sim_time || throw(
         ArgumentError(
             "[CLOCK] The tick horizon $horizon must lie after the mission epoch $start_sim_time.",
         ),
     )
+    pace === nothing ||
+        pace > 0 ||
+        throw(ArgumentError("[CLOCK] pace must be > 0 (got $pace)."))
     return TickClock(
         start_sim_time,
         horizon,
         wall_epoch,
+        pace === nothing ? nothing : Float64(pace),
         start_sim_time,
         TickWakeup[],
         0,
@@ -186,24 +123,32 @@ end
 """
     save_clock_anchor(run_dir::String, clock::TickClock)
 
-Persists the anchor of a tick-mode mission into `<run_dir>/clock_anchor.toml`,
-rotating an existing file ([`backup_existing`](@ref)): `mode = "tick"`,
-`wall_epoch`, the mission epoch `start_sim_time`, and the horizon
-`horizon_sim`. A tick run has no wall deadline.
+Persists the anchor of a mission into `<run_dir>/clock_anchor.toml`,
+rotating an existing file ([`backup_existing`](@ref)): `mode` (`"wall"`
+for a paced clock, `"tick"` otherwise), `wall_epoch`, the mission epoch
+`start_sim_time`, and the horizon `horizon_sim`; a paced clock adds
+`speed_up` (its pace) and `deadline_wall`, the wall instant at which the
+paced horizon falls due, i.e. the nominal end of the wall budget. Written
+once at mission start and read back by [`load_clock_anchor`](@ref).
 """
 function save_clock_anchor(run_dir::String, clock::TickClock)
     path = joinpath(run_dir, "clock_anchor.toml")
     backup_existing(path)
+    pace = clock.pace
+    anchor = Dict{String,Any}(
+        "mode" => pace === nothing ? "tick" : "wall",
+        "wall_epoch" => string(clock.wall_epoch),
+        "start_sim_time" => string(clock.start_sim_time),
+        "horizon_sim" => string(clock.horizon),
+    )
+    if pace !== nothing
+        span_ms = (clock.horizon - clock.start_sim_time).value
+        anchor["speed_up"] = pace
+        anchor["deadline_wall"] =
+            string(clock.wall_epoch + Millisecond(round(Int, span_ms / pace)))
+    end
     open(path, "w") do io
-        TOML.print(
-            io,
-            Dict(
-                "mode" => "tick",
-                "wall_epoch" => string(clock.wall_epoch),
-                "start_sim_time" => string(clock.start_sim_time),
-                "horizon_sim" => string(clock.horizon),
-            ),
-        )
+        TOML.print(io, anchor)
     end
 end
 
@@ -215,13 +160,11 @@ The current logical instant of the tick clock.
 get_current_sim_time(clock::TickClock) = clock.now_sim
 
 """
-    horizon_reached(clock::MissionClock) -> Bool
+    horizon_reached(clock::TickClock) -> Bool
 
-Whether the mission clock has reached its horizon: never for the wall
-clock, whose components hold the wall deadline themselves; for the tick
-clock, once its instant equals the horizon.
+Whether the tick clock has reached its horizon, that is, whether its
+instant equals the horizon.
 """
-horizon_reached(::SimulationClock) = false
 horizon_reached(clock::TickClock) = clock.now_sim >= clock.horizon
 
 """
@@ -266,54 +209,26 @@ earliest_wakeup(clock::TickClock) =
     isempty(clock.wakeups) ? clock.horizon : minimum(w.at for w in clock.wakeups)
 
 """
-    wait_until!(clock::MissionClock, sim_time::DateTime; deadline = nothing, floor_sec = 0.0, cap_sec = Inf, priority = 0)
+    wait_until!(clock::TickClock, sim_time::DateTime; priority = 0)
 
-Blocks the calling component until the mission clock reaches `sim_time`.
-On the wall clock the wait is a sleep until [`due_wall_time`](@ref) of the
-instant, clamped at the wall `deadline` when given, with the sleep length
-clamped to `[floor_sec, cap_sec]` wall seconds so the caller's periodic
-checks stay responsive (a zero-length sleep yields). On the tick clock the
-task parks with a wakeup at `sim_time` (or now, if that is later) and
-`priority`, and resumes once the driver has advanced the clock to it; the
-keywords of the wall form are ignored.
+Blocks the calling component until the mission clock reaches `sim_time`:
+the task parks with a wakeup at `sim_time` (or now, if that is later) and
+`priority`, and resumes once the driver has advanced the clock to it.
 """
-function wait_until!(
-    clock::SimulationClock,
-    sim_time::DateTime;
-    deadline::Union{DateTime,Nothing} = nothing,
-    floor_sec::Float64 = 0.0,
-    cap_sec::Float64 = Inf,
-    priority::Int = 0,
-)
-    due = due_wall_time(clock, sim_time)
-    deadline !== nothing && (due = min(due, deadline))
-    wait_sec = (due - now()).value / 1000.0
-    sleep(clamp(wait_sec, floor_sec, cap_sec))
-    return nothing
-end
-function wait_until!(clock::TickClock, sim_time::DateTime; priority::Int = 0, kwargs...)
+function wait_until!(clock::TickClock, sim_time::DateTime; priority::Int = 0)
     return park!(clock, max(sim_time, clock.now_sim), priority)
 end
 
 """
-    wait_until_or_change!(clock::MissionClock, sim_time::DateTime; kwargs...)
+    wait_until_or_change!(clock::TickClock, sim_time::DateTime; priority = 0)
 
 Like [`wait_until!`](@ref), but a wait that another component's activity
-may cut short: on the wall clock the clamped sleep re-polls at `cap_sec` at
-the latest; on the tick clock the task resumes at `sim_time` or at the next
-wakeup of another component, whichever comes first. The receiver waits this
-way for a deferred retransmission, so a batch placed on the link in the
-meantime is served without waiting out the round trip.
+may cut short: the task resumes at `sim_time` or at the next wakeup of
+another component, whichever comes first. The receiver waits this way for
+a deferred retransmission, so a batch placed on the link in the meantime is
+served without waiting out the round trip.
 """
-function wait_until_or_change!(clock::SimulationClock, sim_time::DateTime; kwargs...)
-    return wait_until!(clock, sim_time; kwargs...)
-end
-function wait_until_or_change!(
-    clock::TickClock,
-    sim_time::DateTime;
-    priority::Int = 0,
-    kwargs...,
-)
+function wait_until_or_change!(clock::TickClock, sim_time::DateTime; priority::Int = 0)
     return park!(clock, max(min(sim_time, earliest_wakeup(clock)), clock.now_sim), priority)
 end
 
@@ -351,7 +266,9 @@ function tick_spawn(clock::TickClock, priority::Int, f)
 end
 
 """
-    run_ticks!(clock::TickClock, tasks::Dict{Symbol,Task}; on_task_failed = (name, task) -> nothing)
+    run_ticks!(clock::TickClock, tasks::Dict{Symbol,Task};
+               on_task_failed = (name, task) -> nothing,
+               heartbeats = Dict{Symbol,String}(), should_stop = () -> false)
 
 The driver of the tick clock. It advances the clock to the earliest wakeup
 (ties broken by component priority, then by registration order), releases
@@ -362,20 +279,59 @@ with an exception is handed to `on_task_failed(name, task)` once; the
 callback returns a replacement `Task` created by [`tick_spawn`](@ref),
 which takes the name in `tasks`, or `nothing`. Runs on the calling task's
 thread.
+
+On a paced clock (`clock.pace` set, `simulation.mode = "wall"`) the driver
+sleeps, before each release, until the wall instant
+`wall_epoch + (t − start_sim_time) / pace` of the logical instant `t`, in
+chunks of at most 0.5 s; a host that lags releases at once and catches up.
+The sleep ends at once when `should_stop()` holds (the `HALT` sentinel or
+the stop flag), so the components, which check `HALT` at every wakeup, exit
+promptly. An unpaced clock never sleeps.
+
+`heartbeats` maps component names to liveness files, present in both
+modes: the driver touches every file at the start, again after a release
+once [`HEARTBEAT_INTERVAL_MS`](@ref) have elapsed since the last touch (at
+most once per interval), and removes them when the mission phase ends.
 """
 function run_ticks!(
     clock::TickClock,
     tasks::Dict{Symbol,Task};
     on_task_failed = (name, task) -> nothing,
+    heartbeats::AbstractDict{Symbol,String} = Dict{Symbol,String}(),
+    should_stop = () -> false,
 )
+    pace = clock.pace
+    foreach(touch, values(heartbeats))
+    last_touch = now()
+    # Liveness files refreshed at most once per interval, during a pacing
+    # sleep as well as after a release.
+    function beat!()
+        isempty(heartbeats) && return nothing
+        (now() - last_touch).value >= HEARTBEAT_INTERVAL_MS || return nothing
+        foreach(touch, values(heartbeats))
+        last_touch = now()
+        return nothing
+    end
     failed = Set{Symbol}()
     while !isempty(clock.wakeups)
         _, i = findmin(w -> (w.at, w.priority, w.sequence), clock.wakeups)
         wake = clock.wakeups[i]
         deleteat!(clock.wakeups, i)
         clock.now_sim = min(max(clock.now_sim, wake.at), clock.horizon)
+        if pace !== nothing
+            # Due instant of the released (horizon-clamped) logical instant.
+            elapsed_ms = (clock.now_sim - clock.start_sim_time).value
+            due = clock.wall_epoch + Millisecond(round(Int, elapsed_ms / pace))
+            while !should_stop()
+                remaining = (due - now()).value / 1000
+                remaining > 0 || break
+                sleep(min(remaining, 0.5))
+                beat!()
+            end
+        end
         put!(wake.release, nothing)
         take!(clock.parked)
+        beat!()
         for (name, task) in collect(tasks)
             (istaskfailed(task) && !(name in failed)) || continue
             push!(failed, name)
@@ -386,5 +342,6 @@ function run_ticks!(
             end
         end
     end
+    foreach(path -> rm(path; force = true), values(heartbeats))
     return nothing
 end

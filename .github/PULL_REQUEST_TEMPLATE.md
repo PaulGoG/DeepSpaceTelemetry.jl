@@ -7,7 +7,7 @@
 <!-- What was run and what it reported: test suite, documentation build,
      scenario runs, benchmarks. Name the configurations and the platform. -->
 
-- [ ] `julia --threads=3 test/runtests.jl` passes
+- [ ] `julia test/runtests.jl` passes
 - [ ] `julia -e 'using JuliaFormatter; format(".")'` leaves the tree unchanged
 - [ ] `julia docs/make.jl` builds, doctests included
 - [ ] `CHANGELOG.md` has an entry under `[Unreleased]` for user-visible changes

@@ -9,7 +9,7 @@ Any scenario runs by path from the package root, on the wall clock or, with
 `--tick`, on the tick clock:
 
 ```bash
-julia --threads=3 scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
+julia scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
 julia scripts/run_full_sim.jl --tick <RUN_ID> scenarios/<file>.toml
 ```
 

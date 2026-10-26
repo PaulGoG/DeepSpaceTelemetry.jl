@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "stress_8h_bursty": stress regime: 7 January days, 8 h passes on the physical rate pair, bursty Gilbert–Elliott loss, 2-day backlog, three disruptions, one marker.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/stress_8h_bursty.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/stress_8h_bursty.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

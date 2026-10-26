@@ -1,5 +1,5 @@
 # DeepSpaceTelemetry scenario "backlog_recovery_sine": backlog recovery: 7 days, 60 batches/h under a sine profile, 10 % Bernoulli loss, 3-day backlog, no disruptions.
-# Run with:  julia --threads=3 scripts/run_full_sim.jl [RUN_ID] scenarios/backlog_recovery_sine.toml
+# Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/backlog_recovery_sine.toml
 
 [simulation]
 speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.

@@ -497,10 +497,10 @@ end
 """
     SIMULATION_MODES
 
-The values of `simulation.mode`: `"wall"`, the operational mode paced
-against the wall clock at `speed_up` for `mission_wall_seconds`
-([`SimulationClock`](@ref)), and `"tick"`, the analysis mode on the logical
-clock of [`TickClock`](@ref) spanning `mission_days`.
+The values of `simulation.mode`: `"wall"`, the operational mode, on the
+[`TickClock`](@ref) paced against the wall clock at `speed_up` for
+`mission_wall_seconds`, and `"tick"`, the analysis mode on the unpaced
+logical clock spanning `mission_days`.
 """
 const SIMULATION_MODES = ("wall", "tick")
 

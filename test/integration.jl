@@ -1,18 +1,23 @@
 # Integration: emitter and receiver run together on the mission clock — resilience, queuing, re-attachment, retention, pacing, light time, recorder ceiling.
 
 @testset "Process-flow resilience (clock anchor + HALT)" begin
-    # Anchor roundtrip: a re-attaching component reconstructs the identical clock
+    # Anchor roundtrip: a paced clock reads back with its epochs, horizon,
+    # pace, and the nominal wall end of its budget (one day at 3600x: 24 s).
     mktempdir() do tmp
-        clock = TelemetryCore.SimulationClock(
-            DateTime(2026, 1, 1, 12),
+        clock = TelemetryCore.TickClock(
             DateTime(2035, 1, 1, 6),
-            3600.0,
+            DateTime(2035, 1, 2, 6);
+            wall_epoch = DateTime(2026, 1, 1, 12),
+            pace = 3600.0,
         )
-        deadline = DateTime(2026, 1, 1, 12, 5)
-        TelemetryCore.save_clock_anchor(tmp, clock, deadline)
+        TelemetryCore.save_clock_anchor(tmp, clock)
         restored = TelemetryCore.load_clock_anchor(tmp)
-        @test restored.clock == clock
-        @test restored.deadline == deadline
+        @test restored.mode == "wall"
+        @test restored.start_sim_time == clock.start_sim_time
+        @test restored.wall_epoch == clock.wall_epoch
+        @test restored.horizon == clock.horizon
+        @test restored.speed_up == 3600.0
+        @test restored.deadline_wall == clock.wall_epoch + Second(24)
         @test_throws ArgumentError TelemetryCore.load_clock_anchor(joinpath(tmp, "absent"))
     end
 
@@ -46,36 +51,36 @@
                     batch_size = 3,
                 )
             end
-            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
-            em = Threads.@spawn with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            # Paced at 1800x over 30 mission half-hours: a 30 s wall budget.
+            clock = TelemetryCore.TickClock(
+                start_sim,
+                start_sim + Second(30 * 1800);
+                pace = 1800.0,
+            )
+            driver = @async drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     halt_id,
                     vi;
-                    deadline = now() + Second(30),
                     batch_size = 3,
                     pending_segments = pending,
-                )
-            end
-            rx = Threads.@spawn with_logger(NullLogger()) do
-                Receiver.run_receiver(
-                    clock,
+                ),
+                receiver = c -> Receiver.run_receiver(
+                    c,
                     link,
                     halt_id;
-                    deadline = now() + Second(30),
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
-                )
-            end
+                ),
+                should_stop = () -> isfile(joinpath(halt_dir, "HALT")),
+            )
             sleep(2.0)
             touch(joinpath(halt_dir, "HALT"))
             t_halt = time()
-            wait(em)
+            wait(driver)
             @test time() - t_halt < 10.0 # cooperative stop, not the 30 s duration
-            # The receiver's exit path includes its finally-block plot
-            # generation (Makie first-plot compilation): not latency-bounded.
-            wait(rx)
             @test isfile(joinpath(halt_dir, "events_tx.csv"))
         finally
             rm(halt_dir; recursive = true, force = true)
@@ -118,19 +123,19 @@ end
                     batch_size = 3,
                 )
             end
-            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
-            with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            clock = TelemetryCore.TickClock(start_sim, start_sim + Second(3 * 1800))
+            drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     cap_id,
                     vi;
-                    deadline = now() + Second(3),
                     batch_size = 3,
                     pending_segments = pending,
                     max_inflight_batches = 2,
-                )
-            end
+                ),
+            )
             n_link = length(
                 filter(
                     f -> isdir(joinpath(cap_dir, "link", f)),
@@ -177,31 +182,26 @@ end
                     batch_size = 3,
                 )
             end
-            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
-            em = Threads.@spawn with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            clock = TelemetryCore.TickClock(start_sim, start_sim + Second(4 * 1800))
+            drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     floor_id,
                     vi;
-                    deadline = now() + Second(4),
                     batch_size = 3,
                     pending_segments = pending,
-                )
-            end
-            rx = Threads.@spawn with_logger(NullLogger()) do
-                Receiver.run_receiver(
-                    clock,
+                ),
+                receiver = c -> Receiver.run_receiver(
+                    c,
                     link,
                     floor_id;
-                    deadline = now() + Second(4),
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                     min_link_factor = 0.6,
-                )
-            end
-            wait(em)
-            wait(rx)
+                ),
+            )
             ground = filter(
                 f -> isdir(joinpath(floor_dir, "ground", f)),
                 readdir(joinpath(floor_dir, "ground")),
@@ -251,35 +251,28 @@ end
                     batch_size = 3,
                 )
             end
-            clock1 = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
-            TelemetryCore.save_clock_anchor(ra_dir, clock1, now() + Second(120))
+            clock1 = TelemetryCore.TickClock(start_sim, start_sim + Second(3 * 1800))
+            TelemetryCore.save_clock_anchor(ra_dir, clock1)
 
             run_phase =
-                (clk, instrument, segs) -> begin
-                    em = Threads.@spawn with_logger(NullLogger()) do
-                        Emitter.run_emitter(
-                            clk,
-                            link,
-                            ra_id,
-                            instrument;
-                            deadline = now() + Second(3),
-                            batch_size = 3,
-                            pending_segments = segs,
-                        )
-                    end
-                    rx = Threads.@spawn with_logger(NullLogger()) do
-                        Receiver.run_receiver(
-                            clk,
-                            link,
-                            ra_id;
-                            deadline = now() + Second(3),
-                            orig_stdout = devnull,
-                            batch_transfer_sec = 2.0,
-                        )
-                    end
-                    wait(em)
-                    wait(rx)
-                end
+                (clk, instrument, segs) -> drive_components(
+                    clk;
+                    emitter = c -> Emitter.run_emitter(
+                        c,
+                        link,
+                        ra_id,
+                        instrument;
+                        batch_size = 3,
+                        pending_segments = segs,
+                    ),
+                    receiver = c -> Receiver.run_receiver(
+                        c,
+                        link,
+                        ra_id;
+                        orig_stdout = devnull,
+                        batch_transfer_sec = 2.0,
+                    ),
+                )
 
             run_phase(clock1, vi, pending)
             tx1 = TelemetryCore.read_table(joinpath(ra_dir, "events_tx.csv"))
@@ -291,15 +284,19 @@ end
 
             # Simulated component outage: supervisor-style gap bounds, then a
             # cold re-attachment that reconstructs the clock from the anchor
-            # and resumes the instrument at the current mission time.
+            # and resumes the instrument where phase 1 ended, so mission time
+            # is continuous.
             restored = TelemetryCore.load_clock_anchor(ra_dir)
-            resumed = VirtualInstrument.resumed(
-                vi,
-                TelemetryCore.get_current_sim_time(restored.clock),
+            resumed_at = clock1.horizon
+            clock2 = TelemetryCore.TickClock(
+                resumed_at,
+                resumed_at + Second(3 * 1800);
+                wall_epoch = restored.wall_epoch,
             )
+            resumed = VirtualInstrument.resumed(vi, resumed_at)
             Supervisor.record_generation_gap!(
                 ra_dir,
-                restored.clock,
+                clock2,
                 resumed.last_t;
                 origin = vi.origin,
                 sample_rate = 4.0,
@@ -312,7 +309,7 @@ end
             mkpath(orphan)
             write(joinpath(orphan, "seg_1.csv"), "Amplitude\n0.0\n")
 
-            run_phase(restored.clock, resumed, TelemetryCore.DataSegment[])
+            run_phase(clock2, resumed, TelemetryCore.DataSegment[])
 
             rx2 = TelemetryCore.read_table(joinpath(ra_dir, "events_rx.csv"))
             @test any((rx2.Event .== "ingested") .& (rx2.Batch .== "ARCH_batch_500"))
@@ -419,30 +416,25 @@ end
             @test length(pending) == 2
             @test pending[1].data[1] == Float32(27 * n_per_seg + 1)
 
-            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
-            em = Threads.@spawn with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            clock = TelemetryCore.TickClock(start_sim, start_sim + Second(6 * 1800))
+            drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     run_id,
                     vi;
-                    deadline = now() + Second(6),
                     batch_size = 3,
                     pending_segments = pending,
-                )
-            end
-            rx = Threads.@spawn with_logger(NullLogger()) do
-                Receiver.run_receiver(
-                    clock,
+                ),
+                receiver = c -> Receiver.run_receiver(
+                    c,
                     link,
                     run_id;
-                    deadline = now() + Second(6),
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
-                )
-            end
-            wait(em)
-            wait(rx)
+                ),
+            )
 
             ground = readdir(joinpath(run_dir, "ground"))
             @test !isempty(ground)
@@ -566,7 +558,7 @@ end
                     batch_size = 3,
                 )
             end
-            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
+            clock = TelemetryCore.TickClock(start_sim, start_sim + Second(6 * 1800))
             retention = TelemetryCore.RetentionPolicy(
                 true,
                 Millisecond(round(Int, 0.25 * 3_600_000)),
@@ -579,31 +571,26 @@ end
                 4.0,
                 720,
             )
-            em = Threads.@spawn with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     run_id,
                     vi;
-                    deadline = now() + Second(6),
                     batch_size = 3,
                     pending_segments = pending,
-                )
-            end
-            rx_task = Threads.@spawn with_logger(NullLogger()) do
-                Receiver.run_receiver(
-                    clock,
+                ),
+                receiver = c -> Receiver.run_receiver(
+                    c,
                     link,
                     run_id;
-                    deadline = now() + Second(6),
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                     retention = retention,
                     hole_feed = feed,
-                )
-            end
-            wait(em)
-            wait(rx_task)
+                ),
+            )
 
             ground = filter(
                 f -> isdir(joinpath(run_dir, "ground", f)),
@@ -707,39 +694,34 @@ end
                 )
             end
 
-            clock = TelemetryCore.SimulationClock(now(), start_sim, 1800.0)
+            clock = TelemetryCore.TickClock(start_sim, start_sim + Second(6 * 1800))
             feed = TelemetryCore.HoleFeed(
                 run_dir,
                 Emitter.instrument_epoch(start_sim, 0.02),
                 4.0,
                 720,
             )
-            em = Threads.@spawn with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     run_id,
                     vi;
-                    deadline = now() + Second(6),
                     batch_size = 3,
                     pending_segments = pending,
-                )
-            end
-            rx = Threads.@spawn with_logger(NullLogger()) do
-                Receiver.run_receiver(
-                    clock,
+                ),
+                receiver = c -> Receiver.run_receiver(
+                    c,
                     link,
                     run_id;
-                    deadline = now() + Second(6),
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                     loss_model = loss,
                     max_retries = 2,
                     hole_feed = feed,
-                )
-            end
-            wait(em)
-            wait(rx)
+                ),
+            )
 
             ground = readdir(joinpath(run_dir, "ground"))
             lost = filter(
@@ -812,32 +794,38 @@ end
     end
 end
 
-@testset "Emitter pacing anchored to the mission clock" begin
-    # The generation schedule follows the mission clock: a segment is produced
-    # once its content interval has elapsed, a late start is recovered by
-    # catch-up, and the content epoch of the stream tracks mission time
-    # within one period at the end of the run.
-    pace_id = "TEST_RUN_pacing_pid$(getpid())"
+@testset "Paced and unpaced runs produce the same record" begin
+    # One emitter-only configuration, run unpaced and then paced at 600x over
+    # a 4 s wall budget. The paced run takes at least its budget (a lagging
+    # host may take longer, never shorter) and writes the same event log, as
+    # pacing only delays the release of each logical instant.
     mktempdir() do tmp
         ext_path = joinpath(tmp, "ext.csv")
         CSV.write(ext_path, DataFrame(Amplitude = Float32.(1:200_000)))
-        speed_up = 600.0 # 60 s segments → 100 ms wall period
-        pace_dir = TelemetryCore.setup_run_dir(
-            pace_id;
-            cfg = Dict{String,Any}(
-                "simulation" => Dict{String,Any}(
-                    "speed_up" => speed_up,
-                    "start_sim_time" => "2035-01-01T10:00:00",
-                ),
-            ),
+        speed_up = 600.0 # 60 s segments, 100 ms wall period
+        start_sim = DateTime(2035, 1, 1, 10)
+        mission_end = start_sim + Second(4 * 600)
+        seg_dur = 60.0
+        batch_size = 3
+        batch_span = Second(round(Int, batch_size * seg_dur))
+        period = Second(round(Int, seg_dur))
+        link = ChannelEffects.LinkModel(
+            TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat"),
         )
-        try
-            start_sim = DateTime(2035, 1, 1, 10)
-            seg_dur = 60.0
-            batch_size = 3
-            link = ChannelEffects.LinkModel(
-                TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "flat"),
+        run_dirs = String[]
+        # Returns the run directory and the wall time of the driver.
+        function pacing_run(label, pace)
+            pace_id = "TEST_RUN_pacing_$(label)_pid$(getpid())"
+            pace_dir = TelemetryCore.setup_run_dir(
+                pace_id;
+                cfg = Dict{String,Any}(
+                    "simulation" => Dict{String,Any}(
+                        "speed_up" => speed_up,
+                        "start_sim_time" => "2035-01-01T10:00:00",
+                    ),
+                ),
             )
+            push!(run_dirs, pace_dir)
             # No pre-population: the instrument anchors at the mission epoch.
             vi, pending = with_logger(NullLogger()) do
                 Emitter.pre_populate(
@@ -853,49 +841,35 @@ end
                     batch_size = batch_size,
                 )
             end
-            clock = TelemetryCore.SimulationClock(now(), start_sim, speed_up)
-            wall_span_ms = 4000
-            deadline = clock.start_real_time + Millisecond(wall_span_ms)
-            with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            clock = TelemetryCore.TickClock(start_sim, mission_end; pace = pace)
+            elapsed = @elapsed drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     pace_id,
                     vi;
                     batch_size = batch_size,
                     pending_segments = pending,
-                    deadline = deadline,
                     max_inflight_batches = 1,
-                )
-            end
-            mission_end = start_sim + Millisecond(round(Int, wall_span_ms * speed_up))
-            batch_span = Second(round(Int, batch_size * seg_dur))
-            period = Second(round(Int, seg_dur))
+                ),
+            )
+            return pace_dir, elapsed
+        end
+        try
+            unpaced_dir, _ = pacing_run("unpaced", nothing)
+            pace_dir, elapsed_paced = pacing_run("paced", speed_up)
+            @test 3.0 <= elapsed_paced <= 15.0
+            @test read(joinpath(pace_dir, "events_tx.csv"), String) ==
+                  read(joinpath(unpaced_dir, "events_tx.csv"), String)
 
             epochs = TelemetryCore.batch_content_epochs(pace_dir)
-            expected_batches =
-                floor(Int, wall_span_ms * speed_up / 1000 / seg_dur / batch_size)
             @test length(epochs) >= 2 # the generation loop produced a stream
-
-            # How many batches the run yields depends on the host keeping pace
-            # with the accelerated clock: at speed_up = 600 one 60 s segment
-            # must be synthesized and written every 100 ms, which a cold or
-            # loaded machine misses — the regime the emitter itself reports
-            # through EMITTER_LAG_WARN_SEC. Production rate is therefore a
-            # precondition here and a measurement in bench/ (the per-segment
-            # cost that sets it is physics/next_segment plus
-            # io/batch_save_load); the epoch arithmetic and the causality
-            # bounds below hold either way.
-            kept_pace = length(epochs) >= expected_batches - 1
-            kept_pace ||
-                @warn "[TEST] Host did not keep pace with the accelerated clock; " *
-                      "the end-of-span coverage and steady-state lag assertions are skipped." produced =
-                    length(epochs) expected = expected_batches
 
             # Content coverage and causality: the stream ends within one batch
             # of mission end and never runs ahead of the clock.
             last_content_end = maximum(values(epochs)) + batch_span
-            kept_pace && @test last_content_end > mission_end - batch_span - period
+            @test last_content_end > mission_end - batch_span - period
             @test last_content_end <= mission_end + period
 
             # Metadata contract: content_epoch is the first-sample timestamp
@@ -906,7 +880,6 @@ end
                 (joinpath(pace_dir, "onboard", name), joinpath(pace_dir, "link", name)) if
                 isdir(d)
             )
-            lags = Dict{Int,Millisecond}()
             for (name, epoch) in epochs
                 dir = locate(name)
                 meta = TelemetryCore.read_batch_metadata(dir)
@@ -917,13 +890,9 @@ end
                 @test epoch == start_sim + Second((first_idx - 1) * round(Int, seg_dur))
                 created = DateTime(meta["created_at"])
                 @test created >= epoch + batch_span
-                lags[Int(meta["batch_id"])] = created - (epoch + batch_span)
             end
-            # Steady state: the last finalized batch lags the clock by less
-            # than two periods (startup compilation is recovered by catch-up).
-            kept_pace && @test lags[maximum(keys(lags))] < 2 * Millisecond(period)
         finally
-            rm(pace_dir; recursive = true, force = true)
+            foreach(d -> rm(d; recursive = true, force = true), run_dirs)
         end
     end
 end
@@ -969,38 +938,21 @@ end
             link = ChannelEffects.LinkModel(
                 TelemetryCore.VisibilityModel(Time(0), Second(24 * 3600), "flat"),
             )
-            # The receiver compiled for this loss model before the clock
-            # starts, so the compilation does not elapse inside the 3 s budget.
-            warm_dir = TelemetryCore.setup_run_dir(run_id * "__warmup")
-            with_logger(NullLogger()) do
-                Receiver.run_receiver(
-                    TelemetryCore.SimulationClock(now(), start_sim, 600.0),
-                    link,
-                    run_id * "__warmup";
-                    orig_stdout = devnull,
-                    batch_transfer_sec = 1.0,
-                    loss_model = FirstAttemptLoss(Ref(false)),
-                    max_retries = 3,
-                    deadline = now() - Second(1),
-                    round_trip_light_time_sec = round_trip_sec,
-                )
-            end
-            rm(warm_dir; recursive = true, force = true)
-            clock = TelemetryCore.SimulationClock(now(), start_sim, 600.0)
+            clock = TelemetryCore.TickClock(start_sim, start_sim + Second(3 * 600))
             loss = FirstAttemptLoss(Ref(false))
-            with_logger(NullLogger()) do
-                Receiver.run_receiver(
-                    clock,
+            drive_components(
+                clock;
+                receiver = c -> Receiver.run_receiver(
+                    c,
                     link,
                     run_id;
                     orig_stdout = devnull,
                     batch_transfer_sec = 1.0,
                     loss_model = loss,
                     max_retries = 3,
-                    deadline = now() + Second(3),
                     round_trip_light_time_sec = round_trip_sec,
-                )
-            end
+                ),
+            )
             rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
             return [
                 (String(r.Batch), String(r.Event), DateTime(r.SimTime)) for r in eachrow(rx)
@@ -1195,24 +1147,24 @@ end
         link = ChannelEffects.LinkModel(
             TelemetryCore.VisibilityModel(Time(0), Second(3600), "flat"),
         )
-        clock = TelemetryCore.SimulationClock(now(), start, 1800.0)
-        with_logger(NullLogger()) do
-            Emitter.run_emitter(
-                clock,
+        clock = TelemetryCore.TickClock(start, start + Second(3 * 1800))
+        drive_components(
+            clock;
+            emitter = c -> Emitter.run_emitter(
+                c,
                 link,
                 live_id,
                 VirtualInstrument.InstrumentState(
-                    TelemetryCore.get_current_sim_time(clock),
+                    TelemetryCore.get_current_sim_time(c),
                     4.0,
                     60.0,
                     "synthetic",
                     "",
                 );
-                deadline = now() + Second(3),
                 batch_size = 3,
                 onboard_capacity_batches = 2,
-            )
-        end
+            ),
+        )
         @test TelemetryCore.max_logged_batch_id(live_dir) == 2
         tx = TelemetryCore.read_table(joinpath(live_dir, "events_tx.csv"))
         @test String.(tx[tx.Batch .== "RECORDER", :Event]) == ["gap_start"]
@@ -1276,19 +1228,19 @@ end
             link = ChannelEffects.LinkModel(
                 TelemetryCore.VisibilityModel(Time(0), Second(24 * 3600), "flat"),
             )
-            clock = TelemetryCore.SimulationClock(now(), start, 3600.0)
-            with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            clock = TelemetryCore.TickClock(start, start + Second(3 * 3600))
+            drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     gap_id,
                     vi;
-                    deadline = now() + Second(3),
                     batch_size = 10,
                     pending_segments = pending,
                     generation_gaps = gaps,
-                )
-            end
+                ),
+            )
             tx = TelemetryCore.read_table(joinpath(gap_dir, "events_tx.csv"))
             scheduled = tx[tx.Batch .== "SCHEDULED", :]
             @test String.(scheduled.Event) ==
@@ -1319,46 +1271,32 @@ end
             link = ChannelEffects.LinkModel(
                 TelemetryCore.VisibilityModel(Time(0, 30), Second(23 * 3600), "flat"),
             )
-            clock = TelemetryCore.SimulationClock(now(), start, 3600.0)
-            with_logger(NullLogger()) do
-                Emitter.run_emitter(
-                    clock,
+            clock = TelemetryCore.TickClock(start, start + Second(3 * 3600))
+            drive_components(
+                clock;
+                emitter = c -> Emitter.run_emitter(
+                    c,
                     link,
                     rec_id,
                     VirtualInstrument.InstrumentState(start, fs, 50.0, "external", ramp);
-                    deadline = now() + Second(3),
                     batch_size = 10,
                     onboard_capacity_batches = 2,
                     hole_feed = TelemetryCore.HoleFeed(rec_dir, start, fs, 100),
-                )
-            end
+                ),
+            )
             tx = TelemetryCore.read_table(joinpath(rec_dir, "events_tx.csv"))
             recorder = tx[tx.Batch .== "RECORDER", :]
             # The gap closes when the link opens and the two buffered batches
-            # leave. That presupposes an overflow that began while the link
-            # was down. On a host that stalls through those 30 mission
-            # minutes, half a second of wall time, the first batches go
-            # straight to the link, the in-flight slots fill, and with no
-            # receiver in this test the buffer never drains again. Keeping
-            # pace is a precondition here, as in the emitter-pacing testset.
-            kept_pace =
-                nrow(recorder) > 0 && DateTime(recorder.SimTime[1]) < start + Minute(30)
-            kept_pace ||
-                @warn "[TEST] Host did not keep pace with the accelerated clock; " *
-                      "the recorder-gap closing assertion is skipped."
-            kept_pace && @test "gap_end" in String.(recorder.Event)
+            # leave, after an overflow that began while the link was down.
+            @test "gap_end" in String.(recorder.Event)
             # The closed recorder gap is declared once, at or after its content end.
-            if kept_pace && "gap_end" in String.(recorder.Event)
-                opened =
-                    DateTime(recorder.SimTime[findfirst(==("gap_start"), recorder.Event)])
-                closed =
-                    DateTime(recorder.SimTime[findfirst(==("gap_end"), recorder.Event)])
-                holes = TelemetryCore.read_hole_feed(rec_dir)
-                rec_hole = holes[holes.Cause .== "recorder", :]
-                @test nrow(rec_hole) == 1
-                @test rec_hole.ContentStart[1] == opened && rec_hole.ContentEnd[1] == closed
-                @test rec_hole.DeclaredAt[1] >= rec_hole.ContentEnd[1]
-            end
+            opened = DateTime(recorder.SimTime[findfirst(==("gap_start"), recorder.Event)])
+            closed = DateTime(recorder.SimTime[findfirst(==("gap_end"), recorder.Event)])
+            holes = TelemetryCore.read_hole_feed(rec_dir)
+            rec_hole = holes[holes.Cause .== "recorder", :]
+            @test nrow(rec_hole) == 1
+            @test rec_hole.ContentStart[1] == opened && rec_hole.ContentEnd[1] == closed
+            @test rec_hole.DeclaredAt[1] >= rec_hole.ContentEnd[1]
             alignment = ramp_alignment(rec_dir, start, fs)
             @test alignment.checked == count(==("gen"), tx.Event) > 2
             @test isempty(alignment.misaligned) && isempty(alignment.repeated)
@@ -1404,59 +1342,27 @@ end
         link = ChannelEffects.LinkModel(
             TelemetryCore.VisibilityModel(Time(0), Second(24 * 3600), "flat"),
         )
-        # Both loops compiled before the clock anchor, as in
-        # Supervisor.warm_up_components!: at this speed-up the first-call
-        # compilation would otherwise elapse as the whole gap.
-        warm_dir = TelemetryCore.setup_run_dir(run_id * "__warmup")
-        past = now() - Second(1)
-        with_logger(NullLogger()) do
-            warm_clock = TelemetryCore.SimulationClock(now(), start, 3600.0)
-            Emitter.run_emitter(
-                warm_clock,
-                link,
-                run_id * "__warmup",
-                VirtualInstrument.InstrumentState(start, 0.2, 50.0, "synthetic", "");
-                deadline = past,
-                batch_size = 10,
-                generation_gaps = [gap],
-                max_inflight_batches = inflight,
-            )
-            Receiver.run_receiver(
-                warm_clock,
-                link,
-                run_id * "__warmup";
-                deadline = past,
-                orig_stdout = devnull,
-                batch_transfer_sec = 300.0,
-            )
-        end
-        rm(warm_dir; recursive = true, force = true)
-        clock = TelemetryCore.SimulationClock(now(), start, 3600.0)
-        em = Threads.@spawn with_logger(NullLogger()) do
-            Emitter.run_emitter(
-                clock,
+        clock = TelemetryCore.TickClock(start, start + Millisecond(2500 * 3600))
+        drive_components(
+            clock;
+            emitter = c -> Emitter.run_emitter(
+                c,
                 link,
                 run_id,
                 vi;
-                deadline = now() + Millisecond(2500),
                 batch_size = 10,
                 pending_segments = pending,
                 generation_gaps = [gap],
                 max_inflight_batches = inflight,
-            )
-        end
-        rx = Threads.@spawn with_logger(NullLogger()) do
-            Receiver.run_receiver(
-                clock,
+            ),
+            receiver = c -> Receiver.run_receiver(
+                c,
                 link,
                 run_id;
-                deadline = now() + Millisecond(2500),
                 orig_stdout = devnull,
                 batch_transfer_sec = 300.0,
-            )
-        end
-        wait(em)
-        wait(rx)
+            ),
+        )
         tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
         rx_events = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
         inside(t) = gap[1] + Minute(2) < DateTime(t) < gap[2]
@@ -1464,9 +1370,7 @@ end
         # The defect left the link idle through the gap: no batch was placed
         # on it, and at most the `inflight` batches already there reached the
         # ground. More than that is the downlink being served. The full
-        # rate, about eleven transfers in the window, is a property of the
-        # host's pacing and is not asserted: a shared Windows runner
-        # delivered four.
+        # rate, about eleven transfers in the window, is not asserted.
         @test count(r -> r.Event == "tx" && inside(r.SimTime), eachrow(tx)) > inflight
         @test count(r -> r.Event == "ingested" && inside(r.SimTime), eachrow(rx_events)) >
               inflight
