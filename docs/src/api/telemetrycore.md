@@ -7,6 +7,7 @@ DeepSpaceTelemetry.TelemetryCore.DATA_ROOT
 DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT
 DeepSpaceTelemetry.TelemetryCore.run_directory
 DeepSpaceTelemetry.TelemetryCore.runs_root
+DeepSpaceTelemetry.TelemetryCore.checked_run_dir
 DeepSpaceTelemetry.TelemetryCore.latest_run_id
 DeepSpaceTelemetry.TelemetryCore.batch_name
 DeepSpaceTelemetry.TelemetryCore.batch_id
@@ -73,6 +74,7 @@ DeepSpaceTelemetry.TelemetryCore.parsed_datetime
 DeepSpaceTelemetry.TelemetryCore.parsed_date
 DeepSpaceTelemetry.TelemetryCore.parsed_time
 DeepSpaceTelemetry.TelemetryCore.loss_channel_settings
+DeepSpaceTelemetry.TelemetryCore.gilbert_elliott_loss_rate
 DeepSpaceTelemetry.TelemetryCore.DisruptionEventSettings
 DeepSpaceTelemetry.TelemetryCore.disruption_event_settings
 DeepSpaceTelemetry.TelemetryCore.onboard_capacity
@@ -110,6 +112,7 @@ DeepSpaceTelemetry.TelemetryCore.backup_existing_dir
 DeepSpaceTelemetry.TelemetryCore.TIMESTAMP_COLUMNS
 DeepSpaceTelemetry.TelemetryCore.timestamp_text
 DeepSpaceTelemetry.TelemetryCore.read_table
+DeepSpaceTelemetry.TelemetryCore.parse_table
 DeepSpaceTelemetry.TelemetryCore.write_table
 DeepSpaceTelemetry.TelemetryCore.safe_csv_write
 DeepSpaceTelemetry.TelemetryCore.MissionClock
@@ -117,6 +120,7 @@ DeepSpaceTelemetry.TelemetryCore.get_current_sim_time
 DeepSpaceTelemetry.TelemetryCore.TickClock
 DeepSpaceTelemetry.TelemetryCore.TickWakeup
 DeepSpaceTelemetry.TelemetryCore.horizon_reached
+DeepSpaceTelemetry.TelemetryCore.loop_should_stop
 DeepSpaceTelemetry.TelemetryCore.EMITTER_PRIORITY
 DeepSpaceTelemetry.TelemetryCore.RECEIVER_PRIORITY
 DeepSpaceTelemetry.TelemetryCore.wait_until!
@@ -133,6 +137,7 @@ DeepSpaceTelemetry.TelemetryCore.load_clock_anchor
 DeepSpaceTelemetry.TelemetryCore.max_logged_batch_id
 DeepSpaceTelemetry.TelemetryCore.PAYLOAD_COLUMN_DEFAULT
 DeepSpaceTelemetry.TelemetryCore.DataSegment
+DeepSpaceTelemetry.TelemetryCore.payload_column_index
 DeepSpaceTelemetry.TelemetryCore.segment_column
 DeepSpaceTelemetry.TelemetryCore.DataBatch
 DeepSpaceTelemetry.TelemetryCore.MissionMetrics

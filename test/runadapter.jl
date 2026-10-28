@@ -153,6 +153,30 @@
         end
         @test length(RunAdapter.declared_holes(run; after = length(declared) - 2)) == 2
         @test isempty(RunAdapter.declared_holes(run; after = length(declared)))
+        # Feed cursors read each feed once, by byte offset, and leave a line
+        # still being written for the next call.
+        arrivals = RunAdapter.FeedCursor(run, :arrivals)
+        @test RunAdapter.arrival_events(arrivals) == events
+        @test isempty(RunAdapter.arrival_events(arrivals)) &&
+              arrivals.rows == length(events)
+        hole_cursor = RunAdapter.FeedCursor(run, :holes)
+        @test isequal(RunAdapter.declared_holes(hole_cursor), declared)
+        @test isempty(RunAdapter.declared_holes(hole_cursor))
+        @test_throws ArgumentError RunAdapter.FeedCursor(run, :metrics)
+        @test_throws ArgumentError RunAdapter.declared_holes(arrivals)
+        mktempdir() do tmp
+            feed = joinpath(tmp, "events_rx.csv")
+            partial = RunAdapter.FeedCursor(feed, :arrivals, "", 0, 0)
+            @test isempty(RunAdapter.arrival_events(partial)) && partial.offset == 0
+            text = read(joinpath(run_dir, "events_rx.csv"))
+            line_ends = findall(==(UInt8('\n')), text)
+            cut = line_ends[4] + 5 # header and three rows, then part of the fourth
+            write(feed, text[1:cut])
+            @test RunAdapter.arrival_events(partial) == events[1:3]
+            write(feed, text)
+            @test RunAdapter.arrival_events(partial) == events[4:end]
+            @test partial.offset == length(text) && partial.rows == length(events)
+        end
         # A run without the feed (producers before 2.6.0): declared_holes derives
         # the tracker's holes, without declaration instants.
         mktempdir() do tmp
@@ -292,6 +316,7 @@ end
         :BatchRecord,
         :ArrivalEvent,
         :Hole,
+        :FeedCursor,
         :GapTracker,
         :MINIMUM_PRODUCER_VERSION,
         :open_run,

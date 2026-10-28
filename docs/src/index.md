@@ -21,8 +21,9 @@ Requires Julia ≥ 1.12. The package is not registered in the General
 registry and is used from a clone of the repository, which carries the
 scripts, the scenario library, and the benchmarks. Runs are written under
 the data root, `data/runs/` of the clone by default; a copy installed by
-Pkg writes under its own directory unless `TelemetryCore.DATA_ROOT[]` is
-redirected:
+Pkg writes under its own directory unless the caller passes `data_root` to
+`Supervisor.run_mission` or redirects the default,
+`TelemetryCore.DATA_ROOT[]`:
 
 ```bash
 git clone https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git

@@ -231,9 +231,12 @@ function estimate_artifacts(cfg::AbstractDict)
     p_eff = if !loss.enabled
         0.0
     elseif loss.model == "gilbert_elliott"
-        denom = loss.p_good_to_bad + loss.p_bad_to_good
-        pi_bad = denom > 0.0 ? loss.p_good_to_bad / denom : 0.0
-        pi_bad * loss.p_loss_bad + (1.0 - pi_bad) * loss.p_loss_good
+        gilbert_elliott_loss_rate(
+            loss.p_good_to_bad,
+            loss.p_bad_to_good,
+            loss.p_loss_good,
+            loss.p_loss_bad,
+        )
     else
         loss.p_loss
     end

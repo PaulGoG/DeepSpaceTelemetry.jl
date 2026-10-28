@@ -853,6 +853,29 @@ function loss_channel_settings(cfg::AbstractDict)
 end
 
 """
+    gilbert_elliott_loss_rate(p_good_to_bad, p_bad_to_good, p_loss_good, p_loss_bad;
+                              in_bad_state = false) -> Float64
+
+Stationary loss probability of the two-state Gilbert–Elliott channel,
+`π_bad·p_loss_bad + (1 − π_bad)·p_loss_good` with the stationary occupancy
+`π_bad = p_good_to_bad / (p_good_to_bad + p_bad_to_good)`. A channel with
+both transition probabilities zero keeps the loss probability of the state
+it is in (`in_bad_state`; a channel starts in the good state).
+"""
+function gilbert_elliott_loss_rate(
+    p_good_to_bad::Real,
+    p_bad_to_good::Real,
+    p_loss_good::Real,
+    p_loss_bad::Real;
+    in_bad_state::Bool = false,
+)
+    denom = p_good_to_bad + p_bad_to_good
+    denom == 0 && return Float64(in_bad_state ? p_loss_bad : p_loss_good)
+    pi_bad = p_good_to_bad / denom
+    return Float64(pi_bad * p_loss_bad + (1 - pi_bad) * p_loss_good)
+end
+
+"""
     is_whole_milliseconds(seconds::Real) -> Bool
 
 Whether `seconds` is a whole number of milliseconds, at least one, to within
@@ -1451,7 +1474,9 @@ end
 
 Validated `[supervision]` parameters: `on_component_failure` (`"abort"`,
 `"continue"`, or `"restart"`, lower-cased; default `"abort"`),
-`max_restarts ≥ 0` (default 3), `watchdog_sec > 0` (default 30).
+`max_restarts ≥ 0` (default 3), `watchdog_sec > 0` (default 30). The
+watchdog was retired with the second execution model in 2.8.0, so
+`watchdog_sec` is validated but has no effect.
 """
 function supervision_settings(cfg::AbstractDict)
     sup = get(cfg, "supervision", Dict{String,Any}())

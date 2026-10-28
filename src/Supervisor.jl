@@ -39,8 +39,9 @@ is followed in a dashboard terminal. ANSI escape sequences are stripped so
 the file reads cleanly after the run. Each record is appended with its own
 open (log rates are a few lines per batch), which allows size-capped
 rotation to `name#k.log` (`retention.log_rotate_mb`) without a stream held
-open across the rotation boundary. Formatting does not throw: a throwing
-logger would terminate the task it logs for.
+open across the rotation boundary. Neither formatting nor file I/O throws,
+as a throwing logger would terminate the task it logs for: a record whose
+rotation or write fails is dropped with a line on `stderr`.
 """
 struct CleanFileLogger <: Logging.AbstractLogger
     path::String
@@ -92,19 +93,26 @@ function Logging.handle_message(
     line;
     kwargs...,
 )
-    if isfile(logger.path) && filesize(logger.path) > logger.rotate_bytes
-        TelemetryCore.backup_existing(logger.path)
-    end
     text = message isa AbstractString ? strip_ansi(message) : string(message)
-    open(logger.path, "a") do stream
-        try
-            println(stream, "[", level, "] ", text)
-            for (k, v) in kwargs
-                println(stream, "    ", k, " = ", render_log_value(v))
-            end
-        catch
-            println(stream, "[Warn] <log record could not be formatted>")
+    try
+        if isfile(logger.path) && filesize(logger.path) > logger.rotate_bytes
+            TelemetryCore.backup_existing(logger.path)
         end
+        open(logger.path, "a") do stream
+            try
+                println(stream, "[", level, "] ", text)
+                for (k, v) in kwargs
+                    println(stream, "    ", k, " = ", render_log_value(v))
+                end
+            catch e
+                e isa Union{Base.IOError,SystemError} && rethrow()
+                println(stream, "[Warn] <log record could not be formatted>")
+            end
+        end
+    catch e
+        # The record is lost, not the component: report on stderr.
+        e isa Union{Base.IOError,SystemError} || rethrow()
+        println(stderr, "[CleanFileLogger] $(logger.path): ", sprint(showerror, e))
     end
     return nothing
 end
@@ -500,6 +508,8 @@ leaves is bounded in `events_tx.csv` by [`record_generation_gap!`](@ref) at
 the resumption instant, before the replacement task starts. `hole_feed` is
 the run's declared-hole feed ([`TelemetryCore.HoleFeed`](@ref)), shared by
 the emitter, the receiver, and the outage record; `nothing` writes no feed.
+Both components share one on-board count, seeded from `onboard/` here and
+rebuilt from its census by every emitter, restarted or not.
 """
 function component_spawners(
     plan::MissionPlan,
@@ -517,11 +527,20 @@ function component_spawners(
     physics = plan.physics
     telemetry = plan.telemetry
     dashboard = plan.dashboard
+    # The emitter keeps it; the receiver reads it for the metrics. Seeded
+    # from the pre-populated buffer, in case no emitter reaches its census.
+    onboard_path = joinpath(run_dir, "onboard")
+    onboard_count = Threads.Atomic{Int}(
+        count(
+            f -> TelemetryCore.is_batch_name(f) && isdir(joinpath(onboard_path, f)),
+            readdir(onboard_path),
+        ),
+    )
     run_emitter_logged(vi, pending) = with_logger(emitter_logger) do
         Emitter.run_emitter(
             clock,
             plan.link,
-            plan.run_id,
+            run_dir,
             vi;
             batch_size = physics.batch_size,
             pending_segments = pending,
@@ -531,13 +550,14 @@ function component_spawners(
             max_inflight_batches = telemetry.max_inflight_batches,
             stop = stop_flag,
             hole_feed = hole_feed,
+            onboard_count = onboard_count,
         )
     end
     run_receiver_logged(attempt::Int) = with_logger(receiver_logger) do
         Receiver.run_receiver(
             clock,
             plan.link,
-            plan.run_id;
+            run_dir;
             orig_stdout = orig_stdout,
             status_panel = dashboard.receiver_status_panel,
             batch_transfer_sec = telemetry.nominal_batch_transfer_sec,
@@ -548,6 +568,7 @@ function component_spawners(
             round_trip_light_time_sec = telemetry.round_trip_light_time_sec,
             stop = stop_flag,
             hole_feed = hole_feed,
+            onboard_count = onboard_count,
         )
     end
     latest = Ref(instrument)
@@ -1119,7 +1140,7 @@ function execute_mission!(
         Emitter.pre_populate(
             build_instrument(physics, plan.payload_origin, plan.markers),
             plan.start_sim,
-            plan.run_id;
+            run_dir;
             batch_size = physics.batch_size,
             markers = plan.markers,
             generation_gaps = plan.generation_gaps,
@@ -1192,11 +1213,11 @@ end
 
 """
     run_mission(cfg::Dict{String,Any}; run_id = "", orig_stdout = stdout,
-                figures = true) -> String
+                figures = true, data_root = TelemetryCore.DATA_ROOT[]) -> String
 
 The headless pipeline end to end: [`mission_plan`](@ref) (validation,
-storage gate, models, provenance), the run directory with its
-configuration snapshot, and
+storage gate, models, provenance), the run directory
+`<data_root>/runs/<run_id>` with its configuration snapshot, and
 [`execute_mission!`](@ref) under [`with_supervisor_log`](@ref). Returns the
 run directory. `figures = false` skips every figure stage and the
 publication export (the sweep driver uses it); the tables are written
@@ -1215,9 +1236,14 @@ function run_mission(
     run_id::AbstractString = "",
     orig_stdout::IO = stdout,
     figures::Bool = true,
+    data_root::AbstractString = TelemetryCore.DATA_ROOT[],
 )
     plan = mission_plan(cfg; run_id = run_id)
-    run_dir = TelemetryCore.setup_run_dir(plan.run_id; cfg = plan.cfg)
+    run_dir = TelemetryCore.setup_run_dir(
+        plan.run_id;
+        cfg = plan.cfg,
+        data_root = String(data_root),
+    )
     rm(joinpath(run_dir, "RUN_COMPLETE"), force = true)
     rm(joinpath(run_dir, "RUN_POSTPROCESSING"), force = true)
     touch(joinpath(run_dir, "RUN_ACTIVE"))

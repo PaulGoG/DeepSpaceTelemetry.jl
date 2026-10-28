@@ -51,17 +51,24 @@ DataSegment(id::Integer, timestamp::DateTime, data::AbstractVector{<:Real}) = Da
 )
 
 """
+    payload_column_index(columns, column::Union{Integer,AbstractString}) -> Union{Int,Nothing}
+
+Index of a payload column in `columns`, given by index or by name;
+`nothing` when `column` is not one of them.
+"""
+function payload_column_index(columns, column::Union{Integer,AbstractString})
+    column isa AbstractString && return findfirst(==(column), columns)
+    return 1 <= column <= length(columns) ? Int(column) : nothing
+end
+
+"""
     segment_column(seg::DataSegment, column::Union{Integer,AbstractString}) -> Vector{Float32}
 
 The samples of one payload column of `seg`, by index or by name; an
 `ArgumentError` names the columns when `column` is not one of them.
 """
 function segment_column(seg::DataSegment, column::Union{Integer,AbstractString})
-    j = if column isa AbstractString
-        findfirst(==(column), seg.columns)
-    else
-        1 <= column <= length(seg.columns) ? Int(column) : nothing
-    end
+    j = payload_column_index(seg.columns, column)
     j === nothing && throw(
         ArgumentError(
             "Segment $(seg.id) has no payload column $(repr(column)) (columns: $(join(seg.columns, ", "))).",

@@ -18,7 +18,7 @@ same files.
 module RunAdapter
 
 using ..TelemetryCore
-using DataFrames: nrow
+using DataFrames: DataFrame, nrow
 using Dates: DateTime
 
 # The adapter follows the run-directory contract and is versioned with it:
@@ -28,6 +28,7 @@ public RunHandle,
     BatchRecord,
     ArrivalEvent,
     Hole,
+    FeedCursor,
     GapTracker,
     MINIMUM_PRODUCER_VERSION,
     open_run,
@@ -373,11 +374,7 @@ function read_batch(
     column::Union{Integer,AbstractString} = 1,
 )
     columns = run.geometry.columns
-    j = if column isa AbstractString
-        findfirst(==(column), columns)
-    else
-        1 <= column <= length(columns) ? Int(column) : nothing
-    end
+    j = TelemetryCore.payload_column_index(columns, column)
     j === nothing && throw(
         ArgumentError(
             "[ADAPTER] No payload column $(repr(column)) in $(run.run_dir) (columns: $(join(columns, ", "))).",
@@ -400,15 +397,16 @@ function arrival_events(run::RunHandle; after::Int = 0)
     isfile(path) || return ArrivalEvent[]
     table = TelemetryCore.read_table(path)
     after >= nrow(table) && return ArrivalEvent[]
-    return [
-        ArrivalEvent(
-            DateTime(r.SimTime),
-            String(r.Batch),
-            Symbol(lowercase(String(r.Event))),
-            Int(r.Attempt),
-        ) for r in eachrow(table[(after+1):end, :])
-    ]
+    return [arrival_event(r) for r in eachrow(table[(after+1):end, :])]
 end
+
+# One row of events_rx.csv.
+arrival_event(r) = ArrivalEvent(
+    DateTime(r.SimTime),
+    String(r.Batch),
+    Symbol(lowercase(String(r.Event))),
+    Int(r.Attempt),
+)
 
 """
     markers(run::RunHandle) -> Vector{NamedTuple}
@@ -624,21 +622,113 @@ function declared_holes(run::RunHandle; after::Integer = 0)
         return tracker.declared
     end
     table = TelemetryCore.read_hole_feed(run.run_dir; after = after)
-    holes = Hole[]
-    for r in eachrow(table)
-        push!(
-            holes,
-            Hole(
-                Symbol(String(r.Cause)),
-                ismissing(r.Batch) ? missing : String(r.Batch),
-                Int(r.RowFirst):Int(r.RowLast),
-                DateTime(r.ContentStart),
-                DateTime(r.ContentEnd),
-                DateTime(r.DeclaredAt),
-            ),
-        )
+    return Hole[declared_hole(r) for r in eachrow(table)]
+end
+
+# One row of holes.csv.
+declared_hole(r) = Hole(
+    Symbol(String(r.Cause)),
+    ismissing(r.Batch) ? missing : String(r.Batch),
+    Int(r.RowFirst):Int(r.RowLast),
+    DateTime(r.ContentStart),
+    DateTime(r.ContentEnd),
+    DateTime(r.DeclaredAt),
+)
+
+"""
+    FeedCursor(run::RunHandle, feed::Symbol)
+
+A position in one of the append-only feeds of a run, `:arrivals`
+(`events_rx.csv`) or `:holes` (`holes.csv`): the byte offset past the last
+complete line consumed and the count of rows read. Each call of
+[`arrival_events`](@ref) or [`declared_holes`](@ref) on the cursor reads
+only the bytes appended since the previous call, so following a feed costs
+O(new rows) per poll, where the `after` forms re-read the whole file. A
+line still being written (no terminating newline yet) is left for the next
+call. No file handle is held between calls, and an absent file yields no
+rows until it appears. The `:holes` cursor of a run without `holes.csv`
+(producers before 2.6.0) yields nothing; [`declared_holes`](@ref) derives
+those holes from the event logs.
+
+```julia
+arrivals = RunAdapter.FeedCursor(run, :arrivals)
+while RunAdapter.run_state(run) === :active
+    for e in RunAdapter.arrival_events(arrivals)
+        # consume e
     end
-    return holes
+    sleep(poll_interval)
+end
+```
+"""
+mutable struct FeedCursor
+    const path::String
+    const feed::Symbol
+    header::String
+    offset::Int
+    rows::Int
+end
+
+const FEED_FILES = (arrivals = "events_rx.csv", holes = "holes.csv")
+
+function FeedCursor(run::RunHandle, feed::Symbol)
+    haskey(FEED_FILES, feed) || throw(
+        ArgumentError(
+            "[ADAPTER] Unknown feed $(repr(feed)); expected :arrivals or :holes.",
+        ),
+    )
+    return FeedCursor(joinpath(run.run_dir, FEED_FILES[feed]), feed, "", 0, 0)
+end
+
+"""
+    arrival_events(cursor::FeedCursor) -> Vector{ArrivalEvent}
+
+The rows of `events_rx.csv` appended since the previous call on an
+`:arrivals` cursor ([`FeedCursor`](@ref)), advancing it.
+"""
+function arrival_events(cursor::FeedCursor)
+    check_feed(cursor, :arrivals)
+    return [arrival_event(r) for r in eachrow(next_rows!(cursor))]
+end
+
+"""
+    declared_holes(cursor::FeedCursor) -> Vector{Hole}
+
+The rows of `holes.csv` appended since the previous call on a `:holes`
+cursor ([`FeedCursor`](@ref)), advancing it.
+"""
+function declared_holes(cursor::FeedCursor)
+    check_feed(cursor, :holes)
+    return Hole[declared_hole(r) for r in eachrow(next_rows!(cursor))]
+end
+
+check_feed(cursor::FeedCursor, feed::Symbol) =
+    cursor.feed === feed || throw(
+        ArgumentError(
+            "[ADAPTER] A :$(cursor.feed) cursor cannot be read as the :$feed feed.",
+        ),
+    )
+
+# The complete lines appended past the cursor, parsed under the feed's header;
+# the cursor moves past them. The first complete line is the header.
+function next_rows!(cursor::FeedCursor)
+    isfile(cursor.path) || return DataFrame()
+    bytes = open(cursor.path) do io
+        seek(io, cursor.offset)
+        read(io)
+    end
+    stop = findlast(==(UInt8('\n')), bytes)
+    stop === nothing && return DataFrame()
+    start = 1
+    if isempty(cursor.header)
+        eol = findfirst(==(UInt8('\n')), bytes)
+        cursor.header = rstrip(String(bytes[1:(eol-1)]), '\r')
+        start = eol + 1
+    end
+    cursor.offset += stop
+    start > stop && return DataFrame()
+    table = TelemetryCore.parse_table(cursor.header, view(bytes, start:stop))
+    cursor.rows += nrow(table)
+    return table
 end
 
 end # module RunAdapter

@@ -195,15 +195,20 @@ end
 """
     run_one(cfg::Dict{String,Any}, run_id::String, data_root::String) -> String
 
-One sweep run in the calling process, the body every worker executes: sets
-the data root and runs the mission headless with the console and the global
-logger silenced; the run's own logs still go to its directory. Returns the
-run directory.
+One sweep run in the calling process, the body every worker executes: the
+mission headless under `data_root`, with the console and the global logger
+silenced; the run's own logs still go to its directory. Returns the run
+directory.
 """
 function run_one(cfg::Dict{String,Any}, run_id::String, data_root::String)
-    TelemetryCore.DATA_ROOT[] = data_root
     return with_logger(NullLogger()) do
-        Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull, figures = false)
+        Supervisor.run_mission(
+            cfg;
+            run_id = run_id,
+            orig_stdout = devnull,
+            figures = false,
+            data_root = data_root,
+        )
     end
 end
 

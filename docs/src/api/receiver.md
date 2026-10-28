@@ -6,5 +6,10 @@ DeepSpaceTelemetry.Receiver.ServicePacer
 DeepSpaceTelemetry.Receiver.serve_slot!
 DeepSpaceTelemetry.Receiver.idle_wait!
 DeepSpaceTelemetry.Receiver.run_receiver
+DeepSpaceTelemetry.Receiver.reattach_state
+DeepSpaceTelemetry.Receiver.RetentionCustodian
+DeepSpaceTelemetry.Receiver.custodian_step!
+DeepSpaceTelemetry.Receiver.status_panel_text
+DeepSpaceTelemetry.Receiver.payload_bytes
 DeepSpaceTelemetry.Receiver.delivered_payload_queue
 ```

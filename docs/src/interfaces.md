@@ -431,7 +431,8 @@ that is minutes. Under the tick clock there is no wall mapping and arrivals
 come as fast as the host processes them, so a consumer following a tick
 run polls as fast as it can and is best developed against the finished
 record instead. For a long run, tail by byte offset rather than re-reading
-the file.
+the file; `RunAdapter.FeedCursor` does so for `events_rx.csv` and
+`holes.csv`.
 
 **Maintain coverage.** Map each batch to its rows ([Batch Identity → Sample Interval](@ref))
 and keep the delivered rows as a set of disjoint intervals. Arrival is out
@@ -544,6 +545,8 @@ RunAdapter.run_state(run)                    # :active | :complete | :aborted, f
 RunAdapter.markers(run)                      # the event markers with their payload row
 RunAdapter.label_spans(run)                  # the labeled intervals of the scenario, with their rows
 RunAdapter.declared_holes(run; after = n)    # the producer's hole feed beyond n rows, each with its declaration instant
+cursor = RunAdapter.FeedCursor(run, :arrivals)   # or :holes; each call below reads only the bytes appended since the last
+RunAdapter.arrival_events(cursor)            # (declared_holes(cursor) for a :holes cursor)
 ```
 
 `open_run` refuses a run of a producer older than 2.1.0, the first with
@@ -564,13 +567,13 @@ when the run has it and deriving the holes from the event logs when it
 does not (runs of producers before 2.6.0, with `declared_at` missing).
 
 The adapter's types (`RunHandle`, `RunGeometry`, `BatchRecord`,
-`ArrivalEvent`, `Hole`, `GapTracker`), its version floor
+`ArrivalEvent`, `Hole`, `FeedCursor`, `GapTracker`), its version floor
 `MINIMUM_PRODUCER_VERSION`, and the functions above with `batch_rows`,
 `read_batch_matrix`, `record_final`, `row_time` and `time_row` are declared
-`public` (since 2.6.2) and are not exported; a consumer qualifies them, as
-in the example. ExplicitImports' `check_all_qualified_accesses_are_public`
-then passes without an ignore list. These names are versioned with the file
-contract.
+`public` (since 2.6.2; `FeedCursor` since 2.10.0) and are not exported; a
+consumer qualifies them, as in the example. ExplicitImports'
+`check_all_qualified_accesses_are_public` then passes without an ignore
+list. These names are versioned with the file contract.
 
 **Streaming archetypes.** The loop above is what a *streaming engine* does
 generically: a coverage set, a window scheduler that emits each window

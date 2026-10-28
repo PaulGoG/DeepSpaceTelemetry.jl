@@ -6,6 +6,51 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- `RunAdapter.FeedCursor(run, :arrivals | :holes)`: a byte-offset cursor
+  over `events_rx.csv` or `holes.csv`. `arrival_events(cursor)` and
+  `declared_holes(cursor)` return the rows appended since the previous call
+  and leave a line still being written for the next one, so following a
+  feed costs O(new rows) per poll instead of a re-read of the whole file.
+  The `after` forms are unchanged.
+- `Supervisor.run_mission(cfg; data_root)` and
+  `TelemetryCore.setup_run_dir(run_id; data_root)` place a run under a
+  given data root; `TelemetryCore.run_directory(run_id, data_root)`.
+
+### Changed
+- The components take their run directory, not a run ID:
+  `Emitter.pre_populate(instrument, start, run_dir)`,
+  `Emitter.run_emitter(clock, link, run_dir, instrument)` and
+  `Receiver.run_receiver(clock, link, run_dir)` require an absolute path
+  and reject a bare run ID. `TelemetryCore.DATA_ROOT` is only the default
+  of the entry points, and a sweep no longer reassigns it: with
+  `workers = 0` it used to stay pointed at the sweep's data root after
+  `run_sweep` returned.
+- The receiver reads the number of batches on board from the emitter, which
+  keeps the count in step with every write to and move out of `onboard/`,
+  instead of listing `onboard/` with one `stat` per batch on every loop
+  iteration; it lists `link/` once per iteration instead of twice. A
+  recorder at capacity holds about two thousand batches, so long and
+  saturated missions spend less time in directory scans. Products are
+  unchanged.
+- The precompile workload runs a short tick mission end to end, figures
+  included, in a temporary data root, so the component loops, the event
+  writers, the post-processing tables and the figure stage are compiled at
+  installation rather than in every run. The first mission of a process
+  (the smoke scenario on the tick clock) completes about 24 s sooner
+  without figures and about 50 s sooner with them, at the cost of a longer
+  precompilation.
+- A component log whose rotation or write fails drops the record with a
+  line on `stderr` instead of failing the component.
+- Internal deduplication without change to any product: the batch
+  finalization and the recorder ceiling shared by the pre-population and
+  the emitter loop, the loop exit test of both components
+  (`TelemetryCore.loop_should_stop`), the receiver's re-attach state,
+  retention custodian and status panel as functions of their own, one
+  `decorate_axis!` for the event layers of the five time axes, the legend
+  rows of the shaded windows as a table, and single definitions of the
+  Gilbert–Elliott stationary loss rate and of the payload-column lookup.
+
 ## [2.9.0] - 2026-10-26
 
 ### Changed

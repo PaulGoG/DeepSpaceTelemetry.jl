@@ -168,6 +168,32 @@ instant equals the horizon.
 horizon_reached(clock::TickClock) = clock.now_sim >= clock.horizon
 
 """
+    loop_should_stop(clock::TickClock, stop, halt_path::String, tag::String) -> Bool
+
+The exit test of a component loop: the cooperative `stop` flag raised
+(`nothing` for none), the `HALT` sentinel at `halt_path` present, or the
+horizon reached ([`horizon_reached`](@ref)); the cause is logged under
+`tag` (e.g. `"[EMITTER]"`).
+"""
+function loop_should_stop(
+    clock::TickClock,
+    stop::Union{Threads.Atomic{Bool},Nothing},
+    halt_path::String,
+    tag::String,
+)
+    if stop !== nothing && stop[]
+        @info "$tag Stop signal received. Shutting down."
+    elseif isfile(halt_path)
+        @info "$tag HALT sentinel detected. Shutting down."
+    elseif horizon_reached(clock)
+        @info "$tag Mission horizon reached. Shutting down."
+    else
+        return false
+    end
+    return true
+end
+
+"""
     EMITTER_PRIORITY
 
 Wakeup priority of the emitter under the [`TickClock`](@ref): at an equal

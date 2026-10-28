@@ -40,13 +40,7 @@ function delivered_payload_queue(run_dir::String, ground_path::String)
     )
     queue = Tuple{DateTime,String,Int}[]
     for b in survivors
-        bdir = joinpath(ground_path, b)
-        payload = sum(
-            f -> startswith(f, "seg_") ? Int(filesize(joinpath(bdir, f))) : 0,
-            readdir(bdir);
-            init = 0,
-        )
-        push!(queue, (ingested_t[b], b, payload))
+        push!(queue, (ingested_t[b], b, payload_bytes(joinpath(ground_path, b))))
     end
     return queue
 end
@@ -95,24 +89,205 @@ since the link changes only when the emitter does.
 idle_wait!(clock::TelemetryCore.TickClock, ::String) =
     TelemetryCore.wait_for_change!(clock; priority = TelemetryCore.RECEIVER_PRIORITY)
 
+# --- Receiver state ---
+"""
+    payload_bytes(batch_dir::String) -> Int
+
+Size of the `seg_*.csv` payload files of a batch directory [bytes].
+"""
+payload_bytes(batch_dir::String) = sum(
+    f -> startswith(f, "seg_") ? Int(filesize(joinpath(batch_dir, f))) : 0,
+    readdir(batch_dir);
+    init = 0,
+)
+
+"""
+    reattach_state(run_dir, link_path, ground_names, clock, retention) -> NamedTuple
+
+Retry and custodial state of a receiver attaching to a run, from its
+`events_rx.csv`: `retry_counts`, the failed attempts of each batch still on
+the link; `total_retries`, the run's `retry` rows; and `payload_bytes`, the
+delivered-payload tally (zero unless `retention.enabled`). A restarted
+receiver must not grant fresh retry budgets to in-flight batches nor forget
+custodial state. Batches of `ground_names` without an `ingested` record
+witness a crash between the delivery move and the log append; their record
+is synthesized at the current mission instant, as the delivery time is
+unrecoverable, so masks, custodian, and consumers agree the batch is
+delivered. A run without events yields the empty state.
+"""
+function reattach_state(
+    run_dir::String,
+    link_path::String,
+    ground_names::Vector{String},
+    clock::TelemetryCore.TickClock,
+    retention::TelemetryCore.RetentionPolicy,
+)
+    retry_counts = Dict{String,Int}()
+    state = (retry_counts = retry_counts, total_retries = 0, payload_bytes = 0)
+    rx_log_path = joinpath(run_dir, "events_rx.csv")
+    isfile(rx_log_path) || return state
+    rx_hist = TelemetryCore.read_table(rx_log_path)
+    isempty(rx_hist) && return state
+    pending = Set(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
+    for r in eachrow(rx_hist)
+        r.Event == "retry" &&
+            r.Batch in pending &&
+            (retry_counts[r.Batch] = get(retry_counts, r.Batch, 0) + 1)
+    end
+    ingested_t = Dict(
+        String(r.Batch) => r.SimTime for r in eachrow(rx_hist) if r.Event == "ingested"
+    )
+    unrecorded = sort!(collect(setdiff(Set(ground_names), keys(ingested_t))))
+    if !isempty(unrecorded)
+        reconcile_t = TelemetryCore.get_current_sim_time(clock)
+        for b in unrecorded
+            TelemetryCore.log_rx_event(run_dir, reconcile_t, b, "ingested", 0)
+        end
+        @warn "[RECEIVER] Re-attach: synthesized ingested records at $reconcile_t for $(length(unrecorded)) batches present in ground/ without a delivery record (crash window between delivery and logging)." batches =
+            first(unrecorded, min(5, length(unrecorded)))
+    end
+    # Tally only: the prune queue is built on breach.
+    tally =
+        retention.enabled ?
+        sum(
+            entry -> entry[3],
+            delivered_payload_queue(run_dir, joinpath(run_dir, "ground"));
+            init = 0,
+        ) : 0
+    return (
+        retry_counts = retry_counts,
+        total_retries = count(==("retry"), rx_hist.Event),
+        payload_bytes = tally,
+    )
+end
+
+"""
+    RetentionCustodian
+
+State of the retention custodian: `queue`, the delivered batches as
+`(ingest instant, name, payload bytes)`, oldest-ingested first,
+materialized on watermark breach ([`delivered_payload_queue`](@ref)) and
+empty between breach episodes; and `payload_bytes`, the running tally of
+prunable payload compared with the watermark.
+"""
+mutable struct RetentionCustodian
+    const queue::Vector{Tuple{DateTime,String,Int}}
+    payload_bytes::Int
+end
+
+"""
+    custodian_step!(custodian, retention, run_dir, sim_t; hole_feed = nothing)
+
+One pass of the retention custodian at `sim_t`: while the tally exceeds
+`retention.watermark_bytes`, the oldest-ingested batch at least
+`retention.grace` past its ingestion loses its payload. Each prune appends
+the `pruned` event row and declares the hole first, then writes the
+`PRUNED` marker, then deletes the payload, so a consumer never sees a
+payload-less batch without its `pruned` row. An I/O failure is logged and
+leaves the tally unchanged, as the files are still on disk; the batch is
+not re-queued.
+"""
+function custodian_step!(
+    custodian::RetentionCustodian,
+    retention::TelemetryCore.RetentionPolicy,
+    run_dir::String,
+    sim_t::DateTime;
+    hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
+)
+    (retention.enabled && custodian.payload_bytes > retention.watermark_bytes) ||
+        return nothing
+    ground_path = joinpath(run_dir, "ground")
+    queue = custodian.queue
+    # Refreshed when exhausted mid-breach.
+    isempty(queue) && append!(queue, delivered_payload_queue(run_dir, ground_path))
+    while custodian.payload_bytes > retention.watermark_bytes &&
+          !isempty(queue) &&
+          (sim_t - queue[1][1]) >= retention.grace
+        (ingest_t, pruned_name, batch_bytes) = popfirst!(queue)
+        batch_dir = joinpath(ground_path, pruned_name)
+        try
+            TelemetryCore.log_rx_event(run_dir, sim_t, pruned_name, "pruned", 0)
+            hole_feed === nothing ||
+                TelemetryCore.declare_batch_hole!(hole_feed, sim_t, "pruned", batch_dir)
+            touch(joinpath(batch_dir, "PRUNED"))
+            for f in readdir(batch_dir)
+                startswith(f, "seg_") && rm(joinpath(batch_dir, f); force = true)
+            end
+            @info "[RECEIVER] Retention: pruned payload of $pruned_name (ingested $ingest_t)"
+            custodian.payload_bytes -= batch_bytes
+        catch e
+            e isa Union{Base.IOError,SystemError} || rethrow()
+            @error "[RECEIVER] Retention pruning failed for $pruned_name — continuing." exception =
+                e
+        end
+    end
+    return nothing
+end
+
+"""
+    status_panel_text(link, sim_t, nominal_factor, disruption_scale, hours_elapsed,
+                      ground_count, lost_count, total_retries) -> String
+
+The clear-screen console status panel of the receiver: mission day, link
+state (dormant, active, or the active disruption with its recovery level),
+and the ground and lost tallies.
+"""
+function status_panel_text(
+    link::ChannelEffects.LinkModel,
+    sim_t::DateTime,
+    nominal_factor::Float64,
+    disruption_scale::Float64,
+    hours_elapsed::Float64,
+    ground_count::Int,
+    lost_count::Int,
+    total_retries::Int,
+)
+    bandwidth_pct = nominal_factor * disruption_scale * 100
+    status_text = if disruption_scale < 1.0 && nominal_factor > 0.0
+        ev_label = ChannelEffects.active_disruption_label(link.disruptions, sim_t)
+        ev_name = isempty(ev_label) ? "DISRUPTION" : uppercase(ev_label)
+        disruption_scale == 0.0 ? "$ev_name (Link down)" :
+        "$ev_name RECOVERY (Link: $(round(bandwidth_pct, digits=1))%)"
+    elseif nominal_factor * disruption_scale > 0.0
+        "ACTIVE (Link: $(round(bandwidth_pct, digits=1))%)"
+    else
+        "DORMANT (Out of window)"
+    end
+    rule = "="^55 * "\n"
+    return "\e[H\e[J" *
+           rule *
+           lpad("DEEP-SPACE TELEMETRY DASHBOARD", 42) *
+           "\n" *
+           rule *
+           rpad("Mission Day:", 20) *
+           "$(round(hours_elapsed / 24.0, digits=2))\n" *
+           rpad("Current Status:", 20) *
+           "$status_text\n" *
+           rpad("Ground total:", 20) *
+           "$ground_count received data batches\n" *
+           rpad("Lost Batches:", 20) *
+           "$lost_count ($total_retries failed transfers)\n" *
+           rule
+end
+
 # --- Receiver main loop ---
 """
-    run_receiver(clock, link, run_id; ...)
+    run_receiver(clock, link, run_dir; ...)
 
-The ground-station loop: serves the batches on `link/`, each transfer
-taking `batch_transfer_sec` divided by the effective link capacity
+The ground-station loop: serves the batches on `<run_dir>/link/`, each
+transfer taking `batch_transfer_sec` divided by the effective link capacity
 (visibility profile × disruption factor), draws one loss realization from
 `loss_model` per transfer attempt, and moves delivered batches to `ground/`
 and retry-exhausted ones to `lost/`. Every milestone is appended to
 `events_rx.csv`, from which the post-processing reconstructs the run
-exactly.
+exactly. `run_dir` is the absolute path of the run directory.
 
 `clock` is the [`TelemetryCore.TickClock`](@ref) of the mission, paced or
 not: in wall mode the driver ([`TelemetryCore.run_ticks!`](@ref)) holds each
 wakeup back to its wall instant, which changes when the loop runs but not
 what it records. Every wait parks the task on the clock, and the loop ends
-at the horizon ([`TelemetryCore.horizon_reached`](@ref)), on the stop flag,
-or on the `HALT` sentinel.
+at the horizon, on the stop flag, or on the `HALT` sentinel
+([`TelemetryCore.loop_should_stop`](@ref)).
 
 A lost transfer leaves the batch on the link; its retransmission is served
 no earlier than `round_trip_light_time_sec` after the loss was detected
@@ -120,24 +295,22 @@ no earlier than `round_trip_light_time_sec` after the loss was detected
 being served. A batch whose transfer fails `max_retries + 1` times moves to
 `lost/`, data preserved, which frees its slot in the emitter's transmission
 window (in-flight occupancy is the `link/` listing). A re-attaching receiver
-reseeds retry and custodial state from the event log and synthesizes
-`ingested` records, at the re-attach instant, for batches in `ground/` whose
-record a crash between the delivery move and the log append lost.
+reseeds retry and custodial state from the event log
+([`reattach_state`](@ref)).
 
-With `retention.enabled` the loop also runs the retention custodian: while
-the delivered-payload tally exceeds `watermark_bytes`, the oldest-ingested
-batches, once at least `grace` of mission time past their ingestion, lose
-their `seg_*.csv` payload files, keep `metadata.json`, gain a `PRUNED`
-marker, and are recorded as `pruned` in `events_rx.csv`. Event logs,
-metrics, masks, and `lost/` are not pruned. The pruning queue is
-materialized on watermark breach ([`delivered_payload_queue`](@ref)).
+With `retention.enabled` the loop also runs the retention custodian
+([`custodian_step!`](@ref)): while the delivered-payload tally exceeds
+`watermark_bytes`, the oldest-ingested batches, once at least `grace` of
+mission time past their ingestion, lose their `seg_*.csv` payload files,
+keep `metadata.json`, gain a `PRUNED` marker, and are recorded as `pruned`
+in `events_rx.csv`. Event logs, metrics, masks, and `lost/` are not pruned.
 
 # Keyword arguments
 
   - `orig_stdout`: stream receiving the console status panel.
-  - `status_panel`: render the clear-screen console status panel (mission
-    day, link state, ground and lost tallies) to `orig_stdout` on every
-    loop iteration; off by default, set by the supervisor from
+  - `status_panel`: render the clear-screen console status panel
+    ([`status_panel_text`](@ref)) to `orig_stdout` on every loop iteration;
+    off by default, set by the supervisor from
     `dashboard.receiver_status_panel`.
   - `batch_transfer_sec`: transfer time of one batch at full link capacity
     [mission s] (`telemetry_settings(cfg).nominal_batch_transfer_sec`).
@@ -151,11 +324,14 @@ materialized on watermark breach ([`delivered_payload_queue`](@ref)).
     detected loss [mission s]; `0.0` retries immediately.
   - `hole_feed`: the declared-hole feed the receiver appends its lost and
     pruned batches to, `nothing` for none.
+  - `onboard_count`: the emitter's count of batches on board
+    (`Emitter.run_emitter`), read for the metrics; `nothing` lists
+    `onboard/` on every iteration instead.
 """
 function run_receiver(
     clock::TelemetryCore.TickClock,
     link::ChannelEffects.LinkModel,
-    run_id::String;
+    run_dir::String;
     orig_stdout::IO = stdout,
     status_panel::Bool = false,
     batch_transfer_sec::Float64 = 180.0,
@@ -168,8 +344,9 @@ function run_receiver(
     min_link_factor::Float64 = 0.05,
     round_trip_light_time_sec::Float64 = 0.0,
     hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
+    onboard_count::Union{Threads.Atomic{Int},Nothing} = nothing,
 )
-    run_dir = TelemetryCore.run_directory(run_id)
+    TelemetryCore.checked_run_dir(run_dir)
     link_path = joinpath(run_dir, "link")
     onboard_path = joinpath(run_dir, "onboard")
     ground_path = joinpath(run_dir, "ground")
@@ -184,107 +361,53 @@ function run_receiver(
     last_lost = -1
     last_bw = -1.0
 
-    retry_counts = Dict{String,Int}() # failed attempts per in-flight batch
+    # Ground and lost counters are receiver-owned (only this loop moves batches
+    # into those directories), so they are tracked incrementally after a single
+    # startup census: a per-tick readdir over ground/ is O(archive size) and
+    # measurably throttles the ingest rate on long missions. The on-board
+    # count comes from the emitter for the same reason.
+    ground_seed = filter(f -> isdir(joinpath(ground_path, f)), readdir(ground_path))
+    ground_live = count(TelemetryCore.is_live_batch, ground_seed)
+    ground_arch = count(TelemetryCore.is_archive_batch, ground_seed)
+    lost_count = length(filter(f -> isdir(joinpath(lost_path, f)), readdir(lost_path)))
+
+    state = reattach_state(run_dir, link_path, ground_seed, clock, retention)
+    retry_counts = state.retry_counts # failed attempts per in-flight batch
+    total_retries = state.total_retries
+    custodian = RetentionCustodian(Tuple{DateTime,String,Int}[], state.payload_bytes)
     # Deferred negative acknowledgment: a lost transfer is detected on the
     # ground when it completes, and its retransmission cannot be served before
     # one round-trip light time later. Not persisted across a re-attach (a
     # restarted receiver may retry immediately).
     retry_after = Dict{String,DateTime}()
     round_trip = Millisecond(round(Int, round_trip_light_time_sec * 1000))
-    total_retries = 0
-
-    # Ground and lost counters are receiver-owned (only this loop moves batches
-    # into those directories), so they are tracked incrementally after a single
-    # startup census: a per-tick readdir over ground/ is O(archive size) and
-    # measurably throttles the ingest rate on long missions.
-    ground_seed = filter(f -> isdir(joinpath(ground_path, f)), readdir(ground_path))
-    ground_live = count(TelemetryCore.is_live_batch, ground_seed)
-    ground_arch = count(TelemetryCore.is_archive_batch, ground_seed)
-    lost_count = length(filter(f -> isdir(joinpath(lost_path, f)), readdir(lost_path)))
-
-    # Retention custodian state: FIFO of delivered batches (ingest sim-time,
-    # name, payload bytes) and the running prunable-payload tally the
-    # watermark is compared against.
-    prune_queue = Vector{Tuple{DateTime,String,Int}}()
-    ground_payload_bytes = 0
-
-    # Re-attach seeding + delivery reconciliation from the event log: a
-    # restarted receiver must not grant fresh retry budgets to in-flight
-    # batches nor forget custodial state, and batches present in ground/
-    # without an ingested record witness a crash between delivery and
-    # logging (they remain on the link in the mask replay).
-    rx_log_path = joinpath(run_dir, "events_rx.csv")
-    if isfile(rx_log_path)
-        rx_hist = TelemetryCore.read_table(rx_log_path)
-        if !isempty(rx_hist)
-            total_retries = count(==("retry"), rx_hist.Event)
-            pending = Set(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
-            for r in eachrow(rx_hist)
-                r.Event == "retry" &&
-                    r.Batch in pending &&
-                    (retry_counts[r.Batch] = get(retry_counts, r.Batch, 0) + 1)
-            end
-            ingested_t = Dict(
-                String(r.Batch) => r.SimTime for
-                r in eachrow(rx_hist) if r.Event == "ingested"
-            )
-            unrecorded = sort!(collect(setdiff(Set(ground_seed), keys(ingested_t))))
-            if !isempty(unrecorded)
-                # The delivery time is unrecoverable: the record is synthesized
-                # at the re-attach instant, so masks, custodian, and consumers
-                # agree the batch is delivered.
-                reconcile_t = TelemetryCore.get_current_sim_time(clock)
-                for b in unrecorded
-                    TelemetryCore.log_rx_event(run_dir, reconcile_t, b, "ingested", 0)
-                    ingested_t[b] = reconcile_t
-                end
-                @warn "[RECEIVER] Re-attach: synthesized ingested records at $reconcile_t for $(length(unrecorded)) batches present in ground/ without a delivery record (crash window between delivery and logging)." batches =
-                    first(unrecorded, min(5, length(unrecorded)))
-            end
-            if retention.enabled
-                # Tally only: the prune queue is built on breach.
-                ground_payload_bytes = sum(
-                    entry -> entry[3],
-                    delivered_payload_queue(run_dir, ground_path);
-                    init = 0,
-                )
-            end
-        end
-    end
 
     @info "[RECEIVER] Ground-station loop started."
 
     pacer = ServicePacer(TelemetryCore.get_current_sim_time(clock))
 
     try
-        while true
-            if stop !== nothing && stop[]
-                @info "[RECEIVER] Stop signal received. Shutting down."
-                break
-            end
-            if isfile(halt_path)
-                @info "[RECEIVER] HALT sentinel detected. Shutting down."
-                break
-            end
-            TelemetryCore.horizon_reached(clock) && break
-
+        while !TelemetryCore.loop_should_stop(clock, stop, halt_path, "[RECEIVER]")
             sim_t = TelemetryCore.get_current_sim_time(clock)
             nominal_factor = TelemetryCore.get_bandwidth_factor(link.visibility, sim_t)
             disruption_scale = ChannelEffects.disruption_factor(link.disruptions, sim_t)
             bw_factor = nominal_factor * disruption_scale
             hours_elapsed = (sim_t - clock.start_sim_time).value / TelemetryCore.MS_PER_HOUR
             bandwidth_pct = bw_factor * 100
-            nominal_pct = nominal_factor * 100
-            disruption_active = disruption_scale < 1.0
 
-            onboard_count =
-                length(filter(f -> isdir(joinpath(onboard_path, f)), readdir(onboard_path)))
-            link_count =
-                length(filter(f -> isdir(joinpath(link_path, f)), readdir(link_path)))
+            onboard =
+                onboard_count === nothing ?
+                length(
+                    filter(f -> isdir(joinpath(onboard_path, f)), readdir(onboard_path)),
+                ) : onboard_count[]
+            pending_batches = filter(
+                f -> TelemetryCore.is_batch_name(f) && isdir(joinpath(link_path, f)),
+                readdir(link_path),
+            )
             ground_count = ground_live + ground_arch
 
-            if onboard_count != last_onboard ||
-               link_count != last_link ||
+            if onboard != last_onboard ||
+               length(pending_batches) != last_link ||
                ground_count != last_ground ||
                lost_count != last_lost ||
                abs(bandwidth_pct - last_bw) > TelemetryCore.METRICS_BANDWIDTH_HYSTERESIS_PCT
@@ -293,104 +416,45 @@ function run_receiver(
                     now(),
                     hours_elapsed,
                     bandwidth_pct,
-                    onboard_count,
-                    link_count,
+                    onboard,
+                    length(pending_batches),
                     ground_count,
                     ground_live,
                     ground_arch,
-                    nominal_pct,
+                    nominal_factor * 100,
                     lost_count,
                     total_retries,
-                    disruption_active,
+                    disruption_scale < 1.0,
                 )
                 TelemetryCore.save_metrics(run_dir, metrics)
 
-                last_onboard = onboard_count
-                last_link = link_count
+                last_onboard = onboard
+                last_link = length(pending_batches)
                 last_ground = ground_count
                 last_lost = lost_count
                 last_bw = bandwidth_pct
             end
 
-            # Retention custodian (docstring). The grace window is the
-            # availability guarantee consumers rely on (docs/src/interfaces.md).
-            # Each prune declares the `pruned` event row and the hole first,
-            # then writes the marker, then deletes the payload, so a consumer
-            # never sees a payload-less batch without its `pruned` row.
-            if retention.enabled && ground_payload_bytes > retention.watermark_bytes
-                # Materialized on breach and refreshed when exhausted
-                # mid-breach; empty between breach episodes (bounded growth).
-                isempty(prune_queue) &&
-                    append!(prune_queue, delivered_payload_queue(run_dir, ground_path))
-                while ground_payload_bytes > retention.watermark_bytes &&
-                      !isempty(prune_queue) &&
-                      (sim_t - prune_queue[1][1]) >= retention.grace
-                    (ingest_t, pruned_name, payload_bytes) = popfirst!(prune_queue)
-                    batch_dir = joinpath(ground_path, pruned_name)
-                    try
-                        TelemetryCore.log_rx_event(run_dir, sim_t, pruned_name, "pruned", 0)
-                        hole_feed === nothing || TelemetryCore.declare_batch_hole!(
-                            hole_feed,
-                            sim_t,
-                            "pruned",
-                            batch_dir,
-                        )
-                        touch(joinpath(batch_dir, "PRUNED"))
-                        for f in readdir(batch_dir)
-                            startswith(f, "seg_") &&
-                                rm(joinpath(batch_dir, f); force = true)
-                        end
-                        @info "[RECEIVER] Retention: pruned payload of $pruned_name (ingested $ingest_t)"
-                        # Decrement only on success: after a failed prune the
-                        # files are still on disk and the tally must stay
-                        # truthful (the batch is not re-queued; the catch logs it).
-                        ground_payload_bytes -= payload_bytes
-                    catch e
-                        e isa Union{Base.IOError,SystemError} || rethrow()
-                        @error "[RECEIVER] Retention pruning failed for $pruned_name — continuing." exception =
-                            e
-                    end
-                end
-            end
+            # The grace window is the availability guarantee consumers rely
+            # on (docs/src/interfaces.md).
+            custodian_step!(custodian, retention, run_dir, sim_t; hole_feed = hole_feed)
 
             if status_panel
-                status_text = if disruption_active && nominal_factor > 0.0
-                    ev_label =
-                        ChannelEffects.active_disruption_label(link.disruptions, sim_t)
-                    ev_name = isempty(ev_label) ? "DISRUPTION" : uppercase(ev_label)
-                    disruption_scale == 0.0 ? "$ev_name (Link down)" :
-                    "$ev_name RECOVERY (Link: $(round(bandwidth_pct, digits=1))%)"
-                elseif bw_factor > 0.0
-                    "ACTIVE (Link: $(round(bandwidth_pct, digits=1))%)"
-                else
-                    "DORMANT (Out of window)"
-                end
-                panel_text =
-                    "\e[H\e[J" *
-                    "="^55 *
-                    "\n" *
-                    lpad("DEEP-SPACE TELEMETRY DASHBOARD", 42) *
-                    "\n" *
-                    "="^55 *
-                    "\n" *
-                    rpad("Mission Day:", 20) *
-                    "$(round(hours_elapsed / 24.0, digits=2))\n" *
-                    rpad("Current Status:", 20) *
-                    "$status_text\n" *
-                    rpad("Ground total:", 20) *
-                    "$ground_count received data batches\n" *
-                    rpad("Lost Batches:", 20) *
-                    "$lost_count ($total_retries failed transfers)\n" *
-                    "="^55 *
-                    "\n"
-                print(orig_stdout, panel_text)
+                print(
+                    orig_stdout,
+                    status_panel_text(
+                        link,
+                        sim_t,
+                        nominal_factor,
+                        disruption_scale,
+                        hours_elapsed,
+                        ground_count,
+                        lost_count,
+                        total_retries,
+                    ),
+                )
                 flush(orig_stdout)
             end
-
-            pending_batches = filter(
-                f -> TelemetryCore.is_batch_name(f) && isdir(joinpath(link_path, f)),
-                readdir(link_path),
-            )
 
             # Batches whose retransmission cannot have arrived yet are skipped
             # in favor of the next in-flight batch; the link idles only when
@@ -457,7 +521,7 @@ function run_receiver(
                     end
                 else
                     @info "[RECEIVER] Ingesting: $batch_name @ SimTime: $sim_t"
-                    @info "[RECEIVER] Bandwidth: $(round(bandwidth_pct))% | Batches buffered: $onboard_count | Total Data Batches: $ground_count"
+                    @info "[RECEIVER] Bandwidth: $(round(bandwidth_pct))% | Batches buffered: $onboard | Total Data Batches: $ground_count"
 
                     prior_attempts = get(retry_counts, batch_name, 0)
                     TelemetryCore.backup_existing_dir(joinpath(ground_path, batch_name))
@@ -476,17 +540,10 @@ function run_receiver(
                         "ingested",
                         prior_attempts,
                     )
-                    if retention.enabled
-                        batch_dir = joinpath(ground_path, batch_name)
-                        payload = sum(
-                            f ->
-                                startswith(f, "seg_") ?
-                                Int(filesize(joinpath(batch_dir, f))) : 0,
-                            readdir(batch_dir);
-                            init = 0,
-                        )
-                        ground_payload_bytes += payload
-                    end
+                    retention.enabled && (
+                        custodian.payload_bytes +=
+                            payload_bytes(joinpath(ground_path, batch_name))
+                    )
                 end
             elseif !isempty(pending_batches) && bw_factor > min_link_factor
                 # Every in-flight batch awaits its round trip: park until the

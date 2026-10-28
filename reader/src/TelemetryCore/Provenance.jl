@@ -400,9 +400,10 @@ function save_manifest_snapshot(run_dir::String)
 end
 
 """
-    setup_run_dir(run_id::String; cfg = nothing) -> String
+    setup_run_dir(run_id::String; cfg = nothing, data_root = DATA_ROOT[]) -> String
 
-Creates and returns the run directory of `run_id` with its subdirectories
+Creates and returns the run directory of `run_id` under `data_root`
+([`run_directory`](@ref)) with its subdirectories
 `onboard`, `link`, `ground`, `lost`, `plots`, and `masks`; a directory under
 the same run ID that holds anything but dotfiles is rejected with an
 `ArgumentError`. Given the parsed configuration `cfg`, it writes
@@ -413,8 +414,12 @@ snapshot adds the [`platform_provenance`](@ref) fingerprint under
 `provenance.config_sha256`; the manifest of the active environment is
 copied beside it ([`save_manifest_snapshot`](@ref)).
 """
-function setup_run_dir(run_id::String; cfg::Union{AbstractDict,Nothing} = nothing)
-    base_dir = run_directory(run_id)
+function setup_run_dir(
+    run_id::String;
+    cfg::Union{AbstractDict,Nothing} = nothing,
+    data_root::String = DATA_ROOT[],
+)
+    base_dir = run_directory(run_id, data_root)
     # Run-ID reuse guard (silent-failure mode): a reused ID would interleave
     # two missions' rows in mission_profile.csv and truncate the prior logs.
     if isdir(base_dir) && !isempty(filter(f -> !startswith(f, "."), readdir(base_dir)))

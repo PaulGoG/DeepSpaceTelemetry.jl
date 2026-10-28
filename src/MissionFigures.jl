@@ -490,6 +490,45 @@ function shade_disruptions!(
 end
 
 """
+    decorate_axis!(ax, x_lo, x_hi, ctx::PlotContext; style, low_latency::Bool)
+
+The event layers of a time axis over `[x_lo, x_hi]`, in drawing order: the
+disruptions ([`shade_disruptions!`](@ref)), the component outages
+([`shade_spans!`](@ref)), the generation gaps
+([`shade_generation_gaps!`](@ref)), with `low_latency` the low-latency
+periods ([`shade_low_latency!`](@ref)), and the event markers
+([`mark_events!`](@ref)).
+"""
+function decorate_axis!(
+    ax,
+    x_lo::Float64,
+    x_hi::Float64,
+    ctx::PlotContext;
+    style::PlotTheme.PlotStyle,
+    low_latency::Bool,
+)
+    shade_disruptions!(ax, x_lo, x_hi, ctx.disruption_spans; style)
+    shade_spans!(ax, x_lo, x_hi, ctx.outage_spans; style)
+    shade_generation_gaps!(ax, x_lo, x_hi, ctx; style)
+    low_latency && shade_low_latency!(ax, x_lo, x_hi, ctx; style)
+    mark_events!(ax, x_lo, x_hi, ctx.marker_times; style)
+    return ax
+end
+
+# Legend rows of the shaded windows, in legend order: the gating keyword of
+# figure_legend_entries, the hue, the fill and edge alphas, and the line style of
+# the window's edge lines, which keeps blackout, ramp, and outage apart in
+# grayscale.
+const EVENT_WINDOWS = (
+    (:blackout, PlotTheme.COLOR_DISRUPTION, 0.18, 0.55, :dash, "Blackout"),
+    (:ramp, PlotTheme.COLOR_DISRUPTION, 0.08, 0.55, :dash, "Recovery ramp"),
+    (:outage, PlotTheme.COLOR_OUTAGE, 0.10, 0.5, :dot, "Component outage"),
+    (:scheduled_gap, PlotTheme.COLOR_ONBOARD, 0.25, 0.9, :dashdot, "Generation gap"),
+    (:recorder, PlotTheme.COLOR_LOST, 0.12, 0.9, :dashdot, "Recorder full"),
+    (:low_latency, PlotTheme.COLOR_BANDWIDTH, 0.12, 0.7, :dashdotdot, "Low-latency period"),
+)
+
+"""
     figure_legend_entries(; degraded, blackout, ramp, lost, outage = false, …) -> Vector{Tuple{String,Vector{Any},Vector{String}}}
 
 The `Link`, `Received`, and `Events` families of a figure's legend, each a
@@ -582,105 +621,33 @@ function figure_legend_entries(;
         ),
     )
     push!(received_labels, "Archive (LIFO)")
+    lost_mark = MarkerElement(
+        marker = :xcross,
+        color = PlotTheme.COLOR_LOST,
+        markersize = style.markersize,
+        strokewidth = 0,
+    )
     if lost === :strip
         push!(
             received_elems,
             [
                 LineElement(color = PlotTheme.COLOR_LOST, linewidth = style.linewidth),
-                MarkerElement(
-                    marker = :xcross,
-                    color = PlotTheme.COLOR_LOST,
-                    markersize = style.markersize,
-                    strokewidth = 0,
-                ),
+                lost_mark,
             ],
         )
         push!(received_labels, "Lost")
     elseif lost === :marks
-        push!(
-            received_elems,
-            MarkerElement(
-                marker = :xcross,
-                color = PlotTheme.COLOR_LOST,
-                markersize = style.markersize,
-                strokewidth = 0,
-            ),
-        )
+        push!(received_elems, lost_mark)
         push!(received_labels, "Lost")
     end
-    # Shaded windows: fill patch plus the line style of the window's edge
-    # lines, so blackout, ramp, and outage stay apart in grayscale.
-    if blackout
+    flags = (; blackout, ramp, outage, scheduled_gap, recorder, low_latency)
+    for (key, color, fill_alpha, edge_alpha, linestyle, label) in EVENT_WINDOWS
+        getfield(flags, key) || continue
         push!(
             event_elems,
-            shading_patch(
-                (PlotTheme.COLOR_DISRUPTION, 0.18),
-                (PlotTheme.COLOR_DISRUPTION, 0.55),
-                :dash,
-                style,
-            ),
+            shading_patch((color, fill_alpha), (color, edge_alpha), linestyle, style),
         )
-        push!(event_labels, "Blackout")
-    end
-    if ramp
-        push!(
-            event_elems,
-            shading_patch(
-                (PlotTheme.COLOR_DISRUPTION, 0.08),
-                (PlotTheme.COLOR_DISRUPTION, 0.55),
-                :dash,
-                style,
-            ),
-        )
-        push!(event_labels, "Recovery ramp")
-    end
-    if outage
-        push!(
-            event_elems,
-            shading_patch(
-                (PlotTheme.COLOR_OUTAGE, 0.10),
-                (PlotTheme.COLOR_OUTAGE, 0.5),
-                :dot,
-                style,
-            ),
-        )
-        push!(event_labels, "Component outage")
-    end
-    if scheduled_gap
-        push!(
-            event_elems,
-            shading_patch(
-                (PlotTheme.COLOR_ONBOARD, 0.25),
-                (PlotTheme.COLOR_ONBOARD, 0.9),
-                :dashdot,
-                style,
-            ),
-        )
-        push!(event_labels, "Generation gap")
-    end
-    if recorder
-        push!(
-            event_elems,
-            shading_patch(
-                (PlotTheme.COLOR_LOST, 0.12),
-                (PlotTheme.COLOR_LOST, 0.9),
-                :dashdot,
-                style,
-            ),
-        )
-        push!(event_labels, "Recorder full")
-    end
-    if low_latency
-        push!(
-            event_elems,
-            shading_patch(
-                (PlotTheme.COLOR_BANDWIDTH, 0.12),
-                (PlotTheme.COLOR_BANDWIDTH, 0.7),
-                :dashdotdot,
-                style,
-            ),
-        )
-        push!(event_labels, "Low-latency period")
+        push!(event_labels, label)
     end
     if marker
         push!(
@@ -1051,11 +1018,7 @@ function plot_mission_summary(
     xlims!(ax1_twin, 0, max_x_h)
     ylims!(ax1_twin, 0, max(10.0, 1.3 * maximum(df.Onboard_Buffer)))
 
-    shade_disruptions!(ax1, 0.0, max_x_h, ctx.disruption_spans; style)
-    shade_spans!(ax1, 0.0, max_x_h, ctx.outage_spans; style)
-    shade_generation_gaps!(ax1, 0.0, max_x_h, ctx; style)
-    shade_low_latency!(ax1, 0.0, max_x_h, ctx; style)
-    mark_events!(ax1, 0.0, max_x_h, ctx.marker_times; style)
+    decorate_axis!(ax1, 0.0, max_x_h, ctx; style, low_latency = true)
     if !isnan(ctx.recorder_capacity)
         hlines!(
             ax1_twin,
@@ -1116,11 +1079,7 @@ function plot_mission_summary(
     xlims!(ax2, 0, max_x_h)
     ylims!(ax2, 0, max(10.0, 1.2 * maximum(df.Ground_Total)))
 
-    shade_disruptions!(ax2, 0.0, max_x_h, ctx.disruption_spans; style)
-    shade_spans!(ax2, 0.0, max_x_h, ctx.outage_spans; style)
-    shade_generation_gaps!(ax2, 0.0, max_x_h, ctx; style)
-    shade_low_latency!(ax2, 0.0, max_x_h, ctx; style)
-    mark_events!(ax2, 0.0, max_x_h, ctx.marker_times; style)
+    decorate_axis!(ax2, 0.0, max_x_h, ctx; style, low_latency = true)
 
     filled_stairs!(
         ax2,
@@ -1161,11 +1120,7 @@ function plot_mission_summary(
         # Headroom above the top tick: a label on the frame would meet the
         # `0` of the panel above.
         ylims!(ax3, -0.06 * y_top, 1.15 * y_top)
-        shade_disruptions!(ax3, 0.0, max_x_h, ctx.disruption_spans; style)
-        shade_spans!(ax3, 0.0, max_x_h, ctx.outage_spans; style)
-        shade_generation_gaps!(ax3, 0.0, max_x_h, ctx; style)
-        shade_low_latency!(ax3, 0.0, max_x_h, ctx; style)
-        mark_events!(ax3, 0.0, max_x_h, ctx.marker_times; style)
+        decorate_axis!(ax3, 0.0, max_x_h, ctx; style, low_latency = true)
         stairs!(ax3, df_x, lost_curve, color = PlotTheme.COLOR_LOST)
         inc = [i for i in 2:length(lost_curve) if lost_curve[i] > lost_curve[i-1]]
         # No stroke: under a drop policy the marks come by the dozen per
@@ -1314,10 +1269,7 @@ function plot_session(
     xlims!(ax_s1_twin, min_sess_h, max_sess_h)
     ylims!(ax_s1_twin, 0, max(10.0, 1.3 * maximum(session_df.Onboard_Buffer)))
 
-    shade_disruptions!(ax_s1, min_sess_h, max_sess_h, ctx.disruption_spans; style)
-    shade_spans!(ax_s1, min_sess_h, max_sess_h, ctx.outage_spans; style)
-    shade_generation_gaps!(ax_s1, min_sess_h, max_sess_h, ctx; style)
-    mark_events!(ax_s1, min_sess_h, max_sess_h, ctx.marker_times; style)
+    decorate_axis!(ax_s1, min_sess_h, max_sess_h, ctx; style, low_latency = false)
     if sess_degraded
         lines!(
             ax_s1,
@@ -1349,10 +1301,7 @@ function plot_session(
     y_max_s2 = max(10.0, 1.2 * maximum(plot_gnd))
     ylims!(ax_s2, 0, y_max_s2)
 
-    shade_disruptions!(ax_s2, min_sess_h, max_sess_h, ctx.disruption_spans; style)
-    shade_spans!(ax_s2, min_sess_h, max_sess_h, ctx.outage_spans; style)
-    shade_generation_gaps!(ax_s2, min_sess_h, max_sess_h, ctx; style)
-    mark_events!(ax_s2, min_sess_h, max_sess_h, ctx.marker_times; style)
+    decorate_axis!(ax_s2, min_sess_h, max_sess_h, ctx; style, low_latency = false)
 
     filled_stairs!(ax_s2, plot_x, plot_gnd; color = PlotTheme.COLOR_LIVE, style)
     filled_stairs!(

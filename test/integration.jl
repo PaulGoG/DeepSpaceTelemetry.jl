@@ -47,7 +47,7 @@
                         ext_path,
                     ),
                     start_sim,
-                    halt_id;
+                    TelemetryCore.run_directory(halt_id);
                     batch_size = 3,
                 )
             end
@@ -62,7 +62,7 @@
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    halt_id,
+                    TelemetryCore.run_directory(halt_id),
                     vi;
                     batch_size = 3,
                     pending_segments = pending,
@@ -70,7 +70,7 @@
                 receiver = c -> Receiver.run_receiver(
                     c,
                     link,
-                    halt_id;
+                    TelemetryCore.run_directory(halt_id);
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                 ),
@@ -119,7 +119,7 @@ end
                         ext_path,
                     ),
                     start_sim,
-                    cap_id;
+                    TelemetryCore.run_directory(cap_id);
                     batch_size = 3,
                 )
             end
@@ -129,7 +129,7 @@ end
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    cap_id,
+                    TelemetryCore.run_directory(cap_id),
                     vi;
                     batch_size = 3,
                     pending_segments = pending,
@@ -178,7 +178,7 @@ end
                         ext_path,
                     ),
                     start_sim,
-                    floor_id;
+                    TelemetryCore.run_directory(floor_id);
                     batch_size = 3,
                 )
             end
@@ -188,7 +188,7 @@ end
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    floor_id,
+                    TelemetryCore.run_directory(floor_id),
                     vi;
                     batch_size = 3,
                     pending_segments = pending,
@@ -196,7 +196,7 @@ end
                 receiver = c -> Receiver.run_receiver(
                     c,
                     link,
-                    floor_id;
+                    TelemetryCore.run_directory(floor_id);
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                     min_link_factor = 0.6,
@@ -247,7 +247,7 @@ end
                         ext_path,
                     ),
                     start_sim,
-                    ra_id;
+                    TelemetryCore.run_directory(ra_id);
                     batch_size = 3,
                 )
             end
@@ -260,7 +260,7 @@ end
                     emitter = c -> Emitter.run_emitter(
                         c,
                         link,
-                        ra_id,
+                        TelemetryCore.run_directory(ra_id),
                         instrument;
                         batch_size = 3,
                         pending_segments = segs,
@@ -268,7 +268,7 @@ end
                     receiver = c -> Receiver.run_receiver(
                         c,
                         link,
-                        ra_id;
+                        TelemetryCore.run_directory(ra_id);
                         orig_stdout = devnull,
                         batch_transfer_sec = 2.0,
                     ),
@@ -399,7 +399,7 @@ end
                         ext_path,
                     ),
                     start_sim,
-                    run_id;
+                    TelemetryCore.run_directory(run_id);
                     batch_size = 3,
                 )
             end
@@ -422,7 +422,7 @@ end
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    run_id,
+                    TelemetryCore.run_directory(run_id),
                     vi;
                     batch_size = 3,
                     pending_segments = pending,
@@ -430,7 +430,7 @@ end
                 receiver = c -> Receiver.run_receiver(
                     c,
                     link,
-                    run_id;
+                    TelemetryCore.run_directory(run_id);
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                 ),
@@ -554,7 +554,7 @@ end
                         ext_path,
                     ),
                     start_sim,
-                    run_id;
+                    TelemetryCore.run_directory(run_id);
                     batch_size = 3,
                 )
             end
@@ -576,7 +576,7 @@ end
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    run_id,
+                    TelemetryCore.run_directory(run_id),
                     vi;
                     batch_size = 3,
                     pending_segments = pending,
@@ -584,7 +584,7 @@ end
                 receiver = c -> Receiver.run_receiver(
                     c,
                     link,
-                    run_id;
+                    TelemetryCore.run_directory(run_id);
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                     retention = retention,
@@ -689,7 +689,7 @@ end
                         ext_path,
                     ),
                     start_sim,
-                    run_id;
+                    TelemetryCore.run_directory(run_id);
                     batch_size = 3,
                 )
             end
@@ -706,7 +706,7 @@ end
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    run_id,
+                    TelemetryCore.run_directory(run_id),
                     vi;
                     batch_size = 3,
                     pending_segments = pending,
@@ -714,7 +714,7 @@ end
                 receiver = c -> Receiver.run_receiver(
                     c,
                     link,
-                    run_id;
+                    TelemetryCore.run_directory(run_id);
                     orig_stdout = devnull,
                     batch_transfer_sec = 2.0,
                     loss_model = loss,
@@ -837,7 +837,7 @@ end
                         ext_path,
                     ),
                     start_sim,
-                    pace_id;
+                    TelemetryCore.run_directory(pace_id);
                     batch_size = batch_size,
                 )
             end
@@ -847,7 +847,7 @@ end
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    pace_id,
+                    TelemetryCore.run_directory(pace_id),
                     vi;
                     batch_size = batch_size,
                     pending_segments = pending,
@@ -945,7 +945,7 @@ end
                 receiver = c -> Receiver.run_receiver(
                     c,
                     link,
-                    run_id;
+                    TelemetryCore.run_directory(run_id);
                     orig_stdout = devnull,
                     batch_transfer_sec = 1.0,
                     loss_model = loss,
@@ -1060,7 +1060,7 @@ end
                     "",
                 ),
                 start,
-                gap_id;
+                TelemetryCore.run_directory(gap_id);
                 batch_size = 3,
                 generation_gaps = [gap],
                 hole_feed = TelemetryCore.HoleFeed(
@@ -1107,7 +1107,7 @@ end
                     "",
                 ),
                 start,
-                rec_id;
+                TelemetryCore.run_directory(rec_id);
                 batch_size = 3,
                 onboard_capacity_batches = 2,
                 hole_feed = TelemetryCore.HoleFeed(
@@ -1153,7 +1153,7 @@ end
             emitter = c -> Emitter.run_emitter(
                 c,
                 link,
-                live_id,
+                TelemetryCore.run_directory(live_id),
                 VirtualInstrument.InstrumentState(
                     TelemetryCore.get_current_sim_time(c),
                     4.0,
@@ -1211,7 +1211,7 @@ end
                 Emitter.pre_populate(
                     VirtualInstrument.InstrumentState(origin, fs, 50.0, "external", ramp),
                     start,
-                    gap_id;
+                    TelemetryCore.run_directory(gap_id);
                     batch_size = 10,
                     generation_gaps = gaps,
                 )
@@ -1234,7 +1234,7 @@ end
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    gap_id,
+                    TelemetryCore.run_directory(gap_id),
                     vi;
                     batch_size = 10,
                     pending_segments = pending,
@@ -1277,7 +1277,7 @@ end
                 emitter = c -> Emitter.run_emitter(
                     c,
                     link,
-                    rec_id,
+                    TelemetryCore.run_directory(rec_id),
                     VirtualInstrument.InstrumentState(start, fs, 50.0, "external", ramp);
                     batch_size = 10,
                     onboard_capacity_batches = 2,
@@ -1334,7 +1334,7 @@ end
                     "",
                 ),
                 start,
-                run_id;
+                TelemetryCore.run_directory(run_id);
                 batch_size = 10,
                 generation_gaps = [gap],
             )
@@ -1348,7 +1348,7 @@ end
             emitter = c -> Emitter.run_emitter(
                 c,
                 link,
-                run_id,
+                TelemetryCore.run_directory(run_id),
                 vi;
                 batch_size = 10,
                 pending_segments = pending,
@@ -1358,7 +1358,7 @@ end
             receiver = c -> Receiver.run_receiver(
                 c,
                 link,
-                run_id;
+                TelemetryCore.run_directory(run_id);
                 orig_stdout = devnull,
                 batch_transfer_sec = 300.0,
             ),

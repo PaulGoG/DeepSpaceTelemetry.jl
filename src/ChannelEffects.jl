@@ -117,12 +117,13 @@ julia> round(ChannelEffects.stationary_loss_rate(ge); digits = 4)
 stationary_loss_rate(::NoLoss) = 0.0
 stationary_loss_rate(m::BernoulliLoss) = m.p
 
-function stationary_loss_rate(m::GilbertElliottLoss)
-    denom = m.p_good_to_bad + m.p_bad_to_good
-    denom == 0.0 && return m.in_bad_state ? m.p_loss_bad : m.p_loss_good
-    pi_bad = m.p_good_to_bad / denom
-    return pi_bad * m.p_loss_bad + (1.0 - pi_bad) * m.p_loss_good
-end
+stationary_loss_rate(m::GilbertElliottLoss) = TelemetryCore.gilbert_elliott_loss_rate(
+    m.p_good_to_bad,
+    m.p_bad_to_good,
+    m.p_loss_good,
+    m.p_loss_bad;
+    in_bad_state = m.in_bad_state,
+)
 
 # --- Disruption Events ---
 """

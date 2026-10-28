@@ -30,6 +30,7 @@ DeepSpaceTelemetry.MissionFigures.shade_spans!
 DeepSpaceTelemetry.MissionFigures.shade_generation_gaps!
 DeepSpaceTelemetry.MissionFigures.shade_low_latency!
 DeepSpaceTelemetry.MissionFigures.mark_events!
+DeepSpaceTelemetry.MissionFigures.decorate_axis!
 DeepSpaceTelemetry.MissionFigures.figure_legend_entries
 DeepSpaceTelemetry.MissionFigures.add_figure_legend!
 DeepSpaceTelemetry.MissionFigures.upright_rules

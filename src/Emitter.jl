@@ -28,11 +28,12 @@ function instrument_epoch(start_sim_time::DateTime, initial_downtime_days::Real)
 end
 
 """
-    pre_populate(instrument, start_sim_time, run_id; batch_size, kwargs...) -> (instrument, pending_segments)
+    pre_populate(instrument, start_sim_time, run_dir; batch_size, kwargs...) -> (instrument, pending_segments)
 
-Fills the on-board recorder (`onboard/`) with the `ARCH_` batches produced
-during the initial downtime, the backlog the active mission window starts
-with.
+Fills the on-board recorder (`<run_dir>/onboard/`) with the `ARCH_` batches
+produced during the initial downtime, the backlog the active mission window
+starts with. `run_dir` is the absolute path of the run directory
+([`TelemetryCore.run_directory`](@ref)).
 
 `instrument` is the [`VirtualInstrument.InstrumentState`](@ref) anchored at
 the start of the blind spot ([`instrument_epoch`](@ref)); the pre-population
@@ -58,7 +59,7 @@ completes the partial batch in the mission phase.
 function pre_populate(
     instrument::VirtualInstrument.InstrumentState,
     start_sim_time::DateTime,
-    run_id::String;
+    run_dir::String;
     batch_size::Int,
     markers::Vector{TelemetryCore.EventMarker} = TelemetryCore.EventMarker[],
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
@@ -71,17 +72,20 @@ function pre_populate(
     downtime_start < start_sim_time || return vi, pending
     downtime_days = (start_sim_time - downtime_start).value / TelemetryCore.MS_PER_DAY
 
-    run_dir = TelemetryCore.run_directory(run_id)
+    TelemetryCore.checked_run_dir(run_dir)
     buffer_path = joinpath(run_dir, "onboard")
 
-    batch_counter = 1
+    # Nothing leaves the buffer before the mission starts: the batches
+    # written so far are the batches held, and an overflow gap opened here
+    # stays open into run_emitter.
+    held = 0
+    recorder_gap = RecorderGap(nothing)
 
     @info "[EMITTER] Pre-populating onboard buffer for $(round(downtime_days, digits = 3)) days of downtime..."
 
     total_segs =
         ceil(Int, (start_sim_time - downtime_start).value / 1000 / vi.segment_duration_sec)
 
-    recorder_full = false
     # Carriage-return frames would fill the log of a detached run.
     @showprogress desc = "Pre-populating onboard buffer..." enabled = (stderr isa Base.TTY) for _ in
                                                                                                 1:total_segs
@@ -100,46 +104,18 @@ function pre_populate(
         seg = VirtualInstrument.next_segment!(vi)
         push!(pending, seg)
 
-        if length(pending) >= batch_size && batch_counter - 1 >= onboard_capacity_batches
-            # Recorder ceiling: nothing leaves the buffer before the mission
-            # starts, so the overflow gap stays open into run_emitter.
-            recorder_full || TelemetryCore.log_tx_event(
-                run_dir,
-                pending[1].timestamp,
-                "RECORDER",
-                "gap_start",
-            )
-            recorder_full ||
-                @warn "[EMITTER] On-board recorder full ($(batch_counter - 1) batches): blind-spot data beyond the ceiling is discarded."
-            recorder_full = true
-            empty!(pending)
-        elseif length(pending) >= batch_size
-            # created_at is the finalization instant on the mission timeline
-            # (the content end, inside the blind spot), not wall-clock time;
-            # save_batch persists the content epoch beside it, as on the
-            # mission-phase path.
-            finalized_at = vi.last_t
-            batch = TelemetryCore.DataBatch(batch_counter, copy(pending), finalized_at)
-            batch_name = TelemetryCore.batch_name(batch_counter, false)
-            batch_dir = joinpath(buffer_path, batch_name)
-
-            stamp_markers!(
-                batch_dir,
-                batch,
-                batch_name,
-                run_dir,
-                markers,
-                vi.last_t;
-                payload_row = VirtualInstrument.payload_row(vi, batch.segments[1].id),
-            )
-            # Ground-truth milestone: generation = finalization time.
-            TelemetryCore.log_tx_event(run_dir, finalized_at, batch_name, "gen")
-            empty!(pending)
-            batch_counter += 1
+        length(pending) >= batch_size || continue
+        if held >= onboard_capacity_batches
+            discard_at_ceiling!(recorder_gap, run_dir, pending, held)
+        else
+            # The finalization instant is the content end, inside the blind
+            # spot, as generation is instantaneous here.
+            finalize_batch!(run_dir, held + 1, pending, vi.last_t, false, markers, vi)
+            held += 1
         end
     end
 
-    @info "[EMITTER] Pre-population complete. Buffered $(batch_counter-1) ARCH_ data batches."
+    @info "[EMITTER] Pre-population complete. Buffered $held ARCH_ data batches."
     return vi, pending
 end
 
@@ -220,7 +196,104 @@ function stamp_markers!(
 end
 
 """
-    transmit_onboard!(live_queue, arch_queue, link, sim_t, run_dir; max_inflight_batches) -> Int
+    finalize_batch!(run_dir, id, pending, finalized_at, is_live, markers, vi;
+                    onboard_count = nothing) -> String
+
+Writes the segments of `pending` as batch `id` (`LIVE_` when `is_live`,
+else `ARCH_`) into `<run_dir>/onboard/` with its markers
+([`stamp_markers!`](@ref)), counts it in `onboard_count`, appends its `gen`
+row at `finalized_at`, the finalization instant on the mission timeline,
+and empties `pending`. Returns the batch name.
+"""
+function finalize_batch!(
+    run_dir::String,
+    id::Int,
+    pending::Vector{TelemetryCore.DataSegment},
+    finalized_at::DateTime,
+    is_live::Bool,
+    markers::Vector{TelemetryCore.EventMarker},
+    vi::VirtualInstrument.InstrumentState;
+    onboard_count::Union{Threads.Atomic{Int},Nothing} = nothing,
+)
+    batch = TelemetryCore.DataBatch(id, copy(pending), finalized_at)
+    name = TelemetryCore.batch_name(id, is_live)
+    stamp_markers!(
+        joinpath(run_dir, "onboard", name),
+        batch,
+        name,
+        run_dir,
+        markers,
+        vi.last_t;
+        payload_row = VirtualInstrument.payload_row(vi, batch.segments[1].id),
+    )
+    onboard_count === nothing || Threads.atomic_add!(onboard_count, 1)
+    TelemetryCore.log_tx_event(run_dir, finalized_at, name, "gen")
+    empty!(pending)
+    return name
+end
+
+"""
+    RecorderGap
+
+The open recorder-overflow gap: `start`, the content instant of the first
+discarded segment, or `nothing` while the recorder has room.
+"""
+mutable struct RecorderGap
+    start::Union{DateTime,Nothing}
+end
+
+"""
+    discard_at_ceiling!(gap::RecorderGap, run_dir, pending, held::Int)
+
+Discards the full batch in `pending` at the recorder ceiling of `held`
+batches. No batch is evicted: new data is lost until a batch leaves for the
+link. The first discard opens the gap with a `RECORDER` `gap_start` row in
+`events_tx.csv`.
+"""
+function discard_at_ceiling!(
+    gap::RecorderGap,
+    run_dir::String,
+    pending::Vector{TelemetryCore.DataSegment},
+    held::Int,
+)
+    if gap.start === nothing
+        start = pending[1].timestamp
+        gap.start = start
+        TelemetryCore.log_tx_event(run_dir, start, "RECORDER", "gap_start")
+        @warn "[EMITTER] On-board recorder full ($held batches): new data is discarded until the buffer drains."
+    end
+    empty!(pending)
+    return nothing
+end
+
+"""
+    close_recorder_gap!(gap::RecorderGap, run_dir, resume::DateTime, declared_at::DateTime;
+                        hole_feed = nothing)
+
+Closes an open recorder gap at `resume`, the first content instant recorded
+again: a `RECORDER` `gap_end` row, and with a `hole_feed` a `recorder` hole
+declared at `declared_at`. Does nothing while no gap is open.
+"""
+function close_recorder_gap!(
+    gap::RecorderGap,
+    run_dir::String,
+    resume::DateTime,
+    declared_at::DateTime;
+    hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
+)
+    start = gap.start
+    start === nothing && return nothing
+    TelemetryCore.log_tx_event(run_dir, resume, "RECORDER", "gap_end")
+    hole_feed === nothing ||
+        TelemetryCore.declare_gap_hole!(hole_feed, declared_at, "recorder", start, resume)
+    gap.start = nothing
+    @info "[EMITTER] On-board recorder has room again: recording resumes at $resume."
+    return nothing
+end
+
+"""
+    transmit_onboard!(live_queue, arch_queue, link, sim_t, run_dir; max_inflight_batches,
+                      onboard_count = nothing) -> Int
 
 Places on-board batches on the downlink while `link` is transmittable at
 `sim_t` (visibility and no blackout). Free in-flight slots, the `link/`
@@ -228,7 +301,8 @@ listing below `max_inflight_batches` (a slot frees the moment the receiver
 moves a batch out), are refilled from `live_queue` (FIFO, absolute
 priority), then from `arch_queue` (held newest first, so the archive drains
 LIFO). Each move from `onboard/` to `link/` is appended to `events_tx.csv`
-as a `tx` row. Returns the number of batches placed.
+as a `tx` row and taken off `onboard_count`. Returns the number of batches
+placed.
 """
 function transmit_onboard!(
     live_queue::Vector{String},
@@ -237,6 +311,7 @@ function transmit_onboard!(
     sim_t::DateTime,
     run_dir::String;
     max_inflight_batches::Int,
+    onboard_count::Union{Threads.Atomic{Int},Nothing} = nothing,
 )
     ChannelEffects.is_transmittable(link, sim_t) || return 0
     buffer_path = joinpath(run_dir, "onboard")
@@ -253,6 +328,7 @@ function transmit_onboard!(
         end
         TelemetryCore.backup_existing_dir(joinpath(link_path, next_batch))
         mv(joinpath(buffer_path, next_batch), joinpath(link_path, next_batch))
+        onboard_count === nothing || Threads.atomic_sub!(onboard_count, 1)
         @info "[EMITTER] Tx ->| $next_batch ($reason)"
         TelemetryCore.log_tx_event(run_dir, sim_t, next_batch, "tx")
         link_count += 1
@@ -263,7 +339,7 @@ end
 
 # --- Emitter Main Loop ---
 """
-    run_emitter(clock, link, run_id, instrument; batch_size, kwargs...)
+    run_emitter(clock, link, run_dir, instrument; batch_size, kwargs...)
 
 The spacecraft loop: segments from `instrument` (synthetic, or read from an
 external CSV) are batched and placed on the downlink, live FIFO with
@@ -271,7 +347,8 @@ absolute priority over the archive LIFO ([`transmit_onboard!`](@ref)).
 `link` is the composite [`ChannelEffects.LinkModel`](@ref) (visibility ×
 disruption timeline): a batch finalized while the link is transmittable is
 stamped `LIVE_`, any other `ARCH_`, so the batches generated during a
-disruption blackout accumulate onboard.
+disruption blackout accumulate onboard. `run_dir` is the absolute path of
+the run directory.
 
 `instrument` is the [`VirtualInstrument.InstrumentState`](@ref) the stream
 continues from: on the first start the one returned by
@@ -290,8 +367,8 @@ segment is due the loop serves the downlink and parks the task
 ([`TelemetryCore.wait_until!`](@ref)) until that instant or the next
 boundary of the payload grid, whichever comes first, so a scheduled
 generation gap interrupts production but not transmission. The loop ends at
-the horizon ([`TelemetryCore.horizon_reached`](@ref)), on the stop flag, or
-on the `HALT` sentinel.
+the horizon, on the stop flag, or on the `HALT` sentinel
+([`TelemetryCore.loop_should_stop`](@ref)).
 
 # Keyword arguments
 
@@ -309,11 +386,14 @@ on the `HALT` sentinel.
   - `hole_feed`: the declared-hole feed for the scheduled and recorder gaps,
     `nothing` for none. A scheduled gap is declared at the mission instant
     it is skipped at, a recorder gap at the finalization that closes it.
+  - `onboard_count`: the number of batches on board, set from the census at
+    start and kept in step with every write to and move out of `onboard/`;
+    the receiver reads it for the metrics instead of listing the directory.
 """
 function run_emitter(
     clock::TelemetryCore.TickClock,
     link::ChannelEffects.LinkModel,
-    run_id::String,
+    run_dir::String,
     instrument::VirtualInstrument.InstrumentState;
     batch_size::Int,
     pending_segments::Vector{TelemetryCore.DataSegment} = TelemetryCore.DataSegment[],
@@ -323,14 +403,15 @@ function run_emitter(
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
     hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
+    onboard_count::Threads.Atomic{Int} = Threads.Atomic{Int}(0),
 )
     vi = instrument
-    run_dir = TelemetryCore.run_directory(run_id)
+    TelemetryCore.checked_run_dir(run_dir)
     buffer_path = joinpath(run_dir, "onboard")
     link_path = joinpath(run_dir, "link")
     foreach(mkpath, (buffer_path, link_path)) # idempotent: standalone/restart entry
 
-    # Internal state tracking to avoid expensive `readdir` polling
+    # The queues mirror onboard/, so the loop never lists it.
     onboard_live_queue = String[]
     onboard_arch_queue = String[]
 
@@ -346,6 +427,7 @@ function run_emitter(
     stranded_live = filter(TelemetryCore.is_live_batch, all_onboard)
     sort!(stranded_live, by = TelemetryCore.batch_id) # FIFO
     append!(onboard_live_queue, stranded_live)
+    onboard_count[] = length(onboard_live_queue) + length(onboard_arch_queue)
     isempty(stranded_live) ||
         @info "[EMITTER] Re-attach: recovered $(length(stranded_live)) stranded LIVE batches."
     batch_counter =
@@ -356,30 +438,23 @@ function run_emitter(
     pending = copy(pending_segments)
     halt_path = joinpath(run_dir, "HALT")
     # Recorder-overflow gap left open by the pre-population or a previous
-    # emitter: closed at the first finalization that finds room. Its start
-    # is kept for the declared-hole feed.
-    recorder_gap_start::Union{DateTime,Nothing} =
-        TelemetryCore.open_recorder_gap_start(run_dir)
-    recorder_full = recorder_gap_start !== nothing
+    # emitter: closed at the first finalization that finds room.
+    recorder_gap = RecorderGap(TelemetryCore.open_recorder_gap_start(run_dir))
 
-    @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $run_id"
+    @info "[EMITTER] Logic: near-real-time (NRT) FIFO priority + archive backfill (LIFO). Run: $(basename(run_dir))"
 
     seg_period = TelemetryCore.segment_period(vi.segment_duration_sec)
+    transmit!(sim_t) = transmit_onboard!(
+        onboard_live_queue,
+        onboard_arch_queue,
+        link,
+        sim_t,
+        run_dir;
+        max_inflight_batches = max_inflight_batches,
+        onboard_count = onboard_count,
+    )
 
-    while true
-        if stop !== nothing && stop[]
-            @info "[EMITTER] Stop signal received. Shutting down."
-            break
-        end
-        if isfile(halt_path)
-            @info "[EMITTER] HALT sentinel detected. Shutting down."
-            break
-        end
-        if TelemetryCore.horizon_reached(clock)
-            @info "[EMITTER] Mission horizon reached. Shutting down."
-            break
-        end
-
+    while !TelemetryCore.loop_should_stop(clock, stop, halt_path, "[EMITTER]")
         # 1. Pacing (see the docstring): a segment is due once its content
         #    interval has elapsed, since the instrument delivers what it
         #    has observed. Until then serve the downlink and sleep to the
@@ -396,14 +471,7 @@ function run_emitter(
         sim_t = TelemetryCore.get_current_sim_time(clock)
         content_end = vi.last_t + seg_period
         if content_end > sim_t
-            transmit_onboard!(
-                onboard_live_queue,
-                onboard_arch_queue,
-                link,
-                sim_t,
-                run_dir;
-                max_inflight_batches = max_inflight_batches,
-            )
+            transmit!(sim_t)
             wake = min(
                 content_end,
                 VirtualInstrument.segment_boundary(
@@ -425,44 +493,18 @@ function run_emitter(
         seg = VirtualInstrument.next_segment!(vi)
         push!(pending, seg)
 
-        # 3. Batch Finalization — or discard at the recorder ceiling
-        #    (no eviction: the buffer keeps what it holds, new data is
-        #    lost until a batch leaves for the link).
-        if length(pending) >= batch_size &&
-           length(onboard_live_queue) + length(onboard_arch_queue) >=
-           onboard_capacity_batches
-            recorder_full || TelemetryCore.log_tx_event(
+        # 3. Batch finalization, or discard at the recorder ceiling.
+        held = length(onboard_live_queue) + length(onboard_arch_queue)
+        if length(pending) >= batch_size && held >= onboard_capacity_batches
+            discard_at_ceiling!(recorder_gap, run_dir, pending, held)
+        elseif length(pending) >= batch_size
+            close_recorder_gap!(
+                recorder_gap,
                 run_dir,
                 pending[1].timestamp,
-                "RECORDER",
-                "gap_start",
+                sim_t;
+                hole_feed = hole_feed,
             )
-            recorder_full || (recorder_gap_start = pending[1].timestamp)
-            recorder_full ||
-                @warn "[EMITTER] On-board recorder full ($onboard_capacity_batches batches): new data is discarded until the buffer drains."
-            recorder_full = true
-            empty!(pending)
-        elseif length(pending) >= batch_size
-            if recorder_full
-                TelemetryCore.log_tx_event(
-                    run_dir,
-                    pending[1].timestamp,
-                    "RECORDER",
-                    "gap_end",
-                )
-                hole_feed === nothing ||
-                    recorder_gap_start === nothing ||
-                    TelemetryCore.declare_gap_hole!(
-                        hole_feed,
-                        sim_t,
-                        "recorder",
-                        recorder_gap_start,
-                        pending[1].timestamp,
-                    )
-                recorder_gap_start = nothing
-                @info "[EMITTER] On-board recorder has room again: recording resumes at $(pending[1].timestamp)."
-                recorder_full = false
-            end
             # LIVE/ARCH follows the link state at finalization: flight
             # software marks data near-real-time only if the link is up
             # when it is ready to send. The content epoch is persisted
@@ -470,21 +512,17 @@ function run_emitter(
             # masks/batch_epochs.csv), so pacing lag can shift the
             # classification but not the science provenance.
             is_live = ChannelEffects.is_transmittable(link, sim_t)
-            # created_at = finalization instant on the mission timeline.
-            batch = TelemetryCore.DataBatch(batch_counter, copy(pending), sim_t)
-            batch_name = TelemetryCore.batch_name(batch_counter, is_live)
-            batch_dir = joinpath(buffer_path, batch_name)
-
-            stamp_markers!(
-                batch_dir,
-                batch,
-                batch_name,
+            content_start = pending[1].timestamp
+            batch_name = finalize_batch!(
                 run_dir,
+                batch_counter,
+                pending,
+                sim_t,
+                is_live,
                 markers,
-                vi.last_t;
-                payload_row = VirtualInstrument.payload_row(vi, batch.segments[1].id),
+                vi;
+                onboard_count = onboard_count,
             )
-
             if is_live
                 # LIVE queue is FIFO: append at the tail, drain from the head.
                 push!(onboard_live_queue, batch_name)
@@ -492,22 +530,12 @@ function run_emitter(
                 # ARCH queue is LIFO: insert at the head so popfirst! yields newest-first.
                 pushfirst!(onboard_arch_queue, batch_name)
             end
-
-            @info "[EMITTER] Gen  | $batch_name @ SimTime: $(batch.segments[1].timestamp)"
-            TelemetryCore.log_tx_event(run_dir, sim_t, batch_name, "gen")
-            empty!(pending)
+            @info "[EMITTER] Gen  | $batch_name @ SimTime: $content_start"
             batch_counter += 1
         end
 
         # 4. Transmission
-        transmit_onboard!(
-            onboard_live_queue,
-            onboard_arch_queue,
-            link,
-            sim_t,
-            run_dir;
-            max_inflight_batches = max_inflight_batches,
-        )
+        transmit!(sim_t)
     end
     return nothing
 end

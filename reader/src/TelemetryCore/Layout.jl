@@ -21,9 +21,10 @@ const PROJECT_ROOT = Ref{String}(dirname(dirname(@__DIR__)))
 """
     DATA_ROOT
 
-Base directory for run storage (a `Ref`; default `<PROJECT_ROOT[]>/data`).
-Every run-directory path resolves through [`run_directory`](@ref); tests and
-embedding applications may redirect it (e.g. to a temporary directory).
+Default base directory for run storage (a `Ref`; default
+`<PROJECT_ROOT[]>/data`): the data root of the entry points
+(`Supervisor.run_mission`, the scripts, `RunAdapter.open_run` by run ID)
+when none is given. The components take their run directory explicitly.
 """
 const DATA_ROOT = Ref{String}("")
 
@@ -35,12 +36,28 @@ function __init__()
 end
 
 """
-    run_directory(run_id::String) -> String
+    run_directory(run_id::String, data_root::String = DATA_ROOT[]) -> String
 
-Run-directory path `<DATA_ROOT>/runs/<run_id>`, used alike by the
-components, the scripts, and the post-processing tools.
+Run-directory path `<data_root>/runs/<run_id>`.
 """
-run_directory(run_id::String) = joinpath(runs_root(), run_id)
+run_directory(run_id::String, data_root::String = DATA_ROOT[]) =
+    joinpath(data_root, "runs", run_id)
+
+"""
+    checked_run_dir(run_dir::String) -> String
+
+`run_dir` when it is an absolute path, else an `ArgumentError`: the
+components address a run by its directory, and a bare run ID resolves
+through [`run_directory`](@ref).
+"""
+function checked_run_dir(run_dir::String)
+    isabspath(run_dir) || throw(
+        ArgumentError(
+            "[RUN] Expected an absolute run-directory path, got $(repr(run_dir)); resolve a run ID with TelemetryCore.run_directory.",
+        ),
+    )
+    return run_dir
+end
 
 """
     runs_root() -> String

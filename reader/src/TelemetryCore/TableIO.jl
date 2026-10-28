@@ -81,10 +81,41 @@ type and text as a string type of its own. `kwargs` are passed to
 `CSV.read`.
 """
 function read_table(path::AbstractString; kwargs...)
-    header = Symbol.(strip.(split(readline(path), ',')))
-    types =
-        Dict{Symbol,Type}(name => DateTime for name in header if name in TIMESTAMP_COLUMNS)
-    return CSV.read(path, DataFrame; types = types, stringtype = String, kwargs...)
+    return CSV.read(
+        path,
+        DataFrame;
+        types = column_types(readline(path)),
+        stringtype = String,
+        kwargs...,
+    )
+end
+
+# The stated types of read_table for a header line.
+function column_types(header::AbstractString)
+    names = Symbol.(strip.(split(header, ',')))
+    return Dict{Symbol,Type}(
+        name => DateTime for name in names if name in TIMESTAMP_COLUMNS
+    )
+end
+
+"""
+    parse_table(header::AbstractString, body::AbstractVector{UInt8}; kwargs...) -> DataFrame
+
+The rows of `body`, complete CSV lines without a header, under the header
+line `header`, typed as [`read_table`](@ref) types a file. `kwargs` are
+passed to `CSV.read`.
+"""
+function parse_table(header::AbstractString, body::AbstractVector{UInt8}; kwargs...)
+    text = IOBuffer()
+    print(text, header, '\n')
+    write(text, body)
+    return CSV.read(
+        take!(text),
+        DataFrame;
+        types = column_types(header),
+        stringtype = String,
+        kwargs...,
+    )
 end
 
 """

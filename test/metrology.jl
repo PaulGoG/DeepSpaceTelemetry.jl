@@ -542,7 +542,7 @@ end
                     markers = [marker],
                 ),
                 start_sim,
-                stamp_id;
+                TelemetryCore.run_directory(stamp_id);
                 batch_size = 3,
                 markers = [marker],
             )

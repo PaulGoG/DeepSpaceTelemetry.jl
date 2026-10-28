@@ -360,7 +360,7 @@ end
                         plan.markers,
                     ),
                     plan.start_sim,
-                    plan.run_id;
+                    TelemetryCore.run_directory(plan.run_id);
                     batch_size = plan.physics.batch_size,
                 )
             end

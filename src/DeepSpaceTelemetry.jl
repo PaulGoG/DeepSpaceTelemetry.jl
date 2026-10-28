@@ -55,47 +55,29 @@ export TelemetryCore,
     Sweeps
 
 using PrecompileTools: @setup_workload, @compile_workload
-using Dates: DateTime, Time, Second
+using Logging: NullLogger, with_logger
 
 @setup_workload begin
-    precompile_cfg = Dict{String,Any}(
-        "simulation" => Dict{String,Any}(
-            "speed_up" => 3600.0,
-            "start_sim_time" => "2035-01-01T06:00:00",
-            "mission_wall_seconds" => 10.0,
-            "initial_downtime_days" => 0.0,
-            "rng_seed" => 1,
-        ),
-        "storage" => Dict{String,Any}("max_storage_gb" => 2.0),
-        "telemetry" => Dict{String,Any}(
-            "session_start" => "08:00:00",
-            "session_duration_hours" => 8.0,
-            "max_batches_per_hour" => 20.0,
-            "bandwidth_profile" => "sine",
-        ),
-        "physics" => Dict{String,Any}(
-            "data_source" => "synthetic",
-            "sample_rate" => 4.0,
-            "segment_duration_sec" => 60.0,
-            "batch_size" => 10,
-        ),
-        "packet_loss" => Dict{String,Any}(
-            "enabled" => true,
-            "model" => "bernoulli",
-            "p_loss" => 0.1,
-        ),
-    )
+    scenario = joinpath(PACKAGE_ROOT, "scenarios", "smoke_1d.toml")
     @compile_workload begin
-        # Exercise the configuration, estimation, link, channel, and
-        # synthesis paths that dominate time-to-first-run.
-        TelemetryCore.validate_config(precompile_cfg)
-        TelemetryCore.estimate_artifacts(precompile_cfg)
-        vis = TelemetryCore.VisibilityModel(Time(8), Second(8 * 3600), "sine")
-        TelemetryCore.get_bandwidth_factor(vis, DateTime(2035, 1, 1, 12))
-        loss = ChannelEffects.build_loss_model(precompile_cfg, 1)
-        ChannelEffects.sample_loss!(loss)
-        vi = VirtualInstrument.InstrumentState(DateTime(2035), 4.0, 60.0, "synthetic", "")
-        VirtualInstrument.next_segment!(vi)
+        # A short tick mission end to end in a temporary data root: the
+        # configuration layer, the pre-population, both component loops on the
+        # tick driver, the event, metrics, and hole writers, the
+        # post-processing tables, and the figure stage.
+        cfg = TelemetryCore.tick_configuration(TelemetryCore.load_config(scenario))
+        cfg["simulation"]["mission_days"] = 0.05
+        cfg["simulation"]["initial_downtime_days"] = 0.02
+        mktempdir() do data_root
+            with_logger(NullLogger()) do
+                Supervisor.run_mission(
+                    cfg;
+                    run_id = "PRECOMPILE",
+                    orig_stdout = devnull,
+                    figures = true,
+                    data_root = data_root,
+                )
+            end
+        end
     end
 end
 

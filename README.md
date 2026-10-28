@@ -227,15 +227,15 @@ batch never becomes available on the ground.
 
 | Component | Role | Status |
 |---|---|---|
-| `TelemetryCore` | configuration accessors and validation, run layout, batch I/O, event logs, provenance, the wall and tick mission clocks | stable; unit, guardrail, scheduler, and static-QA coverage |
+| `TelemetryCore` | configuration accessors and validation, run layout, batch I/O, event logs, provenance, the tick clock and its driver, paced or not | stable; unit, guardrail, scheduler, and static-QA coverage |
 | `ChannelEffects` | loss channels, disruption timeline, composite link model | stable; validated against the analytic stationary loss rate |
 | `VirtualInstrument` | binary flag payload declared by the event markers, external ingestion | stable; flag rule, boundary cases, clock advance, and the payload grid across gaps and restarts tested |
-| `Emitter` / `Receiver` | spacecraft and ground-station state machines, on either clock | stable; four end-to-end integration missions and the tick missions in the suite |
+| `Emitter` / `Receiver` | spacecraft and ground-station state machines on the tick driver | stable; four end-to-end integration missions and the tick missions in the suite |
 | `Masks` / `MissionFigures` | batch-state replay, mask products, the gap table; mission, session, and raster figures | stable; replay, gap-table, legend, and layout tests |
 | `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
-| `Supervisor` | mission plan, supervised tasks on the wall clock, the tick driver, sentinels, banner | stable; restart, policy, and reproducibility tests |
-| `RunAdapter` | reference run adapter over the file contract: geometry, batches, payload, arrivals, state, labeled intervals; gap tracker, hole-feed reader, marker rows, producer-version check | since 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
+| `Supervisor` | mission plan, supervised component tasks, failure policy, sentinels, banner | stable; restart, policy, and reproducibility tests |
+| `RunAdapter` | reference run adapter over the file contract: geometry, batches, payload, arrivals, state, labeled intervals; byte-offset feed cursors, hole-feed reader, marker rows, producer-version check; deprecated gap tracker | since 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
 | `Sweeps` | ensembles and parameter sweeps on the tick clock, serial or over worker processes, with a summary table and provenance | since 2.5.0; serial two-seed sweep in the suite, the worker path verified manually |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
 | Scenario library | twelve configurations under `scenarios/` | every file validated and the smoke scenario run by the suite; a shortened deterministic scenario run three times in the tick testset |
@@ -270,7 +270,7 @@ DeepSpaceTelemetry/
 │       ├── TelemetryCore.jl     # Module header; includes the files below in dependency order
 │       ├── TelemetryCore/       # Layout, Config, Validation, Timing, Storage, Clocks, EventLogs,
 │       │                        #   HoleFeed, TableIO, Provenance, BatchIO, Visibility
-│       └── RunAdapter.jl        # Reference run adapter: file-contract reader, gap tracker, markers, label spans
+│       └── RunAdapter.jl        # Reference run adapter: file-contract reader, feed cursors, markers, label spans
 ├── scripts/
 │   ├── Project.toml             # Script environment: terminal UI and logging; package by path via [sources]
 │   ├── activate.jl              # Activates and instantiates the script environment

@@ -27,6 +27,7 @@ DeepSpaceTelemetry.RunAdapter.markers
 DeepSpaceTelemetry.RunAdapter.label_spans
 DeepSpaceTelemetry.RunAdapter.Hole
 DeepSpaceTelemetry.RunAdapter.declared_holes
+DeepSpaceTelemetry.RunAdapter.FeedCursor
 ```
 
 ## Deprecated
