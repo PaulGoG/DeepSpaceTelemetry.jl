@@ -10,7 +10,7 @@ const RUN_FILE_COUNT_SLACK = 8 # rotation backups and sentinels beyond the per-c
     storage_budget(cfg::AbstractDict) -> (max_gb, max_files, max_ram_gb)
 
 Resolves the run-directory disk budget [GB] and inode budget from `[storage]`;
-without the key the default of 5.0 GB applies.
+without the key the default of 5.0 GB applies. Every budget is > 0.
 `max_ram_gb` (default 8.0) budgets the post-processing RAM: the replay and the figure stage.
 """
 function storage_budget(cfg::AbstractDict)
@@ -19,6 +19,11 @@ function storage_budget(cfg::AbstractDict)
     max_files =
         checked_integer(get(st, "max_file_count", 1_000_000), "storage.max_file_count")
     max_ram_gb = checked_number(get(st, "max_ram_gb", 8.0), "storage.max_ram_gb")
+    for (key, v) in (("max_storage_gb", max_gb), ("max_ram_gb", max_ram_gb))
+        v > 0.0 || config_error("[CONFIG] storage.$key must be > 0 (got $v).")
+    end
+    max_files > 0 ||
+        config_error("[CONFIG] storage.max_file_count must be > 0 (got $max_files).")
     return (max_gb = max_gb, max_files = max_files, max_ram_gb = max_ram_gb)
 end
 
@@ -43,18 +48,31 @@ end
 
 Parses the `[retention]` section into a [`RetentionPolicy`](@ref):
 `retention.grace_hours` converts to a `Millisecond` period at parse time,
-and `high_watermark_gb` defaults to 75 % of the storage budget.
+and `high_watermark_gb` defaults to 75 % of the storage budget and may not
+exceed it, as the custodian would then never trigger below the abort
+threshold. `grace_hours`, `high_watermark_gb` and `log_rotate_mb` are > 0.
 """
 function retention_settings(cfg::AbstractDict)
     ret = get(cfg, "retention", Dict{String,Any}())
     enabled = checked_flag(get(ret, "enabled", false), "retention.enabled")
     grace_hours = checked_number(get(ret, "grace_hours", 24.0), "retention.grace_hours")
-    default_wm = DEFAULT_WATERMARK_FRACTION * storage_budget(cfg).max_gb
+    budget = storage_budget(cfg)
+    default_wm = DEFAULT_WATERMARK_FRACTION * budget.max_gb
     watermark_gb = checked_number(
         get(ret, "high_watermark_gb", default_wm),
         "retention.high_watermark_gb",
     )
     rotate_mb = checked_number(get(ret, "log_rotate_mb", 64.0), "retention.log_rotate_mb")
+    for (key, v) in (
+        ("grace_hours", grace_hours),
+        ("high_watermark_gb", watermark_gb),
+        ("log_rotate_mb", rotate_mb),
+    )
+        v > 0.0 || config_error("[CONFIG] retention.$key must be > 0 (got $v).")
+    end
+    watermark_gb <= budget.max_gb || config_error(
+        "[CONFIG] retention.high_watermark_gb = $watermark_gb exceeds the storage budget ($(budget.max_gb) GB): the custodian would never trigger below the abort threshold.",
+    )
     return RetentionPolicy(
         enabled,
         Millisecond(round(Int, grace_hours * MS_PER_HOUR)),

@@ -14,8 +14,10 @@ Errors:
   - a span key of the other clock mode, and
     `dashboard.receiver_status_panel = true` in tick mode
   - every type, bound, and enumeration enforced by the accessors it calls:
-    [`simulation_mode`](@ref), [`mission_wall_seconds`](@ref),
-    [`mission_days_setting`](@ref), [`telemetry_settings`](@ref),
+    [`simulation_settings`](@ref) (with [`simulation_mode`](@ref),
+    [`mission_wall_seconds`](@ref), [`mission_days_setting`](@ref)),
+    [`storage_budget`](@ref), [`retention_settings`](@ref),
+    [`telemetry_settings`](@ref),
     [`physics_settings`](@ref), [`loss_channel_settings`](@ref),
     [`disruption_event_settings`](@ref), [`contacts_settings`](@ref)
     (with [`event_marker_settings`](@ref)), [`label_settings`](@ref),
@@ -151,29 +153,12 @@ function validate_config(cfg::AbstractDict)
         haskey(sim, "mission_days") && config_error(
             "[CONFIG] simulation.mission_days is read in simulation.mode = \"tick\" only: in wall mode the span is mission_wall_seconds × speed_up; remove it.",
         )
-        speed_up = checked_number(get(sim, "speed_up", 0.0), "simulation.speed_up")
-        speed_up > 0.0 ||
-            config_error("[CONFIG] simulation.speed_up must be > 0 (got $speed_up).")
-        mission_wall_seconds(cfg)
     end
-    mission_days = mission_span_days(cfg)
-    downtime = checked_number(
-        get(sim, "initial_downtime_days", 0.0),
-        "simulation.initial_downtime_days",
-    )
-    downtime >= 0.0 || config_error(
-        "[CONFIG] simulation.initial_downtime_days must be ≥ 0 (got $downtime).",
-    )
-    max_gb = storage_budget(cfg).max_gb
-    max_gb > 0.0 ||
-        config_error("[CONFIG] storage.max_storage_gb must be > 0 (got $max_gb).")
-    t_start = parsed_datetime(
-        required_value(sim, "simulation", "start_sim_time"),
-        "simulation.start_sim_time",
-    )
-    seed = get(sim, "rng_seed", 0)
-    (seed isa Integer && !(seed isa Bool)) ||
-        config_error("[CONFIG] simulation.rng_seed must be an integer (got $(repr(seed))).")
+    simulation = simulation_settings(cfg)
+    mission_days = simulation.mission_days
+    downtime = simulation.initial_downtime_days
+    t_start = simulation.start_sim_time
+    storage_budget(cfg)
 
     # -- [physics] --
     physics = physics_settings(cfg)
@@ -283,19 +268,6 @@ function validate_config(cfg::AbstractDict)
         end
     end
 
-    # -- [storage] --
-    st = get(cfg, "storage", Dict{String,Any}())
-    for key in ("max_storage_gb", "max_ram_gb")
-        if haskey(st, key)
-            v = checked_number(st[key], "storage.$key")
-            v > 0.0 || config_error("[CONFIG] storage.$key must be > 0 (got $v).")
-        end
-    end
-    if haskey(st, "max_file_count")
-        nf = checked_integer(st["max_file_count"], "storage.max_file_count")
-        nf > 0 || config_error("[CONFIG] storage.max_file_count must be > 0 (got $nf).")
-    end
-
     # -- [supervision] --
     supervision_settings(cfg)
 
@@ -307,25 +279,7 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [retention] --
-    ret = get(cfg, "retention", Dict{String,Any}())
-    if !isempty(ret)
-        en = get(ret, "enabled", false)
-        en isa Bool ||
-            config_error("[CONFIG] retention.enabled must be a boolean (got $(repr(en))).")
-        for key in ("grace_hours", "high_watermark_gb", "log_rotate_mb")
-            if haskey(ret, key)
-                v = checked_number(ret[key], "retention.$key")
-                v > 0.0 || config_error("[CONFIG] retention.$key must be > 0 (got $v).")
-            end
-        end
-        if haskey(ret, "high_watermark_gb")
-            budget = storage_budget(cfg)
-            wm = Float64(ret["high_watermark_gb"])
-            wm <= budget.max_gb || config_error(
-                "[CONFIG] retention.high_watermark_gb = $wm exceeds the storage budget ($(budget.max_gb) GB): the custodian would never trigger below the abort threshold.",
-            )
-        end
-    end
+    retention_settings(cfg)
 
     return cfg
 end

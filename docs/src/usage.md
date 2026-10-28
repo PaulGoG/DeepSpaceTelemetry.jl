@@ -230,10 +230,11 @@ its seed and the sweep's provenance:
 ```bash
 julia scripts/run_sweep.jl scenarios/stress_8h_bursty.toml MY_SWEEP --seeds 1:8 --workers 4 --set packet_loss.p_loss=0.2
 ```
-`--seeds` takes a range or a comma-separated list. `--workers N`
-distributes the runs over `N` worker processes started with the active
-project (serial without it); on the tick clock the runs are independent
-of the host's load, so parallel runs do not distort each other. Every
+`--seeds` takes a range or a comma-separated list. `--workers N` runs `N`
+members at once as tasks on `N` Julia threads (serial without it); the
+script restarts itself with `--threads=N` when Julia was started with
+fewer. On the tick clock the runs are independent of the host's load and
+share no state, so parallel runs reproduce the serial ones exactly. Every
 `--set section.key=value` applies to all runs, parsed as TOML would parse
 the value. The runs land under `data/runs/<PREFIX>_seed<seed>/` with
 their post-processing reduced to tables (no figures, no mask timeline; the gap table and the metrology tables are written), and

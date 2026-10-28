@@ -367,14 +367,9 @@ visibility from [`TelemetryCore.visibility_model`](@ref), disruptions from
 `[disruption]` anchored at `simulation.start_sim_time`.
 """
 function build_link_model(cfg::AbstractDict)
-    sim = get(cfg, "simulation", Dict{String,Any}())
-    start_sim = TelemetryCore.parsed_datetime(
-        TelemetryCore.required_value(sim, "simulation", "start_sim_time"),
-        "simulation.start_sim_time",
-    )
     return LinkModel(
         TelemetryCore.visibility_model(cfg),
-        build_disruption_timeline(cfg, start_sim),
+        build_disruption_timeline(cfg, TelemetryCore.mission_epoch(cfg)),
     )
 end
 

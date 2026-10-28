@@ -5,8 +5,8 @@ Ensembles and sweeps on the tick clock: the same configuration run over a
 set of seeds, with optional overrides of any key, and the realized totals of
 every run gathered into one table. On a given platform a seed reproduces a
 run's event logs to the byte and its metrics profile apart from the
-`WallTime` column. [`run_sweep`](@ref) drives the runs, serially or on
-worker processes; [`summarize_run`](@ref) reads one run's totals; the
+`WallTime` column. [`run_sweep`](@ref) drives the runs, serially or
+several at once on Julia threads; [`summarize_run`](@ref) reads one run's totals; the
 products land under `<data root>/sweeps/<prefix>/`.
 """
 module Sweeps
@@ -15,7 +15,6 @@ using ..TelemetryCore: TelemetryCore
 using ..Supervisor
 using DataFrames: DataFrame, nrow
 using Dates: now
-using Distributed: Distributed, addprocs, nprocs, pmap
 using Logging: NullLogger, with_logger
 using TOML: TOML
 
@@ -192,8 +191,8 @@ end
 """
     run_one(cfg::Dict{String,Any}, run_id::String, data_root::String) -> String
 
-One sweep run in the calling process, the body every worker executes: the
-mission headless under `data_root`, with the console and the global logger
+One sweep run, the body of every member task: the mission headless under
+`data_root`, with the console and the global logger
 silenced; the run's own logs still go to its directory. Returns the run
 directory.
 """
@@ -215,9 +214,10 @@ end
 Runs `cfg` on the tick clock once per seed in `seeds`, as
 `<prefix>_seed<seed>` under `<data_root>/runs/`, with the `overrides`
 applied to every run ([`sweep_configuration`](@ref)); with `workers > 0`
-the runs are distributed over that many worker processes (started with the
-active project when fewer exist), otherwise they run one after another in
-this process. Writes `<data_root>/sweeps/<prefix>/summary.csv`, one row per
+at most that many runs proceed at once as tasks on the Julia threads, and a
+warning says so when the process has fewer threads; otherwise they run one
+after another. A run shares nothing with its siblings but the read-only
+configuration constants, so its products do not depend on `workers`. Writes `<data_root>/sweeps/<prefix>/summary.csv`, one row per
 run ([`summarize_run`](@ref), with the seed first), and `sweep.toml`, the
 sweep's provenance: the base configuration's hash, the overrides, the
 seeds, the package version and source identity
@@ -247,15 +247,14 @@ function run_sweep(
     foreach(job -> TelemetryCore.validate_config(job[1]), jobs)
     run_dirs = Vector{String}(undef, length(jobs))
     if workers > 0
-        missing_workers = Int(workers) - (nprocs() - 1)
-        missing_workers > 0 &&
-            addprocs(missing_workers; exeflags = "--project=$(Base.active_project())")
-        Distributed.remotecall_eval(
-            Main,
-            Distributed.workers(),
-            :(using DeepSpaceTelemetry),
-        )
-        run_dirs .= String.(pmap(job -> run_one(job[1], job[2], root), jobs))
+        Threads.nthreads() < workers &&
+            @warn "[SWEEP] $workers concurrent runs on $(Threads.nthreads()) threads: start Julia with --threads=$workers to run them in parallel."
+        slots = Base.Semaphore(Int(workers))
+        @sync for (i, job) in enumerate(jobs)
+            Threads.@spawn Base.acquire(slots) do
+                run_dirs[i] = run_one(job[1], job[2], root)
+            end
+        end
     else
         for (i, job) in enumerate(jobs)
             run_dirs[i] = run_one(job[1], job[2], root)

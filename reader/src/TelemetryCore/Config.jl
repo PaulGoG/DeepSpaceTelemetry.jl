@@ -525,6 +525,50 @@ function mission_span_days(cfg::AbstractDict)
     return mission_wall_seconds(cfg) * speed_up / 86_400.0
 end
 
+"""
+    simulation_settings(cfg::AbstractDict) -> NamedTuple
+
+Validated `[simulation]` scalars: `mode` ([`simulation_mode`](@ref)),
+`start_sim_time` ([`mission_epoch`](@ref)), `mission_days`, the span in
+either mode ([`mission_span_days`](@ref)), `speed_up > 0` and
+`mission_wall_seconds` in wall mode (`NaN` in tick mode, where they have no
+value), `initial_downtime_days ≥ 0` (default 0), and the integer `rng_seed`
+(default 0).
+"""
+function simulation_settings(cfg::AbstractDict)
+    sim = get(cfg, "simulation", Dict{String,Any}())
+    mode = simulation_mode(cfg)
+    wall = mode == "wall"
+    speed_up = NaN
+    if wall
+        speed_up = checked_number(
+            required_value(sim, "simulation", "speed_up"),
+            "simulation.speed_up",
+        )
+        speed_up > 0.0 ||
+            config_error("[CONFIG] simulation.speed_up must be > 0 (got $speed_up).")
+    end
+    downtime = checked_number(
+        get(sim, "initial_downtime_days", 0.0),
+        "simulation.initial_downtime_days",
+    )
+    downtime >= 0.0 || config_error(
+        "[CONFIG] simulation.initial_downtime_days must be ≥ 0 (got $downtime).",
+    )
+    seed = get(sim, "rng_seed", 0)
+    (seed isa Integer && !(seed isa Bool)) ||
+        config_error("[CONFIG] simulation.rng_seed must be an integer (got $(repr(seed))).")
+    return (
+        mode = mode,
+        start_sim_time = mission_epoch(cfg),
+        mission_days = mission_span_days(cfg),
+        speed_up = Float64(speed_up),
+        mission_wall_seconds = wall ? mission_wall_seconds(cfg) : NaN,
+        initial_downtime_days = Float64(downtime),
+        rng_seed = Int(seed),
+    )
+end
+
 # Section accessors: every consumer, the validator included, reads a section
 # through one of these, so each bound and default is defined once.
 
@@ -1232,9 +1276,9 @@ snapshot when present, otherwise `mission_epoch(cfg)` less
 function payload_origin(cfg::AbstractDict)
     provenance = get(cfg, "provenance", Dict{String,Any}())
     haskey(provenance, "payload_origin") && return DateTime(provenance["payload_origin"])
-    sim = get(cfg, "simulation", Dict{String,Any}())
-    downtime = Float64(get(sim, "initial_downtime_days", 0.0))
-    return mission_epoch(cfg) - Millisecond(max(0, round(Int, downtime * MS_PER_DAY)))
+    sim = simulation_settings(cfg)
+    return sim.start_sim_time -
+           Millisecond(max(0, round(Int, sim.initial_downtime_days * MS_PER_DAY)))
 end
 
 """

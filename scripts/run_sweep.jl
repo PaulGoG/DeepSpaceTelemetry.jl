@@ -1,5 +1,4 @@
 include(joinpath(@__DIR__, "activate.jl"))
-using DeepSpaceTelemetry
 
 # Ensembles and sweeps on the tick clock: the configuration once per seed,
 # with optional overrides of any key, the realized totals of every run in
@@ -8,7 +7,8 @@ using DeepSpaceTelemetry
 #   julia scripts/run_sweep.jl <config.toml> <PREFIX> --seeds 1:8 [--workers 4] [--set packet_loss.p_loss=0.2 ...]
 #
 # `--seeds` takes a range (a:b) or a comma-separated list; `--workers N`
-# distributes the runs over N worker processes (serial without it); every
+# runs N members at once on N threads (serial without it), restarting the
+# script with --threads=N when Julia was started with fewer; every
 # `--set section.key=value` applies to all runs.
 config_arg = ""
 prefix = ""
@@ -45,6 +45,15 @@ isempty(config_arg) && error(
 )
 isempty(prefix) && error("A run-ID prefix is required.")
 isempty(seeds) && error("--seeds is required.")
+
+# Parallel members need threads; the script restarts itself once with enough.
+if workers > Threads.nthreads() && !haskey(ENV, "DEEPSPACETELEMETRY_SWEEP_RELAUNCH")
+    relaunch = `$(Base.julia_cmd()) --threads=$workers $(abspath(PROGRAM_FILE)) $args`
+    relaunch = addenv(relaunch, "DEEPSPACETELEMETRY_SWEEP_RELAUNCH" => "1")
+    exit(something(run(ignorestatus(relaunch)).exitcode, 1))
+end
+
+using DeepSpaceTelemetry
 
 cfg = DeepSpaceTelemetry.TelemetryCore.load_config(config_arg)
 result = DeepSpaceTelemetry.Sweeps.run_sweep(

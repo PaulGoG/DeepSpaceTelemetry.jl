@@ -142,7 +142,7 @@ julia scripts/run_full_sim.jl --tick MY_RUN scenarios/stress_8h_bursty.toml
 ```
 
 A sweep runs a configuration on the tick clock once per seed, optionally
-with overrides and over worker processes, and writes the realized totals of
+with overrides and several runs at once on threads, and writes the realized totals of
 all runs to `data/sweeps/<PREFIX>/summary.csv`, with the sweep's provenance
 in `sweep.toml` beside it:
 
@@ -233,7 +233,7 @@ batch never becomes available on the ground.
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
 | `Supervisor` | mission plan, supervised component tasks, failure policy, sentinels, banner | stable; restart, policy, and reproducibility tests |
 | `RunAdapter` | reference run adapter over the file contract: geometry, batches, payload, arrivals, state, labeled intervals; byte-offset feed cursors, hole-feed reader, delivered rows, marker rows, producer-version check | since 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
-| `Sweeps` | ensembles and parameter sweeps on the tick clock, serial or over worker processes, with a summary table and provenance | since 2.5.0; serial two-seed sweep in the suite, the worker path verified manually |
+| `Sweeps` | ensembles and parameter sweeps on the tick clock, serial or several runs at once on threads, with a summary table and provenance | since 2.5.0; a two-seed sweep in the suite, serial and concurrent, with identical tables |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
 | Scenario library | twelve configurations under `scenarios/` | every file validated and the smoke scenario run by the suite; a shortened deterministic scenario run three times in the tick testset |
 | Entry points | `run_full_sim.jl` (argument parsing, `--tick`, plus `Supervisor.run_mission`), `run_sweep.jl` (`Sweeps.run_sweep`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release and, through its library call, on the smoke scenario in the suite; the interactive dashboard, live viewer, and log follower verified manually |

@@ -149,7 +149,6 @@ function open_run(
     ) || throw(ArgumentError("[ADAPTER] $run_dir carries no lifecycle sentinel."))
     cfg = TelemetryCore.load_run_config(run_dir)
     physics = TelemetryCore.physics_settings(cfg)
-    sim = cfg["simulation"]
     provenance = get(cfg, "provenance", Dict{String,Any}())
     platform = get(provenance, "platform", Dict{String,Any}())
     version_text = String(get(platform, "package_version", ""))
@@ -168,7 +167,7 @@ function open_run(
             ),
         )
     end
-    start_sim = DateTime(sim["start_sim_time"])
+    start_sim = TelemetryCore.mission_epoch(cfg)
     origin = TelemetryCore.payload_origin(cfg)
     rows = get(provenance, "external_data_rows", nothing)
     geometry = RunGeometry(

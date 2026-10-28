@@ -55,6 +55,8 @@ completes the partial batch in the mission phase.
     and recorder gaps to, `nothing` for none. A scheduled gap inside the
     blind spot is declared at `start_sim_time`; a recorder gap opened here
     is declared by [`run_emitter`](@ref) when it closes.
+  - `progress`: draw the progress bar on a terminal `stderr`; off for runs
+    without a console, such as the members of a sweep.
 """
 function pre_populate(
     instrument::VirtualInstrument.InstrumentState,
@@ -65,6 +67,7 @@ function pre_populate(
     generation_gaps::Vector{Tuple{DateTime,DateTime}} = Tuple{DateTime,DateTime}[],
     onboard_capacity_batches::Int = typemax(Int),
     hole_feed::Union{TelemetryCore.HoleFeed,Nothing} = nothing,
+    progress::Bool = true,
 )
     vi = instrument
     downtime_start = vi.last_t
@@ -87,9 +90,8 @@ function pre_populate(
         ceil(Int, (start_sim_time - downtime_start).value / 1000 / vi.segment_duration_sec)
 
     # Carriage-return frames would fill the log of a detached run.
-    @showprogress desc = "Pre-populating onboard buffer..." enabled = (stderr isa Base.TTY) for _ in
-                                                                                                1:total_segs
-
+    @showprogress desc = "Pre-populating onboard buffer..." enabled =
+        (progress && stderr isa Base.TTY) for _ in 1:total_segs
         if vi.last_t >= start_sim_time
             break
         end

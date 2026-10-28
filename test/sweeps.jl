@@ -1,5 +1,5 @@
-# Ensembles on the tick clock: two seeds of a short mission, serial, with an
-# override, summarized into one table with its provenance.
+# Ensembles on the tick clock: two seeds of a short mission with an override,
+# serial and two at once, summarized into one table with its provenance.
 
 @testset "Sweeps" begin
     cfg = TelemetryCore.load_config(
@@ -53,6 +53,34 @@
               0.3
         @test_throws ArgumentError Sweeps.run_sweep(cfg; prefix = "bad prefix", seeds = 1:1)
         @test_throws ArgumentError Sweeps.run_sweep(cfg; prefix = prefix, seeds = [1, 1])
+        # Two members at once (tasks on the threads there are) reproduce the
+        # serial members: the same table and the same event logs to the byte.
+        concurrent = with_logger(NullLogger()) do
+            Sweeps.run_sweep(
+                cfg;
+                prefix = prefix * "_c",
+                seeds = 1:2,
+                overrides = ["packet_loss.p_loss=0.3"],
+                workers = 2,
+            )
+        end
+        append!(
+            runs,
+            [joinpath(TelemetryCore.runs_root(), "$(prefix)_c_seed$s") for s in 1:2],
+        )
+        try
+            @test isequal(
+                select(concurrent.summary, Not(:run_id)),
+                select(summary, Not(:run_id)),
+            )
+            for s in 1:2, log in ("events_tx.csv", "events_rx.csv", "holes.csv")
+                serial, parallel = joinpath(runs[s], log), joinpath(runs[s+2], log)
+                @test isfile(serial) == isfile(parallel)
+                isfile(serial) && @test read(serial) == read(parallel)
+            end
+        finally
+            rm(concurrent.dir; recursive = true, force = true)
+        end
     finally
         foreach(r -> rm(r; recursive = true, force = true), runs)
         rm(result.dir; recursive = true, force = true)

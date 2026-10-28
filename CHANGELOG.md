@@ -6,6 +6,23 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Changed
+- A sweep runs its members concurrently as tasks on the Julia threads
+  (`Sweeps.run_sweep(...; workers)`), no longer on worker processes:
+  `Distributed` is no longer a dependency, and `scripts/run_sweep.jl
+  --workers N` restarts itself once with `--threads=N` when Julia was
+  started with fewer. A run shares no mutable state with its siblings, so
+  the products are those of the serial sweep; the suite asserts it.
+- `TelemetryCore.simulation_settings` reads the `[simulation]` scalars in
+  one place for the mission plan, the post-processing plan and
+  `validate_config`; `storage_budget` and `retention_settings` enforce their
+  own bounds, so an accessor no longer accepts a value the validator
+  rejects. The error messages are unchanged.
+- A run without a console (`orig_stdout = devnull`, as in a sweep) draws no
+  progress bar during the pre-population.
+- The suite checks that every shipped scenario validates without an
+  unrecognized key.
+
 ## [3.0.0] - 2026-10-28
 
 The removals announced in 2.7.0 and 2.11.0. From here on the package is

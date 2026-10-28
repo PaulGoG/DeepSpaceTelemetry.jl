@@ -247,19 +247,15 @@ function mission_plan(cfg::Dict{String,Any}; run_id::AbstractString = "")
     # Shallow copy: the provenance stamp below adds a top-level section and
     # must not surface in the caller's dictionary.
     cfg = Dict{String,Any}(cfg)
-    sim = cfg["simulation"]
-    mode = TelemetryCore.simulation_mode(cfg)
-    # The wall scalars have no value in tick mode and the span is the
-    # mission's own; NaN keeps them unusable rather than silently wrong.
-    speed_up = mode == "wall" ? Float64(sim["speed_up"]) : NaN
-    start_sim = TelemetryCore.parsed_datetime(
-        TelemetryCore.required_value(sim, "simulation", "start_sim_time"),
-        "simulation.start_sim_time",
-    )
-    wall_seconds = mode == "wall" ? TelemetryCore.mission_wall_seconds(cfg) : NaN
-    mission_days = TelemetryCore.mission_span_days(cfg)
-    downtime_days = Float64(get(sim, "initial_downtime_days", 0.0))
-    seed = Int(get(sim, "rng_seed", 0))
+    # The wall scalars are NaN in tick mode: unusable rather than silently wrong.
+    sim = TelemetryCore.simulation_settings(cfg)
+    mode = sim.mode
+    speed_up = sim.speed_up
+    start_sim = sim.start_sim_time
+    wall_seconds = sim.mission_wall_seconds
+    mission_days = sim.mission_days
+    downtime_days = sim.initial_downtime_days
+    seed = sim.rng_seed
     physics = TelemetryCore.physics_settings(cfg)
     payload_origin = Emitter.instrument_epoch(start_sim, downtime_days)
     cfg["provenance"] = Dict{String,Any}("payload_origin" => string(payload_origin))
@@ -783,15 +779,15 @@ snapshot without building the mission models: `post_processing`, `ground`,
 [`complete_run`](@ref).
 """
 function post_processing_plan(cfg::AbstractDict)
-    sim = cfg["simulation"]
+    sim = TelemetryCore.simulation_settings(cfg)
     return (
         post_processing = TelemetryCore.post_processing_settings(cfg),
         ground = TelemetryCore.ground_settings(cfg),
         publication = TelemetryCore.publication_settings(cfg),
         physics = TelemetryCore.physics_settings(cfg),
-        mode = TelemetryCore.simulation_mode(cfg),
-        mission_days = TelemetryCore.mission_span_days(cfg),
-        initial_downtime_days = Float64(get(sim, "initial_downtime_days", 0.0)),
+        mode = sim.mode,
+        mission_days = sim.mission_days,
+        initial_downtime_days = sim.initial_downtime_days,
         retention = TelemetryCore.retention_settings(cfg),
     )
 end
@@ -1094,6 +1090,7 @@ function execute_mission!(
             generation_gaps = plan.generation_gaps,
             onboard_capacity_batches = plan.onboard_capacity_batches,
             hole_feed = hole_feed,
+            progress = orig_stdout !== devnull,
         )
     end
 

@@ -486,10 +486,13 @@ end
             if cfg["physics"]["data_source"] == "external"
                 cfg["physics"]["external_data_path"] = ext_path
             end
-            validated = with_logger(NullLogger()) do
+            # Every key of a shipped scenario is a key the schema knows.
+            logs = Test.TestLogger(min_level = Logging.Warn)
+            validated = with_logger(logs) do
                 TelemetryCore.validate_config(cfg)
             end
             @test validated isa AbstractDict
+            @test !any(r -> occursin("Unrecognized", string(r.message)), logs.logs)
         end
     end
     # The root configuration is the reference scenario: the whole file is
