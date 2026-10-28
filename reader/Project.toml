@@ -1,6 +1,6 @@
 name = "DeepSpaceTelemetryReader"
 uuid = "e55ec139-ac3a-4c75-8569-7dfdf846ff66"
-version = "3.0.0"
+version = "3.0.1"
 authors = ["Paul-Adrian Gogîță"]
 
 [deps]

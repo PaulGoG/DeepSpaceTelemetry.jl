@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-29
+
 ### Changed
 - A sweep runs its members concurrently as tasks on the Julia threads
   (`Sweeps.run_sweep(...; workers)`), no longer on worker processes:
@@ -992,6 +994,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[3.0.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.11.0...v3.0.0
 [2.11.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.10.0...v2.11.0
 [2.10.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.9.0...v2.10.0
