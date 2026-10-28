@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-10-28
+
 The last minor release before 3.0: everything 3.0 removes warns here, and
 the replacements are in place.
 
@@ -937,6 +939,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[2.11.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.10.0...v2.11.0
 [2.10.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.9.0...v2.10.0
 [2.9.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.7.0...v2.8.0
