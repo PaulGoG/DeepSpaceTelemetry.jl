@@ -325,6 +325,7 @@ const KNOWN_CONFIG_KEYS = Dict(
     "retention" => ["enabled", "grace_hours", "high_watermark_gb", "log_rotate_mb"],
     "telemetry" => [
         "session_start",
+        "onboard_capacity_days",
         "session_duration_hours",
         "max_batches_per_hour",
         "downlink_kbps",
@@ -1596,10 +1597,24 @@ function disruption_event_settings(cfg::AbstractDict)
     return events
 end
 
+# The section holding onboard_capacity_days: [telemetry] since 2.11, [storage]
+# before; an error when both hold it.
+function onboard_capacity_section(cfg::AbstractDict)
+    has(section) = haskey(get(cfg, section, Dict{String,Any}()), "onboard_capacity_days")
+    has("telemetry") &&
+        has("storage") &&
+        config_error(
+            "[CONFIG] onboard_capacity_days is given in both [telemetry] and [storage]; keep telemetry.onboard_capacity_days.",
+        )
+    return has("storage") ? "storage" : "telemetry"
+end
+
 """
     onboard_capacity(cfg::AbstractDict) -> NamedTuple
 
-The on-board recorder ceiling from `storage.onboard_capacity_days > 0`:
+The on-board recorder ceiling from `telemetry.onboard_capacity_days > 0`
+(`storage.onboard_capacity_days` up to 2.10, still read, in particular from
+run snapshots; both together are an error):
 `days`; `batches`, the production over that span in whole batches (at least
 one), which the emitter enforces; and `gigabit`, the physical volume when
 the link is given as a rate pair, else `NaN`. The default of 14 days is the
@@ -1607,13 +1622,13 @@ autonomy without ground contact of the Definition Study Report (Colpi et al.
 2024, [doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)).
 """
 function onboard_capacity(cfg::AbstractDict)
-    st = get(cfg, "storage", Dict{String,Any}())
+    section = onboard_capacity_section(cfg)
+    key = "$section.onboard_capacity_days"
     days = checked_number(
-        get(st, "onboard_capacity_days", 14.0),
-        "storage.onboard_capacity_days",
+        get(get(cfg, section, Dict{String,Any}()), "onboard_capacity_days", 14.0),
+        key,
     )
-    days > 0.0 ||
-        config_error("[CONFIG] storage.onboard_capacity_days must be > 0 (got $days).")
+    days > 0.0 || config_error("[CONFIG] $key must be > 0 (got $days).")
     physics = physics_settings(cfg)
     span_sec = physics.batch_size * physics.segment_duration_sec
     tel = telemetry_settings(cfg)

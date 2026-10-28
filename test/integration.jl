@@ -500,10 +500,8 @@ end
                         "segment_duration_sec" => 60.0,
                         "batch_size" => 3,
                     ),
-                    "post_processing" => Dict{String,Any}(
-                        "generate_mask_timeline" => true,
-                        "expand_to_pointwise_masks" => false,
-                    ),
+                    "post_processing" =>
+                        Dict{String,Any}("generate_mask_timeline" => true),
                 ),
             )
             realized_files =
@@ -1026,18 +1024,29 @@ end
     @test TelemetryCore.onboard_capacity(rates).gigabit ≈ 14 * 86_400 * 75 / 1e6 rtol =
         1e-12
     small = deepcopy(base)
-    small["storage"] = Dict{String,Any}("onboard_capacity_days" => 0.0)
+    small["telemetry"]["onboard_capacity_days"] = 0.0
     @test_throws ArgumentError TelemetryCore.onboard_capacity(small)
+    # The place before 2.11 is still read, with a warning from the validation
+    # only, so that opening an older run stays silent; both places are an error.
+    legacy = deepcopy(base)
+    legacy["storage"] = Dict{String,Any}("onboard_capacity_days" => 7.0)
+    @test TelemetryCore.onboard_capacity(legacy).days == 7.0
+    @test_logs (:warn, r"moved to telemetry.onboard_capacity_days") match_mode = :any TelemetryCore.validate_config(
+        legacy,
+    )
+    both = deepcopy(legacy)
+    both["telemetry"]["onboard_capacity_days"] = 7.0
+    @test_throws ArgumentError TelemetryCore.onboard_capacity(both)
     # The nightly 16 h without contact exceeds a 0.5-day recorder; a 3-day
     # blind spot exceeds a 2-day recorder.
     tight = deepcopy(base)
-    tight["storage"] = Dict{String,Any}("onboard_capacity_days" => 0.5)
+    tight["telemetry"]["onboard_capacity_days"] = 0.5
     tight["simulation"]["mission_wall_seconds"] = 30.0 # 30 h: spans the 16 h night
     @test_logs (:warn, r"longest interval without ground contact") match_mode = :any TelemetryCore.validate_config(
         tight,
     )
     blind = deepcopy(base)
-    blind["storage"] = Dict{String,Any}("onboard_capacity_days" => 2.0)
+    blind["telemetry"]["onboard_capacity_days"] = 2.0
     blind["simulation"]["initial_downtime_days"] = 3.0
     blind["simulation"]["mission_wall_seconds"] = 1.0
     @test_logs (:warn, r"initial_downtime_days = 3.0 exceeds") match_mode = :any TelemetryCore.validate_config(

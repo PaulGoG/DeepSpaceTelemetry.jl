@@ -50,6 +50,11 @@ Warnings:
     (the raster is drawn from the mask timeline and is skipped)
   - unrecognized sections and keys, which would otherwise fall back to
     their defaults unnoticed
+  - keys removed in 3.0, whose values still apply: the `storage.bytes_*`
+    calibration, `post_processing.expand_to_pointwise_masks` and
+    `target_event_rows`, `supervision.watchdog_sec` (no effect since 2.8.0),
+    and `storage.onboard_capacity_days` (moved to `[telemetry]`; both
+    places together are an error)
 """
 function validate_config(cfg::AbstractDict)
     # Retired keys first, so that the typo sweep below sees only live keys.
@@ -101,6 +106,21 @@ function validate_config(cfg::AbstractDict)
             end
         end
     end
+    # Keys retired in 3.0, one warning each per call; the values given still apply.
+    post_section = get(cfg, "post_processing", Dict{String,Any}())
+    pointwise = [
+        key for key in ("expand_to_pointwise_masks", "target_event_rows") if
+        post_section isa AbstractDict && haskey(post_section, key)
+    ]
+    isempty(pointwise) ||
+        @warn "[CONFIG] post_processing.expand_to_pointwise_masks and target_event_rows are deprecated since 2.11.0 and removed in 3.0 with the point-wise mask product, which places batches by position and is wrong after a generation gap. RunAdapter.delivered_rows gives the delivered payload rows at any mission instant." keys =
+            pointwise
+    supervision_section = get(cfg, "supervision", Dict{String,Any}())
+    supervision_section isa AbstractDict &&
+        haskey(supervision_section, "watchdog_sec") &&
+        @warn "[CONFIG] supervision.watchdog_sec has had no effect since 2.8.0 and is removed in 3.0."
+    onboard_capacity_section(cfg) == "storage" &&
+        @warn "[CONFIG] storage.onboard_capacity_days has moved to telemetry.onboard_capacity_days; the old place is removed in 3.0. The value given still applies."
     # Deprecated estimator-calibration overrides in [storage], one warning per call.
     storage_section = get(cfg, "storage", Dict{String,Any}())
     if storage_section isa AbstractDict

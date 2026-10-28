@@ -545,6 +545,15 @@ end
         @test names(lib) == names(standalone) == ["Time_Index", "Ground_Available"]
         @test Int.(lib.Ground_Available) == Int.(standalone.Ground_Available)
         @test Int.(lib.Time_Index) == Int.(standalone.Time_Index)
+        # Without a generation gap the final point-wise mask is 1 exactly on the
+        # delivered rows of the adapter, its replacement.
+        tx_smoke = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
+        @test !any(==("gap_start"), tx_smoke.Event)
+        available = falses(n_batches * ppb)
+        for r in RunAdapter.delivered_rows(RunAdapter.open_run(run_dir))
+            available[r] .= true
+        end
+        @test available == (lib.Ground_Available .== 1)
     finally
         rm(run_dir; recursive = true, force = true)
     end

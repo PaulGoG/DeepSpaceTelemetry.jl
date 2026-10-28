@@ -23,7 +23,8 @@ using TOML: TOML
     FIGURE_FREE_POST_PROCESSING
 
 The post-processing switches a sweep run sets: no mask timeline, no
-point-wise masks, no batch-state raster or session figures, no HDF5 export.
+batch-state raster or session figures, no HDF5 export. The deprecated
+point-wise mask keys are removed, which leaves the expansion off.
 The publication export is switched off by [`sweep_configuration`](@ref),
 and [`run_one`](@ref) runs the mission with `figures = false`, so no figure
 is drawn. The gap table and the metrology tables, which the summary reads,
@@ -31,7 +32,6 @@ are written for every run.
 """
 const FIGURE_FREE_POST_PROCESSING = (
     "generate_mask_timeline" => false,
-    "expand_to_pointwise_masks" => false,
     "state_raster" => false,
     "session_figures" => false,
     "hdf5_export" => false,
@@ -100,6 +100,8 @@ function sweep_configuration(
     for (key, value) in FIGURE_FREE_POST_PROCESSING
         post[key] = value
     end
+    delete!(post, "expand_to_pointwise_masks")
+    delete!(post, "target_event_rows")
     publication = get!(Dict{String,Any}, post, "publication")
     publication["enabled"] = false
     return out

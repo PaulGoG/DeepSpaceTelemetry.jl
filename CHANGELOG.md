@@ -6,6 +6,40 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+The last minor release before 3.0: everything 3.0 removes warns here, and
+the replacements are in place.
+
+### Added
+- `RunAdapter.delivered_rows(run; at)`: the payload rows on the ground at a
+  mission instant, the rows of every batch ingested by then (pruned ones
+  included) merged into disjoint intervals. The rows come from the
+  `payload_row` stamps, so they are exact across generation gaps; on a run
+  without gaps the final point-wise mask is 1 exactly on them.
+- `telemetry.onboard_capacity_days`, the new place of the recorder size.
+
+### Changed
+- The shipped scenarios and `config.toml` take their 3.0 form: no
+  point-wise mask keys (their runs no longer write
+  `masks/pointwise_mask_final.csv`), no `supervision.watchdog_sec`, and
+  `onboard_capacity_days` under `[telemetry]`. Defaults are unchanged; a
+  configuration written for 2.10 runs as before.
+- Sweeps remove the point-wise mask keys from their member configurations
+  instead of setting them to `false`.
+
+### Deprecated
+- The point-wise masks: `post_processing.expand_to_pointwise_masks`,
+  `target_event_rows`, `masks/pointwise_mask_*.csv` and their HDF5 group,
+  `Masks.expand_pointwise_mask`, `scripts/postprocessing/apply_telemetry_mask.jl`
+  and `standalone_mask_expander.jl`. They place batch `k` at row
+  `(k − 1) · points_per_batch + 1`, which is wrong after the first
+  generation gap; use `RunAdapter.delivered_rows`. `validate_config` warns
+  when either key is present, and both scripts print a notice.
+- `supervision.watchdog_sec`, which has had no effect since 2.8.0.
+- `storage.onboard_capacity_days`: still read, with a warning; giving it in
+  both `[storage]` and `[telemetry]` is an error.
+- Runs of producers before 2.6.0 (no `holes.csv`, no `label_spans.csv`):
+  `RunAdapter.open_run` warns, as 3.0 refuses them by default.
+
 ## [2.10.0] - 2026-10-28
 
 ### Added

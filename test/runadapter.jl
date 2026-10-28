@@ -164,6 +164,24 @@
         @test isempty(RunAdapter.declared_holes(hole_cursor))
         @test_throws ArgumentError RunAdapter.FeedCursor(run, :metrics)
         @test_throws ArgumentError RunAdapter.declared_holes(arrivals)
+        # Delivered rows: the stamped rows of every ingested batch, pruned ones
+        # included, merged; disjoint from every hole a delivered batch cannot
+        # have, the scheduled generation gap among them.
+        delivered = RunAdapter.delivered_rows(run)
+        @test !isempty(delivered) && issorted(delivered; by = first)
+        @test all(last(a) + 1 < first(b) for (a, b) in zip(delivered, delivered[2:end]))
+        expected = RunAdapter.merge_intervals([
+            b.rows for b in batches if b.state in (:ground, :pruned)
+        ])
+        @test delivered == expected
+        covered = Set(Iterators.flatten(delivered))
+        @test all(isdisjoint(covered, h.rows) for h in declared if h.cause !== :pruned)
+        @test any(h -> h.cause === :scheduled, declared)
+        ingested = [e for e in events if e.event === :ingested]
+        @test isempty(RunAdapter.delivered_rows(run; at = ingested[1].sim_time - Second(1)))
+        first_batch = only(b for b in batches if b.name == ingested[1].batch)
+        at_first = RunAdapter.delivered_rows(run; at = ingested[1].sim_time)
+        @test first_batch.rows ⊆ Set(Iterators.flatten(at_first))
         mktempdir() do tmp
             feed = joinpath(tmp, "events_rx.csv")
             partial = RunAdapter.FeedCursor(feed, :arrivals, "", 0, 0)
@@ -261,7 +279,6 @@ end
             "alert_latency",
             "delivery_delay",
             "generate_mask_timeline",
-            "expand_to_pointwise_masks",
         )
             cfg["post_processing"][key] = false
         end
@@ -328,6 +345,7 @@ end
         :read_batch,
         :read_batch_matrix,
         :arrival_events,
+        :delivered_rows,
         :markers,
         :label_spans,
         :declare!,

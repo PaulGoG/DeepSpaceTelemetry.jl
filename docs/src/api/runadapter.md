@@ -23,6 +23,7 @@ DeepSpaceTelemetry.RunAdapter.list_batches
 DeepSpaceTelemetry.RunAdapter.read_batch
 DeepSpaceTelemetry.RunAdapter.read_batch_matrix
 DeepSpaceTelemetry.RunAdapter.arrival_events
+DeepSpaceTelemetry.RunAdapter.delivered_rows
 DeepSpaceTelemetry.RunAdapter.markers
 DeepSpaceTelemetry.RunAdapter.label_spans
 DeepSpaceTelemetry.RunAdapter.Hole

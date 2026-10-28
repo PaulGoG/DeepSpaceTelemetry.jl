@@ -848,6 +848,15 @@ end
     @test_throws ArgumentError TelemetryCore.supervision_settings(
         Dict{String,Any}("supervision" => Dict{String,Any}("watchdog_sec" => 0.0)),
     )
+    # Keys removed in 3.0 warn in the validation and keep applying.
+    retired = valid_test_cfg()
+    retired["supervision"] = Dict{String,Any}("watchdog_sec" => 30.0)
+    retired["post_processing"] = Dict{String,Any}("expand_to_pointwise_masks" => true)
+    @test_logs (:warn, r"watchdog_sec has had no effect") (
+        :warn,
+        r"expand_to_pointwise_masks and target_event_rows are deprecated",
+    ) match_mode = :any TelemetryCore.validate_config(retired)
+    @test TelemetryCore.post_processing_settings(retired).expand_to_pointwise_masks
 end
 
 @testset "Configuration accessors: label spans and the payload grid" begin

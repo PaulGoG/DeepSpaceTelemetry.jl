@@ -40,6 +40,7 @@ public RunHandle,
     read_batch,
     read_batch_matrix,
     arrival_events,
+    delivered_rows,
     markers,
     label_spans,
     declare!,
@@ -138,7 +139,8 @@ Opens a run by directory path or by run identifier (resolved under the
 data root). Throws an `ArgumentError` when the directory is not a run of
 this package (no `config_snapshot.toml`, no lifecycle sentinel), or when
 the producer's recorded version is older than `minimum_version`; a run
-that records no version is opened with a warning.
+that records no version is opened with a warning, and so is a run of a
+producer before 2.6.0, which 3.0 refuses by default.
 """
 function open_run(
     run::AbstractString;
@@ -174,6 +176,9 @@ function open_run(
                 "[ADAPTER] $run_dir was produced by DeepSpaceTelemetry $version; the adapter needs $minimum_version or later (batch metadata with payload_row).",
             ),
         )
+        # 2.6.0 wrote the first holes.csv and label_spans.csv.
+        version < v"2.6.0" &&
+            @warn "[ADAPTER] $run_dir was produced by DeepSpaceTelemetry $version, before the declared-hole feed of 2.6.0; from 3.0 on such a run opens only with a lowered minimum_version."
     end
     start_sim = DateTime(sim["start_sim_time"])
     origin = TelemetryCore.payload_origin(cfg)
@@ -407,6 +412,46 @@ arrival_event(r) = ArrivalEvent(
     Symbol(lowercase(String(r.Event))),
     Int(r.Attempt),
 )
+
+"""
+    delivered_rows(run::RunHandle; at::Union{DateTime,Nothing} = nothing)
+        -> Vector{UnitRange{Int}}
+
+The payload rows on the ground at mission instant `at`: the rows of every
+batch with an `ingested` row in `events_rx.csv` at or before `at` (every
+one when `at` is `nothing`), merged into sorted, disjoint intervals. The
+rows come from the batches' `payload_row` stamps ([`batch_rows`](@ref)), so
+they are exact across generation gaps and emitter restarts. A pruned batch
+counts as delivered, as its delivery happened; [`list_batches`](@ref) tells
+which payloads are still readable.
+
+This replaces the point-wise masks (`masks/pointwise_mask_*.csv`), which
+place batch `k` at row `(k − 1) · points_per_batch + 1` and are therefore
+wrong after the first generation gap: on a run without one, the final
+point-wise mask is 1 exactly on these rows.
+"""
+function delivered_rows(run::RunHandle; at::Union{DateTime,Nothing} = nothing)
+    rows = UnitRange{Int}[]
+    for e in arrival_events(run)
+        e.event === :ingested && (at === nothing || e.sim_time <= at) || continue
+        push!(rows, batch_rows(run, "ground", e.batch))
+    end
+    return merge_intervals(rows)
+end
+
+# Sorted, disjoint union of row intervals; adjacent intervals are joined.
+function merge_intervals(rows::Vector{UnitRange{Int}})
+    merged = UnitRange{Int}[]
+    for r in sort(rows; by = first)
+        isempty(r) && continue
+        if !isempty(merged) && first(r) <= last(merged[end]) + 1
+            merged[end] = first(merged[end]):max(last(merged[end]), last(r))
+        else
+            push!(merged, r)
+        end
+    end
+    return merged
+end
 
 """
     markers(run::RunHandle) -> Vector{NamedTuple}

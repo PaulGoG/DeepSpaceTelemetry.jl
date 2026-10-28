@@ -16,8 +16,17 @@ Example:
 
 The test suite checks this script against `Masks.expand_pointwise_mask`. Like
 the library's point-wise product, it places batches positionally and ignores
-generation gaps (see the manual's analysis-interfaces page).
+generation gaps (see the manual's analysis-interfaces page). Deprecated since
+2.11.0 and removed in 3.0: `RunAdapter.delivered_rows` gives the delivered
+payload rows at any instant, exact across gaps.
 """
+
+println(
+    stderr,
+    "Deprecated since 2.11.0 and removed in 3.0: the point-wise mask places " *
+    "batches by position and is wrong after a generation gap. " *
+    "RunAdapter.delivered_rows gives the delivered payload rows at any instant.",
+)
 
 # Not installed automatically: that would modify the caller's active environment.
 try

@@ -204,7 +204,8 @@ julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 # recompute the products, settle RUN_ACTIVE (--force skips the recent-write test)
 julia scripts/postprocessing/complete_run.jl <RUN_ID> [--force]
 
-# Expand one mask-timeline row into a point-wise 0/1 column
+# Expand one mask-timeline row into a point-wise 0/1 column (deprecated since
+# 2.11.0, removed in 3.0; RunAdapter.delivered_rows gives the delivered rows)
 julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> 102400 100 output.csv
 
 # Regenerate the example series for physics.data_source = "external"
@@ -372,10 +373,10 @@ what each one exercises and the regime it produces.
 
 ```toml
 [simulation]        # mode (wall | tick), speed_up and wall span or mission_days, backlog, rng_seed
-[supervision]       # component-failure policy, restart budget, watchdog
-[storage]           # disk + inode budgets for the run directory, estimator calibration
+[supervision]       # component-failure policy, restart budget
+[storage]           # disk, inode, and RAM budgets of the run directory
 [retention]         # the retention custodian: grace window, watermark, log rotation
-[telemetry]         # daily DSN session window, capacity, bandwidth profile
+[telemetry]         # daily DSN session window, capacity, bandwidth profile, recorder size
 [contacts]          # seasonal modulation, exceptions, explicit passes, low-latency periods
 [physics]           # data source, sample rate, segment/batch geometry
 [ground]            # processing budget added to every alert latency
@@ -385,13 +386,14 @@ what each one exercises and the regime it produces.
                     # recovery_hours, loss_multiplier (+ optional affects, type, label)
 [events]            # [[events.markers]]: declared event instants
 [dashboard]         # auxiliary terminals to spawn, receiver status panel on the console
-[post_processing]   # mask matrix, point-wise expansions, metric and figure flags,
+[post_processing]   # mask matrix, metric and figure flags,
                     # session-figure switch and cap, HDF5 and publication export
 ```
 
-`target_event_rows` accepts the string `"all"` (or `["all"]`), integer row
-indices (`-1` selects the final row), and `"start:stop"` range strings, mixed
-freely, as in `[-1, "10:20", 45]`. The
+The keys removed in 3.0 are still read by 2.11 with a warning:
+`post_processing.expand_to_pointwise_masks` and `target_event_rows`,
+`supervision.watchdog_sec`, the `storage.bytes_*` calibration, and
+`storage.onboard_capacity_days`, now `telemetry.onboard_capacity_days`. The
 [configuration reference](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/usage/) documents every key.
 
 </details>
@@ -441,7 +443,8 @@ freely, as in `[-1, "10:20", 45]`. The
   copies as its source identity.
 - **Data products** — append-only emitter and receiver event logs, from which
   post-processing replays the exact per-batch state history; the 0–4 mask
-  timeline and point-wise 0/1 availability masks; the gap table, every hole
+  timeline (the point-wise 0/1 masks are deprecated since 2.11.0 for the
+  adapter's delivered rows); the gap table, every hole
   of the delivered record as a payload-row interval with its cause (lost,
   pruned, undelivered, a generation gap by type, an unreached record); the
   label-span table, every labeled interval of the scenario on the same grid;

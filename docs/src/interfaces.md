@@ -102,7 +102,7 @@ what a streaming consumer saw (The arrival stream, replayed, below).
 | `masks/gaps.csv` | post-processing | Read. Every hole of the delivered record as a declared interval with its cause, columns `Cause, Batch, RowFirst, RowLast, ContentStart, ContentEnd` ([Stationary Analysis](@ref)): the input of a gap-aware consumer, written first among the products. |
 | `masks/telemetry_mask_timeline.csv` | post-processing (`generate_mask_timeline`) | Read/copy. The batch-state timeline: one row per metrics snapshot, one column per batch, states 0–4, described under Stationary Analysis; also the source of the HDF5 `masks/timeline` group. |
 | `masks/batch_epochs.csv` | post-processing (with the mask timeline) | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch, PayloadRow`: `GenSimTime` the finalization instant from the event log, `ContentEpoch` and `PayloadRow` the first-sample timestamp and payload row from the batch metadata (missing when the metadata lacks them, as in runs before 2.1.0). Written when `post_processing.generate_mask_timeline` is on and the run has `gen` rows; it re-anchors point-wise mask rows on the mission timeline and the payload when gap events are present. |
-| `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`. |
+| `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`; only with `expand_to_pointwise_masks = true`. Deprecated since 2.11.0 and removed in 3.0 (`RunAdapter.delivered_rows`). |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline removes the file once the components have joined, before post-processing. |
 | `emitter.log`, `receiver.log`, `supervisor.log` | logger | Read. Human diagnostics — the two component logs, and the supervisor's `[SUPERVISOR]`, `[POST]`, and `[CONFIG]` records of the mission and its post-processing — rotated to `<name>#k.log` at `retention.log_rotate_mb`; not machine-parsed interfaces. |
 | `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; the emitter counts in-flight batches from the `link/` listing, so a slot frees when the receiver moves a batch out. |
@@ -272,7 +272,7 @@ kinds of generation gap, told apart by `Batch`:
 |---|---|---|---|
 | `STREAM` | emitter outage | content end of the last batch finalized before the outage: the instant of row `payload_row + points_per_batch` of the highest `payload_row` stamp, or the payload origin when no batch exists | resumption instant |
 | `SCHEDULED` | scheduled generation gap (a disruption event with `affects = "generation"`) | first discarded content instant | scheduled end rounded up to the segment grid |
-| `RECORDER` | recorder overflow (the on-board buffer at `storage.onboard_capacity_days`) | first discarded content instant | when room returns |
+| `RECORDER` | recorder overflow (the on-board buffer at `telemetry.onboard_capacity_days`) | first discarded content instant | when room returns |
 
 The rows of the partial batch the failed emitter held are lost with it and
 fall inside the `STREAM` gap. The pair is written only when a replacement
@@ -286,7 +286,8 @@ a jump.
 No gap shifts the sampling grid: segment identifiers and payload rows
 continue from the content epoch. Batch IDs stay contiguous while mission
 time is not, so point-wise mask rows must be re-anchored through
-`payload_row` or `masks/batch_epochs.csv` when gap events are present. The
+`payload_row` or `masks/batch_epochs.csv` when gap events are present
+(`RunAdapter.delivered_rows` does so). The
 mask replay itself treats gap events as state-preserving.
 
 ## Event Feeds
@@ -381,7 +382,8 @@ the rows
 [(k − 1) · points_per_batch + 1,  k · points_per_batch]
 ```
 
-The point-wise masks are generated on this convention. With gaps present,
+The point-wise masks (deprecated since 2.11.0, removed in 3.0) are
+generated on this convention. With gaps present,
 batch indices stay contiguous across the missing rows and `payload_row` is
 the reference. Batch directories written before 2.1.0 have no
 `payload_row`; such runs have no gap rows either, so the formula above
@@ -541,6 +543,7 @@ RunAdapter.list_batches(run)                 # per batch: name, index, live?, pa
                                              #            state ∈ :ground | :lost | :pruned
 RunAdapter.read_batch(run, "LIVE_batch_7"; column = 1)   # one payload column, Float32, segments in ascending id (read_batch_matrix: all columns)
 RunAdapter.arrival_events(run; after = n)    # the feed beyond the n rows already consumed, in mission-time order
+RunAdapter.delivered_rows(run; at = t)       # the payload rows on the ground at mission instant t, as disjoint intervals
 RunAdapter.run_state(run)                    # :active | :complete | :aborted, from the sentinels
 RunAdapter.markers(run)                      # the event markers with their payload row
 RunAdapter.label_spans(run)                  # the labeled intervals of the scenario, with their rows
@@ -565,12 +568,14 @@ consumer adds without the figure stack. `GapTracker` is deprecated since
 2.7.0 and is removed in 3.0; `declared_holes` serves both cases, reading `holes.csv`
 when the run has it and deriving the holes from the event logs when it
 does not (runs of producers before 2.6.0, with `declared_at` missing).
+`open_run` warns on such a run: from 3.0 on, its floor is 2.6.0.
 
 The adapter's types (`RunHandle`, `RunGeometry`, `BatchRecord`,
 `ArrivalEvent`, `Hole`, `FeedCursor`, `GapTracker`), its version floor
 `MINIMUM_PRODUCER_VERSION`, and the functions above with `batch_rows`,
 `read_batch_matrix`, `record_final`, `row_time` and `time_row` are declared
-`public` (since 2.6.2; `FeedCursor` since 2.10.0) and are not exported; a
+`public` (since 2.6.2; `FeedCursor` since 2.10.0, `delivered_rows` since
+2.11.0) and are not exported; a
 consumer qualifies them, as in the example. ExplicitImports'
 `check_all_qualified_accesses_are_public` then passes without an ignore
 list. These names are versioned with the file contract.
@@ -683,7 +688,9 @@ views most analyses want and that need no replay of one's own:
   (`CSV` and `DataFrames` only, for collaborators on other toolchains);
   multiply an expanded row against the raw series to blank undelivered data.
   Re-anchor the rows through `masks/batch_epochs.csv` when gap events are
-  present.
+  present. Deprecated since 2.11.0 and removed in 3.0, with both scripts:
+  `RunAdapter.delivered_rows(run; at)` returns the delivered rows at any
+  instant, exact across gaps.
 * `masks/gaps.csv` — the holes of the delivered record with their causes,
   as above; `masks/batch_epochs.csv` — the batch → epoch and payload-row
   map.

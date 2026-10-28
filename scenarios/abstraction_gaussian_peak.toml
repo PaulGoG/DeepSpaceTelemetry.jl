@@ -12,12 +12,10 @@ rng_seed = 2035                      # Seed of the packet-loss channel. SAFE: in
 max_storage_gb = 5.0                 # Run-directory disk budget [GB]. SAFE: > 0.
 max_file_count = 500000              # Run-directory inode budget. SAFE: > 0.
 max_ram_gb = 8.0                     # Post-processing replay RAM budget [GB]. SAFE: > 0.
-onboard_capacity_days = 14.0         # On-board recorder capacity [days of production]. SAFE: > 0.
 
 [supervision]
 on_component_failure = "abort"       # Policy on a component failure. One of: "abort" | "continue" | "restart".
 max_restarts = 3                     # Relaunch budget per component when policy = "restart". SAFE: >= 0.
-watchdog_sec = 30.0                  # Heartbeat-silence threshold flagging a hung component [s]. SAFE: > 0.
 
 [retention]
 enabled = false                      # Delivered payload pruning flag. One of: true | false.
@@ -31,6 +29,7 @@ session_duration_hours = 8.0         # Daily DSN window duration [h]. SAFE: (0, 
 max_batches_per_hour = 60.0          # Peak DSN capacity [batches/h]; alternatively the pair downlink_kbps + onboard_data_rate_kbps. SAFE: > 0.
 bandwidth_profile = "gaussian"       # Downlink profile. One of: "sine" | "sigmoid" | "gaussian" | "flat".
 max_inflight_batches = 5             # Concurrent batches allowed on the downlink. SAFE: >= 1.
+onboard_capacity_days = 14.0         # On-board recorder capacity [days of production]. SAFE: > 0.
 min_link_factor = 0.05               # Capacity floor below which no transfer is attempted. SAFE: [0, 1).
 range_million_km = 50.0              # Spacecraft–Earth range [10^6 km]; sets the round-trip light time of retransmissions, 0 disables. SAFE: >= 0.
 sigmoid_steepness = 10.0             # Sigmoid profile edge steepness. SAFE: > 0.
@@ -106,8 +105,6 @@ receiver_status_panel = false        # Receiver status panel on the console flag
 
 [post_processing]
 generate_mask_timeline = true        # 2D telemetry mask timeline flag. One of: true | false.
-expand_to_pointwise_masks = true     # Point-wise mask expansion flag. One of: true | false.
-target_event_rows = [-1]             # Target rows for mask expansion. SAFE: "all", ints, or range strings.
 alert_latency = true                 # Alert-latency metric (realized vs FIFO drain) flag. One of: true | false.
 alert_lookback_hours = 72.0          # Largest look-back tabulated by the alert-latency metric [h]. SAFE: > 0.
 delivery_delay = true                # Delivery-delay metric (measurement-to-ground, requirement compliance) flag. One of: true | false.
