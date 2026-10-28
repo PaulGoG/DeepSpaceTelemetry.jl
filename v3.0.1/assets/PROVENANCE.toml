@@ -1,0 +1,473 @@
+# Provenance of the figures shown in README.md and in the manual. Written by
+# docs/render_assets.jl, which runs every listed scenario, reduces the run
+# products to the published size, and records each run and each file here.
+# Every run is a tick-mode run (`--tick`): its realized totals follow
+# from the scenario, the seed, and the commit recorded with it, on the
+# platform stated with it.
+
+[assets."gallery/abstraction_gaussian_peak_mission_summary_global.png"]
+bytes = 346449
+run_id = "V3_ABSTRACTION_GAUSSIAN_PEAK"
+sha256_prefix = "b73911d0eb08bb34"
+source = "data/runs/V3_ABSTRACTION_GAUSSIAN_PEAK/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/abstraction_gaussian_peak_session_day00_detail.png"]
+bytes = 189301
+run_id = "V3_ABSTRACTION_GAUSSIAN_PEAK"
+sha256_prefix = "104169156bc1d089"
+source = "data/runs/V3_ABSTRACTION_GAUSSIAN_PEAK/plots/session_day00_detail.png"
+width_px = 1400
+
+[assets."gallery/backlog_recovery_sine_mission_summary_global.png"]
+bytes = 235518
+run_id = "V3_BACKLOG_RECOVERY_SINE"
+sha256_prefix = "35da8d07a0d2579b"
+source = "data/runs/V3_BACKLOG_RECOVERY_SINE/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/drop_policy_mission_summary_global.png"]
+bytes = 215264
+run_id = "V3_DROP_POLICY"
+sha256_prefix = "290242cb7dbfa81f"
+source = "data/runs/V3_DROP_POLICY/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/drop_policy_state_raster.png"]
+bytes = 196997
+run_id = "V3_DROP_POLICY"
+sha256_prefix = "96aa34725889dc5d"
+source = "data/runs/V3_DROP_POLICY/plots/state_raster.png"
+width_px = 1400
+
+[assets."gallery/explicit_schedule_mission_summary_global.png"]
+bytes = 215010
+run_id = "V3_EXPLICIT_SCHEDULE"
+sha256_prefix = "ec6e77436a23ea5b"
+source = "data/runs/V3_EXPLICIT_SCHEDULE/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/external_ingest_mission_summary_global.png"]
+bytes = 181628
+run_id = "V3_EXTERNAL_INGEST"
+sha256_prefix = "81d2d3575b69ac3c"
+source = "data/runs/V3_EXTERNAL_INGEST/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/long_30d_seasonal_mission_summary_global.png"]
+bytes = 410450
+run_id = "V3_LONG_30D_SEASONAL"
+sha256_prefix = "d4e943fa63752f7d"
+source = "data/runs/V3_LONG_30D_SEASONAL/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/long_30d_seasonal_state_raster.png"]
+bytes = 98908
+run_id = "V3_LONG_30D_SEASONAL"
+sha256_prefix = "d3d8294c4fe7057e"
+source = "data/runs/V3_LONG_30D_SEASONAL/plots/state_raster.png"
+width_px = 1400
+
+[assets."gallery/long_segments_2400s_mission_summary_global.png"]
+bytes = 195227
+run_id = "V3_LONG_SEGMENTS_2400S"
+sha256_prefix = "7e2c692633d90ca3"
+source = "data/runs/V3_LONG_SEGMENTS_2400S/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/long_segments_2400s_state_raster.png"]
+bytes = 69533
+run_id = "V3_LONG_SEGMENTS_2400S"
+sha256_prefix = "49ecc49e7122499b"
+source = "data/runs/V3_LONG_SEGMENTS_2400S/plots/state_raster.png"
+width_px = 1400
+
+[assets."gallery/nominal_8h_mission_summary_global.png"]
+bytes = 215713
+run_id = "V3_NOMINAL_8H"
+sha256_prefix = "c401683b1b318f6f"
+source = "data/runs/V3_NOMINAL_8H/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/recovery_12h_seasonal_delivery_delay.png"]
+bytes = 142619
+run_id = "V3_RECOVERY_12H_SEASONAL"
+sha256_prefix = "2e858c5e084c38ab"
+source = "data/runs/V3_RECOVERY_12H_SEASONAL/plots/delivery_delay.png"
+width_px = 1400
+
+[assets."gallery/recovery_12h_seasonal_mission_summary_global.png"]
+bytes = 313050
+run_id = "V3_RECOVERY_12H_SEASONAL"
+sha256_prefix = "521e387e2431bb7d"
+source = "data/runs/V3_RECOVERY_12H_SEASONAL/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/stress_8h_bursty_alert_latency.png"]
+bytes = 172047
+run_id = "V3_STRESS_8H_BURSTY"
+sha256_prefix = "fb6092fc7799c285"
+source = "data/runs/V3_STRESS_8H_BURSTY/plots/alert_latency.png"
+width_px = 1400
+
+[assets."gallery/stress_8h_bursty_delivery_delay.png"]
+bytes = 134277
+run_id = "V3_STRESS_8H_BURSTY"
+sha256_prefix = "d7abc32f91301074"
+source = "data/runs/V3_STRESS_8H_BURSTY/plots/delivery_delay.png"
+width_px = 1400
+
+[assets."gallery/stress_8h_bursty_mission_summary_global.png"]
+bytes = 323042
+run_id = "V3_STRESS_8H_BURSTY"
+sha256_prefix = "d918efe20ea5cf72"
+source = "data/runs/V3_STRESS_8H_BURSTY/plots/mission_summary_global.png"
+width_px = 1400
+
+[assets."gallery/stress_8h_bursty_session_day04_low_latency_detail.png"]
+bytes = 129660
+run_id = "V3_STRESS_8H_BURSTY"
+sha256_prefix = "b32f0c5311b87a87"
+source = "data/runs/V3_STRESS_8H_BURSTY/plots/session_day04_low_latency_detail.png"
+width_px = 1400
+
+[assets."gallery/stress_8h_bursty_state_raster.png"]
+bytes = 92920
+run_id = "V3_STRESS_8H_BURSTY"
+sha256_prefix = "ea8926f6762801dd"
+source = "data/runs/V3_STRESS_8H_BURSTY/plots/state_raster.png"
+width_px = 1400
+
+[assets."gallery/stress_8h_bursty_telemetry_animation_web.gif"]
+bytes = 1594804
+run_id = "V3_STRESS_8H_BURSTY"
+sha256_prefix = "d8a0f08f32c4e8f7"
+source = "data/runs/V3_STRESS_8H_BURSTY/plots/telemetry_animation_web.gif"
+[render]
+code_dirty = false
+command = "julia docs/render_assets.jl V3"
+commit = "beed4090073a0a78c4f5693e200696539eb03858"
+date = "2026-10-28"
+gif_transform = "none; the --web rendering profile writes the published size directly"
+image_tool = "ImageMagick 7.1.2-34"
+png_transform = "magick <source> -resize 1400x -strip -define png:compression-level=9 <target>"
+
+[runs.V3_ABSTRACTION_GAUSSIAN_PEAK]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_ABSTRACTION_GAUSSIAN_PEAK scenarios/abstraction_gaussian_peak.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "708a5201411d8ae864f32f0aa52cb3978ce2ccfaafe7429892cb8609e3ff4024"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 7.0
+package_version = "2.11.0"
+scenario = "scenarios/abstraction_gaussian_peak.toml"
+
+    [runs.V3_ABSTRACTION_GAUSSIAN_PEAK.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_ABSTRACTION_GAUSSIAN_PEAK.realized]
+    delivered_within_requirement = 836
+    delivery_requirement_hours = 24.0
+    generated = 1294
+    ground_archive = 637
+    ground_live = 324
+    ground_total = 961
+    lost_count = 0
+    onboard_buffer_end = 328
+    onboard_buffer_start = 288
+    profile_rows = 2182
+    retry_count = 57
+
+[runs.V3_BACKLOG_RECOVERY_SINE]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_BACKLOG_RECOVERY_SINE scenarios/backlog_recovery_sine.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "925c779645d62912bbb66609207a6882c9db7fddcdaab9a42505cd91926eeec1"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 7.0
+package_version = "2.11.0"
+scenario = "scenarios/backlog_recovery_sine.toml"
+
+    [runs.V3_BACKLOG_RECOVERY_SINE.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_BACKLOG_RECOVERY_SINE.realized]
+    delivered_within_requirement = 1023
+    delivery_requirement_hours = 24.0
+    generated = 1439
+    ground_archive = 1013
+    ground_live = 337
+    ground_total = 1350
+    lost_count = 0
+    onboard_buffer_end = 84
+    onboard_buffer_start = 432
+    profile_rows = 2863
+    retry_count = 143
+
+[runs.V3_DROP_POLICY]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_DROP_POLICY scenarios/drop_policy.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "f150c8ebb2080bd62aea172a121b1afc6c4e778546244e7a7a5405618fbfc285"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 3.0
+package_version = "2.11.0"
+scenario = "scenarios/drop_policy.toml"
+
+    [runs.V3_DROP_POLICY.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_DROP_POLICY.realized]
+    delivered_within_requirement = 337
+    delivery_requirement_hours = 24.0
+    generated = 503
+    ground_archive = 217
+    ground_live = 120
+    ground_total = 337
+    lost_count = 83
+    onboard_buffer_end = 83
+    onboard_buffer_start = 72
+    profile_rows = 722
+    retry_count = 83
+
+[runs.V3_EXPLICIT_SCHEDULE]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_EXPLICIT_SCHEDULE scenarios/explicit_schedule.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "9c5ceb72623237da8aa1071778ba7e5f990258abca0bbc7704c29a1c27b8f689"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 7.0
+package_version = "2.11.0"
+scenario = "scenarios/explicit_schedule.toml"
+
+    [runs.V3_EXPLICIT_SCHEDULE.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_EXPLICIT_SCHEDULE.realized]
+    delivered_within_requirement = 811
+    delivery_requirement_hours = 24.0
+    generated = 1150
+    ground_archive = 562
+    ground_live = 302
+    ground_total = 864
+    lost_count = 0
+    onboard_buffer_end = 282
+    onboard_buffer_start = 144
+    profile_rows = 1624
+    retry_count = 60
+
+[runs.V3_EXTERNAL_INGEST]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_EXTERNAL_INGEST scenarios/external_ingest.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "ccff04fda834bfac508341b563e9f27e77a7331f822a5307d9cf3ae1bd389193"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 2.0
+package_version = "2.11.0"
+scenario = "scenarios/external_ingest.toml"
+
+    [runs.V3_EXTERNAL_INGEST.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_EXTERNAL_INGEST.realized]
+    delivered_within_requirement = 276
+    delivery_requirement_hours = 24.0
+    generated = 359
+    ground_archive = 178
+    ground_live = 98
+    ground_total = 276
+    lost_count = 0
+    onboard_buffer_end = 83
+    onboard_buffer_start = 72
+    profile_rows = 480
+    retry_count = 1
+
+[runs.V3_LONG_30D_SEASONAL]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_LONG_30D_SEASONAL scenarios/long_30d_seasonal.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "3440b8fb132b143c08f429871282014b9e49fb23933cdb911f606f9b6e63b079"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 30.0
+package_version = "2.11.0"
+scenario = "scenarios/long_30d_seasonal.toml"
+
+    [runs.V3_LONG_30D_SEASONAL.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_LONG_30D_SEASONAL.realized]
+    delivered_within_requirement = 1934
+    delivery_requirement_hours = 24.0
+    generated = 4200
+    ground_archive = 1396
+    ground_live = 808
+    ground_total = 2204
+    lost_count = 0
+    onboard_buffer_end = 1993
+    onboard_buffer_start = 432
+    profile_rows = 5278
+    retry_count = 129
+
+[runs.V3_LONG_SEGMENTS_2400S]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_LONG_SEGMENTS_2400S scenarios/long_segments_2400s.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "a369b71d65564443516fcd34c846797b8cdf8f839f2c83d1917c50d48e1e98c6"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 7.0
+package_version = "2.11.0"
+scenario = "scenarios/long_segments_2400s.toml"
+
+    [runs.V3_LONG_SEGMENTS_2400S.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_LONG_SEGMENTS_2400S.realized]
+    delivered_within_requirement = 85
+    delivery_requirement_hours = 24.0
+    generated = 95
+    ground_archive = 54
+    ground_live = 35
+    ground_total = 89
+    lost_count = 0
+    onboard_buffer_end = 6
+    onboard_buffer_start = 12
+    profile_rows = 148
+    retry_count = 0
+
+[runs.V3_NOMINAL_8H]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_NOMINAL_8H scenarios/nominal_8h.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "bdd3873ca7375f47bce03655892fe0115a2d18d597131ea1d77d345496bcab73"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 7.0
+package_version = "2.11.0"
+scenario = "scenarios/nominal_8h.toml"
+
+    [runs.V3_NOMINAL_8H.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_NOMINAL_8H.realized]
+    delivered_within_requirement = 924
+    delivery_requirement_hours = 24.0
+    generated = 1007
+    ground_archive = 581
+    ground_live = 343
+    ground_total = 924
+    lost_count = 0
+    onboard_buffer_end = 83
+    onboard_buffer_start = 0
+    profile_rows = 1657
+    retry_count = 8
+
+[runs.V3_RECOVERY_12H_SEASONAL]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_RECOVERY_12H_SEASONAL scenarios/recovery_12h_seasonal.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "1f7e5d9c954fae0e61a482347a6d7e23522549526dbde05e534c1a5c16284f10"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 7.0
+package_version = "2.11.0"
+scenario = "scenarios/recovery_12h_seasonal.toml"
+
+    [runs.V3_RECOVERY_12H_SEASONAL.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_RECOVERY_12H_SEASONAL.realized]
+    delivered_within_requirement = 878
+    delivery_requirement_hours = 24.0
+    generated = 1294
+    ground_archive = 653
+    ground_live = 485
+    ground_total = 1138
+    lost_count = 0
+    onboard_buffer_end = 152
+    onboard_buffer_start = 283
+    profile_rows = 1755
+    retry_count = 66
+
+[runs.V3_STRESS_8H_BURSTY]
+command = "julia --threads=1 scripts/run_full_sim.jl --tick V3_STRESS_8H_BURSTY scenarios/stress_8h_bursty.toml"
+commit = "fedf2301f8f55a4bcaa373682b8f0b3db98d60f5"
+config_sha256 = "13de58ab38aa4a4c2c230e2c9584bc38e389dd66262ce25bba4721a8cef3d08f"
+date = "2026-10-28"
+git_dirty = false
+julia_version = "1.13.3"
+mission_days = 7.0
+package_version = "2.11.0"
+scenario = "scenarios/stress_8h_bursty.toml"
+
+    [runs.V3_STRESS_8H_BURSTY.platform]
+    blas_threads = 6
+    cpu_model = "Intel(R) Core(TM) Ultra 7 155H"
+    julia_threads = 1
+    logical_cores = 22
+    os = "Linux x86_64-linux-gnu"
+    total_memory_gb = 30.76
+
+    [runs.V3_STRESS_8H_BURSTY.realized]
+    delivered_within_requirement = 754
+    delivery_requirement_hours = 24.0
+    generated = 1294
+    ground_archive = 428
+    ground_live = 332
+    ground_total = 760
+    lost_count = 0
+    onboard_buffer_end = 530
+    onboard_buffer_start = 288
+    profile_rows = 1516
+    retry_count = 49
