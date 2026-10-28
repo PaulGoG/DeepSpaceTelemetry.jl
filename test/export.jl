@@ -50,10 +50,6 @@
             "ARCH_batch_1,2035-01-01T06:00:00,,\n" *
             "LIVE_batch_2,2035-01-01T06:03:00,2035-01-01T06:00:00,1441\n",
         )
-        write(
-            joinpath(dir, "masks", "pointwise_mask_final.csv"),
-            "Time_Index,Ground_Available\n1,0\n2,0\n3,1\n",
-        )
         path = with_logger(NullLogger()) do
             DeepSpaceTelemetry.Export.export_hdf5(dir)
         end
@@ -83,8 +79,6 @@
             @test isnan(payload_rows[1]) && payload_rows[2] == 1441.0
             @test read(f["masks/batch_epochs/ContentEpoch_iso"]) ==
                   ["", "2035-01-01T06:00:00"]
-            @test read(f["masks/pointwise/pointwise_mask_final/Ground_Available"]) ==
-                  Int8[0, 0, 1]
             @test !haskey(f, "metrology/delivery_delay")
         end
         with_logger(NullLogger()) do

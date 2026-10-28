@@ -107,16 +107,18 @@ end
     batch_hole_rows(first_row, name::AbstractString,
                     points_per_batch::Integer) -> UnitRange{Int}
 
-The payload rows of a batch: from its `payload_row` stamp when `first_row`
-is an `Integer`, otherwise from its index, `(batch_id(name) − 1) ·
-points_per_batch + 1` (runs before 2.1.0 carry no stamp); `points_per_batch`
-rows either way. The one rule behind the hole feed, the gap table and the
-run adapter.
+The `points_per_batch` payload rows of batch `name` from its `payload_row`
+stamp `first_row`; an `ArgumentError` when the batch carries none (a run of
+a producer before 2.1.0, which this version does not read). The one rule
+behind the hole feed, the gap table and the run adapter.
 """
 function batch_hole_rows(first_row, name::AbstractString, points_per_batch::Integer)
-    r1 =
-        first_row isa Integer ? Int(first_row) : (batch_id(name) - 1) * points_per_batch + 1
-    return r1:(r1+points_per_batch-1)
+    first_row isa Integer || throw(
+        ArgumentError(
+            "[RUN] Batch $name carries no payload_row: a run of a producer before 2.1.0, which this version does not read.",
+        ),
+    )
+    return Int(first_row):(Int(first_row)+points_per_batch-1)
 end
 
 """

@@ -14,5 +14,4 @@ DeepSpaceTelemetry.Masks.settle_hole_feed!
 DeepSpaceTelemetry.Masks.LABEL_SPAN_CLASSES
 DeepSpaceTelemetry.Masks.label_span_table
 DeepSpaceTelemetry.Masks.write_label_spans
-DeepSpaceTelemetry.Masks.expand_pointwise_mask
 ```

@@ -83,7 +83,7 @@ what a streaming consumer saw (The arrival stream, replayed, below).
 | `holes.csv` | receiver, emitter, and supervisor through one shared writer; post-processing settles it | **Tail/read.** The declared-hole feed (since 2.6.0), columns `DeclaredAt, Cause, Batch, RowFirst, RowLast, ContentStart, ContentEnd`: one row per hole of the delivered record, appended when the producer declares it ([Event Feeds](@ref)). |
 | `events_tx.csv` | emitter; the supervisor appends the `STREAM` gap pair while the emitter is down (one live writer at a time) | Tail/read. Generation and transmission milestones. |
 | `mission_profile.csv` | receiver | Tail/read. Link and buffer metrics at a change-driven cadence, columns `SimTime, WallTime, Mission_Day, Hours_Elapsed, Bandwidth_Pct, Onboard_Buffer, Link_Buffer, Ground_Total, Ground_Live, Ground_Arch, Nominal_Bandwidth_Pct, Lost_Count, Retry_Count, Disruption_Active` (a pre-rename `Ground_Archive` column is normalized to `Ground_Total` on read). |
-| `masks/` | post-processing | Read/copy. Batch-state timeline and point-wise expansions. |
+| `masks/` | post-processing | Read/copy. Batch-state timeline, batch epochs, and the gap table. |
 | `config_snapshot.toml` | pipeline (at startup) | Read. Exact run parameters and the `[provenance]` section ([Snapshot provenance](@ref)). |
 | `manifest_snapshot.toml` | pipeline (at startup) | Read. The manifest of the environment the run was resolved on: the exact version of every dependency. Manifests are not tracked in the repository, so this file and the source identity in `config_snapshot.toml` together fix the code state. |
 | `RUN_ACTIVE` / `RUN_POSTPROCESSING` / `RUN_COMPLETE` / `RUN_ABORTED` | pipeline | Read. Lifecycle sentinels (see below). |
@@ -92,17 +92,16 @@ what a streaming consumer saw (The arrival stream, replayed, below).
 | `emitter_alive` / `receiver_alive` | the driver (heartbeats, both modes) | Read mtime. Liveness signals, refreshed at most once per second while the mission phase runs and deleted when it ends: absence means finished, a stale mtime means the driver is stalled. |
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run, columns `SimTime, Label, PayloadRow` (`PayloadRow`, the payload row of the instant, since 2.5.0): the instants at which the alert-latency metric is evaluated (`alert_latency_markers.csv`). Absent when the scenario declares no markers. |
 | `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid (since 2.6.0), columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd`, rows as in `masks/gaps.csv`. `Class` is `label` (a `[[labels]]` span a payload exporter declares in payload rows), `blackout` or `recovery` (the phases of a link disruption, `Type` the event type), `generation_gap` (a scheduled generation gap as configured, `Type` the event type; the realized gap of the gap table may differ by the segment-grid snap), `contact` (`Type = pass`), `low_latency` (`Type = triggered` for a marker's period, `scheduled` otherwise), or `initial_downtime`. A consumer reads the labels of a scenario from the run directory, not from the scenario file. |
-| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema`, `run_id`, the producer's `package_version` and source identity (the fields of Source identity), `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry (`sample_rate`, `segment_duration_sec`, `batch_size`, `points_per_batch`), `payload_columns`, the external record's `external_data_sha256` and `external_data_rows`, `written_at`, and under `[products]` the `bytes` and `sha256` of every table present. |
+| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema` (`"deepspacetelemetry-run/2"` since 3.0, `/1` before), `run_id`, the producer's `package_version` and source identity (the fields of Source identity), `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry (`sample_rate`, `segment_duration_sec`, `batch_size`, `points_per_batch`), `payload_columns`, the external record's `external_data_sha256` and `external_data_rows`, `written_at`, and under `[products]` the `bytes` and `sha256` of every table present. |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period); `plots/delivery_delay.png` renders the distribution against the requirement. |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine against the counterfactual FIFO drain — columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
 | `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
-| `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, the point-wise masks, and the provenance attributes in one HDF5 file (section below) — not the batch payloads, the clock anchor, the sentinels, or the logs; regenerable from the CSV products. |
+| `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, and the provenance attributes in one HDF5 file (section below) — not the batch payloads, the clock anchor, the sentinels, or the logs; regenerable from the CSV products. |
 | `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact (none when `post_processing.session_figures` is off; at most `session_figures_max` evenly spaced contacts when that cap is set), `alert_latency`, `delivery_delay`, and `state_raster` (the batch-state timeline as a raster), each as `.png` and `.pdf`. Each figure is gated by its `[post_processing]` flag. |
 | `publication/` | post-processing (`[post_processing.publication]`) | Read/copy. Journal-width figure export (the directory is the default of `[post_processing.publication] export_dir`, which may lie outside the run directory), `<stem>__<run_id>.<format>`, with a `PROVENANCE.toml` sidecar (`[export]`: `run_id`, `run_directory`, `exported_at`, `column_width_mm`, `format`, `package_version`, `git_commit`, `git_tree_sha1`, `git_dirty`, `config_snapshot_sha256`, `figures`). |
 | `masks/gaps.csv` | post-processing | Read. Every hole of the delivered record as a declared interval with its cause, columns `Cause, Batch, RowFirst, RowLast, ContentStart, ContentEnd` ([Stationary Analysis](@ref)): the input of a gap-aware consumer, written first among the products. |
 | `masks/telemetry_mask_timeline.csv` | post-processing (`generate_mask_timeline`) | Read/copy. The batch-state timeline: one row per metrics snapshot, one column per batch, states 0–4, described under Stationary Analysis; also the source of the HDF5 `masks/timeline` group. |
-| `masks/batch_epochs.csv` | post-processing (with the mask timeline) | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch, PayloadRow`: `GenSimTime` the finalization instant from the event log, `ContentEpoch` and `PayloadRow` the first-sample timestamp and payload row from the batch metadata (missing when the metadata lacks them, as in runs before 2.1.0). Written when `post_processing.generate_mask_timeline` is on and the run has `gen` rows; it re-anchors point-wise mask rows on the mission timeline and the payload when gap events are present. |
-| `masks/pointwise_mask_final.csv`, `masks/pointwise_mask_t<row>.csv` | post-processing | Read. Point-wise expansions of one mask-timeline row (the final row and every requested `target_event_rows` entry), columns `Time_Index, Ground_Available`; only with `expand_to_pointwise_masks = true`. Deprecated since 2.11.0 and removed in 3.0 (`RunAdapter.delivered_rows`). |
+| `masks/batch_epochs.csv` | post-processing (with the mask timeline) | Read. Batch → epoch map, columns `Batch, GenSimTime, ContentEpoch, PayloadRow`: `GenSimTime` the finalization instant from the event log, `ContentEpoch` and `PayloadRow` the first-sample timestamp and payload row from the batch metadata. Written when `post_processing.generate_mask_timeline` is on and the run has `gen` rows; it re-anchors point-wise mask rows on the mission timeline and the payload when gap events are present. |
 | `HALT` | **operator** | **The one sanctioned external write**: `touch HALT` stops both components cleanly at their next iteration; the pipeline removes the file once the components have joined, before post-processing. |
 | `emitter.log`, `receiver.log`, `supervisor.log` | logger | Read. Human diagnostics — the two component logs, and the supervisor's `[SUPERVISOR]`, `[POST]`, and `[CONFIG]` records of the mission and its post-processing — rotated to `<name>#k.log` at `retention.log_rotate_mb`; not machine-parsed interfaces. |
 | `onboard/`, `link/` | emitter/receiver | **Off-limits.** Internal staging; the emitter counts in-flight batches from the `link/` listing, so a slot frees when the receiver moves a batch out. |
@@ -285,9 +284,9 @@ a jump.
 
 No gap shifts the sampling grid: segment identifiers and payload rows
 continue from the content epoch. Batch IDs stay contiguous while mission
-time is not, so point-wise mask rows must be re-anchored through
-`payload_row` or `masks/batch_epochs.csv` when gap events are present
-(`RunAdapter.delivered_rows` does so). The
+time is not, so the rows of a batch come from its `payload_row` stamp (or
+`masks/batch_epochs.csv`), never from its index once a gap has occurred;
+`RunAdapter.delivered_rows` returns the delivered rows on that basis. The
 mask replay itself treats gap events as state-preserving.
 
 ## Event Feeds
@@ -382,12 +381,9 @@ the rows
 [(k − 1) · points_per_batch + 1,  k · points_per_batch]
 ```
 
-The point-wise masks (deprecated since 2.11.0, removed in 3.0) are
-generated on this convention. With gaps present,
-batch indices stay contiguous across the missing rows and `payload_row` is
-the reference. Batch directories written before 2.1.0 have no
-`payload_row`; such runs have no gap rows either, so the formula above
-gives their rows.
+With gaps present, batch indices stay
+contiguous across the missing rows and the `payload_row` stamp of the batch
+metadata is the reference; every batch carries one.
 
 ## Streaming Consumption
 
@@ -526,8 +522,8 @@ end
 The generation gaps enter the same `holes` list from `events_tx.csv`: each
 `gap_start` row with `Batch` in `STREAM`, `SCHEDULED`, or `RECORDER` opens a
 hole at the row of its instant, closed by the matching `gap_end` (the
-conversion between an instant and a payload row, and the rows of a batch
-written before 2.1.0, are in [Batch Identity → Sample Interval](@ref)).
+conversion between an instant and a payload row is in
+[Batch Identity → Sample Interval](@ref)).
 
 **The run adapter.** `RunAdapter` answers a consumer's questions of a run
 directory from the files above and nothing else. A consumer in Julia needs
@@ -552,26 +548,18 @@ cursor = RunAdapter.FeedCursor(run, :arrivals)   # or :holes; each call below re
 RunAdapter.arrival_events(cursor)            # (declared_holes(cursor) for a :holes cursor)
 ```
 
-`open_run` refuses a run of a producer older than 2.1.0, the first with
-`payload_row` stamps, unless told otherwise (`minimum_version`).
-`RunAdapter.GapTracker` derives the holes from the same files: `declare!`
-reads the two feeds beyond its cursors and returns each hole they
-announce, a `lost` or `pruned` batch as its rows and a closed
-`gap_start` / `gap_end` pair as the rows between. A streaming consumer thus
-declares a permanent hole the moment the producer does. `open_gaps` lists
-the generation gaps not yet closed. On a finished run one call returns the
-holes of `masks/gaps.csv` for those causes. `declared_holes` reads the
-producer's own feed, `holes.csv`, instead; on a finished run it also holds
-the end-of-run causes. The adapter ships in the reader package
-`DeepSpaceTelemetryReader` (`Pkg.add(url = …, subdir = "reader")`), which a
-consumer adds without the figure stack. `GapTracker` is deprecated since
-2.7.0 and is removed in 3.0; `declared_holes` serves both cases, reading `holes.csv`
-when the run has it and deriving the holes from the event logs when it
-does not (runs of producers before 2.6.0, with `declared_at` missing).
-`open_run` warns on such a run: from 3.0 on, its floor is 2.6.0.
+`open_run` refuses a run of a producer older than 2.6.0, the first with
+the declared-hole feed and the label-span table, unless told otherwise
+(`minimum_version`). `declared_holes` reads the producer's feed,
+`holes.csv`: each hole the moment the producer declares it, so a streaming
+consumer declares a permanent hole as early as the producer does, and on a
+finished run also the end-of-run causes, the holes of `masks/gaps.csv`. The
+adapter ships in the reader package `DeepSpaceTelemetryReader`
+(`Pkg.add(url = …, subdir = "reader")`), which a consumer adds without the
+figure stack.
 
 The adapter's types (`RunHandle`, `RunGeometry`, `BatchRecord`,
-`ArrivalEvent`, `Hole`, `FeedCursor`, `GapTracker`), its version floor
+`ArrivalEvent`, `Hole`, `FeedCursor`), its version floor
 `MINIMUM_PRODUCER_VERSION`, and the functions above with `batch_rows`,
 `read_batch_matrix`, `record_final`, `row_time` and `time_row` are declared
 `public` (since 2.6.2; `FeedCursor` since 2.10.0, `delivered_rows` since
@@ -659,9 +647,7 @@ end
 causes, each row an interval `RowFirst:RowLast` on the same grid. A
 `recorder` hole is the one whose rows were generated and dropped on board
 rather than never generated; its rows sit on the grid like every other.
-For a run made before the product existed, `Masks.gap_table(run_dir)`
-computes the same table from the record (runs before 2.1.0:
-[Batch Identity → Sample Interval](@ref)).
+`Masks.gap_table(run_dir)` computes the same table from the record.
 
 **The arrival stream, replayed.** For a latency study, replay
 `events_rx.csv` in `SimTime` order as the arrival stream and drive the same
@@ -681,16 +667,6 @@ views most analyses want and that need no replay of one's own:
   `2 = Link`, `3 = Ground`, `4 = Lost`. A window anchored at snapshot `r` may
   use exactly the batches with state 3 in row `r`: the live view of a
   streaming consumer at that instant, without running one.
-* `masks/pointwise_mask_final.csv` and `masks/pointwise_mask_t<row>.csv` —
-  the 0/1 expansion of one snapshot row onto the sample grid (`Time_Index,
-  Ground_Available`), from `scripts/postprocessing/apply_telemetry_mask.jl`
-  (config-aware) or the dependency-light `standalone_mask_expander.jl`
-  (`CSV` and `DataFrames` only, for collaborators on other toolchains);
-  multiply an expanded row against the raw series to blank undelivered data.
-  Re-anchor the rows through `masks/batch_epochs.csv` when gap events are
-  present. Deprecated since 2.11.0 and removed in 3.0, with both scripts:
-  `RunAdapter.delivered_rows(run; at)` returns the delivered rows at any
-  instant, exact across gaps.
 * `masks/gaps.csv` — the holes of the delivered record with their causes,
   as above; `masks/batch_epochs.csv` — the batch → epoch and payload-row
   map.
@@ -730,7 +706,7 @@ collection records `descriptor.toml` as the identity of each run it reads.
 sweep (`scripts/run_sweep.jl`, the Sweeps module): the same configuration
 on the tick clock once per seed, and the realized totals of all runs in one
 table with the sweep's own provenance (Ensembles and Sweeps in the usage
-page). Sweep runs skip the mask timeline and the point-wise masks, so they
+page). Sweep runs skip the mask timeline, so they
 carry no `masks/telemetry_mask_timeline.csv` or `masks/batch_epochs.csv`.
 
 ## HDF5 Product Export
@@ -750,7 +726,6 @@ derived view of them and can be regenerated at any time.
 | `masks/timeline` | `states` — the batch-state matrix laid out as `states[snapshot, batch]` for C-order readers (h5py, NumPy; Julia reads the transpose), `batch_id`, the snapshot instants (`SimTime`, `SimTime_iso`), and the attributes `state_codes` and `layout` |
 | `masks/batch_epochs` | the batch → epoch map, `PayloadRow` included |
 | `masks/gaps` | the gap table, every hole of the delivered record with its cause |
-| `masks/pointwise/<stem>` | every point-wise expansion, `Ground_Available` as `Int8` per sample |
 | `metrology/alert_latency`, `metrology/alert_latency_markers`, `metrology/delivery_delay` | the metrology tables |
 | `markers`, `label_spans`, `component_events` | the event markers, the labeled intervals of the scenario, and the component lifecycle record |
 
@@ -766,7 +741,7 @@ Column conventions:
 
 Each table group carries the attributes `source` (the CSV it was read
 from) and `rows`; `masks/timeline` carries `source`, `state_codes`, and
-`layout`, and the point-wise groups `source`.
+`layout`.
 
 ## Real-Time Operation
 

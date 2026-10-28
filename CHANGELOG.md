@@ -6,6 +6,40 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+The removals announced in 2.7.0 and 2.11.0. From here on the package is
+maintained rather than extended: the manual's Upgrading and Support page
+states the policy and lists the changes from 2.x.
+
+### Removed
+- The point-wise masks: `post_processing.expand_to_pointwise_masks`,
+  `target_event_rows`, `masks/pointwise_mask_*.csv`, the HDF5 group
+  `masks/pointwise/`, `Masks.expand_pointwise_mask`,
+  `Supervisor.expand_pointwise_masks!`, `Export.write_pointwise_masks!`,
+  `TelemetryCore.normalize_target_rows` and `mask_timeline_rows`, the
+  estimator term, and the scripts `apply_telemetry_mask.jl` and
+  `standalone_mask_expander.jl`. `RunAdapter.delivered_rows` replaces them.
+- `RunAdapter.GapTracker`, `declare!` and `open_gaps`, and the derivation of
+  holes from the event logs for a run without `holes.csv`.
+- `supervision.watchdog_sec` and the `storage.bytes_*` calibration overrides;
+  the constants are `TelemetryCore.STORAGE_CALIBRATION`.
+- The readers of pre-2.6 producer output: the batch-index rows of a batch
+  without a `payload_row` stamp (an error now), the `PayloadRow`-less
+  `markers.csv`, the pre-0.10 `Ground_Archive` profile column
+  (`TelemetryCore.normalize_profile!`), and the manifest format before Julia
+  1.7.
+- The 1.0.0 entries of `REMOVED_CONFIG_KEYS` and the `[disaster]` section
+  check: such keys are now unrecognized and ignored with a warning.
+
+### Changed
+- `RunAdapter.MINIMUM_PRODUCER_VERSION` is 2.6.0, the first producer with
+  `holes.csv` and `label_spans.csv`.
+- `validate_config` rejects the keys removed here, naming the remedy; the
+  accessors still read them from the snapshot of an earlier run, so
+  `storage.onboard_capacity_days` of a 2.x snapshot is honoured.
+- `descriptor.toml` carries `schema = "deepspacetelemetry-run/2"`.
+- `TelemetryCore.supervision_settings` returns `on_component_failure` and
+  `max_restarts` only.
+
 ## [2.11.0] - 2026-10-28
 
 The last minor release before 3.0: everything 3.0 removes warns here, and

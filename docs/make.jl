@@ -53,6 +53,7 @@ makedocs(
         "Usage & Configuration" => "usage.md",
         "Scenario Gallery" => "gallery.md",
         "Analysis Interfaces" => "interfaces.md",
+        "Upgrading and Support" => "upgrading.md",
         "API Reference" => [
             "Overview" => "api.md",
             "TelemetryCore" => "api/telemetrycore.md",

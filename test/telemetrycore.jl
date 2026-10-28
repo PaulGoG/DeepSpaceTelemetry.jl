@@ -59,12 +59,12 @@ end
         ),
     )
     @test TelemetryCore.check_storage_limits(cfg_safe) === nothing
-    # Without the key the default budget applies; the retired simulation key
-    # is rejected rather than read.
+    # Without the key the default budget applies; the simulation key of
+    # releases before 1.0.0 is not read.
     @test TelemetryCore.storage_budget(Dict{String,Any}()).max_gb == 5.0
-    @test_throws ArgumentError TelemetryCore.storage_budget(
+    @test TelemetryCore.storage_budget(
         Dict{String,Any}("simulation" => Dict{String,Any}("max_storage_gb" => 1.0)),
-    )
+    ).max_gb == 5.0
 end
 
 @testset "Config validation: hard errors" begin
@@ -141,11 +141,6 @@ end
         cfg["disruption"] = Dict{String,Any}("events" => [ev])
         @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
-
-    # the retired [disaster] section name is rejected outright
-    cfg = valid_test_cfg()
-    cfg["disaster"] = Dict{String,Any}("events" => [Dict("start_day" => -1.0)])
-    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
 
     # a malformed [packet_loss] section is rejected even while disabled:
     # types, enumerations, and bounds must fail fast, never lie dormant
@@ -347,10 +342,7 @@ end
             "sample_rate" => 2.0,
             "batch_size" => 5,
         ),
-        "post_processing" => Dict{String,Any}(
-            "generate_mask_timeline" => false,
-            "expand_to_pointwise_masks" => false,
-        ),
+        "post_processing" => Dict{String,Any}("generate_mask_timeline" => false),
         "storage" => Dict{String,Any}("max_storage_gb" => 10.0),
     )
 
@@ -369,20 +361,11 @@ end
     @test TelemetryCore.estimate_artifacts(base).n_columns == 1
     @test est.prunable_bytes == est.payload_bytes
     @test est.mask_bytes == 0.0
-    @test est.pointwise_bytes == 0.0
     @test est.file_count > 0
 
-    # Calibration override propagates
-    base["storage"]["bytes_per_sample"] = 30.0
-    @test TelemetryCore.estimate_artifacts(base).payload_bytes ≈ 200 * 30.0 rtol = 1e-12
-    delete!(base["storage"], "bytes_per_sample")
-
-    # The synthetic flag series is sized by its own calibration key
+    # The synthetic flag series is sized by its own calibration constant
     base["physics"]["data_source"] = "synthetic"
     @test TelemetryCore.estimate_artifacts(base).payload_bytes ≈ 200 * 4.0 rtol = 1e-12
-    base["storage"]["bytes_per_flag_sample"] = 8.0
-    @test TelemetryCore.estimate_artifacts(base).payload_bytes ≈ 200 * 8.0 rtol = 1e-12
-    delete!(base["storage"], "bytes_per_flag_sample")
     delete!(base["physics"], "data_source")
 
     # Gate matrix — under budget, retention off: pass
@@ -434,11 +417,11 @@ end
     bad["retention"] = Dict{String,Any}("enabled" => true, "high_watermark_gb" => 2.0)
     @test_throws ArgumentError TelemetryCore.validate_config(bad)
 
-    # A calibration override is deprecated: still applied, with one warning
-    deprecated = valid_test_cfg()
-    deprecated["storage"]["bytes_per_sample"] = 20.0
-    @test_logs (:warn, r"deprecated since 2\.7\.0") match_mode = :any TelemetryCore.validate_config(
-        deprecated,
+    # The calibration overrides were removed in 3.0.
+    removed = valid_test_cfg()
+    removed["storage"]["bytes_per_sample"] = 20.0
+    @test_throws r"storage.bytes_per_sample was removed at 3.0.0" TelemetryCore.validate_config(
+        removed,
     )
 end
 
@@ -506,13 +489,12 @@ end
         write(joinpath(run_dir, "config_snapshot.toml"), "[simulation]\nspeed_up = 5.0\n")
         cfg_snap, source = TelemetryCore.load_run_config_with_source(run_dir)
         @test source == "snapshot" && cfg_snap["simulation"]["speed_up"] == 5.0
-        # Mask-timeline readers: single-task table and header-less line count.
+        # Mask-timeline reader.
         mkpath(joinpath(run_dir, "masks"))
         write(
             TelemetryCore.mask_timeline_path(run_dir),
             "SimTime,Batch_1,Batch_2\n2030-01-01T00:00:00,1,0\n2030-01-01T01:00:00,3,1\n",
         )
-        @test TelemetryCore.mask_timeline_rows(run_dir) == 2
         @test nrow(TelemetryCore.read_mask_timeline(run_dir)) == 2
     end
 end
@@ -615,14 +597,6 @@ end
     cfg = valid_test_cfg()
     cfg["retention"] = Dict{String,Any}("log_rotate_mb" => 0.3)
     @test TelemetryCore.retention_settings(cfg).log_rotate_bytes == round(Int, 0.3 * 1024^2)
-end
-
-@testset "normalize_target_rows" begin
-    @test TelemetryCore.normalize_target_rows("all") === :all
-    @test TelemetryCore.normalize_target_rows(["all"]) === :all
-    @test TelemetryCore.normalize_target_rows([3, 1, 3]) == [1, 3]
-    @test TelemetryCore.normalize_target_rows([-1]) == [-1]
-    @test TelemetryCore.normalize_target_rows(["2:4", 7]) == [2, 3, 4, 7]
 end
 
 @testset "Midnight-wrapping visibility" begin
@@ -769,9 +743,10 @@ end
     )
 end
 
-@testset "Retired configuration aliases (1.0.0)" begin
-    # Every retired key is rejected with the replacement named, in the accessor
-    # and in the validator; the current keys pass untouched.
+@testset "Retired configuration keys (3.0.0)" begin
+    # validate_config rejects every key retired at 3.0.0 with its remedy
+    # named; the accessors read a snapshot that still holds one, as the
+    # snapshots of earlier runs do.
     message_of(f) =
         try
             f()
@@ -779,58 +754,46 @@ end
         catch e
             sprint(showerror, e)
         end
-    cfg = valid_test_cfg()
-    span = pop!(cfg["simulation"], "mission_wall_seconds")
-    cfg["simulation"]["test_duration_sec"] = span
-    @test occursin(
-        "simulation.mission_wall_seconds",
-        message_of(() -> TelemetryCore.mission_wall_seconds(cfg)),
+    retired = (
+        ("post_processing", "expand_to_pointwise_masks", true, "RunAdapter.delivered_rows"),
+        ("post_processing", "target_event_rows", Any[-1], "RunAdapter.delivered_rows"),
+        ("supervision", "watchdog_sec", 30.0, "no effect since 2.8.0"),
+        ("storage", "onboard_capacity_days", 14.0, "telemetry.onboard_capacity_days"),
+        ("storage", "bytes_plot", 1.0e6, "implementation calibration"),
+        ("storage", "bytes_pointwise_cell", 10.0, "implementation calibration"),
     )
-    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
-    @test_throws ArgumentError TelemetryCore.mission_wall_seconds(
-        Dict{String,Any}("simulation" => Dict{String,Any}()),
-    )
-    cfg = valid_test_cfg()
-    cfg["simulation"]["max_storage_gb"] = 1.0
-    @test occursin(
-        "storage.max_storage_gb",
-        message_of(() -> TelemetryCore.storage_budget(cfg)),
-    )
-    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
-    cfg = valid_test_cfg()
-    cfg["post_processing"] = Dict{String,Any}("generate_batch_matrix" => false)
-    @test occursin(
-        "post_processing.generate_mask_timeline",
-        message_of(() -> TelemetryCore.estimate_artifacts(cfg)),
-    )
-    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
-    cfg = valid_test_cfg()
-    cfg["disaster"] = Dict{String,Any}("events" => Any[])
-    @test occursin(
-        "[disruption]",
-        message_of(() -> TelemetryCore.disruption_event_settings(cfg)),
-    )
-    @test_throws ArgumentError TelemetryCore.validate_config(cfg)
+    for (section, key, value, remedy) in retired
+        cfg = valid_test_cfg()
+        get!(Dict{String,Any}, cfg, section)[key] = value
+        message = message_of(() -> TelemetryCore.validate_config(cfg))
+        @test occursin("$section.$key was removed at 3.0.0", message)
+        @test occursin(remedy, message)
+    end
+    snapshot = valid_test_cfg()
+    snapshot["post_processing"] = Dict{String,Any}("expand_to_pointwise_masks" => true)
+    snapshot["supervision"] = Dict{String,Any}("watchdog_sec" => 30.0)
+    snapshot["storage"]["onboard_capacity_days"] = 7.0
+    @test TelemetryCore.post_processing_settings(snapshot).generate_mask_timeline
+    @test TelemetryCore.supervision_settings(snapshot).max_restarts == 3
+    @test TelemetryCore.onboard_capacity(snapshot).days == 7.0
+    snapshot["telemetry"]["onboard_capacity_days"] = 7.0
+    @test_throws ArgumentError TelemetryCore.onboard_capacity(snapshot)
+    # The removals of 1.0.0 are pruned: such a key is an unknown key now.
+    old = valid_test_cfg()
+    old["physics"]["signal_injection_probability"] = 0.02
+    @test_logs (:warn, r"Unrecognized key physics.signal_injection_probability") match_mode =
+        :any TelemetryCore.validate_config(old)
     @test TelemetryCore.reject_removed_key(
         Dict{String,Any}(),
-        "simulation",
-        "test_duration_sec",
+        "supervision",
+        "watchdog_sec",
     ) === nothing
     @test TelemetryCore.validate_config(valid_test_cfg()) isa AbstractDict
-    # A legacy profile column is a data artifact, not a configuration alias,
-    # and is still normalized on read.
-    legacy = DataFrame(SimTime = [DateTime(2035)], Ground_Archive = [3], Ground_Live = [1])
-    @test hasproperty(TelemetryCore.normalize_profile!(legacy), :Ground_Total)
-    @test !hasproperty(legacy, :Ground_Archive)
 end
 
 @testset "Configuration accessors: physics and supervision" begin
     phys = TelemetryCore.physics_settings(valid_test_cfg())
     @test phys.data_source == "synthetic" && phys.batch_size == 10
-    @test !haskey(phys, :signal_injection_probability)
-    legacy = valid_test_cfg()
-    legacy["physics"]["signal_injection_probability"] = 0.02
-    @test_throws ArgumentError TelemetryCore.physics_settings(legacy)
     bad = valid_test_cfg()
     bad["physics"]["data_source"] = "tape"
     @test_throws ArgumentError TelemetryCore.physics_settings(bad)
@@ -842,21 +805,10 @@ end
     @test TelemetryCore.points_per_batch(geometry) == 20
     @test_throws ArgumentError TelemetryCore.samples_per_segment(0.1, 5.0)
     sup = TelemetryCore.supervision_settings(Dict{String,Any}())
-    @test sup.on_component_failure == "abort" &&
-          sup.max_restarts == 3 &&
-          sup.watchdog_sec == 30.0
+    @test sup == (on_component_failure = "abort", max_restarts = 3)
     @test_throws ArgumentError TelemetryCore.supervision_settings(
-        Dict{String,Any}("supervision" => Dict{String,Any}("watchdog_sec" => 0.0)),
+        Dict{String,Any}("supervision" => Dict{String,Any}("max_restarts" => -1)),
     )
-    # Keys removed in 3.0 warn in the validation and keep applying.
-    retired = valid_test_cfg()
-    retired["supervision"] = Dict{String,Any}("watchdog_sec" => 30.0)
-    retired["post_processing"] = Dict{String,Any}("expand_to_pointwise_masks" => true)
-    @test_logs (:warn, r"watchdog_sec has had no effect") (
-        :warn,
-        r"expand_to_pointwise_masks and target_event_rows are deprecated",
-    ) match_mode = :any TelemetryCore.validate_config(retired)
-    @test TelemetryCore.post_processing_settings(retired).expand_to_pointwise_masks
 end
 
 @testset "Configuration accessors: label spans and the payload grid" begin
@@ -1032,7 +984,7 @@ end
 
     # The figure stage enters the RAM gate with a fixed term and one per
     # metrics row.
-    calibration = TelemetryCore.STORAGE_CALIBRATION_DEFAULTS
+    calibration = TelemetryCore.STORAGE_CALIBRATION
     @test est.figure_ram_bytes ≈
           calibration.bytes_figure_stage +
           min(est.metrics_rows, 3 * est.n_batches) * calibration.bytes_figure_row
@@ -1108,7 +1060,7 @@ end
             DateTime(2035, 1, 1, 6),
             DateTime(2035, 1, 1, 6),
         )
-        # A batch: rows from its payload_row stamp, or from its index without metadata.
+        # A batch: rows from its payload_row stamp; a batch without one is refused.
         stamped = joinpath(dir, "ground", "LIVE_batch_5")
         mkpath(stamped)
         write(
@@ -1119,10 +1071,15 @@ end
         @test TelemetryCore.declare_batch_hole!(feed, t, "pruned", stamped)
         unstamped = joinpath(dir, "ground", "ARCH_batch_2")
         mkpath(unstamped)
-        @test TelemetryCore.declare_batch_hole!(feed, t, "pruned", unstamped)
+        @test_throws ArgumentError TelemetryCore.declare_batch_hole!(
+            feed,
+            t,
+            "pruned",
+            unstamped,
+        )
 
         held = TelemetryCore.read_hole_feed(dir)
-        @test nrow(held) == 4
+        @test nrow(held) == 3
         @test names(held) == [
             "DeclaredAt",
             "Cause",
@@ -1133,16 +1090,15 @@ end
             "ContentEnd",
         ]
         @test eltype(held.DeclaredAt) == DateTime
-        @test held.Cause == ["lost", "scheduled", "pruned", "pruned"]
+        @test held.Cause == ["lost", "scheduled", "pruned"]
         @test ismissing(held.Batch[2])
         @test held.RowFirst[2] == 17281 && held.RowLast[2] == 19680
         @test held.ContentStart[2] == DateTime(2035, 1, 1, 6) &&
               held.ContentEnd[2] == DateTime(2035, 1, 1, 6, 10)
         @test held.ContentStart[1] == TelemetryCore.payload_row_time(origin, 4.0, 4801)
         @test held.RowFirst[3] == 7201 && held.RowLast[3] == 9600
-        @test held.RowFirst[4] == 2401 && held.RowLast[4] == 4800
         # The cursor: rows beyond the first `after`; an absent feed is an empty table.
-        @test nrow(TelemetryCore.read_hole_feed(dir; after = 3)) == 1
+        @test nrow(TelemetryCore.read_hole_feed(dir; after = 2)) == 1
         @test nrow(TelemetryCore.read_hole_feed(dir; after = 9)) == 0
         absent = TelemetryCore.read_hole_feed(joinpath(dir, "none"))
         @test nrow(absent) == 0 && names(absent) == names(held)

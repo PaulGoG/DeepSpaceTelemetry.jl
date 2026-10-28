@@ -204,10 +204,6 @@ julia scripts/postprocessing/export_publication_figures.jl [RUN_ID]
 # recompute the products, settle RUN_ACTIVE (--force skips the recent-write test)
 julia scripts/postprocessing/complete_run.jl <RUN_ID> [--force]
 
-# Expand one mask-timeline row into a point-wise 0/1 column (deprecated since
-# 2.11.0, removed in 3.0; RunAdapter.delivered_rows gives the delivered rows)
-julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> 102400 100 output.csv
-
 # Regenerate the example series for physics.data_source = "external"
 julia scripts/maintenance/generate_example_strain.jl
 
@@ -236,12 +232,12 @@ batch never becomes available on the ground.
 | `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
 | `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
 | `Supervisor` | mission plan, supervised component tasks, failure policy, sentinels, banner | stable; restart, policy, and reproducibility tests |
-| `RunAdapter` | reference run adapter over the file contract: geometry, batches, payload, arrivals, state, labeled intervals; byte-offset feed cursors, hole-feed reader, marker rows, producer-version check; deprecated gap tracker | since 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
+| `RunAdapter` | reference run adapter over the file contract: geometry, batches, payload, arrivals, state, labeled intervals; byte-offset feed cursors, hole-feed reader, delivered rows, marker rows, producer-version check | since 2.5.0; tested against a lossy tick run with a generation gap and against the gap table |
 | `Sweeps` | ensembles and parameter sweeps on the tick clock, serial or over worker processes, with a summary table and provenance | since 2.5.0; serial two-seed sweep in the suite, the worker path verified manually |
 | `PlotTheme` | figure theme and scale-aware styling | stable |
 | Scenario library | twelve configurations under `scenarios/` | every file validated and the smoke scenario run by the suite; a shortened deterministic scenario run three times in the tick testset |
 | Entry points | `run_full_sim.jl` (argument parsing, `--tick`, plus `Supervisor.run_mission`), `run_sweep.jl` (`Sweeps.run_sweep`), `launch_dashboard.jl`, `live_viewer.jl`, `follow_log.jl` | `run_full_sim.jl` verified on the shipped scenarios at each release and, through its library call, on the smoke scenario in the suite; the interactive dashboard, live viewer, and log follower verified manually |
-| Post-processing wrappers | `apply_telemetry_mask.jl`, `complete_run.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl`, `standalone_mask_expander.jl` | thin wrappers over tested library functions (`Masks.expand_pointwise_mask`, `Supervisor.complete_run`, `Export.export_hdf5`, `Publication.export_publication_figures`); `generate_gif.jl` (over the tested `Masks.batch_states` replay) and the standalone expander verified on the shipped scenarios at each release |
+| Post-processing wrappers | `complete_run.jl`, `export_hdf5.jl`, `export_publication_figures.jl`, `generate_gif.jl` | thin wrappers over tested library functions (`Supervisor.complete_run`, `Export.export_hdf5`, `Publication.export_publication_figures`); `generate_gif.jl` (over the tested `Masks.batch_states` replay) verified on the shipped scenarios at each release |
 | Maintenance utilities | `generate_example_strain.jl`, `cleanup.jl`, `docs/render_assets.jl` | `generate_example_strain.jl` verified through `scenarios/external_ingest.toml` at each release; `cleanup.jl` (confirmation prompt) verified manually; `render_assets.jl` run end to end at every figure regeneration |
 
 <details>
@@ -256,7 +252,7 @@ DeepSpaceTelemetry/
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
 │   ├── Emitter.jl               # Satellite state machine (payload/queues)
 │   ├── Receiver.jl              # DSN ground station loop, loss handling, retention
-│   ├── Masks.jl                 # Batch-state replay, mask timeline, point-wise expansion
+│   ├── Masks.jl                 # Batch-state replay, mask timeline, gap table
 │   ├── MissionFigures.jl        # Mission summary, session figures, batch-state raster
 │   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay
 │   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
@@ -281,12 +277,10 @@ DeepSpaceTelemetry/
 │   ├── live_viewer.jl           # Terminal UI entry point, separate process (incl. Lost row)
 │   ├── follow_log.jl            # Pure-Julia log follower for the dashboard terminals
 │   ├── postprocessing/
-│   │   ├── apply_telemetry_mask.jl      # Point-wise mask expansion (snapshot-aware)
 │   │   ├── complete_run.jl              # Post-processing and sentinels of a stranded run
 │   │   ├── export_hdf5.jl               # HDF5 product export of a run
 │   │   ├── export_publication_figures.jl # Vector figures at journal width + provenance sidecar
-│   │   ├── generate_gif.jl              # Batch-routing animation engine
-│   │   └── standalone_mask_expander.jl  # Dependency-light copy for collaborators
+│   │   └── generate_gif.jl              # Batch-routing animation engine
 │   └── maintenance/
 │       ├── generate_example_strain.jl   # Example external-input generator
 │       └── cleanup.jl                   # Run-directory purger (asks for confirmation)
@@ -390,10 +384,9 @@ what each one exercises and the regime it produces.
                     # session-figure switch and cap, HDF5 and publication export
 ```
 
-The keys removed in 3.0 are still read by 2.11 with a warning:
-`post_processing.expand_to_pointwise_masks` and `target_event_rows`,
-`supervision.watchdog_sec`, the `storage.bytes_*` calibration, and
-`storage.onboard_capacity_days`, now `telemetry.onboard_capacity_days`. The
+A configuration written for 2.x that `validate_config` rejects names the
+key and its remedy; the manual's Upgrading page lists the changes of 3.0.
+The
 [configuration reference](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/usage/) documents every key.
 
 </details>
@@ -443,8 +436,8 @@ The keys removed in 3.0 are still read by 2.11 with a warning:
   copies as its source identity.
 - **Data products** — append-only emitter and receiver event logs, from which
   post-processing replays the exact per-batch state history; the 0–4 mask
-  timeline (the point-wise 0/1 masks are deprecated since 2.11.0 for the
-  adapter's delivered rows); the gap table, every hole
+  timeline and the delivered payload rows at any instant; the gap table,
+  every hole
   of the delivered record as a payload-row interval with its cause (lost,
   pruned, undelivered, a generation gap by type, an unreached record); the
   label-span table, every labeled interval of the scenario on the same grid;
@@ -523,6 +516,14 @@ contributors. The one exception is `RunAdapter`: its types, its version
 floor and its functions follow the file contract and are versioned with it.
 They are declared `public` (not exported), so a consumer's qualified access
 passes ExplicitImports' `check_all_qualified_accesses_are_public`.
+
+Since 3.0 the package is maintained rather than extended: patch releases fix
+defects and keep the dependencies current. Anything removed from the public
+surface first warns through at least one minor release. The supported Julia
+versions are 1.12 and the current stable release; defects are reported as
+GitHub issues. The manual's
+[Upgrading](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/upgrading/)
+page lists the changes from 2.x.
 
 ## How to cite
 

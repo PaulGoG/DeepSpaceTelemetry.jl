@@ -1026,12 +1026,12 @@ end
     small = deepcopy(base)
     small["telemetry"]["onboard_capacity_days"] = 0.0
     @test_throws ArgumentError TelemetryCore.onboard_capacity(small)
-    # The place before 2.11 is still read, with a warning from the validation
-    # only, so that opening an older run stays silent; both places are an error.
+    # The place before 2.11 is read from the snapshot of an older run and
+    # rejected in a live configuration; both places are an error.
     legacy = deepcopy(base)
     legacy["storage"] = Dict{String,Any}("onboard_capacity_days" => 7.0)
     @test TelemetryCore.onboard_capacity(legacy).days == 7.0
-    @test_logs (:warn, r"moved to telemetry.onboard_capacity_days") match_mode = :any TelemetryCore.validate_config(
+    @test_throws r"move it to telemetry.onboard_capacity_days" TelemetryCore.validate_config(
         legacy,
     )
     both = deepcopy(legacy)

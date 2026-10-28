@@ -1,7 +1,7 @@
 # The reference run adapter: the six questions answered from the file
 # contract of a lossy tick run with a marker, a scheduled generation gap, and
-# declared label spans, the gap tracker and the declared-hole feed against
-# the gap table, the marker rows, the label-span table and its regeneration,
+# declared label spans, the declared-hole feed against the gap table, the feed
+# cursors, the delivered rows, the marker rows, the label-span table and its regeneration,
 # the descriptor, and the version check.
 
 @testset "Run adapter" begin
@@ -123,22 +123,12 @@
             )
         end
         @test RunAdapter.label_spans(run) == spans
-        # The tracker declares what the gap table lists for the causes a feed
-        # can announce, and nothing twice.
-        tracker = RunAdapter.GapTracker(run)
-        holes = RunAdapter.declare!(tracker)
-        @test isempty(RunAdapter.declare!(tracker)) &&
-              isempty(RunAdapter.open_gaps(tracker))
+        # The producer's feed holds every hole of the gap table, each with its
+        # declaration instant.
         table = Masks.gap_table(run_dir)
-        announced = ("lost", "pruned", "stream", "scheduled", "recorder")
-        @test Set((h.cause, first(h.rows), last(h.rows)) for h in holes) == Set(
-            (Symbol(r.Cause), r.RowFirst, r.RowLast) for
-            r in eachrow(table) if r.Cause in announced
-        )
-        @test any(h -> h.cause === :scheduled && ismissing(h.batch), holes)
-        @test all(h -> h.content_end > h.content_start, holes)
-        # The producer's own feed holds every hole of the gap table, each with its declaration instant; the tracker's holes carry none.
         declared = RunAdapter.declared_holes(run)
+        @test any(h -> h.cause === :scheduled && ismissing(h.batch), declared)
+        @test all(h -> h.content_end > h.content_start, declared)
         @test Set(
             (h.cause, coalesce(h.batch, ""), first(h.rows), last(h.rows)) for h in declared
         ) == Set(
@@ -146,7 +136,6 @@
             r in eachrow(table)
         )
         @test all(h.declared_at isa DateTime for h in declared)
-        @test all(h.declared_at === missing for h in holes)
         for r in eachrow(rx[rx.Event .== "lost", :])
             hole = only(d for d in declared if d.cause === :lost && d.batch == r.Batch)
             @test hole.declared_at == r.SimTime
@@ -195,26 +184,20 @@
             @test RunAdapter.arrival_events(partial) == events[4:end]
             @test partial.offset == length(text) && partial.rows == length(events)
         end
-        # A run without the feed (producers before 2.6.0): declared_holes derives
-        # the tracker's holes, without declaration instants.
+        # Before the first hole is declared there is no feed file, and no hole.
         mktempdir() do tmp
             bare_dir = joinpath(tmp, basename(run_dir))
             cp(run_dir, bare_dir)
             rm(joinpath(bare_dir, "holes.csv"))
             bare = RunAdapter.open_run(bare_dir)
-            derived = RunAdapter.declared_holes(bare)
-            @test Set((h.cause, h.batch, h.rows) for h in derived) == Set(
-                (h.cause, h.batch, h.rows) for
-                h in RunAdapter.declare!(RunAdapter.GapTracker(bare))
-            )
-            @test !isempty(derived) && all(h.declared_at === missing for h in derived)
-            @test isempty(RunAdapter.declared_holes(bare; after = 1))
+            @test isempty(RunAdapter.declared_holes(bare))
+            @test isempty(RunAdapter.declared_holes(RunAdapter.FeedCursor(bare, :holes)))
         end
         # The descriptor names the run, the producer, and the products with
         # their hashes.
         descriptor = TOML.parsefile(joinpath(run_dir, "descriptor.toml"))
         @test descriptor["run_id"] == run_id && descriptor["mode"] == "tick"
-        @test descriptor["schema"] == "deepspacetelemetry-run/1"
+        @test descriptor["schema"] == "deepspacetelemetry-run/2"
         @test descriptor["points_per_batch"] == 2400 && descriptor["rng_seed"] == 1
         # The source identity of the snapshot, never without a tree hash.
         identity = TelemetryCore.source_identity()
@@ -228,19 +211,20 @@
         @test haskey(descriptor["products"], "holes.csv")
         @test descriptor["products"]["events_rx.csv"]["sha256"] ==
               bytes2hex(open(TelemetryCore.sha256, joinpath(run_dir, "events_rx.csv")))
-        # A run of a producer before the payload-row stamps is refused; one
-        # without a recorded version is opened with a warning.
+        # A run of a producer before the declared-hole feed (2.6.0) is refused
+        # by default; one without a recorded version is opened with a warning.
         old = joinpath(TelemetryCore.runs_root(), run_id * "_old")
         cp(run_dir, old)
         snapshot = joinpath(old, "config_snapshot.toml")
         text = read(snapshot, String)
         write(
             snapshot,
-            replace(text, r"package_version = \"[^\"]*\"" => "package_version = \"2.0.1\""),
+            replace(text, r"package_version = \"[^\"]*\"" => "package_version = \"2.5.0\""),
         )
         @test_throws ArgumentError RunAdapter.open_run(old)
-        @test RunAdapter.open_run(old; minimum_version = v"2.0.0").geometry.package_version ==
-              "2.0.1"
+        @test RunAdapter.MINIMUM_PRODUCER_VERSION == v"2.6.0"
+        @test RunAdapter.open_run(old; minimum_version = v"2.5.0").geometry.package_version ==
+              "2.5.0"
         write(snapshot, replace(text, r"\s*package_version = \"[^\"]*\"\n" => "\n"))
         @test (@test_logs (:warn, r"no producer version") RunAdapter.open_run(old)) isa
               RunAdapter.RunHandle
@@ -334,7 +318,6 @@ end
         :ArrivalEvent,
         :Hole,
         :FeedCursor,
-        :GapTracker,
         :MINIMUM_PRODUCER_VERSION,
         :open_run,
         :run_geometry,
@@ -348,8 +331,6 @@ end
         :delivered_rows,
         :markers,
         :label_spans,
-        :declare!,
-        :open_gaps,
         :declared_holes,
         :row_time,
         :time_row,

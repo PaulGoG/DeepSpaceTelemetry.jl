@@ -35,8 +35,7 @@ end
 end
 
 @testset "Supervisor policies (synthetic components)" begin
-    policy(p; restarts = 2) =
-        (on_component_failure = p, max_restarts = restarts, watchdog_sec = 30.0)
+    policy(p; restarts = 2) = (on_component_failure = p, max_restarts = restarts)
     new_clock() = TelemetryCore.TickClock(DateTime(2035), DateTime(2035) + Hour(1))
     events(dir) = TelemetryCore.read_table(joinpath(dir, "component_events.csv"))
     # A failing component errors after its first park; a healthy one parks
@@ -147,8 +146,6 @@ end
         cfg["telemetry"]["max_batches_per_hour"] = 1800.0
         cfg["post_processing"] = Dict{String,Any}(
             "generate_mask_timeline" => true,
-            "expand_to_pointwise_masks" => true,
-            "target_event_rows" => [-1],
             "session_figures" => false,
             "state_raster" => false,
         )
@@ -184,7 +181,6 @@ end
             @test isfile(joinpath(run_dir, "clock_anchor.toml"))
             @test isfile(joinpath(run_dir, "mission_profile.csv"))
             @test isfile(joinpath(run_dir, "masks", "telemetry_mask_timeline.csv"))
-            @test isfile(joinpath(run_dir, "masks", "pointwise_mask_final.csv"))
             @test filesize(joinpath(run_dir, "emitter.log")) > 0
             @test filesize(joinpath(run_dir, "receiver.log")) > 0
             @test occursin("[POST]", read(joinpath(run_dir, "supervisor.log"), String))
@@ -517,43 +513,6 @@ end
         # none; the per-segment cost that sets the run time is measured by the
         # physics/next_segment and io/batch_save_load benchmarks.
         @test count(==("ingested"), rx.Event) > 10
-        # The dependency-light standalone expander agrees with the library on
-        # the final row when the point total is the batch count times the
-        # points per batch, the rule the script applies.
-        physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
-        ppb = TelemetryCore.points_per_batch(physics)
-        n_batches = ncol(TelemetryCore.read_mask_timeline(run_dir)) - 1
-        lib_csv = joinpath(mktempdir(), "lib.csv")
-        script_csv = joinpath(mktempdir(), "script.csv")
-        Masks.expand_pointwise_mask(run_dir, n_batches * ppb, -1, lib_csv)
-        script = joinpath(
-            TelemetryCore.PROJECT_ROOT[],
-            "scripts",
-            "postprocessing",
-            "standalone_mask_expander.jl",
-        )
-        timeline = TelemetryCore.mask_timeline_path(run_dir)
-        run(
-            pipeline(
-                `$(Base.julia_cmd()) --project=$(Base.active_project()) $script $timeline $ppb -1 $script_csv`;
-                stdout = devnull,
-                stderr = devnull,
-            ),
-        )
-        lib = TelemetryCore.read_table(lib_csv)
-        standalone = TelemetryCore.read_table(script_csv)
-        @test names(lib) == names(standalone) == ["Time_Index", "Ground_Available"]
-        @test Int.(lib.Ground_Available) == Int.(standalone.Ground_Available)
-        @test Int.(lib.Time_Index) == Int.(standalone.Time_Index)
-        # Without a generation gap the final point-wise mask is 1 exactly on the
-        # delivered rows of the adapter, its replacement.
-        tx_smoke = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
-        @test !any(==("gap_start"), tx_smoke.Event)
-        available = falses(n_batches * ppb)
-        for r in RunAdapter.delivered_rows(RunAdapter.open_run(run_dir))
-            available[r] .= true
-        end
-        @test available == (lib.Ground_Available .== 1)
     finally
         rm(run_dir; recursive = true, force = true)
     end

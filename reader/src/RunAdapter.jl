@@ -8,10 +8,8 @@ file contract alone (the configuration snapshot, the batch directories,
 for an active run followed through its arrival feed and for a finished one
 replayed from it. [`open_run`](@ref) checks the producer's version against
 [`MINIMUM_PRODUCER_VERSION`](@ref); [`declared_holes`](@ref) reads the
-holes of the delivered record from the producer's feed, `holes.csv`, or
-derives them from the event logs for a run without one, with the rules of
-[`DeepSpaceTelemetry.Masks.gap_table`](@ref); [`GapTracker`](@ref) is the
-deprecated streaming form of that derivation. The contract is the Analysis
+holes of the delivered record from the producer's feed, `holes.csv`, and
+[`delivered_rows`](@ref) the rows on the ground at any instant. The contract is the Analysis
 Interfaces chapter of the manual; a consumer in another language reads the
 same files.
 """
@@ -29,7 +27,6 @@ public RunHandle,
     ArrivalEvent,
     Hole,
     FeedCursor,
-    GapTracker,
     MINIMUM_PRODUCER_VERSION,
     open_run,
     run_geometry,
@@ -43,8 +40,6 @@ public RunHandle,
     delivered_rows,
     markers,
     label_spans,
-    declare!,
-    open_gaps,
     declared_holes,
     row_time,
     time_row
@@ -52,14 +47,11 @@ public RunHandle,
 """
     MINIMUM_PRODUCER_VERSION
 
-The oldest producer whose runs the adapter opens by default: 2.1.0, the
-first to stamp `payload_row` into the batch metadata, so a batch's rows are
-exact across generation gaps and emitter restarts.
+The oldest producer whose runs the adapter opens by default: 2.6.0, the
+first to write the declared-hole feed `holes.csv` and `label_spans.csv`
+beside the `payload_row` stamps of the batch metadata (2.1.0).
 """
-const MINIMUM_PRODUCER_VERSION = v"2.1.0"
-
-# The `Batch` values of the generation-gap rows of `events_tx.csv`.
-const GAP_LABELS = ("STREAM", "SCHEDULED", "RECORDER")
+const MINIMUM_PRODUCER_VERSION = v"2.6.0"
 
 """
     RunGeometry
@@ -139,8 +131,7 @@ Opens a run by directory path or by run identifier (resolved under the
 data root). Throws an `ArgumentError` when the directory is not a run of
 this package (no `config_snapshot.toml`, no lifecycle sentinel), or when
 the producer's recorded version is older than `minimum_version`; a run
-that records no version is opened with a warning, and so is a run of a
-producer before 2.6.0, which 3.0 refuses by default.
+that records no version is opened with a warning.
 """
 function open_run(
     run::AbstractString;
@@ -173,12 +164,9 @@ function open_run(
         )
         version < minimum_version && throw(
             ArgumentError(
-                "[ADAPTER] $run_dir was produced by DeepSpaceTelemetry $version; the adapter needs $minimum_version or later (batch metadata with payload_row).",
+                "[ADAPTER] $run_dir was produced by DeepSpaceTelemetry $version; the adapter needs $minimum_version or later (the declared-hole feed holes.csv, label_spans.csv, payload_row stamps).",
             ),
         )
-        # 2.6.0 wrote the first holes.csv and label_spans.csv.
-        version < v"2.6.0" &&
-            @warn "[ADAPTER] $run_dir was produced by DeepSpaceTelemetry $version, before the declared-hole feed of 2.6.0; from 3.0 on such a run opens only with a lowered minimum_version."
     end
     start_sim = DateTime(sim["start_sim_time"])
     origin = TelemetryCore.payload_origin(cfg)
@@ -255,8 +243,7 @@ time_row(g::RunGeometry, t::DateTime) =
     batch_rows(run::RunHandle, stage::AbstractString, name::AbstractString) -> UnitRange{Int}
 
 The payload rows of the batch `name` under `<run_dir>/<stage>/`, from the
-`payload_row` stamp of its metadata, or from its index when the stamp is
-absent (a run before 2.1.0, which has no gap rows either).
+`payload_row` stamp of its metadata.
 """
 function batch_rows(run::RunHandle, stage::AbstractString, name::AbstractString)
     g = run.geometry
@@ -425,10 +412,10 @@ they are exact across generation gaps and emitter restarts. A pruned batch
 counts as delivered, as its delivery happened; [`list_batches`](@ref) tells
 which payloads are still readable.
 
-This replaces the point-wise masks (`masks/pointwise_mask_*.csv`), which
-place batch `k` at row `(k − 1) · points_per_batch + 1` and are therefore
-wrong after the first generation gap: on a run without one, the final
-point-wise mask is 1 exactly on these rows.
+It replaces the point-wise masks of 2.x (`masks/pointwise_mask_*.csv`,
+removed in 3.0), which placed batch `k` at row
+`(k − 1) · points_per_batch + 1` and were wrong after the first generation
+gap; on a run without one, the final mask was 1 exactly on these rows.
 """
 function delivered_rows(run::RunHandle; at::Union{DateTime,Nothing} = nothing)
     rows = UnitRange{Int}[]
@@ -456,21 +443,16 @@ end
 """
     markers(run::RunHandle) -> Vector{NamedTuple}
 
-The event markers of the run, `(label, time, row)`: the `PayloadRow` of
-`markers.csv` where the producer wrote it (2.5.0 and later), computed
-from the instant otherwise. Empty when the run declares none.
+The event markers of the run, `(label, time, row)`, from `markers.csv`.
+Empty when the run declares none.
 """
 function markers(run::RunHandle)
     path = joinpath(run.run_dir, "markers.csv")
     isfile(path) || return NamedTuple{(:label, :time, :row),Tuple{String,DateTime,Int}}[]
     table = TelemetryCore.read_table(path)
-    stamped = "PayloadRow" in names(table)
     return [
-        (
-            label = String(r.Label),
-            time = DateTime(r.SimTime),
-            row = stamped ? Int(r.PayloadRow) : time_row(run.geometry, DateTime(r.SimTime)),
-        ) for r in eachrow(table)
+        (label = String(r.Label), time = DateTime(r.SimTime), row = Int(r.PayloadRow)) for
+        r in eachrow(table)
     ]
 end
 
@@ -513,11 +495,9 @@ A declared hole of the delivered record: its `cause` (`:lost`, `:pruned`,
 `:undelivered`, `:not_generated`), the `batch` for a batch-level hole
 (`missing` for a generation gap or the unreached tail), its payload
 `rows`, the content interval `[content_start, content_end)`, and
-`declared_at`, the mission instant the producer declared the hole at
-(`missing` when the tracker or the fallback of [`declared_holes`](@ref)
-for a run without `holes.csv` derived it from the event logs).
+`declared_at`, the mission instant the producer declared the hole at.
 `Hole(cause, batch, rows, content_start, content_end)` builds a hole
-without a declaration instant.
+without a declaration instant (`missing`).
 """
 struct Hole
     cause::Symbol
@@ -536,136 +516,16 @@ Hole(
 ) = Hole(cause, batch, rows, content_start, content_end, missing)
 
 """
-    GapTracker(run::RunHandle)
-
-Deprecated since 2.7.0 and removed in 3.0: [`declared_holes`](@ref) reads
-the same holes from `holes.csv`, with their declaration instants, and
-derives them this way only for a run without the feed (producers before
-2.6.0).
-
-The streaming form of the gap table: a cursor over `events_rx.csv` and
-`events_tx.csv` that turns each new `lost` or `pruned` row into a
-[`Hole`](@ref) at once and each closed `gap_start` / `gap_end` pair into
-one, so a streaming consumer declares a permanent hole the moment the
-producer does rather than discovering it from the spacing of the content
-epochs. [`declare!`](@ref) returns the holes new since the last call;
-[`open_gaps`](@ref) lists the generation gaps that have opened and not
-closed. On a finished run one call declares the same lost, pruned, and
-generation-gap holes as [`DeepSpaceTelemetry.Masks.gap_table`](@ref), except
-a generation gap still open at run end, which `gap_table` closes at the
-mission end and the tracker leaves in `open_gaps`; the undelivered and
-unreached rows of that table are end-of-run categories a feed cannot
-announce.
-"""
-mutable struct GapTracker
-    const run::RunHandle
-    rx_cursor::Int
-    tx_cursor::Int
-    const open::Dict{String,DateTime}
-    const declared::Vector{Hole}
-end
-
-function GapTracker(run::RunHandle)
-    Base.depwarn(
-        "GapTracker is deprecated since 2.7.0; declared_holes reads holes.csv " *
-        "and derives the holes for runs without it.",
-        :GapTracker,
-    )
-    return gap_tracker(run)
-end
-
-# The tracker without the deprecation warning, for the fallback of `declared_holes`.
-gap_tracker(run::RunHandle) = GapTracker(run, 0, 0, Dict{String,DateTime}(), Hole[])
-
-"""
-    declare!(tracker::GapTracker) -> Vector{Hole}
-
-Reads the rows of both feeds beyond the tracker's cursors and returns the
-holes they declare, appending them to `tracker.declared`. Deprecated with
-[`GapTracker`](@ref) since 2.7.0.
-"""
-function declare!(tracker::GapTracker)
-    run = tracker.run
-    g = run.geometry
-    fresh = Hole[]
-    events = arrival_events(run; after = tracker.rx_cursor)
-    for e in events
-        e.event in (:lost, :pruned) || continue
-        rows = batch_rows(run, e.event === :lost ? "lost" : "ground", e.batch)
-        push!(
-            fresh,
-            Hole(
-                e.event,
-                e.batch,
-                rows,
-                row_time(g, first(rows)),
-                row_time(g, last(rows) + 1),
-            ),
-        )
-    end
-    tracker.rx_cursor += length(events)
-    tx_path = joinpath(run.run_dir, "events_tx.csv")
-    if isfile(tx_path)
-        table = TelemetryCore.read_table(tx_path)
-        if tracker.tx_cursor < nrow(table)
-            for r in eachrow(table[(tracker.tx_cursor+1):end, :])
-                label = String(r.Batch)
-                label in GAP_LABELS || continue
-                event = String(r.Event)
-                if event == "gap_start"
-                    haskey(tracker.open, label) ||
-                        (tracker.open[label] = DateTime(r.SimTime))
-                elseif event == "gap_end" && haskey(tracker.open, label)
-                    start = pop!(tracker.open, label)
-                    stop = DateTime(r.SimTime)
-                    rows = TelemetryCore.gap_hole_rows(
-                        g.payload_origin,
-                        g.sample_rate,
-                        start,
-                        stop,
-                    )
-                    isempty(rows) || push!(
-                        fresh,
-                        Hole(Symbol(lowercase(label)), missing, rows, start, stop),
-                    )
-                end
-            end
-            tracker.tx_cursor = nrow(table)
-        end
-    end
-    append!(tracker.declared, fresh)
-    return fresh
-end
-
-"""
-    open_gaps(tracker::GapTracker) -> Dict{String,DateTime}
-
-The generation gaps announced by a `gap_start` row and not yet closed,
-label => start instant: rows from that instant on are not being produced.
-Deprecated with [`GapTracker`](@ref) since 2.7.0.
-"""
-open_gaps(tracker::GapTracker) = copy(tracker.open)
-
-"""
     declared_holes(run::RunHandle; after::Integer = 0) -> Vector{Hole}
 
-The declared-hole feed `holes.csv` (2.6.0 and later) beyond its first
-`after` rows, each row a [`Hole`](@ref) with its `declared_at`: the
-file form of [`GapTracker`](@ref) for a consumer in any language, written
-by the producer as it declares each hole and settled with the end-of-run
-holes after the mission phase, so that on a finished run it holds the
-holes of `masks/gaps.csv`. For a run without the feed (producers before
-2.6.0) the holes are derived from the event logs as the tracker derives
-them, with `declared_at` `missing`, when `after` is 0; with `after`
-positive the result is then empty.
+The declared-hole feed `holes.csv` beyond its first `after` rows, each row
+a [`Hole`](@ref) with its `declared_at`. The producer appends a hole the
+moment it declares it and settles the feed with the end-of-run holes after
+the mission phase, so that on a finished run it holds the holes of
+`masks/gaps.csv`. Empty while no hole has been declared (the file appears
+with the first).
 """
 function declared_holes(run::RunHandle; after::Integer = 0)
-    if !isfile(joinpath(run.run_dir, "holes.csv"))
-        after == 0 || return Hole[]
-        tracker = gap_tracker(run)
-        declare!(tracker)
-        return tracker.declared
-    end
     table = TelemetryCore.read_hole_feed(run.run_dir; after = after)
     return Hole[declared_hole(r) for r in eachrow(table)]
 end
@@ -691,9 +551,7 @@ only the bytes appended since the previous call, so following a feed costs
 O(new rows) per poll, where the `after` forms re-read the whole file. A
 line still being written (no terminating newline yet) is left for the next
 call. No file handle is held between calls, and an absent file yields no
-rows until it appears. The `:holes` cursor of a run without `holes.csv`
-(producers before 2.6.0) yields nothing; [`declared_holes`](@ref) derives
-those holes from the event logs.
+rows until it appears.
 
 ```julia
 arrivals = RunAdapter.FeedCursor(run, :arrivals)

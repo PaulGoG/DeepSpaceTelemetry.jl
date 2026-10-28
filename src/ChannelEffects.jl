@@ -315,8 +315,7 @@ end
     build_disruption_timeline(cfg::AbstractDict, start_sim::DateTime) -> DisruptionTimeline
 
 Constructs the link-disruption timeline from the validated
-[`TelemetryCore.disruption_event_settings`](@ref) (the pre-1.0
-`[[disaster.events]]` section name is rejected); events with
+[`TelemetryCore.disruption_event_settings`](@ref); events with
 `affects = "generation"` belong to [`generation_gaps`](@ref) instead. Event
 `start_day` values are mission days relative to `start_sim`.
 """

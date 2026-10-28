@@ -9,15 +9,12 @@ const RUN_FILE_COUNT_SLACK = 8 # rotation backups and sentinels beyond the per-c
 """
     storage_budget(cfg::AbstractDict) -> (max_gb, max_files, max_ram_gb)
 
-Resolves the run-directory disk budget [GB] and inode budget from `[storage]`.
-The retired `simulation.max_storage_gb` is rejected with the replacement
-named; without the key the default of 5.0 GB applies.
+Resolves the run-directory disk budget [GB] and inode budget from `[storage]`;
+without the key the default of 5.0 GB applies.
 `max_ram_gb` (default 8.0) budgets the post-processing RAM: the replay and the figure stage.
 """
 function storage_budget(cfg::AbstractDict)
     st = get(cfg, "storage", Dict{String,Any}())
-    sim = get(cfg, "simulation", Dict{String,Any}())
-    reject_removed_key(sim, "simulation", "max_storage_gb")
     max_gb = checked_number(get(st, "max_storage_gb", 5.0), "storage.max_storage_gb")
     max_files =
         checked_integer(get(st, "max_file_count", 1_000_000), "storage.max_file_count")
@@ -72,13 +69,10 @@ end
 Closed-form per-class footprint of a run, from the configuration alone;
 counts that depend on stochastic outcomes are upper bounds. The classes are
 payload segment CSVs, batch metadata, event logs, metrics, the 2D mask
-timeline, point-wise expansions, the HDF5 export, plots (the session and
+timeline, the HDF5 export, plots (the session and
 summary figures and those of [`FIGURE_PRODUCTS`](@ref), each as PNG and
 PDF; the optional GIF is a manual product and is excluded), and text logs.
-The calibration constants are measured defaults
-([`STORAGE_CALIBRATION_DEFAULTS`](@ref)). Overriding them key-by-key from
-`[storage]` is deprecated since 2.7.0 and is removed in 3.0;
-[`validate_config`](@ref) warns when an override is present.
+The calibration constants are measured ([`STORAGE_CALIBRATION`](@ref)).
 
 Returns the counts `n_segments`, `n_batches`, `n_points`, `n_columns`
 (payload columns per segment file: one for a synthetic run, else the length
@@ -94,7 +88,6 @@ under the configured loss model. Metadata, event logs, metrics, masks, and
 function estimate_artifacts(cfg::AbstractDict)
     sim = get(cfg, "simulation", Dict{String,Any}())
     phy = get(cfg, "physics", Dict{String,Any}())
-    st = get(cfg, "storage", Dict{String,Any}())
 
     segment_duration_sec = checked_number(
         required_value(phy, "physics", "segment_duration_sec"),
@@ -113,8 +106,7 @@ function estimate_artifacts(cfg::AbstractDict)
     loss_enabled = loss.enabled
     retries = loss.enabled ? loss.max_retries : 0
 
-    cal =
-        key -> Float64(get(st, key, getproperty(STORAGE_CALIBRATION_DEFAULTS, Symbol(key))))
+    cal = key -> Float64(getproperty(STORAGE_CALIBRATION, Symbol(key)))
 
     sim_sec = mission_span_days(cfg) * 86_400.0
     total_sec_gen = sim_sec + downtime_days * 86_400.0
@@ -157,18 +149,10 @@ function estimate_artifacts(cfg::AbstractDict)
         do_matrix ?
         metrics_rows * (n_batches * cal("bytes_mask_cell") + MASK_ROW_OVERHEAD_BYTES) : 0.0
 
-    do_expand = post_processing.expand_to_pointwise_masks
-    target_rows = post_processing.target_event_rows
-    # Branch on the concrete type: the union contract admits any Symbol, so a
-    # type test narrows soundly where `=== :all` would not.
-    n_expansions =
-        do_expand ? (target_rows isa Vector{Int} ? length(target_rows) : metrics_rows) : 0
-    pointwise_bytes = n_expansions * n_points * cal("bytes_pointwise_cell")
     # HDF5 export: a second copy of the tabular products and masks (the
     # binary layout is denser than CSV; the CSV sizes bound it).
     hdf5_bytes =
-        post_processing.hdf5_export ?
-        event_bytes + metrics_bytes + mask_bytes + pointwise_bytes : 0.0
+        post_processing.hdf5_export ? event_bytes + metrics_bytes + mask_bytes : 0.0
 
     # Mission summary, the session figures, and one figure per enabled metric
     # or raster product. The same count sizes the plots directory and enters
@@ -189,8 +173,7 @@ function estimate_artifacts(cfg::AbstractDict)
     # Post-processing replay RAM: the exact replay materializes one category
     # membership per (metrics row x batch); the GIF is a manual product and
     # is excluded, matching the plots policy above.
-    replay_ram_bytes =
-        (do_matrix || do_expand) ? metrics_rows * n_batches * cal("bytes_replay_cell") : 0.0
+    replay_ram_bytes = do_matrix ? metrics_rows * n_batches * cal("bytes_replay_cell") : 0.0
     # Figure stage: every figure is released after saving, so the stage
     # holds one raster at a time plus the plot vertices of the mission
     # summary. These scale with the realized metrics rows: at most three per
@@ -204,7 +187,6 @@ function estimate_artifacts(cfg::AbstractDict)
         event_bytes +
         metrics_bytes +
         mask_bytes +
-        pointwise_bytes +
         hdf5_bytes +
         plot_bytes +
         log_bytes
@@ -214,7 +196,6 @@ function estimate_artifacts(cfg::AbstractDict)
         2 + # event logs
         1 + # mission profile
         (do_matrix ? 1 : 0) +
-        n_expansions +
         2 * n_figures + # PNG and PDF
         (hdf5_bytes > 0 ? 1 : 0) +
         3 + # emitter, receiver, and supervisor logs
@@ -256,7 +237,6 @@ function estimate_artifacts(cfg::AbstractDict)
         metrics_bytes = metrics_bytes,
         hdf5_bytes = hdf5_bytes,
         mask_bytes = mask_bytes,
-        pointwise_bytes = pointwise_bytes,
         plot_bytes = plot_bytes,
         log_bytes = log_bytes,
         total_bytes = total_bytes,
@@ -315,8 +295,6 @@ function check_storage_limits(cfg::AbstractDict)
     @info "  -> Event logs:           $(to_gb(est.event_bytes)) GB"
     @info "  -> Metrics profile:      $(to_gb(est.metrics_bytes)) GB (≤ $(est.metrics_rows) rows)"
     est.mask_bytes > 0 && @info "  -> Mask timeline:        $(to_gb(est.mask_bytes)) GB"
-    est.pointwise_bytes > 0 &&
-        @info "  -> Point-wise masks:     $(to_gb(est.pointwise_bytes)) GB"
     @info "  -> Plots:                $(to_gb(est.plot_bytes)) GB"
     @info "  -> Logs:                 $(to_gb(est.log_bytes)) GB"
     @info "  -> Total:                $(to_gb(est.total_bytes)) GB, ≈ $(est.file_count) files (budget: $(budget.max_gb) GB, $(budget.max_files) files)"

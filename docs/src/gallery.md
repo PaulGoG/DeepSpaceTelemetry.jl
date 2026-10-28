@@ -219,7 +219,8 @@ nothing.
 ![Batch-state raster of the drop-policy scenario: lost batches as vermilion columns inside the delivered blocks](assets/gallery/drop_policy_state_raster.png)
 
 In the raster the lost batches are the vermilion columns scattered through
-the delivered blocks: mask state 4, which the point-wise masks keep blanked.
+the delivered blocks: mask state 4, rows that `RunAdapter.delivered_rows`
+leaves out.
 
 ## Explicit Pass Schedule
 

@@ -23,8 +23,7 @@ using TOML: TOML
     FIGURE_FREE_POST_PROCESSING
 
 The post-processing switches a sweep run sets: no mask timeline, no
-batch-state raster or session figures, no HDF5 export. The deprecated
-point-wise mask keys are removed, which leaves the expansion off.
+batch-state raster or session figures, no HDF5 export.
 The publication export is switched off by [`sweep_configuration`](@ref),
 and [`run_one`](@ref) runs the mission with `figures = false`, so no figure
 is drawn. The gap table and the metrology tables, which the summary reads,
@@ -100,8 +99,6 @@ function sweep_configuration(
     for (key, value) in FIGURE_FREE_POST_PROCESSING
         post[key] = value
     end
-    delete!(post, "expand_to_pointwise_masks")
-    delete!(post, "target_event_rows")
     publication = get!(Dict{String,Any}, post, "publication")
     publication["enabled"] = false
     return out
@@ -130,9 +127,7 @@ and the hole count of `masks/gaps.csv`. A product that is absent leaves its
 fields `missing`.
 """
 function summarize_run(run_dir::String)
-    profile = TelemetryCore.normalize_profile!(
-        TelemetryCore.read_table(joinpath(run_dir, "mission_profile.csv")),
-    )
+    profile = TelemetryCore.read_table(joinpath(run_dir, "mission_profile.csv"))
     last = profile[end, :]
     generated = within = missing
     delay_path = joinpath(run_dir, "delivery_delay.csv")

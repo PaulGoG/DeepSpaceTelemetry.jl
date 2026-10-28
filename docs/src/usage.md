@@ -115,7 +115,7 @@ duration_hours = 0.25       # no data produced for 15 min; severity/recovery/los
 ```
 
 The on-board recorder is bounded by `[telemetry] onboard_capacity_days`
-(default 14; `[storage]` up to 2.10, still read with a warning until 3.0): once the buffer holds that many days of production, new
+(default 14): once the buffer holds that many days of production, new
 batches are discarded until room returns (no eviction), and the loss is
 recorded as a `RECORDER` gap in the transmit event log.
 
@@ -236,8 +236,7 @@ project (serial without it); on the tick clock the runs are independent
 of the host's load, so parallel runs do not distort each other. Every
 `--set section.key=value` applies to all runs, parsed as TOML would parse
 the value. The runs land under `data/runs/<PREFIX>_seed<seed>/` with
-their post-processing reduced to tables (no figures, no point-wise masks,
-no mask timeline; the gap table and the metrology tables are written), and
+their post-processing reduced to tables (no figures, no mask timeline; the gap table and the metrology tables are written), and
 `data/sweeps/<PREFIX>/` receives `summary.csv` — one row per run: seed,
 generated and delivered counts, live and archive, lost, retries, the
 buffer and link at the end, the share within the delivery requirement, the
@@ -254,16 +253,6 @@ After a run, post-processing writes `masks/telemetry_mask_timeline.csv`, a 2D ma
 Post-processing reads the run's own `config_snapshot.toml`; a run whose snapshot is missing or unparsable is refused with a `[CONFIG]` error rather than re-parametrized from the package's `config.toml`.
 
 Before any figure, post-processing writes the gap table `masks/gaps.csv`. It lists every hole of the delivered record as a payload-row interval with its cause: a lost or pruned batch, a batch undelivered at run end, a generation gap by type (`stream`, `scheduled`, `recorder`), or the unreached tail of an external record. A gap-aware analysis takes it as its declared input (Stationary Analysis in the Analysis Interfaces page), and `Masks.gap_table(run_dir)` computes it for a run made before the product existed. The declared-hole feed `holes.csv`, appended during the run as each hole is declared, is settled from the gap table here: the end-of-run holes are appended with the nominal mission end as their declaration instant, so the feed and the table agree on a finished run. The label-span table `label_spans.csv` is written at mission start and regenerated here only when a run lacks it. Last, post-processing writes `descriptor.toml`, the run's identity for a downstream collection: producer version and source identity (tree hash and commit, also for a copy installed by Pkg), configuration hash, seed, clock mode, payload geometry, and the size and SHA-256 of every table present.
-
-The point-wise masks below are deprecated since 2.11.0 and removed in 3.0: they place batch `k` at row `(k − 1) · points_per_batch + 1` and are wrong after the first generation gap. `RunAdapter.delivered_rows(run; at)` gives the delivered payload rows at any mission instant, exact across gaps.
-
-One matrix row expands into a high-resolution point-wise 0/1 availability array (multiplied against the raw time series, it blanks out undelivered data):
-```bash
-julia scripts/postprocessing/apply_telemetry_mask.jl <RUN_ID> <total_points> <event_row_index> <output.csv>
-```
-`event_row_index = -1` selects the final snapshot. To automate this after every run, set `expand_to_pointwise_masks = true` in `config.toml` and list the rows in `target_event_rows` (accepts `"all"`, integers with `-1` for the last row, and `"start:stop"` range strings).
-
-External collaborators without this repository can use the dependency-light copy `scripts/postprocessing/standalone_mask_expander.jl`, which needs only `CSV` and `DataFrames`.
 
 With `hdf5_export = true` in `[post_processing]` every product — event logs, metrics, masks, metrology tables, markers — is additionally written to `products.h5` with the run's provenance as attributes (layout in the Analysis Interfaces page); the same file can be produced afterward for any run:
 ```bash
@@ -329,8 +318,8 @@ with one common power of ten (`10⁴`, `2×10⁴`, …).
 The post-processing writes its products in order of cost: the gap table,
 the settled hole feed and the label spans, the metrology tables, then the
 alert-latency and delivery-delay figures, the mask timeline and the raster
-drawn from it, the mission summary and the session figures, the point-wise
-masks, the exports, and the run descriptor last. A run whose supervisor process was
+drawn from it, the mission summary and the session figures, the exports,
+and the run descriptor last. A run whose supervisor process was
 killed during that stage is completed with
 `scripts/postprocessing/complete_run.jl` (Analysis Interfaces, lifecycle
 sentinels).

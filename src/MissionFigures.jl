@@ -1649,7 +1649,7 @@ function generate_mission_plots(
         @warn "[POST] mission_profile.csv missing in $run_dir — the receiver produced no metrics (component never ran?); skipping this product."
         return paths
     end
-    df = TelemetryCore.normalize_profile!(TelemetryCore.read_table(log_path))
+    df = TelemetryCore.read_table(log_path)
     isempty(df) && return paths
 
     cfg = TelemetryCore.load_run_config(run_dir)

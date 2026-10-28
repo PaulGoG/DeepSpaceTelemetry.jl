@@ -9,6 +9,5 @@ DeepSpaceTelemetry.Export.ensure_group
 DeepSpaceTelemetry.Export.write_column!
 DeepSpaceTelemetry.Export.write_table!
 DeepSpaceTelemetry.Export.write_mask_timeline!
-DeepSpaceTelemetry.Export.write_pointwise_masks!
 DeepSpaceTelemetry.Export.write_provenance!
 ```

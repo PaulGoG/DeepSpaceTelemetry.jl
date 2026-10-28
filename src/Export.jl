@@ -154,27 +154,6 @@ function write_mask_timeline!(file::HDF5.File, run_dir::String, epoch::DateTime)
 end
 
 """
-    write_pointwise_masks!(file::HDF5.File, run_dir::String)
-
-Every `masks/pointwise_mask_*.csv` expansion as
-`masks/pointwise/<stem>/Ground_Available` (`Int8` 0/1 per sample, sample
-`k` at index `k`).
-"""
-function write_pointwise_masks!(file::HDF5.File, run_dir::String)
-    masks_dir = joinpath(run_dir, "masks")
-    isdir(masks_dir) || return nothing
-    for f in sort!(filter(startswith("pointwise_mask_"), readdir(masks_dir)))
-        endswith(f, ".csv") || continue
-        df = TelemetryCore.read_table(joinpath(masks_dir, f))
-        hasproperty(df, :Ground_Available) || continue
-        g = ensure_group(file, "masks/pointwise/" * splitext(f)[1])
-        HDF5.write_attribute(g, "source", joinpath("masks", f))
-        g["Ground_Available"] = Int8.(df.Ground_Available)
-    end
-    return nothing
-end
-
-"""
     write_provenance!(file::HDF5.File, run_dir::String, cfg::AbstractDict, epoch::DateTime; config_source)
 
 Root attributes: `format_version`, `run_id`, `start_sim_time`, `speed_up`,
@@ -220,8 +199,8 @@ end
 Writes the run's products into one HDF5 file (default
 `<run_dir>/products.h5`, an existing file is rotated to `products#k.h5`):
 the tabular products of [`TABLE_PRODUCTS`](@ref) as column datasets, the
-batch-state timeline ([`write_mask_timeline!`](@ref)), the point-wise
-masks ([`write_pointwise_masks!`](@ref)), and the provenance attributes
+batch-state timeline ([`write_mask_timeline!`](@ref)), and the provenance
+attributes
 ([`write_provenance!`](@ref)). Times are seconds since the run's
 `start_sim_time` with ISO-8601 twins. Returns the file path.
 """
@@ -244,11 +223,9 @@ function export_hdf5(run_dir::String; path::String = joinpath(run_dir, "products
             csv = joinpath(run_dir, rel)
             isfile(csv) || continue
             df = TelemetryCore.read_table(csv)
-            rel == "mission_profile.csv" && TelemetryCore.normalize_profile!(df)
             write_table!(file, group, df, epoch, rel)
         end
         write_mask_timeline!(file, run_dir, epoch)
-        write_pointwise_masks!(file, run_dir)
     end
     @info "[POST] HDF5 product export saved: $(relpath(path, run_dir))"
     return path

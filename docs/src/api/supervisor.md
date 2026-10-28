@@ -18,7 +18,6 @@ DeepSpaceTelemetry.Supervisor.component_spawners
 DeepSpaceTelemetry.Supervisor.TIMELINE_PRODUCTS
 DeepSpaceTelemetry.Supervisor.render_products!
 DeepSpaceTelemetry.Supervisor.post_process!
-DeepSpaceTelemetry.Supervisor.expand_pointwise_masks!
 DeepSpaceTelemetry.Supervisor.post_processing_plan
 DeepSpaceTelemetry.Supervisor.STRANDED_IDLE_SEC
 DeepSpaceTelemetry.Supervisor.mission_ended

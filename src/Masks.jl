@@ -225,7 +225,7 @@ function generate_telemetry_masks(run_dir::String)
         return
     end
 
-    df = TelemetryCore.normalize_profile!(TelemetryCore.read_table(log_path))
+    df = TelemetryCore.read_table(log_path)
     if isempty(df)
         return
     end
@@ -325,8 +325,7 @@ a batch-level hole, `missing` for a generation gap or the unreached tail),
 `RowFirst` and `RowLast` (payload rows, inclusive), and `ContentStart`,
 `ContentEnd` (the content interval `[ContentStart, ContentEnd)`), sorted
 by `RowFirst`. Batch rows come from the `payload_row` stamp of the batch
-metadata, or from the batch index when the stamp is absent (runs before
-2.1.0, which have no gap rows either); generation gaps from the
+metadata; generation gaps from the
 `gap_start` / `gap_end` pairs of `events_tx.csv`, a gap left open at run
 end closed at the mission's end; the unreached tail from
 `external_data_rows` of the snapshot. The rows of the table and the rows
@@ -576,55 +575,6 @@ function write_label_spans(run_dir::String)
     TelemetryCore.safe_csv_write(path, table)
     @info "[POST] Label spans saved: label_spans.csv ($(nrow(table)) spans)."
     return path
-end
-
-"""
-    expand_pointwise_mask(run_dir, total_points, event_idx, output_path) -> Int
-
-Expands one row of `masks/telemetry_mask_timeline.csv` (`event_idx`; `-1`
-selects the final snapshot) into a point-wise 0/1 availability array of
-`total_points` samples, 1 where the owning batch is on the ground (state 3)
-and 0 in states 0 (future), 1 (onboard), 2 (link), and 4 (lost), and writes
-it as `Time_Index, Ground_Available` to `output_path` (with `safe_csv_write`
-rotation). Batch `k` owns the samples from `(k − 1) · points_per_batch + 1`,
-points per batch following the run's own configuration snapshot. Returns the
-number of available points; throws an `ArgumentError` when the mask file is
-absent or `event_idx` lies outside the timeline.
-"""
-function expand_pointwise_mask(
-    run_dir::String,
-    total_points::Int,
-    event_idx::Int,
-    output_path::String,
-)
-    mask_path = TelemetryCore.mask_timeline_path(run_dir)
-    isfile(mask_path) ||
-        throw(ArgumentError("[POST] Telemetry mask not found at: $mask_path"))
-    physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
-    points_per_batch = TelemetryCore.points_per_batch(physics)
-    mask_df = TelemetryCore.read_mask_timeline(run_dir)
-    target_idx = event_idx == -1 ? nrow(mask_df) : event_idx
-    1 <= target_idx <= nrow(mask_df) || throw(
-        ArgumentError(
-            "[POST] Event index $target_idx is out of bounds: the timeline has $(nrow(mask_df)) events.",
-        ),
-    )
-    event_row = mask_df[target_idx, :]
-    @info "[POST] Expanding mask row $target_idx ($(event_row.SimTime)) to $total_points points ($points_per_batch per batch)."
-    point_mask = zeros(Int8, total_points)
-    for (batch_index, status) in enumerate(Vector(event_row[2:end]))
-        status == 3 || continue
-        start_idx = (batch_index - 1) * points_per_batch + 1
-        start_idx <= total_points || continue
-        point_mask[start_idx:min(start_idx+points_per_batch-1, total_points)] .= 1
-    end
-    TelemetryCore.safe_csv_write(
-        output_path,
-        DataFrame(Time_Index = 1:total_points, Ground_Available = point_mask),
-    )
-    available = count(==(1), point_mask)
-    @info "[POST] Point-wise mask saved to $output_path: $available of $total_points points available on the ground ($(round(100 * available / total_points, digits = 2)) %)."
-    return available
 end
 
 end # module Masks

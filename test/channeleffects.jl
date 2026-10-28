@@ -101,15 +101,6 @@ end
     @test isapprox(ChannelEffects.disruption_factor(tl2, start + Hour(6)), 0.6, atol = 1e-9)
     @test ChannelEffects.active_disruption_label(tl2, start + Hour(6)) == ""
 
-    # The retired [disaster] section name is rejected, not read through a fallback.
-    legacy = Dict{String,Any}(
-        "disaster" => Dict{String,Any}(
-            "events" =>
-                [Dict{String,Any}("start_day" => 0.0, "duration_hours" => 12.0)],
-        ),
-    )
-    @test_throws ArgumentError ChannelEffects.build_disruption_timeline(legacy, start)
-
     # Empty timeline is a no-op
     @test ChannelEffects.disruption_factor(ChannelEffects.DisruptionTimeline(), start) ==
           1.0

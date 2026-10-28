@@ -207,8 +207,8 @@ end
 
 The entry of the manifest file `manifest` for the package whose project file
 lies at `root`, matched by name and UUID, or `nothing` when either file or
-the entry is absent. Reads both the current manifest format (`[[deps.Name]]`)
-and the format before Julia 1.7 (`[[Name]]`).
+the entry is absent. Reads the manifest format of Julia 1.7 and later
+(`[[deps.Name]]`); an older manifest yields `nothing`.
 """
 function manifest_entry(root::AbstractString, manifest::Union{AbstractString,Nothing})
     manifest === nothing && return nothing
@@ -220,8 +220,8 @@ function manifest_entry(root::AbstractString, manifest::Union{AbstractString,Not
     uuid = tryparse(Base.UUID, string(get(project, "uuid", "")))
     (name isa String && uuid !== nothing) || return nothing
     content = TOML.parsefile(manifest)
-    deps = haskey(content, "manifest_format") ? get(content, "deps", Dict()) : content
-    for entry in get(deps, name, Any[])
+    haskey(content, "manifest_format") || return nothing
+    for entry in get(get(content, "deps", Dict()), name, Any[])
         entry isa Dict{String,Any} || continue
         tryparse(Base.UUID, string(get(entry, "uuid", ""))) == uuid && return entry
     end

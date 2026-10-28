@@ -28,8 +28,10 @@ Errors:
     `retention.high_watermark_gb` above the storage budget
   - `data_source = "external"` with a missing file or with an
     `external_data_columns` entry absent from its header
-  - the retired keys of `REMOVED_CONFIG_KEYS` and the `[disaster]` section,
-    rejected with the replacement named
+  - the retired keys of `REMOVED_CONFIG_KEYS`, rejected with the
+    replacement named (in 3.0: the point-wise mask keys,
+    `supervision.watchdog_sec`, the `storage.bytes_*` calibration, and
+    `storage.onboard_capacity_days`, now `telemetry.onboard_capacity_days`)
 
 Warnings:
   - the rate pair with a shaped `bandwidth_profile` (the profile mean scales
@@ -50,15 +52,9 @@ Warnings:
     (the raster is drawn from the mask timeline and is skipped)
   - unrecognized sections and keys, which would otherwise fall back to
     their defaults unnoticed
-  - keys removed in 3.0, whose values still apply: the `storage.bytes_*`
-    calibration, `post_processing.expand_to_pointwise_masks` and
-    `target_event_rows`, `supervision.watchdog_sec` (no effect since 2.8.0),
-    and `storage.onboard_capacity_days` (moved to `[telemetry]`; both
-    places together are an error)
 """
 function validate_config(cfg::AbstractDict)
     # Retired keys first, so that the typo sweep below sees only live keys.
-    reject_removed_section(cfg)
     for (section, key) in keys(REMOVED_CONFIG_KEYS)
         content = get(cfg, section, nothing)
         content isa AbstractDict && reject_removed_key(content, section, key)
@@ -104,33 +100,6 @@ function validate_config(cfg::AbstractDict)
                 key in known ||
                     @warn "[CONFIG] Unrecognized key contacts.$list[$i].$key — ignored."
             end
-        end
-    end
-    # Keys retired in 3.0, one warning each per call; the values given still apply.
-    post_section = get(cfg, "post_processing", Dict{String,Any}())
-    pointwise = [
-        key for key in ("expand_to_pointwise_masks", "target_event_rows") if
-        post_section isa AbstractDict && haskey(post_section, key)
-    ]
-    isempty(pointwise) ||
-        @warn "[CONFIG] post_processing.expand_to_pointwise_masks and target_event_rows are deprecated since 2.11.0 and removed in 3.0 with the point-wise mask product, which places batches by position and is wrong after a generation gap. RunAdapter.delivered_rows gives the delivered payload rows at any mission instant." keys =
-            pointwise
-    supervision_section = get(cfg, "supervision", Dict{String,Any}())
-    supervision_section isa AbstractDict &&
-        haskey(supervision_section, "watchdog_sec") &&
-        @warn "[CONFIG] supervision.watchdog_sec has had no effect since 2.8.0 and is removed in 3.0."
-    onboard_capacity_section(cfg) == "storage" &&
-        @warn "[CONFIG] storage.onboard_capacity_days has moved to telemetry.onboard_capacity_days; the old place is removed in 3.0. The value given still applies."
-    # Deprecated estimator-calibration overrides in [storage], one warning per call.
-    storage_section = get(cfg, "storage", Dict{String,Any}())
-    if storage_section isa AbstractDict
-        present = [
-            String(k) for k in keys(STORAGE_CALIBRATION_DEFAULTS) if
-            haskey(storage_section, String(k))
-        ]
-        if !isempty(present)
-            @warn "[CONFIG] The storage.bytes_* keys are deprecated since 2.7.0 and will be removed in 3.0: the artifact estimate is implementation calibration, not configuration. The values given are still applied." keys =
-                present
         end
     end
 
@@ -316,11 +285,7 @@ function validate_config(cfg::AbstractDict)
 
     # -- [storage] --
     st = get(cfg, "storage", Dict{String,Any}())
-    for key in (
-        "max_storage_gb",
-        "max_ram_gb",
-        String.(collect(keys(STORAGE_CALIBRATION_DEFAULTS)))...,
-    )
+    for key in ("max_storage_gb", "max_ram_gb")
         if haskey(st, key)
             v = checked_number(st[key], "storage.$key")
             v > 0.0 || config_error("[CONFIG] storage.$key must be > 0 (got $v).")

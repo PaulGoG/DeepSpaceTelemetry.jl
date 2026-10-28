@@ -107,7 +107,7 @@ end
 
 Batch name → payload row of the first sample for every batch directory
 under `onboard/`, `link/`, `ground/`, and `lost/` whose `metadata.json`
-records a `payload_row` (batches written before 2.1.0 are omitted).
+records a `payload_row`.
 """
 function batch_payload_rows(run_dir::String)
     return batch_metadata_values(

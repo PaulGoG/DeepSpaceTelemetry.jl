@@ -146,13 +146,18 @@ end
     )
     id = TelemetryCore.source_identity(copy; manifest = manifest)
     @test id.git_commit == "" && id.repo_rev == "main" && id.git_tree_sha1 == content
-    # From a registry, in the manifest format before Julia 1.7.
+    # A manifest in the format before Julia 1.7 is not read: the directory's
+    # own hash identifies the copy.
     write_manifest(
         manifest,
         uuid,
         Dict{String,Any}("git-tree-sha1" => content);
         format = "1.0",
     )
+    id = TelemetryCore.source_identity(copy; manifest = manifest)
+    @test id.identity_source == "directory" && id.git_tree_sha1 == content
+    # From a registry.
+    write_manifest(manifest, uuid, Dict{String,Any}("git-tree-sha1" => content))
     id = TelemetryCore.source_identity(copy; manifest = manifest)
     @test id.identity_source == "manifest" && id.git_commit == "" && id.repo_url == ""
     @test id.git_tree_sha1 == content && !id.git_dirty

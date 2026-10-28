@@ -94,14 +94,6 @@ failure on that shape before falling back to one task anyway.
 """
 read_mask_timeline(run_dir::String) = read_table(mask_timeline_path(run_dir); ntasks = 1)
 
-"""
-    mask_timeline_rows(run_dir::String) -> Int
-
-Number of event snapshots in the batch-state timeline: the line count of
-the CSV less its header, without parsing the wide rows.
-"""
-mask_timeline_rows(run_dir::String) = countlines(mask_timeline_path(run_dir)) - 1
-
 # --- Checked config coercions ---
 """
     checked_number(v, name::String) -> Float64
@@ -170,76 +162,23 @@ required_value(section::AbstractDict, sec_name::String, key::String) =
     haskey(section, key) ? section[key] :
     config_error("[CONFIG] Missing required key $sec_name.$key.")
 
-"""
-    normalize_target_rows(raw) -> Union{Symbol, Vector{Int}}
-
-Parses the `post_processing.target_event_rows` configuration entry into a
-canonical form. Accepts the bare string `"all"`, or an array mixing integer row
-indices (`-1` meaning the final row), `"start:stop"` range strings, and the
-string `"all"`. Returns the symbol `:all` when every row is requested,
-otherwise a sorted vector of unique row indices. Unrecognized entries are
-skipped with a warning.
-
-# Examples
-```jldoctest
-julia> TelemetryCore.normalize_target_rows("all")
-:all
-
-julia> TelemetryCore.normalize_target_rows([3, "1:2", 3, -1])
-4-element Vector{Int64}:
- -1
-  1
-  2
-  3
-```
-"""
-function normalize_target_rows(raw)
-    raw == "all" && return :all
-    rows = Int[]
-    if raw isa AbstractArray
-        for item in raw
-            if item == "all"
-                return :all
-            elseif item isa Integer
-                push!(rows, Int(item))
-            elseif item isa AbstractString && occursin(":", item)
-                parts = split(item, ":")
-                start_idx = length(parts) == 2 ? tryparse(Int, parts[1]) : nothing
-                end_idx = length(parts) == 2 ? tryparse(Int, parts[2]) : nothing
-                if start_idx !== nothing && end_idx !== nothing && start_idx <= end_idx
-                    append!(rows, start_idx:end_idx)
-                else
-                    @warn "[CONFIG] Ignoring malformed target_event_rows range: $item"
-                end
-            else
-                @warn "[CONFIG] Ignoring unrecognized target_event_rows entry: $item"
-            end
-        end
-    else
-        @warn "[CONFIG] Unrecognized target_event_rows value: $raw (expected \"all\" or an array)"
-    end
-    return sort!(unique!(rows))
-end
-
 # --- Configuration schema ---
 """
-    STORAGE_CALIBRATION_DEFAULTS
+    STORAGE_CALIBRATION
 
 Measured calibration constants of [`estimate_artifacts`](@ref): per-artifact
 disk sizes [bytes], and the RAM of the replay (`bytes_replay_cell`, per
 metrics row × batch membership) and of the figure stage
-(`bytes_figure_stage`, `bytes_figure_row`). A `[storage]` key of the same
-name still overrides a constant, but that override is deprecated since 2.7.0
-and is removed in 3.0; [`validate_config`](@ref) warns when one is present.
+(`bytes_figure_stage`, `bytes_figure_row`). Implementation calibration, not
+configuration: the `[storage]` overrides of these names were removed in 3.0.
 """
-const STORAGE_CALIBRATION_DEFAULTS = (
+const STORAGE_CALIBRATION = (
     bytes_per_sample = 15.0,      # one Float32 CSV value + newline (external series)
     bytes_per_flag_sample = 4.0,  # one 0.0/1.0 CSV value + newline (synthetic flag series)
     bytes_batch_metadata = 96.0,  # metadata.json
     bytes_event_row = 64.0,       # events_tx/rx.csv row
     bytes_metrics_row = 160.0,    # mission_profile.csv row
     bytes_mask_cell = 4.0,        # mask-timeline cell (digit + separator)
-    bytes_pointwise_cell = 10.0,  # point-wise expansion row
     bytes_plot = 1.2e6,           # one PNG at px_per_unit = 4 (measured maximum 1.07 MB)
     bytes_plot_pdf = 100_000.0,   # vector PDF twin of one figure
     bytes_replay_cell = 12.0,     # replay RAM per (row x batch) membership
@@ -318,10 +257,7 @@ const KNOWN_CONFIG_KEYS = Dict(
         "initial_downtime_days",
         "rng_seed",
     ],
-    "storage" => vcat(
-        ["max_storage_gb", "max_file_count", "max_ram_gb", "onboard_capacity_days"],
-        String.(collect(keys(STORAGE_CALIBRATION_DEFAULTS))),
-    ),
+    "storage" => ["max_storage_gb", "max_file_count", "max_ram_gb"],
     "retention" => ["enabled", "grace_hours", "high_watermark_gb", "log_rotate_mb"],
     "telemetry" => [
         "session_start",
@@ -366,8 +302,6 @@ const KNOWN_CONFIG_KEYS = Dict(
     "post_processing" => vcat(
         [
             "generate_mask_timeline",
-            "expand_to_pointwise_masks",
-            "target_event_rows",
             "alert_lookback_hours",
             "delivery_requirement_hours",
             "hdf5_export",
@@ -393,7 +327,7 @@ const KNOWN_CONFIG_KEYS = Dict(
     "provenance" => String[], # pipeline-generated; free-form by design
     "payload" => String[], # payload-exporter provenance; free-form by design
     "labels" => KNOWN_LABEL_KEYS,
-    "supervision" => ["on_component_failure", "max_restarts", "watchdog_sec"],
+    "supervision" => ["on_component_failure", "max_restarts"],
 )
 const FREE_FORM_SECTIONS = ("provenance", "payload")
 const KNOWN_EVENT_KEYS = [
@@ -421,15 +355,11 @@ const KNOWN_CONTACT_ENTRY_KEYS = Dict(
 )
 
 # --- Retired configuration keys ---
-# (section, key) => (version of removal, remedy). A live configuration that
-# carries one is rejected with the remedy named, not read through a fallback.
+# (section, key) => (version of removal, remedy). validate_config rejects a
+# live configuration that carries one, with the remedy named. The accessors
+# do not: the snapshots of earlier runs still hold these keys and are read,
+# not validated.
 const REMOVED_CONFIG_KEYS = Dict(
-    ("simulation", "test_duration_sec") =>
-        ("1.0.0", "use simulation.mission_wall_seconds"),
-    ("simulation", "max_storage_gb") => ("1.0.0", "use storage.max_storage_gb"),
-    ("physics", "signal_injection_probability") => ("1.0.0", "use [[events.markers]]"),
-    ("post_processing", "generate_batch_matrix") =>
-        ("1.0.0", "use post_processing.generate_mask_timeline"),
     ("physics", "confusion_observation_years") => (
         "2.0.0",
         "delete the key: the synthetic payload is the binary flag series of [[events.markers]]",
@@ -440,6 +370,24 @@ const REMOVED_CONFIG_KEYS = Dict(
     ),
     ("post_processing", "payload_spectrum") =>
         ("2.0.0", "delete the key: the payload-spectrum figure was removed"),
+    ("post_processing", "expand_to_pointwise_masks") => (
+        "3.0.0",
+        "delete the key: the point-wise masks were removed, RunAdapter.delivered_rows gives the delivered rows",
+    ),
+    ("post_processing", "target_event_rows") => (
+        "3.0.0",
+        "delete the key: the point-wise masks were removed, RunAdapter.delivered_rows gives the delivered rows",
+    ),
+    ("supervision", "watchdog_sec") =>
+        ("3.0.0", "delete the key: it has had no effect since 2.8.0"),
+    ("storage", "onboard_capacity_days") =>
+        ("3.0.0", "move it to telemetry.onboard_capacity_days"),
+    (
+        ("storage", key) => (
+            "3.0.0",
+            "delete the key: the artifact estimate is implementation calibration, not configuration",
+        ) for key in (String.(keys(STORAGE_CALIBRATION))..., "bytes_pointwise_cell")
+    )...,
 )
 
 """
@@ -447,8 +395,8 @@ const REMOVED_CONFIG_KEYS = Dict(
 
 Raises a `[CONFIG]` `ArgumentError` naming the replacement when `section`
 still carries `key`, a retired configuration key
-(`REMOVED_CONFIG_KEYS`); returns `nothing` otherwise. Called by the
-accessors of the affected sections and by [`validate_config`](@ref).
+(`REMOVED_CONFIG_KEYS`); returns `nothing` otherwise. Called by
+[`validate_config`](@ref).
 """
 function reject_removed_key(section::AbstractDict, sec_name::String, key::String)
     haskey(section, key) || return nothing
@@ -456,27 +404,11 @@ function reject_removed_key(section::AbstractDict, sec_name::String, key::String
     config_error("[CONFIG] $sec_name.$key was removed at $version — $remedy.")
 end
 
-"""
-    reject_removed_section(cfg::AbstractDict)
-
-Raises a `[CONFIG]` `ArgumentError` when the configuration carries the
-`[disaster]` section, renamed `[disruption]` before 1.0.0; returns `nothing`
-otherwise.
-"""
-function reject_removed_section(cfg::AbstractDict)
-    haskey(cfg, "disaster") && config_error(
-        "[CONFIG] The [disaster] section was removed at 1.0.0 — rename it to [disruption].",
-    )
-    return nothing
-end
-
 # --- Configuration accessors ---
 """
     mission_wall_seconds(cfg::AbstractDict) -> Float64
 
-Validated wall-clock mission span `simulation.mission_wall_seconds` (> 0);
-the retired alias `simulation.test_duration_sec` is rejected with the
-replacement named.
+Validated wall-clock mission span `simulation.mission_wall_seconds` (> 0).
 
 # Examples
 ```jldoctest
@@ -486,7 +418,6 @@ julia> TelemetryCore.mission_wall_seconds(Dict{String,Any}("simulation" => Dict{
 """
 function mission_wall_seconds(cfg::AbstractDict)
     sim = get(cfg, "simulation", Dict{String,Any}())
-    reject_removed_key(sim, "simulation", "test_duration_sec")
     raw = get(sim, "mission_wall_seconds", nothing)
     raw === nothing &&
         config_error("[CONFIG] Missing required key simulation.mission_wall_seconds.")
@@ -592,20 +523,6 @@ function mission_span_days(cfg::AbstractDict)
     speed_up =
         checked_number(required_value(sim, "simulation", "speed_up"), "simulation.speed_up")
     return mission_wall_seconds(cfg) * speed_up / 86_400.0
-end
-
-"""
-    normalize_profile!(df::DataFrame) -> DataFrame
-
-Brings a `mission_profile.csv` frame to the current column schema: the
-pre-0.10 `Ground_Archive` column (the live + archive total) is renamed
-`Ground_Total`. Every reader of the profile passes through here.
-"""
-function normalize_profile!(df::DataFrame)
-    if !hasproperty(df, :Ground_Total) && hasproperty(df, :Ground_Archive)
-        DataFrames.rename!(df, :Ground_Archive => :Ground_Total)
-    end
-    return df
 end
 
 # Section accessors: every consumer, the validator included, reads a section
@@ -948,9 +865,8 @@ external file, ingested in that order, and is rejected with the synthetic
 source; left empty, the `Amplitude` column is ingested, or else the first
 column, under the name `Amplitude`.
 
-The retired `signal_injection_probability` is rejected (event instants are
-`[[events.markers]]`). The keys retired at 2.0.0 and the existence of the
-external file are checked by [`validate_config`](@ref) only, so that
+Retired keys and the existence of the external file are checked by
+[`validate_config`](@ref) only, so that
 post-processing of a finished run reads its snapshot even after a key was
 retired or the input file removed.
 """
@@ -1004,7 +920,6 @@ function physics_settings(cfg::AbstractDict)
         config_error(
             "[CONFIG] physics.external_data_columns applies to data_source = \"external\" only.",
         )
-    reject_removed_key(phy, "physics", "signal_injection_probability")
     return (
         data_source = data_source,
         external_data_path = external_data_path,
@@ -1189,14 +1104,12 @@ end
     post_processing_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[post_processing]` section: `generate_mask_timeline` (default
-`true`), `expand_to_pointwise_masks` (`false`), `target_event_rows`
-([`normalize_target_rows`](@ref), default `[-1]`), `alert_lookback_hours > 0`
+`true`), `alert_lookback_hours > 0`
 (72), `delivery_requirement_hours > 0` (24), `hdf5_export` (`false`),
 `session_figures` (`true`, the per-contact session figures),
 `session_figures_max ≥ 0` (0; the cap on their number, 0 for no cap), and
 `figures`, a `NamedTuple` of booleans keyed by the flags of
-[`FIGURE_PRODUCTS`](@ref) with their defaults. The retired
-`generate_batch_matrix` is rejected with its replacement named;
+[`FIGURE_PRODUCTS`](@ref) with their defaults;
 `[post_processing.publication]` is read by [`publication_settings`](@ref).
 
 # Examples
@@ -1212,7 +1125,6 @@ julia> pp.figures
 """
 function post_processing_settings(cfg::AbstractDict)
     pp = get(cfg, "post_processing", Dict{String,Any}())
-    reject_removed_key(pp, "post_processing", "generate_batch_matrix")
     flag(key, default) = checked_flag(get(pp, key, default), "post_processing.$key")
     function positive(key, default)
         v = checked_number(get(pp, key, default), "post_processing.$key")
@@ -1229,8 +1141,6 @@ function post_processing_settings(cfg::AbstractDict)
     )
     return (
         generate_mask_timeline = flag("generate_mask_timeline", true),
-        expand_to_pointwise_masks = flag("expand_to_pointwise_masks", false),
-        target_event_rows = normalize_target_rows(get(pp, "target_event_rows", [-1])),
         alert_lookback_hours = positive("alert_lookback_hours", 72.0),
         delivery_requirement_hours = positive("delivery_requirement_hours", 24.0),
         hdf5_export = flag("hdf5_export", false),
@@ -1410,7 +1320,7 @@ function write_run_descriptor(run_dir::String)
     platform = get(provenance, "platform", Dict{String,Any}())
     physics = physics_settings(cfg)
     descriptor = Dict{String,Any}(
-        "schema" => "deepspacetelemetry-run/1",
+        "schema" => "deepspacetelemetry-run/2",
         "run_id" => basename(run_dir),
         "package_version" => String(get(platform, "package_version", "")),
         "identity_source" => String(get(platform, "identity_source", "")),
@@ -1475,9 +1385,7 @@ end
 
 Validated `[supervision]` parameters: `on_component_failure` (`"abort"`,
 `"continue"`, or `"restart"`, lower-cased; default `"abort"`),
-`max_restarts ≥ 0` (default 3), `watchdog_sec > 0` (default 30). The
-watchdog was retired with the second execution model in 2.8.0, so
-`watchdog_sec` is validated but has no effect.
+and `max_restarts ≥ 0` (default 3).
 """
 function supervision_settings(cfg::AbstractDict)
     sup = get(cfg, "supervision", Dict{String,Any}())
@@ -1493,15 +1401,7 @@ function supervision_settings(cfg::AbstractDict)
     max_restarts = checked_integer(get(sup, "max_restarts", 3), "supervision.max_restarts")
     max_restarts >= 0 ||
         config_error("[CONFIG] supervision.max_restarts must be ≥ 0 (got $max_restarts).")
-    watchdog_sec =
-        checked_number(get(sup, "watchdog_sec", 30.0), "supervision.watchdog_sec")
-    watchdog_sec > 0.0 ||
-        config_error("[CONFIG] supervision.watchdog_sec must be > 0 (got $watchdog_sec).")
-    return (
-        on_component_failure = policy,
-        max_restarts = max_restarts,
-        watchdog_sec = watchdog_sec,
-    )
+    return (on_component_failure = policy, max_restarts = max_restarts)
 end
 
 """
@@ -1527,8 +1427,7 @@ const DisruptionEventSettings = NamedTuple{
 """
     disruption_event_settings(cfg::AbstractDict) -> Vector{DisruptionEventSettings}
 
-Validated `[[disruption.events]]` entries in file order (the pre-1.0
-`[[disaster.events]]` section name is rejected): `type`, `label`,
+Validated `[[disruption.events]]` entries in file order: `type`, `label`,
 `start_day ≥ 0` (required), `duration_hours > 0`, `recovery_hours ≥ 0`,
 `severity ∈ [0, 1]`, `loss_multiplier`, and `affects` — `"link"` (the
 default: a capacity and loss disruption) or `"generation"` (a scheduled
@@ -1538,7 +1437,6 @@ keys are ignored). `type = "antenna_repointing"` defaults to
 skipped: a silently missing disruption invalidates the scenario.
 """
 function disruption_event_settings(cfg::AbstractDict)
-    reject_removed_section(cfg)
     d = get(cfg, "disruption", Dict{String,Any}())
     events = DisruptionEventSettings[]
     for (i, e) in enumerate(get(d, "events", Any[]))
@@ -1598,7 +1496,7 @@ function disruption_event_settings(cfg::AbstractDict)
 end
 
 # The section holding onboard_capacity_days: [telemetry] since 2.11, [storage]
-# before; an error when both hold it.
+# in the snapshots of earlier runs; an error when both hold it.
 function onboard_capacity_section(cfg::AbstractDict)
     has(section) = haskey(get(cfg, section, Dict{String,Any}()), "onboard_capacity_days")
     has("telemetry") &&
@@ -1613,8 +1511,8 @@ end
     onboard_capacity(cfg::AbstractDict) -> NamedTuple
 
 The on-board recorder ceiling from `telemetry.onboard_capacity_days > 0`
-(`storage.onboard_capacity_days` up to 2.10, still read, in particular from
-run snapshots; both together are an error):
+(`storage.onboard_capacity_days` in the snapshot of a run before 2.11, read
+here and rejected by [`validate_config`](@ref) in a live configuration):
 `days`; `batches`, the production over that span in whole batches (at least
 one), which the emitter enforces; and `gigabit`, the physical volume when
 the link is given as a rate pair, else `NaN`. The default of 14 days is the

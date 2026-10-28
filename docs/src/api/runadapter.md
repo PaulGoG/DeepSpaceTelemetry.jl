@@ -31,14 +31,6 @@ DeepSpaceTelemetry.RunAdapter.declared_holes
 DeepSpaceTelemetry.RunAdapter.FeedCursor
 ```
 
-## Deprecated
-
-```@docs
-DeepSpaceTelemetry.RunAdapter.GapTracker
-DeepSpaceTelemetry.RunAdapter.declare!
-DeepSpaceTelemetry.RunAdapter.open_gaps
-```
-
 ## Internals
 
 ```@docs
