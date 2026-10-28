@@ -44,9 +44,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
         exit(1)
     end
 
-    df = DeepSpaceTelemetry.TelemetryCore.normalize_profile!(
-        DeepSpaceTelemetry.TelemetryCore.read_table(log_path),
-    )
+    df = DeepSpaceTelemetry.TelemetryCore.read_table(log_path)
     if isempty(df)
         @error "mission_profile.csv is empty" run_id
         exit(1)
