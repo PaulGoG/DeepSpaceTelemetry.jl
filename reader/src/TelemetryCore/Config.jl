@@ -105,7 +105,7 @@ surfacing a raw `MethodError` from deep inside the validator or a builder.
 function checked_number(v, name::String)
     (v isa Real && !(v isa Bool)) ||
         config_error("[CONFIG] $name must be a number (got $(repr(v))).")
-    return Float64(v)
+    return Float64(v)::Float64
 end
 
 """
@@ -117,7 +117,7 @@ non-integer TOML values (strings, floats, booleans).
 function checked_integer(v, name::String)
     (v isa Integer && !(v isa Bool)) ||
         config_error("[CONFIG] $name must be an integer (got $(repr(v))).")
-    return Int(v)
+    return Int(v)::Int
 end
 
 """
@@ -129,7 +129,7 @@ the TOML value is not a string.
 function checked_string(v, name::String)
     v isa AbstractString ||
         config_error("[CONFIG] $name must be a string (got $(repr(v))).")
-    return String(v)
+    return String(v)::String
 end
 
 """

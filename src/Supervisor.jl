@@ -201,7 +201,7 @@ function stamp_external_provenance!(
     physics::NamedTuple,
     needed_days::Float64,
 )
-    path = physics.external_data_path
+    path = physics.external_data_path::String
     resolved = isabspath(path) ? path : joinpath(TelemetryCore.PROJECT_ROOT[], path)
     rows = max(countlines(resolved) - 1, 0) # header-inclusive count; ≈ for headerless files
     digest = open(io -> bytes2hex(sha256(io)), resolved)

@@ -1251,7 +1251,7 @@ function plot_session(
         xlabel = "",
         ylabel = "Bandwidth [%]",
         xticks = (session_tick_vals_h, session_tick_labels),
-    )
+    )::Axis
     xlims!(ax_s1, min_sess_h, max_sess_h)
     ylims!(ax_s1, 0, 105)
 
@@ -1296,7 +1296,7 @@ function plot_session(
         yticks = PlotTheme.UpperPrunedTicks(),
         # HH:MM labels crowd at session resolution; the theme rotates none.
         xticklabelrotation = π / 4,
-    )
+    )::Axis
     xlims!(ax_s2, min_sess_h, max_sess_h)
     y_max_s2 = max(10.0, 1.2 * maximum(plot_gnd))
     ylims!(ax_s2, 0, y_max_s2)

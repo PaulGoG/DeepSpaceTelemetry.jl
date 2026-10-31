@@ -6,6 +6,14 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The configuration coercions (`checked_number`, `checked_integer`,
+  `checked_string`) assert their concrete return types, the supervisor's
+  provenance stamp asserts the external payload path a `String`, and the two
+  axes of the session figure assert `Axis`: on Julia 1.14, where inference
+  widens those calls to `Any`, JET reported seven union-split method errors
+  on the paths and axes derived from them. Nothing changes at run time.
+
 ## [3.1.0] - 2026-10-31
 
 ### Added
