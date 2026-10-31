@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-31
+
 ### Added
 - `Masks.hole_feed_excess(run_dir)`: the rows of `holes.csv` the gap table
   does not derive, a hole the table lacks or a repeat of a held one.
@@ -1006,6 +1008,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[3.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.11.0...v3.0.0
 [2.11.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.10.0...v2.11.0
