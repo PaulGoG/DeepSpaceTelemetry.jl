@@ -6,6 +6,18 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- `Masks.hole_feed_excess(run_dir)`: the rows of `holes.csv` the gap table
+  does not derive, a hole the table lacks or a repeat of a held one.
+  Post-processing reports a non-empty excess as a warning in the run log
+  after settling the feed; the table remains the reference and neither file
+  is altered. The suite asserts an empty excess on a finished run.
+
+### Changed
+- `Masks.write_gap_table` and `Masks.settle_hole_feed!` accept the derived
+  table through the `table` keyword; post-processing derives it once for
+  the table, the settlement and the check. The products are unchanged.
+
 ## [3.0.1] - 2026-10-29
 
 ### Changed

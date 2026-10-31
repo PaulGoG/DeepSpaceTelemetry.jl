@@ -11,6 +11,7 @@ DeepSpaceTelemetry.Masks.GAP_CAUSES
 DeepSpaceTelemetry.Masks.gap_table
 DeepSpaceTelemetry.Masks.write_gap_table
 DeepSpaceTelemetry.Masks.settle_hole_feed!
+DeepSpaceTelemetry.Masks.hole_feed_excess
 DeepSpaceTelemetry.Masks.LABEL_SPAN_CLASSES
 DeepSpaceTelemetry.Masks.label_span_table
 DeepSpaceTelemetry.Masks.write_label_spans

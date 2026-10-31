@@ -245,6 +245,7 @@ end
                 r in eachrow(t)
             )
             @test key(holes) == key(gaps)
+            @test isempty(Masks.hole_feed_excess(run_dir))
             sched_hole = holes[holes.Cause .== "scheduled", :]
             @test nrow(sched_hole) == 1 &&
                   sched_hole.ContentStart[1] <= sched_hole.DeclaredAt[1]
@@ -309,6 +310,36 @@ end
                   !isfile(joinpath(run_dir, "RUN_COMPLETE"))
             # Settlement is idempotent across the re-runs of post-processing.
             @test nrow(TelemetryCore.read_hole_feed(run_dir)) == n_feed
+            # A feed row the table does not derive and a repeat of a held hole
+            # are the excess: post-processing reports them and leaves both
+            # files as they are.
+            feed = TelemetryCore.hole_feed(run_dir)
+            held = TelemetryCore.read_hole_feed(run_dir)
+            TelemetryCore.declare_hole!(feed, t_end, "lost", "ARCH_batch_999999", 1:3)
+            TelemetryCore.declare_hole!(
+                feed,
+                held.DeclaredAt[1],
+                held.Cause[1],
+                held.Batch[1],
+                held.RowFirst[1]:held.RowLast[1],
+            )
+            excess = Masks.hole_feed_excess(run_dir)
+            @test nrow(excess) == 2
+            @test excess.Batch[1] == "ARCH_batch_999999" && excess.RowLast[1] == 3
+            @test excess.RowFirst[2] == held.RowFirst[1] &&
+                  isequal(excess.Batch[2], held.Batch[1])
+            @test_logs (:warn, r"Hole feed disagrees with the gap table: 2 rows") match_mode =
+                :any Supervisor.post_process!(
+                plan,
+                run_dir;
+                orig_stdout = devnull,
+                figures = false,
+            )
+            @test nrow(TelemetryCore.read_hole_feed(run_dir)) == n_feed + 2
+            @test isequal(
+                Masks.gap_table(run_dir),
+                TelemetryCore.read_table(joinpath(run_dir, "masks", "gaps.csv")),
+            )
         finally
             rm(run_dir; recursive = true, force = true)
             rm(TelemetryCore.run_directory(tick_id); recursive = true, force = true)

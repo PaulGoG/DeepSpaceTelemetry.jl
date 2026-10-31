@@ -609,7 +609,10 @@ are the same set. The causes and where the record declares each:
 
 `holes.csv` holds the same rows on a finished run, each with its
 declaration instant ([Event Feeds](@ref)): read the feed for the declaration
-history, `masks/gaps.csv` for the table.
+history, `masks/gaps.csv` for the table. The table is the reference:
+post-processing settles the feed from it and reports in the run log any row
+of the feed the table does not derive (`Masks.hole_feed_excess`), leaving
+both files as they are.
 
 A gap-aware statistic takes the holes as declared intervals rather than
 inferring them from the spacing of the delivered samples: the spacing cannot

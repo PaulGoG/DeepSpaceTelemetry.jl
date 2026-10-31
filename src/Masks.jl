@@ -11,7 +11,7 @@ module Masks
 
 using ..TelemetryCore: TelemetryCore
 using ..ChannelEffects
-using DataFrames: DataFrame, nrow
+using DataFrames: DataFrame, DataFrameRow, nrow
 using Dates: DateTime, Millisecond
 
 """
@@ -411,44 +411,46 @@ function gap_table(run_dir::String)
 end
 
 """
-    write_gap_table(run_dir::String) -> String
+    write_gap_table(run_dir::String; table = gap_table(run_dir)) -> String
 
 Writes [`gap_table`](@ref) of a run to `<run_dir>/masks/gaps.csv`
-(rotated, never overwritten) and returns the path.
+(rotated, never overwritten) and returns the path. `table` is the gap
+table when the caller has derived it already.
 """
-function write_gap_table(run_dir::String)
+function write_gap_table(run_dir::String; table::DataFrame = gap_table(run_dir))
     path = joinpath(run_dir, "masks", "gaps.csv")
     mkpath(dirname(path))
-    table = gap_table(run_dir)
     TelemetryCore.safe_csv_write(path, table)
     @info "[POST] Gap table saved: $(relpath(path, run_dir)) ($(nrow(table)) holes)."
     return path
 end
 
+# The identity of a hole, shared by the feed and the gap table.
+hole_key(cause, batch, r1, r2) =
+    (String(cause), ismissing(batch) ? "" : String(batch), Int(r1), Int(r2))
+hole_key(r::DataFrameRow) = hole_key(r.Cause, r.Batch, r.RowFirst, r.RowLast)
+
 """
-    settle_hole_feed!(run_dir::String) -> Int
+    settle_hole_feed!(run_dir::String; table = gap_table(run_dir)) -> Int
 
 Appends to `holes.csv`, the declared-hole feed, every row of
 [`gap_table`](@ref) it does not yet hold, with the nominal mission end
 (`TelemetryCore.mission_end`) as `DeclaredAt`: the end-of-run causes a feed
 cannot announce during the run (`undelivered`, `not_generated`) and a
-recorder gap still open at the mission's end. On a finished run the feed and
-`masks/gaps.csv` then hold the same holes. Idempotent: a second call appends
-nothing. Returns the number of rows appended.
+recorder gap still open at the mission's end. On a finished run the feed
+then holds every hole of `masks/gaps.csv`, and [`hole_feed_excess`](@ref)
+lists any row it holds beyond them. Idempotent: a second call appends
+nothing. Returns the number of rows appended. `table` is the gap table when
+the caller has derived it already.
 """
-function settle_hole_feed!(run_dir::String)
-    table = gap_table(run_dir)
+function settle_hole_feed!(run_dir::String; table::DataFrame = gap_table(run_dir))
     feed = TelemetryCore.hole_feed(run_dir)
     held = TelemetryCore.read_hole_feed(run_dir)
-    key(cause, batch, r1, r2) =
-        (String(cause), ismissing(batch) ? "" : String(batch), Int(r1), Int(r2))
-    present = Set{Tuple{String,String,Int,Int}}(
-        key(r.Cause, r.Batch, r.RowFirst, r.RowLast) for r in eachrow(held)
-    )
+    present = Set{Tuple{String,String,Int,Int}}(hole_key(r) for r in eachrow(held))
     declared_at = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
     n = 0
     for r in eachrow(table)
-        key(r.Cause, r.Batch, r.RowFirst, r.RowLast) in present && continue
+        hole_key(r) in present && continue
         TelemetryCore.declare_hole!(
             feed,
             declared_at,
@@ -459,6 +461,32 @@ function settle_hole_feed!(run_dir::String)
     end
     @info "[POST] Hole feed settled: $n rows appended."
     return n
+end
+
+"""
+    hole_feed_excess(run_dir::String; table = gap_table(run_dir)) -> DataFrame
+
+The rows of `holes.csv` beyond the holes of [`gap_table`](@ref): every row
+whose `(Cause, Batch, RowFirst, RowLast)` the table does not derive, and
+every repeat of a hole the feed already holds, in feed order with the
+feed's columns. Empty on a sound finished run, where the settled feed and
+the table hold the same holes. The table is the reference: its rows are
+exactly the rows no delivered batch covers, a property the feed, a log of
+declarations, cannot assert of itself. Post-processing reports a non-empty
+excess as a warning in the run log and leaves both files as they are.
+`table` is the gap table when the caller has derived it already.
+"""
+function hole_feed_excess(run_dir::String; table::DataFrame = gap_table(run_dir))
+    held = TelemetryCore.read_hole_feed(run_dir)
+    derived = Set{Tuple{String,String,Int,Int}}(hole_key(r) for r in eachrow(table))
+    seen = Set{Tuple{String,String,Int,Int}}()
+    excess = falses(nrow(held))
+    for (i, r) in enumerate(eachrow(held))
+        k = hole_key(r)
+        excess[i] = !(k in derived) || k in seen
+        push!(seen, k)
+    end
+    return held[excess, :]
 end
 
 """
