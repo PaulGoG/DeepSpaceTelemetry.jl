@@ -163,7 +163,9 @@ batches per hour.
 
 `scenarios/recovery_12h_seasonal.toml`, the reference scenario and the
 content of `config.toml`: the event timeline of the stress scenario from
-30 March, when the seasonal extension widens the passes to 12 hours.
+30 March, the peak day of the seasonal term, when the extension widens the
+passes to 12 hours; evaluated on the date of each pass, it stays within
+minutes of its maximum over the week.
 
 ![Mission summary of the recovery scenario: 12-hour passes, the onboard buffer oscillating between about 50 and 300 batches](assets/gallery/recovery_12h_seasonal_mission_summary_global.png)
 
@@ -236,9 +238,11 @@ days later recovers part of it.
 
 ## Thirty Days with a Contact Gap
 
-`scenarios/long_30d_seasonal.toml`: thirty days from 20 July with
-the seasonal extension, two missed passes and a shortened one, a 12-day
-interval without contact, five disruptions, and two event markers.
+`scenarios/long_30d_seasonal.toml`: thirty days from 20 July, on the
+declining side of the seasonal term (the passes shorten from about 9.3 h to
+about 8.5 h over the month, following the date of each pass), two missed
+passes and a shortened one, a 12-day interval without contact, five
+disruptions, and two event markers.
 
 ![Mission summary of the 30-day scenario: the onboard buffer rising through a 12-day contact gap to the recorder capacity](assets/gallery/long_30d_seasonal_mission_summary_global.png)
 

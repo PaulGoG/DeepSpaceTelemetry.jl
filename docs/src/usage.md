@@ -50,7 +50,9 @@ The reference scenario — **recovery at the seasonal peak** (~3 min wall
 time, 7 mission days from 30 March 2035) — runs the physical link:
 230 kbit/s downlink against 75 kbit/s production, flat within the pass
 (the Definition Study Report's sustained rate), with the daily 8-hour
-window widened by the 4-hour seasonal extension to 12-hour passes. The
+window widened by the 4-hour seasonal extension to 12-hour passes (30 March
+is the peak day of the extension, which is evaluated on the date of each
+pass and stays within minutes of its maximum over the week). The
 mission opens with a 2-day blind-spot backlog (288 batches at the shipped
 physics: 60 s segments, 10 segments per batch → 144 batches/day) served by
 12-hour passes of about 210 batches each over a bursty Gilbert–Elliott channel
@@ -61,9 +63,10 @@ ramp with 5× elevated loss), and a day-5.0 partial DSN outage (severity
 0.8, 12 h, 6 h ramp, 3× loss). An event marker at 14:00 on day 4 triggers,
 six hours later, a 3-hour low-latency period at half capacity.
 
-The same disruption timeline under 8-hour January passes is
-`scenarios/stress_8h_bursty.toml`, where the link delivers 138 batches per
-day against 144 produced and the backlog grows; `scenarios/nominal_8h.toml`
+The same disruption timeline under plain 8-hour passes, the seasonal term
+disabled, is `scenarios/stress_8h_bursty.toml`, where the link delivers
+138 batches per day against 144 produced and the backlog grows;
+`scenarios/nominal_8h.toml`
 is the balanced case without backlog or disruptions; the peak-capacity
 abstraction, a 60 batches/h peak under a Gaussian profile, is
 `scenarios/abstraction_gaussian_peak.toml`. The library also covers a drop
@@ -77,6 +80,13 @@ pass. `validate_config` warns when the rate pair meets a shaped profile,
 stating the profile mean and the capacity of one nominal pass against the
 daily production (`TelemetryCore.capacity_balance`), and the mission banner
 prints the same balance as its `Capacity:` line for every run.
+
+Every scenario without a seasonal term starts on 1 January 2035, the
+calendar epoch of the ground-segment conventions; there the date labels the
+time axis and does not act on the passes. In the two seasonal scenarios the
+start date fixes the phase of the extension, which is then evaluated on the
+calendar date of each pass: a mission spanning months sees its passes
+lengthen and shorten with the season (Physics, Contact schedule).
 
 Any CLI argument ending in `.toml` selects the configuration (relative
 paths resolve against the current directory, then the package root); any
@@ -128,7 +138,7 @@ does it fall on the same transfers (Mission Clock above).
 `[contacts]` shapes the daily window of `[telemetry]`; every key is optional.
 ```toml
 [contacts]
-seasonal_extension_hours = 4.0      # 8 h window at the trough, 12 h at the peak
+seasonal_extension_hours = 4.0      # evaluated on each pass's date: 8 h at the trough, 12 h at the peak
 season_peak_day_of_year = 89.0
 low_latency_enabled = true          # set to false for the counterfactual run
 

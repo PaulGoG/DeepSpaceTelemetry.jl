@@ -107,7 +107,9 @@ end
 Duration of the generated window on `date`: `session_duration` plus the
 seasonal extension modulated as `½ [1 + cos(2π (d − d_peak) / P)]` with the
 day of year `d`, so the full extension applies at `season_peak_day_of_year`
-and none half a period away.
+and none half a period away. `date` is the calendar date of the pass itself,
+so over a long mission the duration follows the season pass by pass; the
+mission epoch sets only the phase at which the mission enters the cycle.
 """
 function seasonal_window_duration(model::VisibilityModel, date::Date)
     model.seasonal_extension.value == 0 && return model.session_duration

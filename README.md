@@ -310,7 +310,7 @@ DeepSpaceTelemetry/
 │   ├── README.md                # Coverage matrix, expected regime, and mission summary of every scenario
 │   ├── smoke_1d.toml            # 12 s smoke run (suite end-to-end)
 │   ├── nominal_8h.toml          # Balanced nominal operations
-│   ├── stress_8h_bursty.toml    # 8 h January passes, bursty loss, disruptions: backlog growth
+│   ├── stress_8h_bursty.toml    # 8 h passes without the seasonal term, bursty loss, disruptions: backlog growth
 │   ├── recovery_12h_seasonal.toml # Reference scenario (= config.toml): seasonal-peak recovery
 │   ├── abstraction_gaussian_peak.toml # Pre-library default: 60 batches/h peak, Gaussian profile
 │   ├── backlog_recovery_sine.toml # Backlog recovery under retransmission load: 3-day backlog, 10 % loss
