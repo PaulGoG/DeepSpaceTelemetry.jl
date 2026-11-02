@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-11-02
+
 ### Fixed
 - A run from a copy installed by Pkg was stamped `git_dirty = true`, with the
   warning `[RUN] The package directory … does not match its manifest entry`,
@@ -1027,6 +1029,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[3.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v2.11.0...v3.0.0
