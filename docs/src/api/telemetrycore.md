@@ -96,6 +96,7 @@ DeepSpaceTelemetry.TelemetryCore.manifest_beside
 DeepSpaceTelemetry.TelemetryCore.manifest_entry
 DeepSpaceTelemetry.TelemetryCore.git_tree_sha1
 DeepSpaceTelemetry.TelemetryCore.git_tree_entries
+DeepSpaceTelemetry.TelemetryCore.PLACEHOLDER_NAME
 DeepSpaceTelemetry.TelemetryCore.git_tree_digest
 DeepSpaceTelemetry.TelemetryCore.git_blob_digest
 DeepSpaceTelemetry.TelemetryCore.git_work_tree

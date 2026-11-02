@@ -1,7 +1,8 @@
 # The source identity of a run: the git tree hash against git and Pkg, the
 # three ways an identity is determined (work tree, manifest entry of an
 # installed copy, bare directory), a copy inside a foreign repository, the
-# data root left out of a directory hash, and the manifest resolution.
+# data root reduced to its placeholder in a directory hash, and the manifest
+# resolution.
 
 import Pkg
 
@@ -102,6 +103,9 @@ end
     for item in ("Project.toml", "src")
         cp(joinpath(TelemetryCore.PROJECT_ROOT[], item), joinpath(staging, item))
     end
+    # The placeholder the repository tracks under the data root.
+    mkpath(joinpath(staging, "data", "runs"))
+    touch(joinpath(staging, "data", "runs", TelemetryCore.PLACEHOLDER_NAME))
     content = TelemetryCore.git_tree_sha1(staging)
     copy = joinpath(
         mktempdir(),
@@ -184,17 +188,46 @@ end
     end
     @test_throws ArgumentError TelemetryCore.source_identity(joinpath(copy, "absent"))
 
-    # Run outputs under the package directory stay out of the hash.
+    # The default data root lies inside an installed copy. Pristine, the copy
+    # hashes to its manifest entry: the placeholder under the data root stays
+    # in the hash (3.1.0 dropped it and stamped every such run dirty). Run and
+    # sweep outputs written there stay out of it.
+    write_manifest(manifest, uuid, Dict{String,Any}("git-tree-sha1" => content))
     previous = TelemetryCore.DATA_ROOT[]
     try
         TelemetryCore.DATA_ROOT[] = joinpath(copy, "data")
+        id = @test_logs TelemetryCore.source_identity(copy; manifest = manifest)
+        @test id.git_tree_sha1 == content && !id.git_dirty
         mkpath(joinpath(copy, "data", "runs", "RUN_x"))
         write(joinpath(copy, "data", "runs", "RUN_x", "events_rx.csv"), "SimTime\n")
+        mkpath(joinpath(copy, "data", "sweeps", "SWEEP_x"))
+        write(joinpath(copy, "data", "sweeps", "SWEEP_x", "summary.csv"), "seed\n")
+        id = @test_logs TelemetryCore.source_identity(copy; manifest = manifest)
+        @test id.git_tree_sha1 == content && !id.git_dirty
         @test TelemetryCore.source_identity(copy; manifest = nothing).git_tree_sha1 ==
+              content
+        # Without the placeholder the data root contributes nothing.
+        rm(joinpath(copy, "data", "runs", TelemetryCore.PLACEHOLDER_NAME))
+        @test TelemetryCore.source_identity(copy; manifest = nothing).git_tree_sha1 ==
+              TelemetryCore.git_tree_sha1(copy; exclude = [joinpath(copy, "data")]) !=
               content
     finally
         TelemetryCore.DATA_ROOT[] = previous
+        # Back to the pristine copy: outputs gone, the placeholder in place.
         rm(joinpath(copy, "data"); recursive = true, force = true)
+        mkpath(joinpath(copy, "data", "runs"))
+        touch(joinpath(copy, "data", "runs", TelemetryCore.PLACEHOLDER_NAME))
+    end
+    # The rule matches what the repository tracks: every tracked file under
+    # the data root is a placeholder.
+    if TelemetryCore.git_work_tree()
+        tracked = split(
+            something(TelemetryCore.git_output(`ls-files -- data`), ""),
+            '\n';
+            keepempty = false,
+        )
+        @test !isempty(tracked)
+        @test all(basename(f) == TelemetryCore.PLACEHOLDER_NAME for f in tracked)
     end
 
     # A copy inside a foreign repository is not given that repository's commit.

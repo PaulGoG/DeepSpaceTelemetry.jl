@@ -7,6 +7,17 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A run from a copy installed by Pkg was stamped `git_dirty = true`, with the
+  warning `[RUN] The package directory … does not match its manifest entry`,
+  whenever `TelemetryCore.DATA_ROOT[]` kept its default inside the package
+  directory: the identity hash left out the whole data root, while the
+  `git-tree-sha1` Pkg records includes the tracked placeholder
+  `data/runs/.gitkeep`. The hash now keeps `.gitkeep` placeholders under the
+  excluded data root and drops everything else there, so a pristine installed
+  copy matches its manifest entry whatever the data root is set to, and run
+  and sweep outputs written under it stay out of the hash. Descriptors and
+  provenance stamps written by such installs since 2.6.1 carry a true dirty
+  flag beside a correct `git_tree_sha1` and `git_commit`.
 - The configuration coercions (`checked_number`, `checked_integer`,
   `checked_string`) assert their concrete return types, the supervisor's
   provenance stamp asserts the external payload path a `String`, and the two

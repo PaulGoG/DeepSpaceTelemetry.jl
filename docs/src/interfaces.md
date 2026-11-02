@@ -180,7 +180,7 @@ identity is defined for a git checkout and for a copy Pkg installed under
 | Field | Content |
 |---|---|
 | `identity_source` | How the identity was determined: `work_tree` (the package directory is the top level of a git checkout), `manifest` (a copy installed by Pkg, matched by UUID to its entry in the manifest of the active environment), or `directory` (neither; the content of the directory alone). |
-| `git_tree_sha1` | The git tree hash of the source: `HEAD^{tree}` of the checkout, the `git-tree-sha1` of the manifest entry, or the hash of the package directory computed as git computes it (leaving out `.git` and a data root inside it). Never empty. |
+| `git_tree_sha1` | The git tree hash of the source: `HEAD^{tree}` of the checkout, the `git-tree-sha1` of the manifest entry, or the hash of the package directory computed as git computes it (leaving out `.git` and, under a data root inside it, everything but the `.gitkeep` placeholders the repository tracks). Never empty. |
 | `git_commit` | The checkout's `HEAD`; for an installed copy, the `repo-rev` of the manifest entry when it is a full 40-digit commit hash, as in a `[sources]` pin by commit. Empty for a copy pinned by branch or tag, one installed from a registry, and a bare directory. |
 | `git_dirty` | The code that ran differs from the recorded identity: uncommitted changes to tracked files of the checkout, or an installed directory whose tree hash differs from its manifest entry's (the run log carries a warning). |
 | `repo_url`, `repo_rev` | The `repo-url` and `repo-rev` of the manifest entry of a copy added by URL; empty otherwise. |

@@ -107,8 +107,11 @@ The identity of the package source at `root`, stamped into
 - `repo_url`, `repo_rev` — the entry's `repo-url` and `repo-rev`; empty
   unless `identity_source == "manifest"` and the copy was added by URL.
 
-The directory hash leaves out `.git` and the data root ([`DATA_ROOT`](@ref))
-when it lies inside `root`.
+The directory hash leaves out `.git` and, under the data root
+([`DATA_ROOT`](@ref)) when it lies inside `root`, everything but the
+`.gitkeep` placeholders the repository tracks there: run outputs stay out of
+the hash and a pristine installed copy hashes to its manifest entry whatever
+the data root is set to.
 
 # Example
 ```julia
@@ -238,7 +241,9 @@ hashed as its target) and `40000` (directory), empty directories and `.git`
 entries left out, as `git write-tree` and Pkg do. The hash of an unmodified
 installed copy therefore equals the `git-tree-sha1` of its manifest entry
 and `git rev-parse <commit>^{tree}` of the commit it was installed from.
-The paths in `exclude` are left out with everything under them.
+Under the paths in `exclude` only the `.gitkeep` placeholders are hashed
+([`PLACEHOLDER_NAME`](@ref)): a directory the repository tracks as empty
+keeps its placeholder and loses the content written into it.
 """
 function git_tree_sha1(
     dir::AbstractString;
@@ -251,22 +256,38 @@ function git_tree_sha1(
 end
 
 """
+The file the repository tracks as a placeholder of a directory kept empty of
+source (`data/runs/.gitkeep`); the only content hashed under an excluded path.
+"""
+const PLACEHOLDER_NAME = ".gitkeep"
+
+"""
     git_tree_entries(dir, excluded) -> Vector{Tuple{String,String,Vector{UInt8}}}
 
 The `(mode, name, object hash)` entries of the git tree of `dir`, in git's
-order (a directory sorts as its name followed by `/`).
+order (a directory sorts as its name followed by `/`). Under a path in
+`excluded`, or with `placeholders_only`, only files named
+[`PLACEHOLDER_NAME`](@ref) are hashed.
 """
-function git_tree_entries(dir::String, excluded::Set{String})
+function git_tree_entries(
+    dir::String,
+    excluded::Set{String};
+    placeholders_only::Bool = false,
+)
     entries = Tuple{String,String,Vector{UInt8}}[]
     for name in readdir(dir)
         path = joinpath(dir, name)
-        (name == ".git" || path in excluded) && continue
+        name == ".git" && continue
+        only_placeholders = placeholders_only || path in excluded
         if islink(path)
+            only_placeholders && continue
             push!(entries, ("120000", name, git_blob_digest(codeunits(readlink(path)))))
         elseif isdir(path)
-            children = git_tree_entries(path, excluded)
+            children =
+                git_tree_entries(path, excluded; placeholders_only = only_placeholders)
             isempty(children) || push!(entries, ("40000", name, git_tree_digest(children)))
         elseif isfile(path)
+            only_placeholders && name != PLACEHOLDER_NAME && continue
             executable = @static if Sys.iswindows()
                 Sys.isexecutable(path)
             else
