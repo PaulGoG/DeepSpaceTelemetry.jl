@@ -6,6 +6,18 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-11-02
+
+### Changed
+- The manual, the scenario library and the README state where the seasonal
+  pass extension acts: it is evaluated on the calendar date of every generated
+  pass, so a mission spanning months sees its passes lengthen and shorten with
+  the season, and `simulation.start_sim_time` fixes only the phase at which the
+  mission enters the cycle. The scenarios dated 1 January 2035 have the term
+  disabled; the coverage table says so instead of naming the month. The two
+  seasonal scenarios are placed on the cycle: 30 March at the peak, 20 July on
+  the declining side. Documentation only; nothing changes at run time.
+
 ## [3.1.1] - 2026-11-02
 
 ### Fixed
@@ -1029,6 +1041,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[3.1.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.0.0...v3.0.1
