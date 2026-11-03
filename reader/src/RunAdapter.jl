@@ -238,7 +238,9 @@ payload geometry, `payload_columns`, and under `"products"` the `bytes` and
 `sha256` of every table present. Empty while the file is absent.
 Post-processing writes it last, so it is final once the run has ended
 ([`run_state`](@ref) not `:active`); a run that ended before
-post-processing has none. Throws an `ArgumentError` when the file declares
+post-processing has none. The producer renames the file into place whole
+(since 3.2.0), so a read during post-processing finds the descriptor or
+none, never part of one. Throws an `ArgumentError` when the file declares
 no schema or one other than `"deepspacetelemetry-run/1"` (producers 2.5.0
 to 2.11.0) and `"deepspacetelemetry-run/2"` (3.0.0 and later).
 """

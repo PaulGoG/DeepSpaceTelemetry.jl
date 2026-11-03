@@ -243,6 +243,7 @@
         # The adapter returns the descriptor as written; absent, it is empty, and
         # a schema the adapter does not know is refused.
         @test RunAdapter.run_descriptor(run) == descriptor
+        @test !isfile(joinpath(run_dir, "descriptor.toml.partial"))
         mktempdir() do tmp
             copy_dir = joinpath(tmp, basename(run_dir))
             cp(run_dir, copy_dir)
@@ -263,6 +264,17 @@
             @test_throws ArgumentError RunAdapter.run_descriptor(copied)
             rm(path)
             @test RunAdapter.run_descriptor(copied) == Dict{String,Any}()
+            # The producer renames a staged descriptor into place, rotating the
+            # one it replaces; the products are those of the original.
+            # (The regeneration above already rotated one descriptor of the run.)
+            write(path, text)
+            backups() = filter(startswith("descriptor#"), readdir(copy_dir))
+            before = backups()
+            TelemetryCore.write_run_descriptor(copy_dir)
+            @test !isfile(path * ".partial")
+            rotated = only(setdiff(backups(), before))
+            @test read(joinpath(copy_dir, rotated), String) == text
+            @test RunAdapter.run_descriptor(copied)["products"] == descriptor["products"]
             # A pruned batch, as the custodian leaves it: metadata and marker,
             # no payload. batch_record names its state; neither read serves it.
             pruned_dir = joinpath(copy_dir, "ground", ground_name)

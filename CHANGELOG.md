@@ -30,6 +30,13 @@ the run directory by path.
 - `RunAdapter.list_batches` reads the metadata of each batch once instead
   of twice.
 
+### Fixed
+- `TelemetryCore.write_run_descriptor` wrote `descriptor.toml` in place, so
+  a reader polling a run during post-processing could find the file empty
+  or partly written. It now writes `descriptor.toml.partial` and renames it
+  into place after rotating the previous descriptor; a reader finds the
+  whole descriptor or none. Contents and file name are unchanged.
+
 ## [3.1.2] - 2026-11-02
 
 ### Changed

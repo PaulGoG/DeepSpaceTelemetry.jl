@@ -1354,8 +1354,10 @@ the size and SHA-256 of every table of [`DESCRIPTOR_PRODUCTS`](@ref)
 present. The source-identity fields added in 2.6.1 are empty for an
 earlier run.
 
-Written last among the post-processing products, so the hashes are final;
-an existing descriptor is rotated ([`backup_existing`](@ref)).
+Written last among the post-processing products, so the hashes are final.
+The file is written as `descriptor.toml.partial` and renamed into place, an
+existing descriptor being rotated first ([`backup_existing`](@ref)), so a
+reader finds the whole descriptor or none.
 """
 function write_run_descriptor(run_dir::String)
     cfg = load_run_config(run_dir)
@@ -1404,10 +1406,13 @@ function write_run_descriptor(run_dir::String)
     end
     descriptor["products"] = products
     path = joinpath(run_dir, "descriptor.toml")
-    backup_existing(path)
-    open(path, "w") do io
+    staging = path * ".partial"
+    open(staging, "w") do io
         TOML.print(io, descriptor)
     end
+    backup_existing(path)
+    # A rename within the run directory: a reader sees the whole file or none.
+    mv(staging, path)
     return path
 end
 
