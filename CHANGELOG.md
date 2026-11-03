@@ -6,6 +6,30 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Added
+- `RunAdapter.batch_record(run, name)`: the `BatchRecord` of one batch by
+  name, with the record and state rule of `list_batches` (`:ground`,
+  `:pruned`, `:lost`), or `nothing` when the batch is in neither `ground/`
+  nor `lost/`. It reads the metadata of that batch alone, where
+  `list_batches` reads every batch of the run, so a consumer following the
+  arrival feed resolves each batch at constant cost and needs no stage
+  directory. A string that is not a batch name is an `ArgumentError`.
+- The keyword `delivered` of `RunAdapter.read_batch_matrix` and
+  `RunAdapter.read_batch`: with `delivered = true`, a batch that is not on
+  the ground (lost, pruned or absent) is an `ArgumentError`. The default
+  still serves a lost batch from `lost/`.
+- `RunAdapter.run_descriptor(run)`: `descriptor.toml` as a
+  `Dict{String,Any}`, empty while the file is absent; a schema other than
+  `deepspacetelemetry-run/1` (2.5.0 to 2.11.0) and `/2` (3.0.0 and later)
+  is an `ArgumentError`.
+
+All three are `public`. A consumer of the adapter now reads nothing from
+the run directory by path.
+
+### Changed
+- `RunAdapter.list_batches` reads the metadata of each batch once instead
+  of twice.
+
 ## [3.1.2] - 2026-11-02
 
 ### Changed

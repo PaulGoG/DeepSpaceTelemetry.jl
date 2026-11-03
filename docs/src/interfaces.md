@@ -92,7 +92,7 @@ what a streaming consumer saw (The arrival stream, replayed, below).
 | `emitter_alive` / `receiver_alive` | the driver (heartbeats, both modes) | Read mtime. Liveness signals, refreshed at most once per second while the mission phase runs and deleted when it ends: absence means finished, a stale mtime means the driver is stalled. |
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run, columns `SimTime, Label, PayloadRow` (`PayloadRow`, the payload row of the instant, since 2.5.0): the instants at which the alert-latency metric is evaluated (`alert_latency_markers.csv`). Absent when the scenario declares no markers. |
 | `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid (since 2.6.0), columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd`, rows as in `masks/gaps.csv`. `Class` is `label` (a `[[labels]]` span a payload exporter declares in payload rows), `blackout` or `recovery` (the phases of a link disruption, `Type` the event type), `generation_gap` (a scheduled generation gap as configured, `Type` the event type; the realized gap of the gap table may differ by the segment-grid snap), `contact` (`Type = pass`), `low_latency` (`Type = triggered` for a marker's period, `scheduled` otherwise), or `initial_downtime`. A consumer reads the labels of a scenario from the run directory, not from the scenario file. |
-| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema` (`"deepspacetelemetry-run/2"` since 3.0, `/1` before), `run_id`, the producer's `package_version` and source identity (the fields of Source identity), `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry (`sample_rate`, `segment_duration_sec`, `batch_size`, `points_per_batch`), `payload_columns`, the external record's `external_data_sha256` and `external_data_rows`, `written_at`, and under `[products]` the `bytes` and `sha256` of every table present. |
+| `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema` (`"deepspacetelemetry-run/2"` since 3.0, `/1` before), `run_id`, the producer's `package_version` and source identity (the fields of Source identity), `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry (`sample_rate`, `segment_duration_sec`, `batch_size`, `points_per_batch`), `payload_columns`, the external record's `external_data_sha256` and `external_data_rows`, `written_at`, and under `[products]` the `bytes` and `sha256` of every table present; `RunAdapter.run_descriptor` returns it. |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period); `plots/delivery_delay.png` renders the distribution against the requirement. |
 | `alert_latency.csv` | post-processing | Read. Alert-latency curves — median and quartiles of the ground availability of look-back data after a live event, realized doctrine against the counterfactual FIFO drain — columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
 | `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
@@ -537,10 +537,13 @@ run = RunAdapter.open_run("RUN_ID")           # a path or an identifier; checks 
 RunAdapter.run_geometry(run)                 # sample rate, segment length, batch size, payload origin, record length, clock mode
 RunAdapter.list_batches(run)                 # per batch: name, index, live?, payload rows, content epoch,
                                              #            state ∈ :ground | :lost | :pruned
+RunAdapter.batch_record(run, "LIVE_batch_7") # the same record for one batch, from its metadata alone; nothing if absent
 RunAdapter.read_batch(run, "LIVE_batch_7"; column = 1)   # one payload column, Float32, segments in ascending id (read_batch_matrix: all columns)
+RunAdapter.read_batch_matrix(run, "LIVE_batch_7"; delivered = true)   # refuses a batch not on the ground (lost, pruned, absent)
 RunAdapter.arrival_events(run; after = n)    # the feed beyond the n rows already consumed, in mission-time order
 RunAdapter.delivered_rows(run; at = t)       # the payload rows on the ground at mission instant t, as disjoint intervals
 RunAdapter.run_state(run)                    # :active | :complete | :aborted, from the sentinels
+RunAdapter.run_descriptor(run)               # descriptor.toml as a Dict (empty until post-processing writes it), schema checked
 RunAdapter.markers(run)                      # the event markers with their payload row
 RunAdapter.label_spans(run)                  # the labeled intervals of the scenario, with their rows
 RunAdapter.declared_holes(run; after = n)    # the producer's hole feed beyond n rows, each with its declaration instant
@@ -553,7 +556,12 @@ the declared-hole feed and the label-span table, unless told otherwise
 (`minimum_version`). `declared_holes` reads the producer's feed,
 `holes.csv`: each hole the moment the producer declares it, so a streaming
 consumer declares a permanent hole as early as the producer does, and on a
-finished run also the end-of-run causes, the holes of `masks/gaps.csv`. The
+finished run also the end-of-run causes, the holes of `masks/gaps.csv`.
+A consumer following the arrival feed resolves each named batch with
+`batch_record`, which reads that batch's metadata alone where `list_batches`
+reads every batch of the run, and reads its payload with
+`delivered = true`: `read_batch` and `read_batch_matrix` otherwise also
+serve a lost batch from `lost/`, which is meant for diagnostics. The
 adapter ships in the reader package `DeepSpaceTelemetryReader`
 (`Pkg.add(url = …, subdir = "reader")`), which a consumer adds without the
 figure stack.
@@ -563,7 +571,8 @@ The adapter's types (`RunHandle`, `RunGeometry`, `BatchRecord`,
 `MINIMUM_PRODUCER_VERSION`, and the functions above with `batch_rows`,
 `read_batch_matrix`, `record_final`, `row_time` and `time_row` are declared
 `public` (since 2.6.2; `FeedCursor` since 2.10.0, `delivered_rows` since
-2.11.0) and are not exported; a
+2.11.0, `batch_record` and `run_descriptor` since 3.2.0) and are not
+exported; a
 consumer qualifies them, as in the example. ExplicitImports'
 `check_all_qualified_accesses_are_public` then passes without an ignore
 list. These names are versioned with the file contract.

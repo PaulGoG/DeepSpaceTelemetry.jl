@@ -2,7 +2,8 @@
 # contract of a lossy tick run with a marker, a scheduled generation gap, and
 # declared label spans, the declared-hole feed against the gap table, the feed
 # cursors, the delivered rows, the marker rows, the label-span table and its regeneration,
-# the descriptor, and the version check.
+# the per-batch lookup, the delivered-only reads, the descriptor, and the
+# version check.
 
 @testset "Run adapter" begin
     cfg = TelemetryCore.load_config(
@@ -67,6 +68,15 @@
         @test !isempty(lost)
         @test Set(b.name for b in batches if b.state === :lost) == lost
         @test all(b.content_epoch == RunAdapter.row_time(g, first(b.rows)) for b in batches)
+        # One batch by name: the record and state rule of list_batches; nothing
+        # for a batch in neither ground/ nor lost/, an error for a non-name.
+        @test all(RunAdapter.batch_record(run, b.name) == b for b in batches)
+        @test RunAdapter.batch_record(run, "LIVE_batch_999999") === nothing
+        @test RunAdapter.batch_record(run, SubString(first(batches).name, 1)) ==
+              first(batches)
+        for bad in ("LIVE_batch_", "LIVE_batch_1/..", "../ground", "seg_1.csv")
+            @test_throws ArgumentError RunAdapter.batch_record(run, bad)
+        end
         # A batch on both sides of the scheduled gap keeps its stamped rows.
         tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
         @test count(==("gap_start"), tx.Event) == 1
@@ -76,6 +86,25 @@
         )
         @test payload isa Vector{Float32} && length(payload) == g.points_per_batch
         @test_throws ArgumentError RunAdapter.read_batch(run, "LIVE_batch_999999")
+        # Delivered-only reads: a ground batch as before; a lost one is served
+        # from lost/ for diagnostics and refused under delivered = true.
+        ground_name = first(b.name for b in batches if b.state === :ground)
+        lost_name = first(b.name for b in batches if b.state === :lost)
+        @test RunAdapter.read_batch_matrix(run, ground_name; delivered = true) ==
+              RunAdapter.read_batch_matrix(run, ground_name)
+        @test RunAdapter.read_batch(run, ground_name; delivered = true) == payload
+        @test size(RunAdapter.read_batch_matrix(run, lost_name)) == (g.points_per_batch, 1)
+        @test_throws ArgumentError RunAdapter.read_batch_matrix(
+            run,
+            lost_name;
+            delivered = true,
+        )
+        @test_throws ArgumentError RunAdapter.read_batch(run, lost_name; delivered = true)
+        @test_throws ArgumentError RunAdapter.read_batch(
+            run,
+            "LIVE_batch_999999";
+            delivered = true,
+        )
         events = RunAdapter.arrival_events(run)
         @test length(events) == nrow(rx)
         @test events[1].event in (:ingested, :retry, :lost) && events[1].attempt >= 0
@@ -211,6 +240,49 @@
         @test haskey(descriptor["products"], "holes.csv")
         @test descriptor["products"]["events_rx.csv"]["sha256"] ==
               bytes2hex(open(TelemetryCore.sha256, joinpath(run_dir, "events_rx.csv")))
+        # The adapter returns the descriptor as written; absent, it is empty, and
+        # a schema the adapter does not know is refused.
+        @test RunAdapter.run_descriptor(run) == descriptor
+        mktempdir() do tmp
+            copy_dir = joinpath(tmp, basename(run_dir))
+            cp(run_dir, copy_dir)
+            copied = RunAdapter.open_run(copy_dir)
+            path = joinpath(copy_dir, "descriptor.toml")
+            text = read(path, String)
+            write(
+                path,
+                replace(text, "deepspacetelemetry-run/2" => "deepspacetelemetry-run/1"),
+            )
+            @test RunAdapter.run_descriptor(copied)["schema"] == "deepspacetelemetry-run/1"
+            write(
+                path,
+                replace(text, "deepspacetelemetry-run/2" => "deepspacetelemetry-run/9"),
+            )
+            @test_throws ArgumentError RunAdapter.run_descriptor(copied)
+            write(path, replace(text, r"schema = \"[^\"]*\"\n" => ""))
+            @test_throws ArgumentError RunAdapter.run_descriptor(copied)
+            rm(path)
+            @test RunAdapter.run_descriptor(copied) == Dict{String,Any}()
+            # A pruned batch, as the custodian leaves it: metadata and marker,
+            # no payload. batch_record names its state; neither read serves it.
+            pruned_dir = joinpath(copy_dir, "ground", ground_name)
+            touch(joinpath(pruned_dir, "PRUNED"))
+            for f in readdir(pruned_dir)
+                startswith(f, "seg_") && rm(joinpath(pruned_dir, f))
+            end
+            record = RunAdapter.batch_record(copied, ground_name)
+            @test record.state === :pruned &&
+                  record.rows == only(b.rows for b in batches if b.name == ground_name)
+            @test only(
+                b for b in RunAdapter.list_batches(copied) if b.name == ground_name
+            ) == record
+            @test_throws ArgumentError RunAdapter.read_batch_matrix(copied, ground_name)
+            @test_throws ArgumentError RunAdapter.read_batch_matrix(
+                copied,
+                ground_name;
+                delivered = true,
+            )
+        end
         # A run of a producer before the declared-hole feed (2.6.0) is refused
         # by default; one without a recorded version is opened with a warning.
         old = joinpath(TelemetryCore.runs_root(), run_id * "_old")
@@ -323,7 +395,9 @@ end
         :run_geometry,
         :run_state,
         :record_final,
+        :run_descriptor,
         :list_batches,
+        :batch_record,
         :batch_rows,
         :read_batch,
         :read_batch_matrix,

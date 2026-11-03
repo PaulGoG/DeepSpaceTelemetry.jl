@@ -2,22 +2,23 @@
     RunAdapter
 
 Run adapter for consumers: the geometry, batches, payload, arrivals, state,
-and labeled intervals of the scenario of a run directory, read from the
-file contract alone (the configuration snapshot, the batch directories,
-`events_rx.csv`, `label_spans.csv`, the lifecycle sentinels), the same way
-for an active run followed through its arrival feed and for a finished one
-replayed from it. [`open_run`](@ref) checks the producer's version against
-[`MINIMUM_PRODUCER_VERSION`](@ref); [`declared_holes`](@ref) reads the
-holes of the delivered record from the producer's feed, `holes.csv`, and
-[`delivered_rows`](@ref) the rows on the ground at any instant. The contract is the Analysis
-Interfaces chapter of the manual; a consumer in another language reads the
-same files.
+labeled intervals and identity of a run directory, read from the file
+contract alone (the configuration snapshot, the batch directories,
+`events_rx.csv`, `label_spans.csv`, `descriptor.toml`, the lifecycle
+sentinels), the same way for an active run followed through its arrival
+feed and for a finished one replayed from it. [`open_run`](@ref) checks
+the producer's version against [`MINIMUM_PRODUCER_VERSION`](@ref);
+[`declared_holes`](@ref) reads the holes of the delivered record from the
+producer's feed, `holes.csv`, and [`delivered_rows`](@ref) the rows on the
+ground at any instant. The contract is the Analysis Interfaces chapter of
+the manual; a consumer in another language reads the same files.
 """
 module RunAdapter
 
 using ..TelemetryCore
 using DataFrames: DataFrame, nrow
 using Dates: DateTime
+using TOML: TOML
 
 # The adapter follows the run-directory contract and is versioned with it:
 # its names are public, for qualified use, and not exported.
@@ -32,7 +33,9 @@ public RunHandle,
     run_geometry,
     run_state,
     record_final,
+    run_descriptor,
     list_batches,
+    batch_record,
     batch_rows,
     read_batch,
     read_batch_matrix,
@@ -220,6 +223,40 @@ only derived products are still being written.
 record_final(run::RunHandle) =
     run_state(run) !== :active || isfile(joinpath(run.run_dir, "RUN_POSTPROCESSING"))
 
+# The descriptor schemas of the producers open_run accepts: /1 from 2.5.0 to
+# 2.11.0, /2 since 3.0.0 (the point-wise masks left the products).
+const DESCRIPTOR_SCHEMAS = ("deepspacetelemetry-run/1", "deepspacetelemetry-run/2")
+
+"""
+    run_descriptor(run::RunHandle) -> Dict{String,Any}
+
+The run's identity from `descriptor.toml`, as
+[`TelemetryCore.write_run_descriptor`](@ref) writes it: `schema`, `run_id`,
+the producer's `package_version` and source identity (`git_commit`,
+`git_tree_sha1`, `git_dirty`, …), `config_sha256`, the clock `mode`, the
+payload geometry, `payload_columns`, and under `"products"` the `bytes` and
+`sha256` of every table present. Empty while the file is absent.
+Post-processing writes it last, so it is final once the run has ended
+([`run_state`](@ref) not `:active`); a run that ended before
+post-processing has none. Throws an `ArgumentError` when the file declares
+no schema or one other than `"deepspacetelemetry-run/1"` (producers 2.5.0
+to 2.11.0) and `"deepspacetelemetry-run/2"` (3.0.0 and later).
+"""
+function run_descriptor(run::RunHandle)
+    path = joinpath(run.run_dir, "descriptor.toml")
+    isfile(path) || return Dict{String,Any}()
+    descriptor = TOML.parsefile(path)
+    schema = get(descriptor, "schema", nothing)
+    schema in DESCRIPTOR_SCHEMAS || throw(
+        ArgumentError(
+            "[ADAPTER] $path declares " *
+            (schema === nothing ? "no schema" : "the schema $(repr(schema))") *
+            "; the adapter reads $(join(DESCRIPTOR_SCHEMAS, " and ")).",
+        ),
+    )
+    return descriptor
+end
+
 """
     row_time(geometry::RunGeometry, row::Integer) -> DateTime
 
@@ -265,47 +302,105 @@ payload the custodian removed is `:pruned`).
 """
 function list_batches(run::RunHandle)
     records = BatchRecord[]
-    for (stage, state) in (("ground", :ground), ("lost", :lost))
+    for (stage, state) in BATCH_STAGES
         dir = joinpath(run.run_dir, stage)
         isdir(dir) || continue
         for name in readdir(dir)
             TelemetryCore.is_batch_name(name) && isdir(joinpath(dir, name)) || continue
-            meta = TelemetryCore.read_batch_metadata(joinpath(dir, name))
-            epoch =
-                haskey(meta, "content_epoch") ?
-                something(tryparse(DateTime, string(meta["content_epoch"])), missing) :
-                missing
-            final_state =
-                state === :ground && isfile(joinpath(dir, name, "PRUNED")) ? :pruned : state
-            push!(
-                records,
-                BatchRecord(
-                    name,
-                    TelemetryCore.batch_id(name),
-                    TelemetryCore.is_live_batch(name),
-                    batch_rows(run, stage, name),
-                    epoch,
-                    final_state,
-                ),
-            )
+            push!(records, stage_record(run, stage, state, name))
         end
     end
     sort!(records; by = r -> r.index)
     return records
 end
 
+# The stages a batch directory can be found under, in lookup order, with the
+# state of a batch there before the PRUNED check.
+const BATCH_STAGES = (("ground", :ground), ("lost", :lost))
+
+# A batch name as the producer writes it; nothing else reaches a joinpath.
+const BATCH_NAME = r"^(?:LIVE|ARCH)_batch_\d+$"
+
+# The record of the batch `name` under `<run_dir>/<stage>/`, from one read of
+# its metadata: a batch under ground/ with a PRUNED marker is :pruned.
+function stage_record(run::RunHandle, stage::String, state::Symbol, name::String)
+    dir = joinpath(run.run_dir, stage, name)
+    meta = TelemetryCore.read_batch_metadata(dir)
+    epoch =
+        haskey(meta, "content_epoch") ?
+        something(tryparse(DateTime, string(meta["content_epoch"])), missing) : missing
+    rows = TelemetryCore.batch_hole_rows(
+        get(meta, "payload_row", nothing),
+        name,
+        run.geometry.points_per_batch,
+    )
+    final_state = state === :ground && isfile(joinpath(dir, "PRUNED")) ? :pruned : state
+    return BatchRecord(
+        name,
+        TelemetryCore.batch_id(name),
+        TelemetryCore.is_live_batch(name),
+        rows,
+        epoch,
+        final_state,
+    )
+end
+
 """
-    segment_files(run::RunHandle, name::AbstractString) -> Tuple{String,Vector{String}}
+    batch_record(run::RunHandle, name::AbstractString) -> Union{BatchRecord,Nothing}
+
+The [`BatchRecord`](@ref) of the batch `name`, by the record and state rule
+of [`list_batches`](@ref) (`:ground`, `:pruned`, `:lost`), from the
+metadata of that batch alone; `nothing` when it is in neither `ground/` nor
+`lost/` (not yet finalized, or still on the link). A consumer following the
+arrival feed resolves each named batch at constant cost, without the stage
+directory [`batch_rows`](@ref) asks for. Throws an `ArgumentError` for a
+`name` that is not a batch name (`LIVE_batch_<k>` or `ARCH_batch_<k>`).
+
+```julia
+arrivals = RunAdapter.FeedCursor(run, :arrivals)
+for e in RunAdapter.arrival_events(arrivals)
+    e.event === :ingested || continue
+    record = RunAdapter.batch_record(run, e.batch)
+    record.state === :ground || continue   # pruned since its arrival
+    samples = RunAdapter.read_batch_matrix(run, e.batch; delivered = true)
+    # consume samples at record.rows
+end
+```
+"""
+function batch_record(run::RunHandle, name::AbstractString)
+    occursin(BATCH_NAME, name) || throw(
+        ArgumentError(
+            "[ADAPTER] $(repr(name)) is not a batch name (LIVE_batch_<k> or ARCH_batch_<k>).",
+        ),
+    )
+    for (stage, state) in BATCH_STAGES
+        isdir(joinpath(run.run_dir, stage, name)) &&
+            return stage_record(run, stage, state, String(name))
+    end
+    return nothing
+end
+
+"""
+    segment_files(run::RunHandle, name::AbstractString; delivered::Bool = false)
+        -> Tuple{String,Vector{String}}
 
 The directory of the batch `name`, under `ground/` or, for a lost batch,
-under `lost/`, and its segment file names in ascending segment identifier.
-Throws an `ArgumentError` for a batch that is absent, pruned, or holds no
-segment file.
+under `lost/` (never with `delivered = true`), and its segment file names in
+ascending segment identifier. Throws an `ArgumentError` for a batch that is
+absent, pruned, or holds no segment file, and with `delivered = true` for a
+lost one.
 """
-function segment_files(run::RunHandle, name::AbstractString)
-    for stage in ("ground", "lost")
+function segment_files(run::RunHandle, name::AbstractString; delivered::Bool = false)
+    for (stage, state) in BATCH_STAGES
         dir = joinpath(run.run_dir, stage, String(name))
         isdir(dir) || continue
+        if delivered && state === :lost
+            throw(
+                ArgumentError(
+                    "[ADAPTER] $name was lost on the link: it is not part of the delivered record (delivered = true).",
+                ),
+            )
+        end
         isfile(joinpath(dir, "PRUNED")) && throw(
             ArgumentError(
                 "[ADAPTER] The payload of $name was pruned by the retention custodian.",
@@ -323,16 +418,20 @@ function segment_files(run::RunHandle, name::AbstractString)
 end
 
 """
-    read_batch_matrix(run::RunHandle, name::AbstractString) -> Matrix{Float32}
+    read_batch_matrix(run::RunHandle, name::AbstractString;
+                      delivered::Bool = false) -> Matrix{Float32}
 
 The samples of one batch, one row per sample and one column per payload
 column of `run.geometry.columns`, its segments concatenated in ascending
-segment identifier, from `ground/` or, for a lost batch, from `lost/`.
-Throws an `ArgumentError` for a batch that is absent or pruned, and for a
-segment whose columns differ from those of the geometry.
+segment identifier, from `ground/` or, for a lost batch, from `lost/`. With
+`delivered = true` only a batch on the ground is read, as a consumer of the
+delivered record must; a lost batch is then refused like an absent or
+pruned one. Throws an `ArgumentError` for a batch that is absent or pruned
+(or, with `delivered = true`, lost), and for a segment whose columns differ
+from those of the geometry.
 """
-function read_batch_matrix(run::RunHandle, name::AbstractString)
-    dir, files = segment_files(run, name)
+function read_batch_matrix(run::RunHandle, name::AbstractString; delivered::Bool = false)
+    dir, files = segment_files(run, name; delivered = delivered)
     expected = run.geometry.columns
     blocks = Matrix{Float32}[]
     for f in files
@@ -349,20 +448,23 @@ end
 
 """
     read_batch(run::RunHandle, name::AbstractString;
-               column::Union{Integer,AbstractString} = 1) -> Vector{Float32}
+               column::Union{Integer,AbstractString} = 1,
+               delivered::Bool = false) -> Vector{Float32}
 
 The samples of one payload column of one batch, by
 index or by name, its segments concatenated in ascending segment
 identifier, from `ground/` or, for a lost batch, from `lost/`
-([`read_batch_matrix`](@ref) holds every column). For a one-column run the
-default is the whole payload. Throws an `ArgumentError` for a batch that is
-absent or pruned, and for a `column` that is not one of
+([`read_batch_matrix`](@ref) holds every column; `delivered = true` reads
+only a batch on the ground). For a one-column run the default is the whole
+payload. Throws an `ArgumentError` for a batch that is absent or pruned
+(or, with `delivered = true`, lost), and for a `column` that is not one of
 `run.geometry.columns`.
 """
 function read_batch(
     run::RunHandle,
     name::AbstractString;
     column::Union{Integer,AbstractString} = 1,
+    delivered::Bool = false,
 )
     columns = run.geometry.columns
     j = TelemetryCore.payload_column_index(columns, column)
@@ -371,7 +473,7 @@ function read_batch(
             "[ADAPTER] No payload column $(repr(column)) in $(run.run_dir) (columns: $(join(columns, ", "))).",
         ),
     )
-    return read_batch_matrix(run, name)[:, j]
+    return read_batch_matrix(run, name; delivered = delivered)[:, j]
 end
 
 """

@@ -16,10 +16,12 @@ DeepSpaceTelemetry.RunAdapter.open_run
 DeepSpaceTelemetry.RunAdapter.run_geometry
 DeepSpaceTelemetry.RunAdapter.run_state
 DeepSpaceTelemetry.RunAdapter.record_final
+DeepSpaceTelemetry.RunAdapter.run_descriptor
 DeepSpaceTelemetry.RunAdapter.row_time
 DeepSpaceTelemetry.RunAdapter.time_row
 DeepSpaceTelemetry.RunAdapter.batch_rows
 DeepSpaceTelemetry.RunAdapter.list_batches
+DeepSpaceTelemetry.RunAdapter.batch_record
 DeepSpaceTelemetry.RunAdapter.read_batch
 DeepSpaceTelemetry.RunAdapter.read_batch_matrix
 DeepSpaceTelemetry.RunAdapter.arrival_events
