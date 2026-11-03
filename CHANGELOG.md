@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-03
+
 ### Added
 - `RunAdapter.batch_record(run, name)`: the `BatchRecord` of one batch by
   name, with the record and state rule of `list_batches` (`:ground`,
@@ -1072,6 +1074,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[3.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.2...v3.2.0
 [3.1.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.0.1...v3.1.0
