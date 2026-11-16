@@ -209,6 +209,8 @@ function plot_alert_latency(
         fifo_q75 = Float64.(table.FIFO_KM_Q75_Hours)
         lifo_q25 = Float64.(table.LIFO_KM_Q25_Hours)
         lifo_q75 = Float64.(table.LIFO_KM_Q75_Hours)
+        lifo_median = Float64.(table.LIFO_KM_Median_Hours)
+        fifo_median = Float64.(table.FIFO_KM_Median_Hours)
         finite_runs(lo, hi) = begin
             ok = isfinite.(lo) .& isfinite.(hi)
             runs = UnitRange{Int}[]
@@ -264,14 +266,8 @@ function plot_alert_latency(
                 linewidth = style.linewidth_guide,
             )
         end
-        lines!(
-            ax,
-            x,
-            Float64.(table.FIFO_KM_Median_Hours),
-            color = PlotTheme.COLOR_COUNTERFACTUAL,
-            linestyle = :dot,
-        )
-        lines!(ax, x, Float64.(table.LIFO_KM_Median_Hours), color = PlotTheme.COLOR_ARCHIVE)
+        lines!(ax, x, fifo_median, color = PlotTheme.COLOR_COUNTERFACTUAL, linestyle = :dot)
+        lines!(ax, x, lifo_median, color = PlotTheme.COLOR_ARCHIVE)
         # Event markers: one realized curve each in the marker color with
         # cycling line styles (a different family from the population bands).
         marker_elements = LineElement[]
@@ -308,14 +304,7 @@ function plot_alert_latency(
             maximum(
                 filter(
                     isfinite,
-                    vcat(
-                        lifo_q25,
-                        lifo_q75,
-                        fifo_q25,
-                        fifo_q75,
-                        Float64.(table.LIFO_KM_Median_Hours),
-                        Float64.(table.FIFO_KM_Median_Hours),
-                    ),
+                    vcat(lifo_q25, lifo_q75, fifo_q25, fifo_q75, lifo_median, fifo_median),
                 );
                 init = 1.0,
             ),
@@ -347,15 +336,26 @@ function plot_alert_latency(
             last = table[reached, :]
             comparison =
                 "$(round(last.LIFO_KM_Median_Hours, digits = 1)) h (realized) vs " *
-                "$(round(last.FIFO_KM_Median_Hours, digits = 1)) h (counterfactual);"
-            censored = "$(last.N_Censored_LIFO) / $(last.N_Censored_FIFO)"
-            population =
-                "medians over $(last.N_Alerts_All) live event" *
-                (last.N_Alerts_All == 1 ? "" : "s") *
-                ", $censored censored at the run end"
+                "$(round(last.FIFO_KM_Median_Hours, digits = 1)) h (counterfactual); " *
+                "Kaplan–Meier medians over $(last.N_Alerts_All) live event" *
+                (last.N_Alerts_All == 1 ? "" : "s")
+            # The censored counts of that row, and why a curve may stop short.
+            notes = String[]
+            last.N_Censored_LIFO + last.N_Censored_FIFO > 0 && push!(
+                notes,
+                "censored at the run end: $(last.N_Censored_LIFO) realized, " *
+                "$(last.N_Censored_FIFO) counterfactual",
+            )
+            any(
+                c -> any(isnan, c),
+                (lifo_q25, lifo_q75, fifo_q25, fifo_q75, lifo_median, fifo_median),
+            ) && push!(notes, "a curve stops where its quantile is not reached")
             lookback = round(last.Lookback_Hours, digits = 1)
             headline = L"Waveform back to $\delta$ = %$(lookback) h complete after"
-            body = comparison * " " * population * "\n" * budget
+            body = join(
+                filter(!isempty, [comparison, uppercasefirst(join(notes, "; ")), budget]),
+                "\n",
+            )
         end
         text!(
             ax,

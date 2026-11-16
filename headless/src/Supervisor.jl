@@ -1183,7 +1183,9 @@ function execute_mission!(
     post_process!(plan, run_dir; orig_stdout = orig_stdout, figures = figures)
     println(orig_stdout, "\n=== MISSION COMPLETE ===")
     println(orig_stdout, "Results saved in: $run_dir")
-    println(orig_stdout, "Summary plots available in: $(joinpath(run_dir, "plots"))")
+    figures &&
+        figure_backend_loaded() &&
+        println(orig_stdout, "Summary plots available in: $(joinpath(run_dir, "plots"))")
     return nothing
 end
 
