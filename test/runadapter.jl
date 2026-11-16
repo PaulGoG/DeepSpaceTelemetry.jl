@@ -95,6 +95,13 @@
             lost_name;
             delivered = true,
         )
+        # A name that is no batch name is refused before a path is formed.
+        for bad in ("../ground", "LIVE_batch_1#1", "seg_1.csv")
+            @test_throws ArgumentError RunAdapter.read_batch_matrix(run, bad)
+            @test_throws ArgumentError RunAdapter.batch_rows(run, "ground", bad)
+        end
+        # An absent batch is reported as absent.
+        @test_throws "No batch" RunAdapter.batch_rows(run, "ground", "LIVE_batch_999999")
         @test_throws ArgumentError RunAdapter.read_batch(run, lost_name; delivered = true)
         @test_throws ArgumentError RunAdapter.read_batch(
             run,
@@ -271,6 +278,22 @@
             rotated = only(setdiff(backups(), before))
             @test read(joinpath(copy_dir, rotated), String) == text
             @test RunAdapter.run_descriptor(copied)["products"] == descriptor["products"]
+            # A batch missing a segment file is refused: its samples would be
+            # misaligned with its rows.
+            other = first(
+                b.name for b in batches if b.state === :ground && b.name != ground_name
+            )
+            other_dir = joinpath(copy_dir, "ground", other)
+            rm(joinpath(other_dir, first(filter(startswith("seg_"), readdir(other_dir)))))
+            @test_throws ArgumentError RunAdapter.read_batch_matrix(copied, other)
+            # A rotated namesake (`<name>#k`) is a backup, not a batch.
+            cp(
+                joinpath(copy_dir, "ground", ground_name),
+                joinpath(copy_dir, "ground", ground_name * "#1"),
+            )
+            listed = RunAdapter.list_batches(copied)
+            @test count(b -> b.name == ground_name, listed) == 1
+            @test all(b -> b.index > 0, listed)
             # A pruned batch, as the custodian leaves it: metadata and marker,
             # no payload. batch_record names its state; neither read serves it.
             pruned_dir = joinpath(copy_dir, "ground", ground_name)

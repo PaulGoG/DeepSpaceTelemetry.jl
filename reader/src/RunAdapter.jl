@@ -279,13 +279,16 @@ time_row(g::RunGeometry, t::DateTime) =
     batch_rows(run::RunHandle, stage::AbstractString, name::AbstractString) -> UnitRange{Int}
 
 The payload rows of the batch `name` under `<run_dir>/<stage>/`, from the
-`payload_row` stamp of its metadata.
+`payload_row` stamp of its metadata. Throws an `ArgumentError` for a `name`
+that is not a batch name and for a batch absent from that stage.
 """
 function batch_rows(run::RunHandle, stage::AbstractString, name::AbstractString)
+    require_batch_name(name)
     g = run.geometry
-    meta = TelemetryCore.read_batch_metadata(
-        joinpath(run.run_dir, String(stage), String(name)),
-    )
+    dir = joinpath(run.run_dir, String(stage), String(name))
+    isdir(dir) ||
+        throw(ArgumentError("[ADAPTER] No batch $name under $stage/ of $(run.run_dir)."))
+    meta = TelemetryCore.read_batch_metadata(dir)
     return TelemetryCore.batch_hole_rows(
         get(meta, "payload_row", nothing),
         name,
@@ -306,7 +309,7 @@ function list_batches(run::RunHandle)
         dir = joinpath(run.run_dir, stage)
         isdir(dir) || continue
         for name in readdir(dir)
-            TelemetryCore.is_batch_name(name) && isdir(joinpath(dir, name)) || continue
+            occursin(BATCH_NAME, name) && isdir(joinpath(dir, name)) || continue
             push!(records, stage_record(run, stage, state, name))
         end
     end
@@ -320,6 +323,16 @@ const BATCH_STAGES = (("ground", :ground), ("lost", :lost))
 
 # A batch name as the producer writes it.
 const BATCH_NAME = r"^(?:LIVE|ARCH)_batch_\d+$"
+
+# Refuses a name that is not a batch name, before any path is formed from it.
+function require_batch_name(name::AbstractString)
+    occursin(BATCH_NAME, name) || throw(
+        ArgumentError(
+            "[ADAPTER] $(repr(name)) is not a batch name (LIVE_batch_<k> or ARCH_batch_<k>).",
+        ),
+    )
+    return nothing
+end
 
 # The record of the batch `name` under `<run_dir>/<stage>/`, from one read of
 # its metadata: a batch under ground/ with a PRUNED marker is :pruned.
@@ -367,11 +380,7 @@ end
 ```
 """
 function batch_record(run::RunHandle, name::AbstractString)
-    occursin(BATCH_NAME, name) || throw(
-        ArgumentError(
-            "[ADAPTER] $(repr(name)) is not a batch name (LIVE_batch_<k> or ARCH_batch_<k>).",
-        ),
-    )
+    require_batch_name(name)
     for (stage, state) in BATCH_STAGES
         isdir(joinpath(run.run_dir, stage, name)) &&
             return stage_record(run, stage, state, String(name))
@@ -390,6 +399,7 @@ absent, pruned, or holds no segment file, and with `delivered = true` for a
 lost one.
 """
 function segment_files(run::RunHandle, name::AbstractString; delivered::Bool = false)
+    require_batch_name(name)
     for (stage, state) in BATCH_STAGES
         dir = joinpath(run.run_dir, stage, String(name))
         isdir(dir) || continue
@@ -425,15 +435,29 @@ column of `run.geometry.columns`, its segments concatenated in ascending
 segment identifier, from `ground/` or, for a lost batch, from `lost/`. With
 `delivered = true` only a batch on the ground is read. Throws an
 `ArgumentError` for a batch that is absent or pruned
-(or, with `delivered = true`, lost), and for a segment whose columns differ
-from those of the geometry.
+(or, with `delivered = true`, lost), for a segment whose columns differ
+from those of the geometry, and for a batch whose segments do not hold
+`points_per_batch` samples.
 """
 function read_batch_matrix(run::RunHandle, name::AbstractString; delivered::Bool = false)
     dir, files = segment_files(run, name; delivered = delivered)
     expected = run.geometry.columns
+    # The custodian marks a batch PRUNED and then removes its segments: a
+    # read that started before the marker can meet a missing segment.
+    pruned() =
+        isfile(joinpath(dir, "PRUNED")) && throw(
+            ArgumentError(
+                "[ADAPTER] The payload of $name was pruned by the retention custodian.",
+            ),
+        )
     blocks = Matrix{Float32}[]
     for f in files
-        seg = TelemetryCore.load_segment(joinpath(dir, f))
+        seg = try
+            TelemetryCore.load_segment(joinpath(dir, f))
+        catch
+            pruned()
+            rethrow()
+        end
         seg.columns == expected || throw(
             ArgumentError(
                 "[ADAPTER] $f of $name holds the columns $(join(seg.columns, ", ")); the run declares $(join(expected, ", ")).",
@@ -441,7 +465,16 @@ function read_batch_matrix(run::RunHandle, name::AbstractString; delivered::Bool
         )
         push!(blocks, seg.data)
     end
-    return reduce(vcat, blocks)
+    samples = reduce(vcat, blocks)
+    if size(samples, 1) != run.geometry.points_per_batch
+        pruned()
+        throw(
+            ArgumentError(
+                "[ADAPTER] $name holds $(size(samples, 1)) samples in $(length(files)) segment files; the run declares $(run.geometry.points_per_batch) per batch.",
+            ),
+        )
+    end
+    return samples
 end
 
 """
