@@ -90,6 +90,128 @@
     end
 end
 
+@testset "Kaplan–Meier quantiles" begin
+    q = Metrology.km_quantile
+    # Complete data: Ŝ falls by 1/4 at each of 1, 2, 3, 4.
+    t = [1.0, 2.0, 3.0, 4.0]
+    all_observed = trues(4)
+    @test q(t, all_observed, 0.25) == 1.0
+    @test q(t, all_observed, 0.5) == 2.0
+    @test q(t, all_observed, 0.75) == 3.0
+    # One censoring at 3: Ŝ(1) = 4/5, Ŝ(2) = 3/5, three at risk after 2 and
+    # two after the censoring, Ŝ(4) = 3/5 · 1/2 = 3/10, Ŝ(5) = 0.
+    t = [1.0, 2.0, 3.0, 4.0, 5.0]
+    observed = [true, true, false, true, true]
+    @test q(t, observed, 0.25) == 2.0
+    @test q(t, observed, 0.5) == 4.0
+    @test q(t, observed, 0.75) == 5.0
+    # A tie of an event and a censoring at 2: the event comes first,
+    # Ŝ(2) = 2/3, then Ŝ(3) = 0.
+    @test q([2.0, 2.0, 3.0], [true, false, true], 0.25) == 2.0
+    @test q([2.0, 2.0, 3.0], [true, false, true], 0.5) == 3.0
+    # Windows that never complete stay at risk: the median is not reached.
+    @test q([1.0, Inf, Inf, Inf], [true, false, false, false], 0.25) == 1.0
+    @test isnan(q([1.0, Inf, Inf, Inf], [true, false, false, false], 0.5))
+    @test isnan(q([1.0, 2.0], [false, false], 0.5))
+    @test isnan(q(Float64[], Bool[], 0.5))
+    @test_throws ArgumentError q([1.0], [true], 1.0)
+end
+
+@testset "Delivery compliance with pending and discarded batches" begin
+    # Four batches against a 24 h requirement: two delivered within it, one
+    # delivered late, one undelivered and not yet due at the run end.
+    table = DataFrame(
+        Batch = ["LIVE_batch_1", "ARCH_batch_2", "ARCH_batch_3", "LIVE_batch_4"],
+        Live = [true, false, false, true],
+        Delay_Hours = Union{Missing,Float64}[2.0, 20.0, 30.0, missing],
+        LowLatency = [false, false, false, false],
+        Due = [true, true, true, false],
+    )
+    s = Metrology.delivery_compliance(table, 24.0)
+    @test s.within == 2 && s.generated == 4
+    @test s.fraction_within == 2 / 4
+    @test s.pending == 1 && s.due == 3
+    @test s.fraction_within_resolved == 2 / 3
+    s = Metrology.delivery_compliance(table, 24.0; discarded = 2)
+    @test s.fraction_within_resolved == 2 / 5
+end
+
+@testset "Alert latency with censored windows (synthetic schedule)" begin
+    # The schedule of the testset above with ARCH_batch_1 never delivered;
+    # the run ends at t0 + 1 h (60 s × 60). Realized: LIVE_5 (t_m = t0 + 3
+    # min) completes its windows at 1, 1, 2, 3, 5 min for k = 0 … 4, and its
+    # window at k = 5 holds ARCH_1, censored at 57 min; LIVE_6 (t_m = t0 + 6
+    # min) completes at 1, 1, 1, 1, 1, 2 min. The FIFO drain hands the five
+    # completions 4 … 8 min to ARCH_1 … LIVE_5, so LIVE_5 arrives at 8 min
+    # (latency 5 min at every k) and LIVE_6 never (censored at 54 min).
+    mktempdir() do dir
+        t0 = DateTime(2035, 1, 1, 6)
+        D = Minute(3)
+        open(joinpath(dir, "config_snapshot.toml"), "w") do io
+            write(
+                io,
+                """
+                [simulation]
+                speed_up = 60.0
+                start_sim_time = "2035-01-01T06:00:00"
+                mission_wall_seconds = 60.0
+                [physics]
+                data_source = "synthetic"
+                sample_rate = 4.0
+                segment_duration_sec = 60.0
+                batch_size = 3
+                """,
+            )
+        end
+        epochs = Dict(
+            "ARCH_batch_1" => t0 - 4D,
+            "ARCH_batch_2" => t0 - 3D,
+            "ARCH_batch_3" => t0 - 2D,
+            "ARCH_batch_4" => t0 - D,
+            "LIVE_batch_5" => t0,
+            "LIVE_batch_6" => t0 + D,
+        )
+        for (name, epoch) in epochs
+            stage = name == "ARCH_batch_1" ? "link" : "ground"
+            bdir = mkpath(joinpath(dir, stage, name))
+            write(
+                joinpath(bdir, "metadata.json"),
+                """{"batch_id":$(TelemetryCore.batch_id(name)),"segment_count":3,"created_at":"$(epoch + D)","content_epoch":"$epoch","payload_row":$(1 + 720 * (TelemetryCore.batch_id(name) - 1))}""",
+            )
+            TelemetryCore.log_tx_event(dir, epoch + D, name, "gen")
+        end
+        for (name, t) in (
+            ("LIVE_batch_5", t0 + Minute(4)),
+            ("ARCH_batch_4", t0 + Minute(5)),
+            ("ARCH_batch_3", t0 + Minute(6)),
+            ("LIVE_batch_6", t0 + Minute(7)),
+            ("ARCH_batch_2", t0 + Minute(8)),
+        )
+            TelemetryCore.log_rx_event(dir, t, name, "ingested", 0)
+        end
+        table = Metrology.alert_latency_table(dir; lookback_hours = 0.25)
+        minutes = x -> x / 60
+        @test table.N_Alerts_All == fill(2, 6)
+        @test table.N_Censored_LIFO == [0, 0, 0, 0, 0, 1]
+        @test table.N_Censored_FIFO == fill(1, 6)
+        # Kaplan–Meier median: the smaller of two observed latencies; with
+        # one of two censored beyond the other, the observed one.
+        @test table.LIFO_KM_Median_Hours ≈ minutes.([1.0, 1.0, 1.0, 1.0, 1.0, 2.0]) rtol =
+            1e-12
+        @test table.FIFO_KM_Median_Hours ≈ minutes.(fill(5.0, 6)) rtol = 1e-12
+        # The upper quartile is not reached where a censored window remains.
+        @test isnan(table.LIFO_KM_Q75_Hours[6]) && all(isnan, table.FIFO_KM_Q75_Hours)
+        @test table.LIFO_KM_Q75_Hours[1:5] ≈ minutes.([1.0, 1.0, 2.0, 3.0, 5.0]) rtol =
+            1e-12
+        # Complete cases: LIVE_5 alone (LIVE_6 has no FIFO delivery), and no
+        # alert at k = 5, where LIVE_5's window is incomplete.
+        @test table.N_Alerts == [1, 1, 1, 1, 1, 0]
+        @test table.LIFO_Median_Hours[1:5] ≈ minutes.([1.0, 1.0, 2.0, 3.0, 5.0]) rtol =
+            1e-12
+        @test isnan(table.LIFO_Median_Hours[6])
+    end
+end
+
 @testset "Link-rate parameterization and delivery-delay metric" begin
     base = valid_test_cfg()
     # Physical rates: one 10-minute batch at 75 kbit/s production over a

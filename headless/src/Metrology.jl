@@ -38,6 +38,46 @@ function quantile_sorted(values::AbstractVector{<:Real}, p::Real)
 end
 
 """
+    km_quantile(times::AbstractVector{<:Real}, observed::AbstractVector{Bool}, p::Real) -> Float64
+
+The `p`-quantile of the Kaplan–Meier product-limit estimate of the
+distribution of `times`, where `observed[i]` is false for a time censored
+at `times[i]` (the true value exceeds it): the smallest observed time `t`
+with `Ŝ(t) ≤ 1 − p`, `Ŝ` the estimated survival function. At an equal time
+events precede censorings. `NaN` when `Ŝ` stays above `1 − p` (the quantile
+is not reached within the follow-up) or when `times` is empty. Kaplan &
+Meier (1958), doi:10.1080/01621459.1958.10501452.
+"""
+function km_quantile(times::AbstractVector{<:Real}, observed::AbstractVector{Bool}, p::Real)
+    length(times) == length(observed) ||
+        throw(DimensionMismatch("[METROLOGY] times and observed differ in length."))
+    0 < p < 1 || throw(ArgumentError("[METROLOGY] p must lie in (0, 1) (got $p)."))
+    n = length(times)
+    n == 0 && return NaN
+    order = sortperm(collect(zip(times, .!observed)))   # events first at a tie
+    at_risk = n
+    survival = 1.0
+    target = 1 - p
+    i = 1
+    while i <= n
+        t = times[order[i]]
+        events = 0
+        removed = 0
+        while i <= n && times[order[i]] == t
+            observed[order[i]] && (events += 1)
+            removed += 1
+            i += 1
+        end
+        if events > 0
+            survival *= 1 - events / at_risk
+            survival <= target + 1e-12 && return Float64(t)
+        end
+        at_risk -= removed
+    end
+    return NaN
+end
+
+"""
     BatchDelivery
 
 One batch in the delivery schedule: identity, content interval, generation
@@ -261,19 +301,36 @@ end
 
 Window-completeness latency curves over the look-back grid
 `δ = 0, D, 2D, …` (`D` = the batch content span) up to `lookback_hours`.
-Every live batch delivered under both doctrines defines an alert whose
-event instant `t_m` is the batch's content end (the moment the transient's
-samples exist). The look-back window `[t_m − δ, t_m)`, together with the
-alert batch itself, is complete on the ground once every batch overlapping
-it has arrived; the latency is that completion instant minus `t_m`, for
-the realized doctrine and for the counterfactual FIFO drain
-([`delivery_schedule`](@ref)). For `δ ≤ D` it is the delivery delay of the
-live batch itself, and it is non-decreasing in `δ`. At each `δ` an alert is
-excluded when its window reaches before the first recorded batch or holds
-a batch that never arrived under one of the two doctrines; `N_Alerts`
-counts the rest. Columns: `Lookback_Hours`, `N_Alerts`, and the median and
-25 % / 75 % quantiles of the latency in hours for `LIFO` (realized) and
-`FIFO`.
+A live batch defines an alert whose event instant `t_m` is the batch's
+content end (the moment the transient's samples exist). The look-back
+window `[t_m − δ, t_m)`, together with the alert batch itself, is complete
+on the ground once every batch overlapping it has arrived; the latency is
+that completion instant minus `t_m`, for the realized doctrine and for the
+counterfactual FIFO drain ([`delivery_schedule`](@ref)). For `δ ≤ D` it is
+the delivery delay of the live batch itself, and it is non-decreasing in
+`δ`. At each `δ` an alert is excluded when its window reaches before the
+first recorded batch.
+
+Two populations enter the table. The complete-case columns, `N_Alerts` and
+the median and 25 % / 75 % quantiles of the latency in hours for `LIFO`
+(realized) and `FIFO` (`LIFO_Median_Hours`, …, `FIFO_Q75_Hours`), are
+conditional on windows delivered in full under both doctrines: their
+alerts are the live batches delivered under both, and at each `δ` an alert
+whose window holds a batch that never arrived under one of the two is left
+out. The Kaplan–Meier columns use every alert, a live batch delivered under
+the realized doctrine (`N_Alerts_All` counts them at each `δ`). Under each
+doctrine a window that holds an undelivered batch is censored at the run
+end, `T_end − t_m` with `T_end` the mission end, and a window that holds
+data discarded at the on-board recorder ([`recorder_spans`](@ref)) never
+completes; `N_Censored_LIFO` and `N_Censored_FIFO` count both kinds, and
+`LIFO_KM_Median_Hours`, `LIFO_KM_Q25_Hours`, `LIFO_KM_Q75_Hours` and their
+`FIFO` counterparts are quantiles of the product-limit estimate
+([`km_quantile`](@ref)). The estimator assumes censoring independent of the
+latency, which a backlog at the run end violates in part (late alerts are
+censored early), so the Kaplan–Meier median is an estimate, and "not
+reached" (`NaN`) is itself a result. One row per `δ` with
+`N_Alerts_All > 0`; on rows with `N_Alerts = 0` the complete-case quantiles
+are `NaN`. Empty when the run has no alert.
 """
 function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     schedule = delivery_schedule(run_dir)
@@ -282,18 +339,40 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     steps = floor(Int, lookback_hours * TelemetryCore.MS_PER_HOUR / span.value)
     first_epoch = schedule[1].content_epoch
     hours(ms::Millisecond) = ms.value / TelemetryCore.MS_PER_HOUR
+    t_end = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
+    spans = recorder_spans(run_dir)
+    # Kaplan–Meier entry (time, observed) of one window under one doctrine.
+    km_entry(latency, discarded::Bool, censor::Float64) =
+        discarded ? (Inf, false) : latency === nothing ? (censor, false) : (latency, true)
 
     # Per alert, the running completion instants of the window as it grows
     # one batch at a time toward the past; `nothing` once a batch that
-    # never arrived enters the window.
+    # never arrived enters the window. The complete-case curves keep the
+    # alerts delivered under both doctrines, the Kaplan–Meier entries every
+    # alert delivered under the realized one.
     lifo_at = Vector{Vector{Union{Nothing,Float64}}}()
     fifo_at = Vector{Vector{Union{Nothing,Float64}}}()
+    lifo_km = Vector{Vector{Tuple{Float64,Bool}}}()
+    fifo_km = Vector{Vector{Tuple{Float64,Bool}}}()
     for (i, m) in enumerate(schedule)
-        (m.live && m.available_at !== nothing && m.fifo_available_at !== nothing) ||
-            continue
-        real, fifo = completion_curves(schedule, i, m.content_end, steps, span, first_epoch)
-        push!(lifo_at, real)
-        push!(fifo_at, fifo)
+        (m.live && m.available_at !== nothing) || continue
+        t_m = m.content_end
+        real, fifo = completion_curves(schedule, i, t_m, steps, span, first_epoch)
+        if m.fifo_available_at !== nothing
+            push!(lifo_at, real)
+            push!(fifo_at, fifo)
+        end
+        censor = hours(t_end - t_m)
+        lifo_entries = Tuple{Float64,Bool}[]
+        fifo_entries = Tuple{Float64,Bool}[]
+        for (k, (r, f)) in enumerate(zip(real, fifo))
+            window_start = min(t_m - Millisecond((k - 1) * span.value), m.content_epoch)
+            discarded = any(s -> s[1] < t_m && s[2] > window_start, spans)
+            push!(lifo_entries, km_entry(r, discarded, censor))
+            push!(fifo_entries, km_entry(f, discarded, censor))
+        end
+        push!(lifo_km, lifo_entries)
+        push!(fifo_km, fifo_entries)
     end
 
     lookback = Float64[]
@@ -304,7 +383,28 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     fifo_median = Float64[]
     fifo_q25 = Float64[]
     fifo_q75 = Float64[]
+    n_alerts_all = Int[]
+    n_censored_lifo = Int[]
+    n_censored_fifo = Int[]
+    lifo_km_median = Float64[]
+    lifo_km_q25 = Float64[]
+    lifo_km_q75 = Float64[]
+    fifo_km_median = Float64[]
+    fifo_km_q25 = Float64[]
+    fifo_km_q75 = Float64[]
     for k in 0:steps
+        lifo_times = Float64[]
+        lifo_observed = Bool[]
+        fifo_times = Float64[]
+        fifo_observed = Bool[]
+        for (real, counter) in zip(lifo_km, fifo_km)
+            k + 1 <= length(real) || continue
+            push!(lifo_times, real[k+1][1])
+            push!(lifo_observed, real[k+1][2])
+            push!(fifo_times, counter[k+1][1])
+            push!(fifo_observed, counter[k+1][2])
+        end
+        isempty(lifo_times) && continue
         lifo = Float64[]
         fifo = Float64[]
         for (real, counter) in zip(lifo_at, fifo_at)
@@ -313,7 +413,6 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
             push!(lifo, real[k+1])
             push!(fifo, counter[k+1])
         end
-        isempty(lifo) && continue
         sort!(lifo)
         sort!(fifo)
         push!(lookback, hours(Millisecond(k * span.value)))
@@ -324,6 +423,15 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
         push!(fifo_median, quantile_sorted(fifo, 0.5))
         push!(fifo_q25, quantile_sorted(fifo, 0.25))
         push!(fifo_q75, quantile_sorted(fifo, 0.75))
+        push!(n_alerts_all, length(lifo_times))
+        push!(n_censored_lifo, count(!, lifo_observed))
+        push!(n_censored_fifo, count(!, fifo_observed))
+        push!(lifo_km_median, km_quantile(lifo_times, lifo_observed, 0.5))
+        push!(lifo_km_q25, km_quantile(lifo_times, lifo_observed, 0.25))
+        push!(lifo_km_q75, km_quantile(lifo_times, lifo_observed, 0.75))
+        push!(fifo_km_median, km_quantile(fifo_times, fifo_observed, 0.5))
+        push!(fifo_km_q25, km_quantile(fifo_times, fifo_observed, 0.25))
+        push!(fifo_km_q75, km_quantile(fifo_times, fifo_observed, 0.75))
     end
     isempty(lookback) && return DataFrame()
     return DataFrame(
@@ -335,6 +443,15 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
         FIFO_Median_Hours = fifo_median,
         FIFO_Q25_Hours = fifo_q25,
         FIFO_Q75_Hours = fifo_q75,
+        N_Alerts_All = n_alerts_all,
+        N_Censored_LIFO = n_censored_lifo,
+        N_Censored_FIFO = n_censored_fifo,
+        LIFO_KM_Median_Hours = lifo_km_median,
+        LIFO_KM_Q25_Hours = lifo_km_q25,
+        LIFO_KM_Q75_Hours = lifo_km_q75,
+        FIFO_KM_Median_Hours = fifo_km_median,
+        FIFO_KM_Q25_Hours = fifo_km_q25,
+        FIFO_KM_Q75_Hours = fifo_km_q75,
     )
 end
 
@@ -346,17 +463,21 @@ end
 Measurement-to-ground delay of every generated batch: `Batch`, `Live`,
 `ContentEnd`, `AvailableAt` (missing when the batch never reached the
 ground), `Delay_Hours` = availability minus content end (missing when
-undelivered), and `LowLatency` — whether the batch reached the ground
-inside a low-latency period of the run's contact model. Built on
+undelivered), `LowLatency` — whether the batch reached the ground inside a
+low-latency period of the run's contact model, also where the period
+overlaps a nominal pass — and `Due`: whether `content_end +
+delivery_requirement_hours` falls at or before the mission end, so that the
+requirement could be checked within the run. Built on
 [`delivery_schedule`](@ref); rows sorted by content epoch.
 """
 function delivery_delay_table(run_dir::String)
     schedule = delivery_schedule(run_dir)
-    vis = TelemetryCore.visibility_model(TelemetryCore.load_run_config(run_dir))
-    in_low_latency(t::DateTime) = begin
-        w = TelemetryCore.active_window(vis, t)
-        w !== nothing && w.low_latency
-    end
+    cfg = TelemetryCore.load_run_config(run_dir)
+    vis = TelemetryCore.visibility_model(cfg)
+    t_end = TelemetryCore.mission_end(cfg)
+    requirement = TelemetryCore.post_processing_settings(cfg).delivery_requirement_hours
+    R_ms = Millisecond(round(Int, requirement * TelemetryCore.MS_PER_HOUR))
+    in_low_latency(t::DateTime) = any(w -> w.start <= t < w.stop, vis.low_latency)
     return DataFrame(
         Batch = [b.name for b in schedule],
         Live = [b.live for b in schedule],
@@ -372,24 +493,47 @@ function delivery_delay_table(run_dir::String)
         LowLatency = [
             b.available_at !== nothing && in_low_latency(b.available_at) for b in schedule
         ],
+        Due = [b.content_end + R_ms <= t_end for b in schedule],
     )
 end
 
 """
-    delivery_compliance(table::DataFrame, requirement_hours::Float64) -> NamedTuple
+    delivery_compliance(table::DataFrame, requirement_hours::Float64; discarded::Int = 0) -> NamedTuple
 
 Summary of a [`delivery_delay_table`](@ref) against a delivery requirement:
 `generated`, `delivered`, `within` (delivered within `requirement_hours` of
 measurement), `via_low_latency` (delivered inside a low-latency period),
 `fraction_within` (of all generated batches — an undelivered batch is
 non-compliant), `median_hours`, and `p95_hours` of the delivered
-delays (`NaN` when nothing was delivered).
+delays (`NaN` when nothing was delivered); `due` (batches with `Due`),
+`pending` (undelivered and not yet due), `discarded` (the keyword, the
+batches discarded at the on-board recorder, [`discarded_batches`](@ref)),
+and `fraction_within_resolved` (`NaN` when its denominator is 0). `due`,
+`pending`, and `fraction_within_resolved` are `missing` for a table without
+the `Due` column (an older run). `fraction_within` counts every generated
+batch, so a batch generated less than the requirement before the end of the
+run counts as non-compliant although it is not yet due.
+`fraction_within_resolved` counts the batches that were due or delivered by
+the end of the run and the discarded ones:
+`within / (generated − pending + discarded)`.
 """
-function delivery_compliance(table::DataFrame, requirement_hours::Float64)
+function delivery_compliance(
+    table::DataFrame,
+    requirement_hours::Float64;
+    discarded::Int = 0,
+)
     delays = sort!(Float64[d for d in table.Delay_Hours if !ismissing(d)])
     generated = nrow(table)
     delivered = length(delays)
     within = count(<=(requirement_hours), delays)
+    has_due = hasproperty(table, :Due)
+    due = has_due ? count(table.Due) : missing
+    pending =
+        has_due ?
+        count(i -> ismissing(table.Delay_Hours[i]) && !table.Due[i], 1:nrow(table)) :
+        missing
+    resolved = generated - pending + discarded
+    fraction_resolved = !has_due ? missing : resolved == 0 ? NaN : within / resolved
     return (
         generated = generated,
         delivered = delivered,
@@ -398,7 +542,53 @@ function delivery_compliance(table::DataFrame, requirement_hours::Float64)
         fraction_within = generated == 0 ? NaN : within / generated,
         median_hours = quantile_sorted(delays, 0.5),
         p95_hours = quantile_sorted(delays, 0.95),
+        due = due,
+        pending = pending,
+        discarded = discarded,
+        fraction_within_resolved = fraction_resolved,
     )
+end
+
+"""
+    recorder_spans(run_dir::String) -> Vector{Tuple{DateTime,DateTime}}
+
+The content intervals `[start, stop)` the on-board recorder discarded at its
+ceiling, from the `RECORDER` gap rows of `events_tx.csv`; a span still open
+at the end of the log closes at the mission end.
+"""
+function recorder_spans(run_dir::String)
+    spans = Tuple{DateTime,DateTime}[]
+    tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
+    isempty(tx) && return spans
+    open_at::Union{Nothing,DateTime} = nothing
+    for r in eachrow(tx)
+        String(r.Batch) == "RECORDER" || continue
+        if r.Event == "gap_start"
+            open_at === nothing && (open_at = DateTime(r.SimTime))
+        elseif r.Event == "gap_end" && open_at !== nothing
+            push!(spans, (open_at, DateTime(r.SimTime)))
+            open_at = nothing
+        end
+    end
+    if open_at !== nothing
+        t_end = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
+        push!(spans, (open_at, t_end))
+    end
+    return spans
+end
+
+"""
+    discarded_batches(run_dir::String) -> Int
+
+The number of whole batches the on-board recorder discarded at its ceiling:
+the length of the [`recorder_spans`](@ref) over the batch content span.
+"""
+function discarded_batches(run_dir::String)
+    physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
+    batch_span =
+        Millisecond(round(Int, physics.batch_size * physics.segment_duration_sec * 1000))
+    total = sum(s -> (s[2] - s[1]).value, recorder_spans(run_dir); init = 0)
+    return round(Int, total / batch_span.value)
 end
 
 """

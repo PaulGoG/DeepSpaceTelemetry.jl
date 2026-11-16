@@ -14,6 +14,7 @@ using ..Metrology:
     alert_latency_table,
     delivery_compliance,
     delivery_delay_table,
+    discarded_batches,
     marker_latency_table
 using CairoMakie:
     CairoMakie,
@@ -164,12 +165,13 @@ end
     plot_alert_latency(run_dir::String; lookback_hours = 72.0, processing_latency_hours = 1.0, style, plots_dir, formats, suffix) -> Union{Nothing,String}
 
 Renders `<plots_dir>/alert_latency.png` with a vector twin from
-[`alert_latency_table`](@ref) and [`marker_latency_table`](@ref): the median
-window-completeness latency and its interquartile band against the
-look-back, realized in the archive color (solid) and counterfactual FIFO in
-[`PlotTheme.COLOR_COUNTERFACTUAL`](@ref) (dotted), one
-[`PlotTheme.COLOR_MARKER`](@ref) curve per event marker, and the medians at
-the largest look-back annotated with the ground processing budget
+[`alert_latency_table`](@ref) and [`marker_latency_table`](@ref): the
+Kaplan–Meier median window-completeness latency and its interquartile band
+against the look-back, drawn where reached, realized in the archive color
+(solid) and counterfactual FIFO in [`PlotTheme.COLOR_COUNTERFACTUAL`](@ref)
+(dotted), one [`PlotTheme.COLOR_MARKER`](@ref) curve per event marker, and
+the medians at the largest look-back where both are reached annotated with
+the censored counts and the ground processing budget
 `processing_latency_hours`. Returns the PNG path, or `nothing` when the run
 holds no delivered live batch.
 """
@@ -198,24 +200,51 @@ function plot_alert_latency(
             xlabel = L"Look-back $\delta$ before the live event [h]",
             ylabel = "Window complete on the ground after [h]",
         )
-        # Interquartile bands with a thin full-hue edge on both quartiles,
-        # the medians on top: realized solid, counterfactual dotted.
-        fifo_q25, fifo_q75 = Float64.(table.FIFO_Q25_Hours), Float64.(table.FIFO_Q75_Hours)
-        lifo_q25, lifo_q75 = Float64.(table.LIFO_Q25_Hours), Float64.(table.LIFO_Q75_Hours)
-        band!(
-            ax,
-            x,
-            fifo_q25,
-            fifo_q75,
-            color = (PlotTheme.COLOR_COUNTERFACTUAL, QUARTILE_BAND_ALPHA),
-        )
-        band!(
-            ax,
-            x,
-            lifo_q25,
-            lifo_q75,
-            color = (PlotTheme.COLOR_ARCHIVE, QUARTILE_BAND_ALPHA),
-        )
+        # Kaplan–Meier interquartile bands with a thin full-hue edge on both
+        # quartiles, the medians on top: realized solid, counterfactual
+        # dotted. A quantile not reached is NaN: the lines break there (a
+        # NaN vertex is a gap), and a band is drawn per contiguous run of
+        # rows where both its quartiles are finite (band! takes no NaN).
+        fifo_q25 = Float64.(table.FIFO_KM_Q25_Hours)
+        fifo_q75 = Float64.(table.FIFO_KM_Q75_Hours)
+        lifo_q25 = Float64.(table.LIFO_KM_Q25_Hours)
+        lifo_q75 = Float64.(table.LIFO_KM_Q75_Hours)
+        finite_runs(lo, hi) = begin
+            ok = isfinite.(lo) .& isfinite.(hi)
+            runs = UnitRange{Int}[]
+            i = 1
+            while i <= length(ok)
+                if ok[i]
+                    j = i
+                    while j < length(ok) && ok[j+1]
+                        j += 1
+                    end
+                    push!(runs, i:j)
+                    i = j + 1
+                else
+                    i += 1
+                end
+            end
+            runs
+        end
+        for r in finite_runs(fifo_q25, fifo_q75)
+            band!(
+                ax,
+                x[r],
+                fifo_q25[r],
+                fifo_q75[r],
+                color = (PlotTheme.COLOR_COUNTERFACTUAL, QUARTILE_BAND_ALPHA),
+            )
+        end
+        for r in finite_runs(lifo_q25, lifo_q75)
+            band!(
+                ax,
+                x[r],
+                lifo_q25[r],
+                lifo_q75[r],
+                color = (PlotTheme.COLOR_ARCHIVE, QUARTILE_BAND_ALPHA),
+            )
+        end
         for q in (fifo_q25, fifo_q75)
             lines!(
                 ax,
@@ -238,11 +267,11 @@ function plot_alert_latency(
         lines!(
             ax,
             x,
-            Float64.(table.FIFO_Median_Hours),
+            Float64.(table.FIFO_KM_Median_Hours),
             color = PlotTheme.COLOR_COUNTERFACTUAL,
             linestyle = :dot,
         )
-        lines!(ax, x, Float64.(table.LIFO_Median_Hours), color = PlotTheme.COLOR_ARCHIVE)
+        lines!(ax, x, Float64.(table.LIFO_KM_Median_Hours), color = PlotTheme.COLOR_ARCHIVE)
         # Event markers: one realized curve each in the marker color with
         # cycling line styles (a different family from the population bands).
         marker_elements = LineElement[]
@@ -280,9 +309,12 @@ function plot_alert_latency(
                 filter(
                     isfinite,
                     vcat(
-                        Float64.(table.LIFO_Q75_Hours),
-                        Float64.(table.FIFO_Q75_Hours),
-                        Float64.(table.FIFO_Median_Hours),
+                        lifo_q25,
+                        lifo_q75,
+                        fifo_q25,
+                        fifo_q75,
+                        Float64.(table.LIFO_KM_Median_Hours),
+                        Float64.(table.FIFO_KM_Median_Hours),
                     ),
                 );
                 init = 1.0,
@@ -293,20 +325,38 @@ function plot_alert_latency(
         # A margin below zero, as on the lost strip: a zero realized latency
         # would otherwise draw on the axis frame and read as unplotted.
         ylims!(ax, -0.05 * 1.25 * y_max, 1.25 * y_max)
-        last = table[end, :]
+        # The annotated row: the largest look-back where both Kaplan–Meier
+        # medians are reached.
+        reached = findlast(
+            i ->
+                isfinite(table.LIFO_KM_Median_Hours[i]) &&
+                isfinite(table.FIFO_KM_Median_Hours[i]),
+            1:nrow(table),
+        )
         # Two text primitives. MathTeXEngine centers continuation lines, so
         # the LaTeX headline (italic δ) is one line; the plain block starts one
         # line advance below it, since a rich-text block would double the
         # line spacing.
-        comparison =
-            "$(round(last.LIFO_Median_Hours, digits = 1)) h (realized) vs " *
-            "$(round(last.FIFO_Median_Hours, digits = 1)) h (counterfactual);"
-        population =
-            "medians over $(last.N_Alerts) live event" * (last.N_Alerts == 1 ? "" : "s")
-        budget = "Ground processing budget: $(round(processing_latency_hours, digits = 1)) h"
-        lookback = round(last.Lookback_Hours, digits = 1)
-        headline = L"Waveform back to $\delta$ = %$(lookback) h complete after"
-        body = comparison * " " * population * "\n" * budget * " on top of every latency"
+        budget =
+            "Ground processing budget: $(round(processing_latency_hours, digits = 1)) h " *
+            "on top of every latency"
+        if reached === nothing
+            headline = "Median window completion not reached within the run"
+            body = budget
+        else
+            last = table[reached, :]
+            comparison =
+                "$(round(last.LIFO_KM_Median_Hours, digits = 1)) h (realized) vs " *
+                "$(round(last.FIFO_KM_Median_Hours, digits = 1)) h (counterfactual);"
+            censored = "$(last.N_Censored_LIFO) / $(last.N_Censored_FIFO)"
+            population =
+                "medians over $(last.N_Alerts_All) live event" *
+                (last.N_Alerts_All == 1 ? "" : "s") *
+                ", $censored censored at the run end"
+            lookback = round(last.Lookback_Hours, digits = 1)
+            headline = L"Waveform back to $\delta$ = %$(lookback) h complete after"
+            body = comparison * " " * population * "\n" * budget
+        end
         text!(
             ax,
             0.02,
@@ -403,7 +453,21 @@ function plot_delivery_delay(
         @warn "[POST] No generated batch in $run_dir: delivery-delay figure skipped."
         return nothing
     end
-    summary = delivery_compliance(table, requirement_hours)
+    discarded = discarded_batches(run_dir)
+    summary = delivery_compliance(table, requirement_hours; discarded)
+    resolved_percent = round(100 * summary.fraction_within_resolved, digits = 1)
+    pending = summary.pending
+    annotation = [
+        "$(resolved_percent) % of $(summary.generated - pending + discarded) due or " *
+        "delivered batches within $(round(requirement_hours, digits = 1)) h",
+        "Delivered: median $(round(summary.median_hours, digits = 1)) h, " *
+        "95th percentile $(round(summary.p95_hours, digits = 1)) h",
+        "$(summary.generated - summary.delivered) undelivered at run end" *
+        (pending > 0 ? ", $pending of them not yet due" : ""),
+    ]
+    discarded > 0 && push!(annotation, "$discarded discarded at the on-board recorder")
+    summary.via_low_latency > 0 &&
+        push!(annotation, "$(summary.via_low_latency) delivered in low-latency periods")
 
     # Empirical fraction of *generated* batches delivered within x hours, so
     # an undelivered batch keeps the curve below unity.
@@ -433,7 +497,7 @@ function plot_delivery_delay(
         # pass behind it: a requirement beyond every realized delay lands at
         # 1/1.15 ≈ 0.87 of the axis, inside the block's corner. The curves
         # occupy the upper left, so the block stays.
-        n_lines = summary.via_low_latency > 0 ? 4 : 3
+        n_lines = length(annotation)
         block_top = annotation_block_top(style, n_lines)
         crosses_annotation = requirement_hours / x_max > ANNOTATION_BLOCK_LEFT
         lines!(
@@ -482,15 +546,7 @@ function plot_delivery_delay(
             ax,
             0.98,
             ANNOTATION_BLOCK_BOTTOM,
-            text = "$(round(100 * summary.fraction_within, digits = 1)) % of $(summary.generated) batches within " *
-                   "$(round(requirement_hours, digits = 1)) h\n" *
-                   "Median $(round(summary.median_hours, digits = 1)) h, " *
-                   "95th percentile $(round(summary.p95_hours, digits = 1)) h\n" *
-                   "$(summary.generated - summary.delivered) undelivered at run end" *
-                   (
-                       summary.via_low_latency > 0 ?
-                       "\n$(summary.via_low_latency) delivered in low-latency periods" : ""
-                   ),
+            text = join(annotation, "\n"),
             space = :relative,
             align = (:right, :bottom),
             justification = :right,
@@ -547,7 +603,7 @@ function plot_delivery_delay(
         PlotTheme.size_to_panels!(fig, 1 => SINGLE_PANEL_SHARE * style.panel_height)
         path = PlotTheme.save_figure(fig, plots_dir, "delivery_delay"; formats, suffix)
     end
-    @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) ($(round(100 * summary.fraction_within, digits = 1)) % within $(requirement_hours) h)."
+    @info "[POST] Delivery-delay metric saved: $(relpath(path, run_dir)) ($(resolved_percent) % of due or delivered batches within $(requirement_hours) h)."
     return path
 end
 

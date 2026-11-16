@@ -11,6 +11,7 @@ module Sweeps
 
 using ..TelemetryCore: TelemetryCore
 using ..Supervisor
+using ..Metrology: Metrology
 using DataFrames: DataFrame, nrow
 using Dates: now
 using Logging: NullLogger, with_logger
@@ -120,13 +121,21 @@ The realized totals of one run: the counters of the last row of
 `mission_profile.csv`, the generated count and the share within the
 delivery requirement from `delivery_delay.csv`, the alert-latency medians
 at 24 h and 72 h (realized and counterfactual) from `alert_latency.csv`,
-and the hole count of `masks/gaps.csv`. An absent delay, latency, or gap
-table leaves its fields `missing`; `mission_profile.csv` is required.
+the hole count of `masks/gaps.csv`, then `pending` (undelivered batches not
+yet due, from the `Due` column of `delivery_delay.csv`), `discarded`
+([`Metrology.discarded_batches`](@ref)), `within_requirement_resolved`
+(batches within the requirement over `generated − pending + discarded`),
+and the Kaplan–Meier medians `alert24_realized_km`, `alert24_fifo_km`,
+`alert72_realized_km`, `alert72_fifo_km` from `alert_latency.csv`. An
+absent delay, latency, or gap table, a delay table without `Due`, or a
+latency table without the Kaplan–Meier columns leaves its fields
+`missing`; `mission_profile.csv` is required.
 """
 function summarize_run(run_dir::String)
     profile = TelemetryCore.read_table(joinpath(run_dir, "mission_profile.csv"))
     last = profile[end, :]
-    generated = within = missing
+    generated = within = pending = resolved = missing
+    discarded = Metrology.discarded_batches(run_dir)
     delay_path = joinpath(run_dir, "delivery_delay.csv")
     if isfile(delay_path)
         delay = TelemetryCore.read_table(delay_path)
@@ -142,15 +151,24 @@ function summarize_run(run_dir::String)
                 24.0,
             ),
         )
-        within =
-            count(d -> !ismissing(d) && d <= requirement, delay.Delay_Hours) /
-            max(generated, 1)
+        n_within = count(d -> !ismissing(d) && d <= requirement, delay.Delay_Hours)
+        within = n_within / max(generated, 1)
+        if hasproperty(delay, :Due)
+            pending =
+                count(i -> ismissing(delay.Delay_Hours[i]) && !delay.Due[i], 1:generated)
+            denominator = generated - pending + discarded
+            resolved = denominator == 0 ? NaN : n_within / denominator
+        end
     end
     medians = Dict{Symbol,Union{Missing,Float64}}(
         :alert24_realized => missing,
         :alert24_fifo => missing,
         :alert72_realized => missing,
         :alert72_fifo => missing,
+        :alert24_realized_km => missing,
+        :alert24_fifo_km => missing,
+        :alert72_realized_km => missing,
+        :alert72_fifo_km => missing,
     )
     alert_path = joinpath(run_dir, "alert_latency.csv")
     if isfile(alert_path)
@@ -163,6 +181,18 @@ function summarize_run(run_dir::String)
             nrow(rows) == 1 || continue
             medians[realized] = Float64(rows.LIFO_Median_Hours[1])
             medians[fifo] = Float64(rows.FIFO_Median_Hours[1])
+        end
+        if hasproperty(alert, :LIFO_KM_Median_Hours) &&
+           hasproperty(alert, :FIFO_KM_Median_Hours)
+            for (hours, realized, fifo) in (
+                (24.0, :alert24_realized_km, :alert24_fifo_km),
+                (72.0, :alert72_realized_km, :alert72_fifo_km),
+            )
+                rows = alert[alert.Lookback_Hours .== hours, :]
+                nrow(rows) == 1 || continue
+                medians[realized] = Float64(rows.LIFO_KM_Median_Hours[1])
+                medians[fifo] = Float64(rows.FIFO_KM_Median_Hours[1])
+            end
         end
     end
     gaps_path = joinpath(run_dir, "masks", "gaps.csv")
@@ -183,6 +213,13 @@ function summarize_run(run_dir::String)
         alert72_realized = medians[:alert72_realized],
         alert72_fifo = medians[:alert72_fifo],
         holes = holes,
+        pending = pending,
+        discarded = discarded,
+        within_requirement_resolved = resolved,
+        alert24_realized_km = medians[:alert24_realized_km],
+        alert24_fifo_km = medians[:alert24_fifo_km],
+        alert72_realized_km = medians[:alert72_realized_km],
+        alert72_fifo_km = medians[:alert72_fifo_km],
     )
 end
 

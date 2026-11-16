@@ -10,6 +10,9 @@ DeepSpaceTelemetry.Metrology.marker_latency_table
 DeepSpaceTelemetry.Metrology.alert_latency_table
 DeepSpaceTelemetry.Metrology.delivery_delay_table
 DeepSpaceTelemetry.Metrology.delivery_compliance
+DeepSpaceTelemetry.Metrology.km_quantile
+DeepSpaceTelemetry.Metrology.recorder_spans
+DeepSpaceTelemetry.Metrology.discarded_batches
 DeepSpaceTelemetry.Metrology.write_metrology_tables
 DeepSpaceTelemetry.Metrology.quantile_sorted
 ```
