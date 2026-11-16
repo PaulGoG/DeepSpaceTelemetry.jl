@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-11-16
+
 ### Fixed
 - A pass that opens on the previous calendar day, when half the seasonal
   extension exceeds `telemetry.session_start`, was missed by the link until
@@ -1146,7 +1148,8 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
-[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.2.1...HEAD
+[3.2.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.2...v3.2.0
 [3.1.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.0...v3.1.1
