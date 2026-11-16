@@ -286,3 +286,36 @@ end
         foreach(dir -> rm(dir; recursive = true, force = true), runs)
     end
 end
+
+@testset "Profile cadence while a transfer straddles the end of a pass" begin
+    # A link only 7 % faster than production keeps a backlog through the
+    # 08:00–16:00 pass, so a transfer is in flight at 16:00 and cannot
+    # complete before the 18:00 horizon. The receiver keeps writing the
+    # profile meanwhile: a row at every 10 min batch, up to the horizon.
+    cfg = TelemetryCore.load_config(
+        joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml"),
+    )
+    cfg["simulation"]["mission_days"] = 0.5
+    cfg["telemetry"]["downlink_kbps"] = 80.0
+    cfg["packet_loss"]["p_loss"] = 0.0
+    run_id = "TEST_RUN_straddle_pid$(getpid())"
+    run_dir = with_logger(NullLogger()) do
+        Supervisor.run_mission(cfg; run_id = run_id, orig_stdout = devnull, figures = false)
+    end
+    try
+        assert_clean_run(run_dir)
+        horizon = TelemetryCore.load_clock_anchor(run_dir).horizon
+        t = DateTime.(
+            TelemetryCore.read_table(joinpath(run_dir, "mission_profile.csv")).SimTime,
+        )
+        span = Minute(10)
+        @test maximum(diff(t)) <= span
+        @test t[end] >= horizon - span
+        # The batch in flight at the end of the pass has no outcome.
+        rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
+        @test all(<(DateTime(2035, 1, 1, 16)), DateTime.(rx.SimTime))
+        @test !isempty(readdir(joinpath(run_dir, "link")))
+    finally
+        rm(run_dir; recursive = true, force = true)
+    end
+end

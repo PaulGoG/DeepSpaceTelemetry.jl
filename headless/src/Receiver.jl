@@ -351,6 +351,16 @@ function run_receiver(
     # restarted receiver may retry immediately).
     retry_after = Dict{String,DateTime}()
     round_trip = Millisecond(round(Int, round_trip_light_time_sec * 1000))
+    # The transfer in flight: its batch, completion instant (the horizon when
+    # it does not complete before it), and transmitting intervals. Not
+    # persisted across a re-attach.
+    in_flight::Union{
+        Nothing,
+        NamedTuple{
+            (:batch, :done, :segments),
+            Tuple{String,DateTime,Vector{Tuple{DateTime,DateTime}}},
+        },
+    } = nothing
 
     @info "[RECEIVER] Ground-station loop started."
 
@@ -424,56 +434,26 @@ function run_receiver(
                 flush(orig_stdout)
             end
 
-            # Batches whose retransmission cannot have arrived yet are skipped
-            # in favor of the next in-flight batch; the link idles only when
-            # every pending batch is waiting for its round trip.
-            eligible = filter(f -> get(retry_after, f, sim_t) <= sim_t, pending_batches)
-
-            if !isempty(eligible) && bw_factor > min_link_factor
-                # LIVE before ARCH; within LIVE oldest-first (FIFO), within ARCH
-                # newest-first (LIFO). Plain lexicographic readdir order would
-                # scramble numeric IDs (e.g. batch_100 before batch_29).
-                sort!(
-                    eligible,
-                    by = x -> begin
-                        id = TelemetryCore.batch_id(x)
-                        TelemetryCore.is_live_batch(x) ? (0, id) : (1, -id)
-                    end,
-                )
-                batch_name = first(eligible)
-
-                # The transfer completes when the capacity integrated from
-                # now reaches one full-capacity transfer time
-                # (ChannelEffects.transfer_completion); its outcome is
-                # recorded at that instant. A transfer that would complete
-                # at or after the horizon has no outcome: the batch stays on
-                # the link.
-                done = ChannelEffects.transfer_completion(
-                    link,
-                    sim_t,
-                    batch_transfer_sec,
-                    clock.horizon,
-                )
-                if done === nothing
-                    TelemetryCore.wait_until!(
+            # A transfer in flight completes at `done`. Until then the loop
+            # wakes with every other component's activity, so the profile,
+            # the custodian, and the stop flag keep their cadence; at `done`
+            # the outcome is drawn and recorded at that instant.
+            if in_flight !== nothing
+                if sim_t < in_flight.done
+                    TelemetryCore.wait_until_or_change!(
                         clock,
-                        clock.horizon;
+                        in_flight.done;
                         priority = TelemetryCore.RECEIVER_PRIORITY,
                     )
                     continue
                 end
-                TelemetryCore.wait_until!(
-                    clock,
-                    done;
-                    priority = TelemetryCore.RECEIVER_PRIORITY,
-                )
-                done_t = TelemetryCore.get_current_sim_time(clock)
-
+                batch_name = in_flight.batch
+                done_t = in_flight.done
                 loss_mult = ChannelEffects.disruption_loss_multiplier(
                     link.disruptions,
-                    sim_t,
-                    done_t,
+                    in_flight.segments,
                 )
+                in_flight = nothing
                 if ChannelEffects.sample_loss!(loss_model; multiplier = loss_mult)
                     attempts = get(retry_counts, batch_name, 0) + 1
                     retry_counts[batch_name] = attempts
@@ -537,6 +517,44 @@ function run_receiver(
                             payload_bytes(joinpath(ground_path, batch_name))
                     )
                 end
+                continue
+            end
+
+            # Batches whose retransmission cannot have arrived yet are skipped
+            # in favor of the next in-flight batch; the link idles only when
+            # every pending batch is waiting for its round trip.
+            eligible = filter(f -> get(retry_after, f, sim_t) <= sim_t, pending_batches)
+
+            if !isempty(eligible) && bw_factor > min_link_factor
+                # LIVE before ARCH; within LIVE oldest-first (FIFO), within ARCH
+                # newest-first (LIFO). Plain lexicographic readdir order would
+                # scramble numeric IDs (e.g. batch_100 before batch_29).
+                sort!(
+                    eligible,
+                    by = x -> begin
+                        id = TelemetryCore.batch_id(x)
+                        TelemetryCore.is_live_batch(x) ? (0, id) : (1, -id)
+                    end,
+                )
+                # The transfer completes when the capacity integrated from
+                # now reaches one full-capacity transfer time
+                # (ChannelEffects.transfer_completion), which also records
+                # the intervals in which it transmits. A transfer that would
+                # complete at or after the horizon has no outcome: the batch
+                # stays on the link, which serves nothing else until then.
+                segments = Tuple{DateTime,DateTime}[]
+                done = ChannelEffects.transfer_completion(
+                    link,
+                    sim_t,
+                    batch_transfer_sec,
+                    clock.horizon;
+                    segments = segments,
+                )
+                in_flight = (
+                    batch = first(eligible),
+                    done = something(done, clock.horizon),
+                    segments = segments,
+                )
             elseif !isempty(pending_batches) && bw_factor > min_link_factor
                 # Every in-flight batch awaits its round trip: park until the
                 # earliest becomes eligible or another component has run.

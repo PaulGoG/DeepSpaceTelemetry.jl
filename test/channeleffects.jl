@@ -252,9 +252,9 @@ end
         far,
     ) == day + Hour(11) + Minute(1)
     # A linear recovery ramp from 0 at 11:00 to 1 at 13:00 (R = 7200 s): from
-    # the start of the ramp, ∫₀^τ s/R ds = τ²/(2R) = W, so τ = √(2RW). Within
-    # the completing step the capacity is held at its midpoint value; with a
-    # slope of 1/7200 s⁻¹ and 60 s steps that costs well under a second.
+    # the start of the ramp, ∫₀^τ s/R ds = τ²/(2R) = W, so τ = √(2RW). The
+    # completing step is solved exactly for a linear capacity: the error is
+    # the millisecond rounding.
     ramp = ChannelEffects.DisruptionEvent(
         "test",
         "",
@@ -267,7 +267,37 @@ end
     link_r = ChannelEffects.LinkModel(flat, ChannelEffects.DisruptionTimeline([ramp]))
     exact = day + Hour(11) + Millisecond(round(Int, 1000 * sqrt(2 * 7200 * 600.0)))
     got = ChannelEffects.transfer_completion(link_r, day + Hour(11), 600.0, far)
-    @test abs((got - exact).value) <= 1000
+    @test abs((got - exact).value) <= 2
+    # A ramp shorter than one integration step (R = 120 s, W = 5 s): τ =
+    # √1200 s ≈ 34.6 s, where a capacity held at the step's midpoint value
+    # would give 20 s.
+    short = ChannelEffects.DisruptionEvent(
+        "test",
+        "",
+        day + Hour(10),
+        day + Hour(11),
+        day + Hour(11) + Second(120),
+        1.0,
+        1.0,
+    )
+    link_s = ChannelEffects.LinkModel(flat, ChannelEffects.DisruptionTimeline([short]))
+    exact = day + Hour(11) + Millisecond(round(Int, 1000 * sqrt(1200.0)))
+    got = ChannelEffects.transfer_completion(link_s, day + Hour(11), 5.0, far)
+    @test abs((got - exact).value) <= 2
+    # Completion a few steps into the 7200 s ramp (W = 10 s): τ = √144000 s,
+    # inside the seventh 60 s step.
+    exact = day + Hour(11) + Millisecond(round(Int, 1000 * sqrt(2 * 7200 * 10.0)))
+    got = ChannelEffects.transfer_completion(link_r, day + Hour(11), 10.0, far)
+    @test abs((got - exact).value) <= 2
+    # The transmitting intervals of a transfer interrupted by the end of the
+    # pass: the last 120 s of one pass and the first 180 s of the next.
+    segments = Tuple{DateTime,DateTime}[]
+    t0 = day + Hour(15) + Minute(58)
+    ChannelEffects.transfer_completion(link, t0, 300.0, far; segments)
+    @test segments == [
+        (t0, day + Hour(16)),
+        (day + Day(1) + Hour(8), day + Day(1) + Hour(8) + Minute(3)),
+    ]
     # The sine profile over a pass of T = 8 h: F(s) = s/2 − T/(4π) sin(2πs/T)
     # is the integrated capacity from the start of the pass. The completion
     # of a 1800 s transfer started 1800 s into the pass solves
@@ -291,6 +321,61 @@ end
     @test_throws ArgumentError ChannelEffects.transfer_completion(link, day, 0.0, far)
 end
 
+@testset "Transfer completion: merged windows" begin
+    day = DateTime(2035, 1, 1)
+    far = DateTime(2035, 2, 1)
+    vis(schedule, low_latency) = TelemetryCore.VisibilityModel(
+        Time(8),
+        Second(8 * 3600),
+        "flat",
+        10.0,
+        0.15,
+        Second(0),
+        365.25,
+        172.0,
+        Dict{Date,Tuple{Time,Second}}(),
+        schedule,
+        low_latency,
+    )
+    # Two abutting passes of an explicit schedule are one contact: a transfer
+    # across their common edge runs on without a gap.
+    abutting = vis(
+        [
+            TelemetryCore.ContactWindow(day + Hour(8), day + Hour(12)),
+            TelemetryCore.ContactWindow(day + Hour(12), day + Hour(16)),
+        ],
+        TelemetryCore.ContactWindow[],
+    )
+    link = ChannelEffects.LinkModel(abutting)
+    # Half-open windows: the common edge belongs to the second pass, the end
+    # of the second to neither.
+    @test TelemetryCore.active_window(abutting, day + Hour(12)).start == day + Hour(12)
+    @test TelemetryCore.active_window(abutting, day + Hour(16)) === nothing
+    @test ChannelEffects.transfer_completion(
+        link,
+        day + Hour(11) + Minute(59),
+        120.0,
+        far,
+    ) == day + Hour(12) + Minute(1)
+    # A daily 08:00–16:00 pass inside a low-latency period of half capacity,
+    # 06:00–18:00: 30 s before the pass at 0.5 give 15 s, the remaining 30 s
+    # run at full capacity; after the pass, the reverse.
+    period = TelemetryCore.ContactWindow(day + Hour(6), day + Hour(18), 0.5, true, "test")
+    link = ChannelEffects.LinkModel(vis(TelemetryCore.ContactWindow[], [period]))
+    @test ChannelEffects.transfer_completion(
+        link,
+        day + Hour(7) + Minute(59) + Second(30),
+        45.0,
+        far,
+    ) == day + Hour(8) + Second(30)
+    @test ChannelEffects.transfer_completion(
+        link,
+        day + Hour(15) + Minute(59) + Second(30),
+        45.0,
+        far,
+    ) == day + Hour(16) + Second(30)
+end
+
 @testset "Loss multiplier of a transfer" begin
     day = DateTime(2035, 1, 1)
     event = ChannelEffects.DisruptionEvent(
@@ -303,9 +388,20 @@ end
         5.0,
     )
     tl = ChannelEffects.DisruptionTimeline([event])
-    m(t0, t1) = ChannelEffects.disruption_loss_multiplier(tl, t0, t1)
+    m(t0, t1) = ChannelEffects.disruption_loss_multiplier(tl, [(t0, t1)])
     @test m(day + Hour(9) + Minute(59), day + Hour(10) + Minute(1)) == 5.0
     @test m(day + Hour(11) + Minute(59), day + Hour(12) + Minute(5)) == 5.0
     @test m(day + Hour(9), day + Hour(9) + Minute(59)) == 1.0
     @test m(day + Hour(12), day + Hour(12) + Minute(5)) == 1.0
+    # A transfer that completes as the event starts never ran under it.
+    @test m(day + Hour(9), day + Hour(10)) == 1.0
+    # An event confined to an interruption of the transfer, when it sent
+    # nothing, does not count.
+    @test ChannelEffects.disruption_loss_multiplier(
+        tl,
+        [
+            (day + Hour(9), day + Hour(9) + Minute(30)),
+            (day + Hour(13), day + Hour(13) + Minute(5)),
+        ],
+    ) == 1.0
 end

@@ -220,16 +220,21 @@ function disruption_loss_multiplier(tl::DisruptionTimeline, t::DateTime)
 end
 
 """
-    disruption_loss_multiplier(tl::DisruptionTimeline, t0::DateTime, t1::DateTime) -> Float64
+    disruption_loss_multiplier(tl::DisruptionTimeline, segments::AbstractVector{Tuple{DateTime,DateTime}}) -> Float64
 
 The largest loss multiplier (≥ 1) of the events active at some instant of
-`[t0, t1]`: the multiplier of a transfer that starts at `t0` and completes
-at `t1`.
+the intervals `[a, b)` in `segments`: the multiplier of a transfer that
+transmitted during them ([`transfer_completion`](@ref) records them). An
+event confined to an interruption of the transfer, when no frame is sent,
+does not count.
 """
-function disruption_loss_multiplier(tl::DisruptionTimeline, t0::DateTime, t1::DateTime)
+function disruption_loss_multiplier(
+    tl::DisruptionTimeline,
+    segments::AbstractVector{Tuple{DateTime,DateTime}},
+)
     m = 1.0
-    for ev in tl.events
-        if ev.start_time <= t1 && t0 < ev.recovery_end
+    for ev in tl.events, (a, b) in segments
+        if ev.start_time < b && a < ev.recovery_end
             m = max(m, ev.loss_multiplier)
         end
     end
@@ -290,7 +295,7 @@ end
 
 """
     transfer_completion(link::LinkModel, t0::DateTime, work_sec::Real,
-                        horizon::DateTime; step_sec::Real = 60.0)
+                        horizon::DateTime; step_sec::Real = 60.0, segments = nothing)
         -> Union{DateTime,Nothing}
 
 The instant at which a transfer that starts at `t0` and needs `work_sec`
@@ -302,10 +307,13 @@ the next contact. The integral is evaluated by the midpoint rule on
 sub-intervals of at most `step_sec` seconds, split at the window boundaries
 and at the breakpoints of the disruption timeline so that the capacity is
 smooth on each; within the sub-interval that completes the transfer the
-capacity is taken constant at its midpoint value. Exact for a capacity that
-is piecewise linear between the breakpoints. Returns `nothing` when the
+capacity is interpolated linearly between its ends and the integral solved
+for `τ` ([`linear_fill_time`](@ref)). Exact for a capacity that is
+piecewise linear between the breakpoints. Returns `nothing` when the
 transfer does not complete before `horizon`; the result is rounded to the
-millisecond.
+millisecond. With a vector `segments`, the intervals during which the
+transfer transmitted (positive capacity) are appended to it, abutting ones
+joined, for [`disruption_loss_multiplier`](@ref).
 """
 function transfer_completion(
     link::LinkModel,
@@ -313,6 +321,7 @@ function transfer_completion(
     work_sec::Real,
     horizon::DateTime;
     step_sec::Real = 60.0,
+    segments::Union{Nothing,Vector{Tuple{DateTime,DateTime}}} = nothing,
 )
     work_sec > 0 ||
         throw(ArgumentError("[LINK] A transfer needs work_sec > 0 (got $work_sec)."))
@@ -340,14 +349,57 @@ function transfer_completion(
                 h = (stop - lo).value / 1000
                 c = effective_bandwidth(link, lo + Millisecond(round(Int, 500 * h)))
                 if c * h >= remaining
-                    done = lo + Millisecond(round(Int, 1000 * remaining / c))
+                    # The capacity at both ends of the completing step, the
+                    # far end extrapolated from 1 ms inside it (the window
+                    # or the event phase may end there).
+                    c0 = effective_bandwidth(link, lo)
+                    inner = effective_bandwidth(link, stop - Millisecond(1))
+                    c1 = h > 0.001 ? c0 + (inner - c0) * h / (h - 0.001) : c
+                    x = linear_fill_time(c0, c1, h, remaining)
+                    done = lo + Millisecond(round(Int, 1000 * x))
+                    record_segment!(segments, lo, done)
                     return done < horizon ? done : nothing
                 end
+                c > 0 && record_segment!(segments, lo, stop)
                 remaining -= c * h
                 lo = stop
             end
         end
         t = chunk_end
+    end
+    return nothing
+end
+
+"""
+    linear_fill_time(c0::Float64, c1::Float64, h::Float64, r::Float64) -> Float64
+
+The time `x ∈ (0, h]` at which a capacity interpolated linearly from `c0`
+at the start of a step of `h` seconds to `c1` at its end has delivered `r`
+seconds of full-capacity transfer: `c0·x + (c1 − c0)·x²/(2h) = r`, solved
+as `x = 2r / (c0 + √(c0² + 2r(c1 − c0)/h))`, which stays accurate when
+`c1 ≈ c0` and is exact for a linear capacity. `h` when the interpolant does
+not reach `r` within the step.
+"""
+function linear_fill_time(c0::Float64, c1::Float64, h::Float64, r::Float64)
+    discriminant = c0^2 + 2r * (c1 - c0) / h
+    discriminant < 0 && return h
+    denominator = c0 + sqrt(discriminant)
+    denominator > 0 || return h
+    return min(h, 2r / denominator)
+end
+
+# Appends the transmitting interval [a, b) to `segments`, extending the last
+# one when they abut; nothing without a vector.
+record_segment!(::Nothing, a::DateTime, b::DateTime) = nothing
+function record_segment!(
+    segments::Vector{Tuple{DateTime,DateTime}},
+    a::DateTime,
+    b::DateTime,
+)
+    if !isempty(segments) && segments[end][2] == a
+        segments[end] = (segments[end][1], b)
+    else
+        push!(segments, (a, b))
     end
     return nothing
 end
