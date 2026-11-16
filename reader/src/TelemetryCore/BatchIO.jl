@@ -141,7 +141,9 @@ mission timestamp passes it as `timestamp` (the batch's `content_epoch` in
 marks it unknown.
 """
 function load_segment(path::String; timestamp::DateTime = DateTime(0))
-    df = read_table(path)
+    # Payload columns carry the names of the external file. They are read as
+    # numbers under any name, without the column typing of the contract tables.
+    df = CSV.read(path, DataFrame; stringtype = String)
     id_match = match(r"seg_(\d+)\.csv", basename(path))
     # The capture is a Union{Nothing, SubString}: guard the full chain so a
     # nonconforming filename degrades to id 0 instead of throwing.

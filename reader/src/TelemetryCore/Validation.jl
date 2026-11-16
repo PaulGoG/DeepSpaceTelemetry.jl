@@ -252,9 +252,11 @@ function validate_config(cfg::AbstractDict)
     event_windows = Tuple{Float64,Float64,Int}[] # (start_h, end_h incl. ramp, event index)
     for (i, ev) in enumerate(events)
         link = ev.affects == "link"
-        link &&
-            ev.loss_multiplier < 1.0 &&
+        if link && isnan(ev.loss_multiplier)
+            @warn "[CONFIG] disruption.events[$i].loss_multiplier is NaN: no transfer is lost while the event is active."
+        elseif link && ev.loss_multiplier < 1.0
             @warn "[CONFIG] disruption.events[$i].loss_multiplier < 1 has no effect: the loss multiplier of an event is at least 1."
+        end
         end_h = ev.start_day * 24.0 + ev.duration_hours + ev.recovery_hours
         if ev.start_day >= mission_days
             # Inclusive boundary: an event at the exact final instant is

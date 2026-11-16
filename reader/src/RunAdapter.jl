@@ -454,7 +454,8 @@ function read_batch_matrix(run::RunHandle, name::AbstractString; delivered::Bool
     for f in files
         seg = try
             TelemetryCore.load_segment(joinpath(dir, f))
-        catch
+        catch e
+            e isa InterruptException && rethrow()
             pruned()
             rethrow()
         end
@@ -744,7 +745,8 @@ function next_rows!(cursor::FeedCursor)
     stop === nothing && return DataFrame()
     start = 1
     if isempty(cursor.header)
-        eol = findfirst(==(UInt8('\n')), bytes)
+        # `stop` is a newline, so a first one exists.
+        eol = findfirst(==(UInt8('\n')), bytes)::Int
         cursor.header = rstrip(String(bytes[1:(eol-1)]), '\r')
         start = eol + 1
     end

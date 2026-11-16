@@ -646,18 +646,34 @@ end
 end
 
 @testset "Text columns keep their text" begin
-    # Labels are free strings: one that reads as a number or a boolean stays
-    # text.
+    # Labels are free strings. A column whose labels all read as numbers or
+    # as booleans stays text, digit for digit.
+    for labels in (["1", "2"], ["007", "010"], ["true", "false"], ["1.50"])
+        mktempdir() do dir
+            markers = [
+                TelemetryCore.EventMarker(DateTime(2035, 1, i, 10), label) for
+                (i, label) in enumerate(labels)
+            ]
+            TelemetryCore.save_markers(dir, markers)
+            @test [m.label for m in TelemetryCore.load_markers(dir)] == labels
+            table = TelemetryCore.read_table(joinpath(dir, "markers.csv"))
+            @test eltype(table.Label) == String
+        end
+    end
+end
+
+@testset "Payload columns named like contract columns" begin
+    # A payload column carries the name it has in the external file; it is
+    # numeric under any name, a text or a timestamp column of the tables too.
     mktempdir() do dir
-        markers = [
-            TelemetryCore.EventMarker(DateTime(2035, 1, 1, 10), "1"),
-            TelemetryCore.EventMarker(DateTime(2035, 1, 2, 10), "007"),
-            TelemetryCore.EventMarker(DateTime(2035, 1, 3, 10), "true"),
-        ]
-        TelemetryCore.save_markers(dir, markers)
-        @test [m.label for m in TelemetryCore.load_markers(dir)] == ["1", "007", "true"]
-        table = TelemetryCore.read_table(joinpath(dir, "markers.csv"))
-        @test eltype(table.Label) == String
+        path = joinpath(dir, "seg_1.csv")
+        columns = ["Class", "Marker", "Amplitude"]
+        data = Float32[1 2 3; 4 5 6]
+        segment = TelemetryCore.DataSegment(1, DateTime(2035), data, columns)
+        TelemetryCore.save_segment(path, segment)
+        loaded = TelemetryCore.load_segment(path)
+        @test loaded.columns == columns
+        @test loaded.data == data
     end
 end
 
@@ -684,6 +700,10 @@ end
     cfg["disruption"] =
         Dict{String,Any}("events" => [merge(link_event, event(; loss_multiplier = 0.5))])
     @test any(contains("loss_multiplier < 1 has no effect"), config_warnings(cfg))
+    # A multiplier that is not a number disables the loss; it is reported.
+    cfg["disruption"] =
+        Dict{String,Any}("events" => [merge(link_event, event(; loss_multiplier = NaN))])
+    @test any(contains("loss_multiplier is NaN"), config_warnings(cfg))
     # A generation gap that reaches the mission end is no link blackout, and
     # its overlap with a link event composes nothing.
     cfg = valid_test_cfg()
