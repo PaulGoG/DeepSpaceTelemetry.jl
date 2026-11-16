@@ -54,6 +54,7 @@ function km_quantile(times::AbstractVector{<:Real}, observed::AbstractVector{Boo
     0 < p < 1 || throw(ArgumentError("[METROLOGY] p must lie in (0, 1) (got $p)."))
     n = length(times)
     n == 0 && return NaN
+    any(isnan, times) && throw(ArgumentError("[METROLOGY] times must not hold NaN."))
     order = sortperm(collect(zip(times, .!observed)))   # events first at a tie
     at_risk = n
     survival = 1.0
@@ -322,7 +323,10 @@ the realized doctrine (`N_Alerts_All` counts them at each `δ`). Under each
 doctrine a window that holds an undelivered batch is censored at the run
 end, `T_end − t_m` with `T_end` the mission end, and a window that holds
 data discarded at the on-board recorder ([`recorder_spans`](@ref)) never
-completes; `N_Censored_LIFO` and `N_Censored_FIFO` count both kinds, and
+completes, nor, under the realized doctrine, one that holds a batch lost
+after its last retransmission (the counterfactual drain reassigns the
+transfers and may deliver it); `N_Censored_LIFO` and `N_Censored_FIFO`
+count both kinds, and
 `LIFO_KM_Median_Hours`, `LIFO_KM_Q25_Hours`, `LIFO_KM_Q75_Hours` and their
 `FIFO` counterparts are quantiles of the product-limit estimate
 ([`km_quantile`](@ref)). The estimator assumes censoring independent of the
@@ -341,9 +345,25 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     hours(ms::Millisecond) = ms.value / TelemetryCore.MS_PER_HOUR
     t_end = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
     spans = recorder_spans(run_dir)
-    # Kaplan–Meier entry (time, observed) of one window under one doctrine.
-    km_entry(latency, discarded::Bool, censor::Float64) =
-        discarded ? (Inf, false) : latency === nothing ? (censor, false) : (latency, true)
+    # Content intervals of the batches lost for good under the realized
+    # doctrine (retry budget exhausted); the counterfactual drain reassigns
+    # the transfers and may deliver them.
+    rx_path = joinpath(run_dir, "events_rx.csv")
+    lost_names =
+        isfile(rx_path) ?
+        Set(
+            String(r.Batch) for
+            r in eachrow(TelemetryCore.read_table(rx_path)) if r.Event == "lost"
+        ) : Set{String}()
+    lost_spans = [
+        (b.content_epoch, b.content_end) for
+        b in schedule if b.name in lost_names && b.available_at === nothing
+    ]
+    overlaps(intervals, a, b) = any(s -> s[1] < b && s[2] > a, intervals)
+    # Kaplan–Meier entry (time, observed) of one window under one doctrine:
+    # never complete, censored at the run end, or observed.
+    km_entry(latency, never::Bool, censor::Float64) =
+        never ? (Inf, false) : latency === nothing ? (censor, false) : (latency, true)
 
     # Per alert, the running completion instants of the window as it grows
     # one batch at a time toward the past; `nothing` once a batch that
@@ -367,8 +387,9 @@ function alert_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
         fifo_entries = Tuple{Float64,Bool}[]
         for (k, (r, f)) in enumerate(zip(real, fifo))
             window_start = min(t_m - Millisecond((k - 1) * span.value), m.content_epoch)
-            discarded = any(s -> s[1] < t_m && s[2] > window_start, spans)
-            push!(lifo_entries, km_entry(r, discarded, censor))
+            discarded = overlaps(spans, window_start, t_m)
+            lost = overlaps(lost_spans, window_start, t_m)
+            push!(lifo_entries, km_entry(r, discarded || lost, censor))
             push!(fifo_entries, km_entry(f, discarded, censor))
         end
         push!(lifo_km, lifo_entries)
@@ -554,27 +575,53 @@ end
 
 The content intervals `[start, stop)` the on-board recorder discarded at its
 ceiling, from the `RECORDER` gap rows of `events_tx.csv`; a span still open
-at the end of the log closes at the mission end.
+at the end of the log closes at the mission end. The parts of a span that
+a scheduled generation gap or a stream gap (`SCHEDULED`, `STREAM` rows)
+covers held no data and are left out.
 """
 function recorder_spans(run_dir::String)
-    spans = Tuple{DateTime,DateTime}[]
     tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
-    isempty(tx) && return spans
-    open_at::Union{Nothing,DateTime} = nothing
+    isempty(tx) && return Tuple{DateTime,DateTime}[]
+    t_end = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
+    recorder = gap_spans(tx, ("RECORDER",), t_end)
+    isempty(recorder) && return recorder
+    return subtract_spans(recorder, gap_spans(tx, ("SCHEDULED", "STREAM"), t_end))
+end
+
+# The [gap_start, gap_end) intervals of the gap rows of `sources` in an
+# events_tx table, in log order; one still open at the end closes at `t_end`.
+function gap_spans(tx::DataFrame, sources, t_end::DateTime)
+    spans = Tuple{DateTime,DateTime}[]
+    open_at = Dict{String,DateTime}()
     for r in eachrow(tx)
-        String(r.Batch) == "RECORDER" || continue
+        source = String(r.Batch)
+        source in sources || continue
         if r.Event == "gap_start"
-            open_at === nothing && (open_at = DateTime(r.SimTime))
-        elseif r.Event == "gap_end" && open_at !== nothing
-            push!(spans, (open_at, DateTime(r.SimTime)))
-            open_at = nothing
+            haskey(open_at, source) || (open_at[source] = DateTime(r.SimTime))
+        elseif r.Event == "gap_end" && haskey(open_at, source)
+            push!(spans, (pop!(open_at, source), DateTime(r.SimTime)))
         end
     end
-    if open_at !== nothing
-        t_end = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
-        push!(spans, (open_at, t_end))
+    for start in values(open_at)
+        push!(spans, (start, t_end))
     end
-    return spans
+    return sort!(spans)
+end
+
+# `spans` minus the union of `holes`, both lists of [start, stop) intervals.
+function subtract_spans(spans, holes)
+    out = Tuple{DateTime,DateTime}[]
+    for (a, b) in spans
+        pieces = [(a, b)]
+        for (c, d) in holes
+            pieces = [
+                p for (x, y) in pieces for
+                p in ((x, min(y, c)), (max(x, d), y)) if p[2] > p[1]
+            ]
+        end
+        append!(out, pieces)
+    end
+    return out
 end
 
 """

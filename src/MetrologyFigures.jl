@@ -343,7 +343,7 @@ function plot_alert_latency(
             notes = String[]
             last.N_Censored_LIFO + last.N_Censored_FIFO > 0 && push!(
                 notes,
-                "censored at the run end: $(last.N_Censored_LIFO) realized, " *
+                "incomplete at the run end: $(last.N_Censored_LIFO) realized, " *
                 "$(last.N_Censored_FIFO) counterfactual",
             )
             any(

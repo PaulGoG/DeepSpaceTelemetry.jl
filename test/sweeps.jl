@@ -43,6 +43,11 @@
         @test summary.generated[1] == summary.generated[2]
         @test all(summary.ground_total .+ summary.lost .<= summary.generated)
         @test all(0 .<= summary.within_requirement .<= 1)
+        # Batches not yet due leave the resolved denominator; nothing is
+        # discarded on board in this short run.
+        @test all(summary.discarded .== 0)
+        @test all(0 .<= summary.pending .<= summary.generated)
+        @test all(summary.within_requirement_resolved .>= summary.within_requirement)
         @test isfile(joinpath(result.dir, "summary.csv")) &&
               isfile(joinpath(result.dir, "sweep.toml"))
         provenance = TOML.parsefile(joinpath(result.dir, "sweep.toml"))

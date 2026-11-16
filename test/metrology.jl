@@ -115,6 +115,7 @@ end
     @test isnan(q([1.0, 2.0], [false, false], 0.5))
     @test isnan(q(Float64[], Bool[], 0.5))
     @test_throws ArgumentError q([1.0], [true], 1.0)
+    @test_throws ArgumentError q([1.0, NaN], [true, true], 0.5)
 end
 
 @testset "Delivery compliance with pending and discarded batches" begin
@@ -209,6 +210,98 @@ end
         @test table.LIFO_Median_Hours[1:5] ≈ minutes.([1.0, 1.0, 2.0, 3.0, 5.0]) rtol =
             1e-12
         @test isnan(table.LIFO_Median_Hours[6])
+    end
+end
+
+@testset "Recorder spans and lost batches in the metrology" begin
+    # Batches of 3 min (3 segments of 60 s); the run ends at t0 + 30 min.
+    snapshot(dir) = open(joinpath(dir, "config_snapshot.toml"), "w") do io
+        write(
+            io,
+            """
+            [simulation]
+            speed_up = 60.0
+            start_sim_time = "2035-01-01T06:00:00"
+            mission_wall_seconds = 30.0
+            [physics]
+            data_source = "synthetic"
+            sample_rate = 4.0
+            segment_duration_sec = 60.0
+            batch_size = 3
+            """,
+        )
+    end
+    t0 = DateTime(2035, 1, 1, 6)
+    # Two recorder gaps, the second still open at the end of the log: 9 min
+    # and 10 min, so round(19 / 3) = 6 whole batches.
+    mktempdir() do dir
+        snapshot(dir)
+        TelemetryCore.log_tx_event(dir, t0, "RECORDER", "gap_start")
+        TelemetryCore.log_tx_event(dir, t0 + Minute(9), "RECORDER", "gap_end")
+        TelemetryCore.log_tx_event(dir, t0 + Minute(20), "RECORDER", "gap_start")
+        @test Metrology.recorder_spans(dir) ==
+              [(t0, t0 + Minute(9)), (t0 + Minute(20), t0 + Minute(30))]
+        @test Metrology.discarded_batches(dir) == 6
+        # A scheduled generation gap inside the first span produced no data:
+        # 16 min discarded, round(16 / 3) = 5 batches.
+        TelemetryCore.log_tx_event(dir, t0 + Minute(3), "SCHEDULED", "gap_start")
+        TelemetryCore.log_tx_event(dir, t0 + Minute(6), "SCHEDULED", "gap_end")
+        @test Metrology.recorder_spans(dir) == [
+            (t0, t0 + Minute(3)),
+            (t0 + Minute(6), t0 + Minute(9)),
+            (t0 + Minute(20), t0 + Minute(30)),
+        ]
+        @test Metrology.discarded_batches(dir) == 5
+    end
+    # A window that holds a batch lost for good never completes under the
+    # realized doctrine. ARCH_1, ARCH_2 and LIVE_3 arrive (LIVE_3's window
+    # back to δ = 6 min completes 11 min after its event); ARCH_7 is lost, so
+    # LIVE_8's window back to δ = 6 min never completes. Censored at the run
+    # end instead (6 min), it would leave LIVE_3 alone at risk and put the
+    # upper quartile at 11 min; never completing, it keeps Ŝ(11 min) = 1/2.
+    mktempdir() do dir
+        snapshot(dir)
+        D = Minute(3)
+        batches = (
+            ("ARCH_batch_1", t0, "ground", t0 + Minute(5)),
+            ("ARCH_batch_2", t0 + D, "ground", t0 + Minute(19)),
+            ("LIVE_batch_3", t0 + 2D, "ground", t0 + Minute(20)),
+            ("ARCH_batch_7", t0 + 6D, "lost", nothing),
+            ("LIVE_batch_8", t0 + 7D, "ground", t0 + Minute(25)),
+        )
+        for (name, epoch, stage, _) in batches
+            bdir = mkpath(joinpath(dir, stage, name))
+            write(
+                joinpath(bdir, "metadata.json"),
+                """{"batch_id":$(TelemetryCore.batch_id(name)),"segment_count":3,"created_at":"$(epoch + D)","content_epoch":"$epoch","payload_row":$(1 + 720 * (TelemetryCore.batch_id(name) - 1))}""",
+            )
+            TelemetryCore.log_tx_event(dir, epoch + D, name, "gen")
+        end
+        TelemetryCore.log_rx_event(dir, t0 + Minute(5), "ARCH_batch_1", "ingested", 0)
+        TelemetryCore.log_rx_event(dir, t0 + Minute(19), "ARCH_batch_2", "ingested", 0)
+        TelemetryCore.log_rx_event(dir, t0 + Minute(20), "LIVE_batch_3", "ingested", 0)
+        TelemetryCore.log_rx_event(dir, t0 + Minute(23), "ARCH_batch_7", "lost", 1)
+        TelemetryCore.log_rx_event(dir, t0 + Minute(25), "LIVE_batch_8", "ingested", 0)
+        table = Metrology.alert_latency_table(dir; lookback_hours = 0.1)
+        minutes = x -> x / 60
+        @test table.Lookback_Hours ≈ [0.0, 0.05, 0.1]
+        @test table.N_Alerts_All == [2, 2, 2]
+        @test table.N_Censored_LIFO == [0, 0, 1]
+        # Below δ = 6 min both windows hold the alert batch alone: 11 and
+        # 1 min. At δ = 6 min, LIVE_3 observed at 11 min, LIVE_8 never.
+        @test table.LIFO_KM_Median_Hours ≈ minutes.([1.0, 1.0, 11.0]) rtol = 1e-12
+        @test table.LIFO_KM_Q75_Hours[1:2] ≈ minutes.([11.0, 11.0]) rtol = 1e-12
+        @test isnan(table.LIFO_KM_Q75_Hours[3])
+        # The counterfactual drain hands the 25 min completion to ARCH_7, so
+        # LIVE_8 has no FIFO arrival: censored at the run end (6 min), not
+        # never complete.
+        @test table.N_Censored_FIFO == [1, 1, 1]
+        @test table.FIFO_KM_Median_Hours ≈ minutes.(fill(11.0, 3)) rtol = 1e-12
+        # The figure renders from these rows.
+        path = with_logger(NullLogger()) do
+            MetrologyFigures.plot_alert_latency(dir; plots_dir = joinpath(dir, "plots"))
+        end
+        @test path !== nothing && isfile(path)
     end
 end
 
@@ -521,7 +614,9 @@ end
     )
 
     # Delivery-delay table: a batch ingested inside a low-latency period is
-    # flagged and counted.
+    # flagged and counted, also inside the nominal pass (09:00, in the second
+    # period); `Due` is true when the content end plus the requirement
+    # (0.96 h) falls at or before the mission end (07:00).
     mktempdir() do dir
         t0 = DateTime(2035, 1, 1, 6)
         D = Minute(3)
@@ -541,8 +636,13 @@ end
                 sample_rate = 4.0
                 segment_duration_sec = 60.0
                 batch_size = 3
+                [post_processing]
+                delivery_requirement_hours = 0.96
                 [[contacts.low_latency_periods]]
                 start = "2035-01-01T06:00:00"
+                duration_hours = 1.0
+                [[contacts.low_latency_periods]]
+                start = "2035-01-01T09:00:00"
                 duration_hours = 1.0
                 """,
             )
@@ -558,8 +658,9 @@ end
         TelemetryCore.log_rx_event(dir, t0 + Minute(30), "LIVE_batch_2", "ingested", 0)
         TelemetryCore.log_rx_event(dir, t0 + Hour(3), "ARCH_batch_1", "ingested", 0)
         table = Metrology.delivery_delay_table(dir)
-        @test table.LowLatency == [false, true]
-        @test Metrology.delivery_compliance(table, 24.0).via_low_latency == 1
+        @test table.LowLatency == [true, true]
+        @test Metrology.delivery_compliance(table, 24.0).via_low_latency == 2
+        @test table.Due == [true, false]
     end
 end
 

@@ -129,7 +129,9 @@ and the Kaplan–Meier medians `alert24_realized_km`, `alert24_fifo_km`,
 `alert72_realized_km`, `alert72_fifo_km` from `alert_latency.csv`. An
 absent delay, latency, or gap table, a delay table without `Due`, or a
 latency table without the Kaplan–Meier columns leaves its fields
-`missing`; `mission_profile.csv` is required.
+`missing`; a 24 h or 72 h row on which no window completed under both
+doctrines gives `NaN` complete-case medians. `mission_profile.csv`,
+`events_tx.csv`, and the run's configuration snapshot are required.
 """
 function summarize_run(run_dir::String)
     profile = TelemetryCore.read_table(joinpath(run_dir, "mission_profile.csv"))
