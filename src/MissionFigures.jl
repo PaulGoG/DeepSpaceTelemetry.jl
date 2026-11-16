@@ -34,7 +34,7 @@ using CairoMakie:
     with_theme,
     xlims!,
     ylims!
-using DataFrames: DataFrames, DataFrame, names, nrow
+using DataFrames: DataFrames, DataFrame, nrow
 using Dates: Dates, DateTime, Hour, Millisecond, Second
 
 """
@@ -1219,7 +1219,7 @@ function plot_session(
     )
     sess_degraded = maximum(abs.(capacity.nominal .- capacity.effective)) > 0.1
 
-    tick_start_dt = Dates.floor(min_sess_dt, Hour(1))
+    tick_start_dt = floor(min_sess_dt, Hour(1))
     session_tick_vals_dt = collect(tick_start_dt:Hour(1):max_sess_dt)
     session_tick_vals_h = [hours_since(t, ctx.t_start) for t in session_tick_vals_dt]
     session_tick_labels = [Dates.format(t, "HH:MM") for t in session_tick_vals_dt]

@@ -11,7 +11,7 @@ split by concern into the files of `src/TelemetryCore/`.
 module TelemetryCore
 
 using CSV: CSV
-using DataFrames: DataFrames, DataFrame, names
+using DataFrames: DataFrames, DataFrame
 using Dates: Dates, Date, DateTime, Day, Millisecond, Second, Time, now
 using JSON: JSON
 using InteractiveUtils: InteractiveUtils
