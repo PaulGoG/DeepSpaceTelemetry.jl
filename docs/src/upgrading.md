@@ -2,12 +2,13 @@
 
 ## Support
 
-Since 3.0 the package is maintained rather than extended. Patch releases fix
-defects and keep the dependencies current; the file contract, the
-configuration schema, the entry-point scripts and `RunAdapter` stay as they
-are within 3.x (Design Principles in the Analysis Interfaces page). Anything
-removed from that surface first warns through at least one minor release,
-as everything 3.0 removed did in 2.11.
+Since 3.0 the package is in maintenance. Patch releases fix defects and
+keep the dependencies current; minor releases add to the surface below
+without changing what is there. The file contract, the configuration
+schema, the entry-point scripts and `RunAdapter` stay backward compatible
+within 3.x ([Design Principles](@ref)). Anything removed from that surface
+first warns through at least one minor release, as everything 3.0 removed
+did in 2.11.
 
 The supported Julia versions are 1.12 and the current stable release; the
 continuous integration runs the current release on Linux, macOS and Windows
@@ -17,13 +18,13 @@ run's `descriptor.toml` where a run is involved.
 
 ## From 2.x to 3.0
 
-A configuration that 3.0 rejects names the key and its remedy. The changes:
+When 3.0 rejects a configuration, the `[CONFIG]` error names the key and its remedy. The changes:
 
 | 2.x | 3.0 |
 |---|---|
 | `post_processing.expand_to_pointwise_masks`, `target_event_rows`, `masks/pointwise_mask_*.csv`, the HDF5 group `masks/pointwise/`, `scripts/postprocessing/apply_telemetry_mask.jl`, `standalone_mask_expander.jl`, `Masks.expand_pointwise_mask` | removed; `RunAdapter.delivered_rows(run; at)` returns the delivered payload rows at any mission instant as row intervals, exact across generation gaps, where the masks placed batches by position |
 | `RunAdapter.GapTracker`, `declare!`, `open_gaps` | removed; `RunAdapter.declared_holes` reads `holes.csv`, and `RunAdapter.FeedCursor(run, :holes)` follows it by byte offset |
-| `RunAdapter.MINIMUM_PRODUCER_VERSION` = 2.1.0 | 2.6.0: runs of earlier producers, without `holes.csv` and `label_spans.csv`, open only with `open_run(run; minimum_version)` lowered, and the readers no longer derive their missing parts |
+| `RunAdapter.MINIMUM_PRODUCER_VERSION` = 2.1.0 | 2.6.0: runs of earlier producers, without `holes.csv` and `label_spans.csv`, open only with `open_run(run; minimum_version)` lowered, and the readers no longer derive their missing parts; a batch without a `payload_row` stamp (producers before 2.1.0) is an error |
 | `storage.onboard_capacity_days` | `telemetry.onboard_capacity_days`; the snapshot of an earlier run is still read |
 | `supervision.watchdog_sec` | removed (no effect since 2.8.0) |
 | `storage.bytes_*` | removed; `[storage]` holds `max_storage_gb`, `max_file_count` and `max_ram_gb` |

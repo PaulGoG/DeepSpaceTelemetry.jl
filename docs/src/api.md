@@ -21,7 +21,7 @@ One page per module:
 - [Sweeps](api/sweeps.md)
 - [PlotTheme](api/plottheme.md)
 
-The public names of `RunAdapter` are versioned with the run-directory contract of the Analysis Interfaces chapter; the other modules document the implementation. `TelemetryCore` and `RunAdapter` live in the reader package, which a consumer may add on its own:
+The public names of `RunAdapter` are versioned with the run-directory contract ([Analysis Interfaces](@ref)); the pages of the other modules document the implementation. `TelemetryCore` and `RunAdapter` live in the reader package, which a consumer may add on its own:
 
 ```@docs
 DeepSpaceTelemetryReader

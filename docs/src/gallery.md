@@ -1,8 +1,8 @@
 # Scenario Gallery
 
-Ten of the twelve shipped scenarios, each run once and shown through the
-figures the run itself wrote, taken from its `plots/` directory, reduced to
-the page width, and otherwise untouched. The smoke scenario and the
+Ten of the twelve shipped scenarios, each run once. The figures are those
+the run wrote to its `plots/` directory, reduced to the page width and
+otherwise untouched. The smoke scenario and the
 deterministic one-day scenario exist for the test suite and are left out.
 
 Any scenario runs by path from the package root, on the wall clock or, with
@@ -13,7 +13,7 @@ julia scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
 julia scripts/run_full_sim.jl --tick <RUN_ID> scenarios/<file>.toml
 ```
 
-One command regenerates this page. It runs the ten scenarios one after
+One command regenerates the figures and the totals of this page. It runs the ten scenarios one after
 another on the tick clock, reduces the figures, and records every run and
 every file in `docs/src/assets/PROVENANCE.toml`:
 
@@ -21,9 +21,8 @@ every file in `docs/src/assets/PROVENANCE.toml`:
 julia docs/render_assets.jl
 ```
 
-The totals below therefore reproduce to the byte from the scenario, the
-seed, the commit, the platform, and the Julia version recorded with each
-run; the host's load plays no part. The regime each scenario is built to
+The totals below reproduce from the scenario, the seed, the commit, the
+platform, and the Julia version recorded with each run. The regime each scenario is built to
 reach follows from its link budget and is derived in the coverage matrix of
 `scenarios/README.md`.
 
@@ -64,8 +63,8 @@ header =
     "|---|---|---|---|---|---|---|---|---|---|"
 stamp(key) = join(sort!(unique(String(run[key]) for run in values(runs))), ", ")
 origin =
-    "Runs of $(stamp("date")) at commit `$(first(stamp("commit"), 7))`, package " *
-    "version $(stamp("package_version")), Julia $(stamp("julia_version"))."
+    "Runs of $(stamp("date")) at commit `$(first(stamp("commit"), 7))`, " *
+    "Julia $(stamp("julia_version"))."
 Markdown.parse(join([header; rows; ""; origin], "\n"))
 ```
 
@@ -82,10 +81,10 @@ buffer; where a disruption lowers the link, the nominal capacity remains as a
 dotted curve behind the effective one. The middle panel accumulates the
 batches on the ground, the archive share in green under the total. The bottom
 strip accumulates the lost batches and is present whenever the loss channel
-is enabled. Shaded bands mark events on all three panels — a blackout with
+is enabled. Shaded bands mark events on all three panels (a blackout with
 its fading recovery ramp, a generation gap, an interval with the recorder
-full, a low-latency period — and a solid upright rule marks a declared event
-marker.
+full, a low-latency period), and a solid upright rule marks a declared
+event marker.
 
 ## Nominal Operations
 
@@ -95,11 +94,11 @@ backlog, no disruption, 1 % Bernoulli loss.
 
 ![Mission summary of the nominal scenario: seven rectangular passes, the onboard buffer returning to zero at the end of each](assets/gallery/nominal_8h_mission_summary_global.png)
 
-The balanced case. One pass carries about 146 batches after the 1 % loss,
-against 144 produced per day, so every pass ends with the buffer empty and every blind spot
-refills it to 96 batches, sixteen hours of production. Within a pass the live
-batches cross as they are generated and the remaining capacity drains the
-archive, which therefore grows at about twice the live rate.
+One pass carries about 146 batches after the 1 % loss, against 144
+produced per day: each pass ends with the buffer empty, and each blind spot
+refills it to 96 batches, sixteen hours of production. Within a pass the
+live batches cross as they are generated and the remaining capacity drains
+the archive; on the ground the archive grows at about twice the live rate.
 
 ## Growth under Disruptions
 
@@ -114,10 +113,10 @@ produces, so the backlog cannot shrink, and each disruption adds to it. The
 18-hour solar-flare blackout on day 2.5 removes one pass except for what the
 first hours of its 12-hour recovery ramp let through, and the partial
 ground-station outage on day 5 holds a pass at a fifth of its capacity. The 15-minute antenna repointing on
-day 1.5 is a generation gap, not a link event. The marker on day 4 opens,
+day 1.5 is a generation gap. The marker on day 4 opens,
 six hours later, a three-hour low-latency period at half capacity.
-Retransmission recovers every rejected transfer, so the lost strip stays at
-zero while the buffer ends the week near twice its initial level.
+Retransmission recovers every rejected transfer, and the lost strip stays
+at zero. The buffer ends the week near twice its initial level.
 
 ![Batch-routing animation of the stress scenario: one row per stage, sky blue for live batches and green for archive ones, with the mission clock and the buffer counters in every frame](assets/gallery/stress_8h_bursty_telemetry_animation_web.gif)
 
@@ -126,9 +125,9 @@ under [Queuing Theory: LIFO vs FIFO](@ref).
 
 ![Batch-state raster of the stress scenario: one column per batch, mission time upward, each pass turning a green archive block and a sky-blue live block to the ground colors](assets/gallery/stress_8h_bursty_state_raster.png)
 
-The batch-state raster ([Batch-State Raster](@ref)) is the routing doctrine
-in one panel: one column per batch, mission time upward, one color per
-state. The diagonal is generation. Each pass turns two blocks of columns to
+The batch-state raster ([Batch-State Raster](@ref)) shows the routing
+doctrine in one panel, with one column per batch, mission time upward, and
+one color per state. The diagonal is generation. Each pass turns two blocks of columns to
 the ground colors: the sky-blue block of the batches generated during the
 pass, and to its left the green block of archive batches, whose lower edge
 slopes because the newest archive batch goes first. The columns still in
@@ -146,11 +145,12 @@ compliance fraction of the run.
 
 ![Alert-latency curves of the stress scenario: time until a look-back window before a live event is complete on the ground, under the realized doctrine and under a counterfactual first-in, first-out drain](assets/gallery/stress_8h_bursty_alert_latency.png)
 
-The alert latency ([Alert-Latency Metrology](@ref)) answers the question the
-doctrine exists for: after a live event, how long until the data of the
-preceding hours are complete on the ground. The realized routing completes
+The alert latency ([Alert-Latency Metrology](@ref)) is the time after a live
+event until the data of the preceding hours are complete on the ground. The realized routing completes
 about a day of look-back within a day; a first-in, first-out drain of the
-same service completions would need close to three.
+same service completions would need close to three. The medians are
+conditional on windows delivered in full within the run
+([Alert-Latency Metrology](@ref)).
 
 ![Session figure of the low-latency period of the stress scenario: capacity at 50 %, the received batches as a staircase](assets/gallery/stress_8h_bursty_session_day04_low_latency_detail.png)
 
@@ -167,7 +167,7 @@ content of `config.toml`: the event timeline of the stress scenario from
 passes to 12 hours; evaluated on the date of each pass, it stays within
 minutes of its maximum over the week.
 
-![Mission summary of the recovery scenario: 12-hour passes, the onboard buffer oscillating between about 50 and 300 batches](assets/gallery/recovery_12h_seasonal_mission_summary_global.png)
+![Mission summary of the recovery scenario: 12-hour passes, the onboard buffer falling from 283 to 15 batches by day 2, then between about 50 and 220](assets/gallery/recovery_12h_seasonal_mission_summary_global.png)
 
 A 12-hour pass carries about 210 batches against 144 produced per day, so
 an undisturbed day lowers the buffer by some 65 batches. The flare and the
@@ -186,15 +186,15 @@ the successive passes working backward through the initial backlog.
 `scenarios/abstraction_gaussian_peak.toml` and
 `scenarios/backlog_recovery_sine.toml` replace the physical rate pair by a
 peak capacity of 60 batches per hour under a profile of the window
-progress: Gaussian with σ = 0.15, a pass concentrated around culmination with a mean factor of
-0.38, and sine, zero at both horizons with a mean factor of 0.5.
+progress: Gaussian with σ = 0.15 (mean factor 0.38) and sine (mean factor
+0.5).
 
 ![Mission summary of the Gaussian-profile scenario: bell-shaped passes under the event timeline of the stress scenario](assets/gallery/abstraction_gaussian_peak_mission_summary_global.png)
 
 The Gaussian scenario carries the event timeline of the stress scenario.
 Capacity concentrates around the culmination, so the received count rises
-as an S-curve within each pass, and the flare, whose blackout ends at one
-culmination, leaves that pass a few percent of its capacity.
+as an S-curve within each pass. The flare's blackout ends at one
+culmination and leaves that pass a few percent of its capacity.
 
 ![Session figure of the first pass of the Gaussian-profile scenario: the bell-shaped capacity and the S-shaped received count](assets/gallery/abstraction_gaussian_peak_session_day00_detail.png)
 
@@ -246,7 +246,7 @@ disruptions, and two event markers.
 
 ![Mission summary of the 30-day scenario: the onboard buffer rising through a 12-day contact gap to the recorder capacity](assets/gallery/long_30d_seasonal_mission_summary_global.png)
 
-The long horizon exercises what a week does not. A 36-hour safe mode on
+A 36-hour safe mode on
 day 8 is a generation gap that coincides with two missed passes: the buffer
 stays level. From day 15 no pass arrives for twelve days, the buffer climbs
 to the 14-day capacity of the on-board recorder (the dotted level on the
