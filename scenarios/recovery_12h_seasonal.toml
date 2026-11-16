@@ -2,16 +2,16 @@
 # Run with:  julia scripts/run_full_sim.jl [RUN_ID] scenarios/recovery_12h_seasonal.toml
 
 [simulation]
-speed_up = 3600.0                    # Wall-clock to mission-time acceleration factor. SAFE: > 0.
+speed_up = 3600.0                    # Mission seconds per wall second; wall mode only. SAFE: > 0.
 start_sim_time = "2035-03-30T06:00:00" # Mission epoch. SAFE: ISO-8601 datetime.
-mission_wall_seconds = 168.0         # Wall-clock simulation span [s]. SAFE: > 0.
+mission_wall_seconds = 168.0         # Wall-clock simulation span [s]; wall mode only. SAFE: > 0.
 initial_downtime_days = 2.0          # Pre-populated blind-spot backlog [days]. SAFE: >= 0.
 rng_seed = 2035                      # Seed of the packet-loss channel. SAFE: integer.
 
 [storage]
-max_storage_gb = 5.0                 # Run-directory disk budget [GB]. SAFE: > 0.
+max_storage_gb = 5.0                 # Run-directory disk budget [GiB]. SAFE: > 0.
 max_file_count = 500000              # Run-directory inode budget. SAFE: > 0.
-max_ram_gb = 8.0                     # Post-processing replay RAM budget [GB]. SAFE: > 0.
+max_ram_gb = 8.0                     # Post-processing replay RAM budget [GiB]. SAFE: > 0.
 
 [supervision]
 on_component_failure = "abort"       # Policy on a component failure. One of: "abort" | "continue" | "restart".
@@ -20,27 +20,27 @@ max_restarts = 3                     # Relaunch budget per component when policy
 [retention]
 enabled = false                      # Delivered payload pruning flag. One of: true | false.
 grace_hours = 24.0                   # Minimum payload retention window [h]. SAFE: > 0.
-high_watermark_gb = 1.5              # Prunable payload size threshold [GB]. SAFE: (0, max_storage_gb].
-log_rotate_mb = 64.0                 # Log file rotation limit [MB]. SAFE: > 0.
+high_watermark_gb = 1.5              # Prunable payload size threshold [GiB]. SAFE: (0, max_storage_gb].
+log_rotate_mb = 64.0                 # Log file rotation limit [MiB]. SAFE: > 0.
 
 [telemetry]
 session_start = "08:00:00"           # Daily DSN window start time. SAFE: HH:MM:SS format.
 session_duration_hours = 8.0         # Daily DSN window duration [h]. SAFE: (0, 24].
-downlink_kbps = 230.0                # Downlink data rate [kbit/s]; with onboard_data_rate_kbps replaces max_batches_per_hour. SAFE: > 0.
+downlink_kbps = 230.0                # Downlink data rate [kbit/s]; with onboard_data_rate_kbps, exclusive of max_batches_per_hour. SAFE: > 0.
 onboard_data_rate_kbps = 75.0        # On-board data production rate [kbit/s]. SAFE: > 0.
 bandwidth_profile = "flat"           # Downlink profile. One of: "sine" | "sigmoid" | "gaussian" | "flat".
 max_inflight_batches = 5             # Concurrent batches allowed on the downlink. SAFE: >= 1.
 onboard_capacity_days = 14.0         # On-board recorder capacity [days of production]. SAFE: > 0.
-min_link_factor = 0.05               # Capacity floor below which no transfer is attempted. SAFE: [0, 1).
-range_million_km = 50.0              # Spacecraft–Earth range [10^6 km]; sets the round-trip light time of retransmissions, 0 disables. SAFE: >= 0.
-sigmoid_steepness = 10.0             # Sigmoid profile edge steepness. SAFE: > 0.
-gaussian_sigma = 0.15                # Gaussian profile standard deviation. SAFE: > 0.
+min_link_factor = 0.05               # Capacity floor (fraction of peak) below which no transfer is attempted. SAFE: [0, 1).
+range_million_km = 50.0              # Spacecraft–Earth range [10^6 km]; 0 = no light-time deferral of retransmissions. SAFE: >= 0.
+sigmoid_steepness = 10.0             # Sigmoid profile edge steepness on the pass progress x ∈ [0, 1]. SAFE: > 0.
+gaussian_sigma = 0.15                # Gaussian profile standard deviation on the pass progress x ∈ [0, 1]. SAFE: > 0.
 
 [contacts]
 seasonal_extension_hours = 4.0       # Peak seasonal extension of the daily window [h]. SAFE: >= 0, session_duration_hours + extension <= 24.
 season_period_days = 365.25          # Period of the seasonal modulation [days]. SAFE: > 0.
 season_peak_day_of_year = 89.0       # Day of year at which the extension peaks. SAFE: [1, 366].
-schedule_csv = ""                    # Explicit pass list (columns Start, DurationHours) replacing the daily window. SAFE: file path or "".
+schedule_csv = ""                    # Explicit pass list (columns Start, DurationHours) replacing the daily window. SAFE: file path (relative: working directory, then package root) or "".
 low_latency_enabled = true           # Low-latency periods flag. One of: true | false.
 low_latency_capacity_fraction = 1.0  # Default capacity of a low-latency period relative to peak. SAFE: (0, 1].
 
@@ -56,8 +56,8 @@ low_latency_capacity_fraction = 0.5  # Capacity of the triggered period relative
 
 [physics]
 data_source = "synthetic"            # Data stream mode. One of: "synthetic" | "external".
-external_data_path = "data/example_external_strain.csv" # File path when data_source = "external".
-external_data_columns = []           # Columns of the external file to ingest, in order; [] = "Amplitude", else the first column. SAFE: unique names present in the file.
+external_data_path = "data/example_external_strain.csv" # Payload file when data_source = "external". SAFE: file path, relative to the package root.
+external_data_columns = []           # Columns of the external file to ingest, in order; [] = "Amplitude" if present, else the first column. SAFE: unique names present in the file.
 sample_rate = 4.0                    # Payload sampling frequency [Hz]. SAFE: > 0.
 segment_duration_sec = 60.0          # Segment duration [s]. SAFE: > 0.
 batch_size = 10                      # Segments per telemetry batch. SAFE: >= 1.
@@ -71,13 +71,13 @@ p_loss_good = 0.01                   # Loss probability in good state. SAFE: [0,
 p_loss_bad = 0.5                     # Loss probability in bad state. SAFE: [0, 1].
 p_loss = 0.1                         # Loss probability when model = "bernoulli". SAFE: [0, 1].
 on_loss = "retransmit"               # Action on loss. One of: "retransmit" | "drop".
-max_retries = 3                      # Retry limit before moving batch to lost/. SAFE: >= 0.
+max_retries = 3                      # Retransmissions allowed; lost at failure max_retries + 1. SAFE: >= 0.
 
 [[disruption.events]]
-type = "solar_flare"                 # Event type identifier.
+type = "solar_flare"                 # Event type identifier. Free string.
 label = "solar flare"                # Display label for logs and viewer.
 start_day = 2.5                      # Event onset time [mission days]. SAFE: >= 0.
-duration_hours = 18.0                # Duration of full blackout phase [h]. SAFE: > 0.
+duration_hours = 18.0                # Disruption duration before the recovery ramp [h]. SAFE: > 0.
 severity = 1.0                       # Link capacity reduction factor. SAFE: [0, 1].
 recovery_hours = 12.0                # Duration of linear recovery ramp [h]. SAFE: >= 0.
 loss_multiplier = 5.0                # Loss probability multiplier during event. SAFE: >= 1.0.
@@ -90,10 +90,10 @@ duration_hours = 0.25                # Duration of the generation gap [h]. SAFE:
 affects = "generation"               # What the event interrupts. One of: "link" | "generation".
 
 [[disruption.events]]
-type = "dsn_outage"                  # Event type identifier.
+type = "dsn_outage"                  # Event type identifier. Free string.
 label = "DSN outage"                 # Display label for logs and viewer.
 start_day = 5.0                      # Event onset time [mission days]. SAFE: >= 0.
-duration_hours = 12.0                # Duration of partial blackout phase [h]. SAFE: > 0.
+duration_hours = 12.0                # Disruption duration before the recovery ramp [h]. SAFE: > 0.
 severity = 0.8                       # Link capacity reduction factor. SAFE: [0, 1].
 recovery_hours = 6.0                 # Duration of linear recovery ramp [h]. SAFE: >= 0.
 loss_multiplier = 3.0                # Loss probability multiplier during event. SAFE: >= 1.0.
@@ -102,7 +102,7 @@ loss_multiplier = 3.0                # Loss probability multiplier during event.
 open_live_viewer = false             # Live viewer terminal flag. One of: true | false.
 open_receiver_log = false            # Receiver log terminal flag. One of: true | false.
 open_emitter_log = false             # Emitter log terminal flag. One of: true | false.
-receiver_status_panel = false        # Receiver status panel on the console flag. One of: true | false.
+receiver_status_panel = false        # Receiver console status panel flag; false in tick mode. One of: true | false.
 
 [post_processing]
 generate_mask_timeline = true        # 2D telemetry mask timeline flag. One of: true | false.
