@@ -9,10 +9,10 @@
   statement. A new environment gets one, and a new script includes it.
 - The test, docs, scripts, and bench environments consume the package by path
   through a `[sources]` entry, so they always run against the local source.
-  `reader/` is a second package, `DeepSpaceTelemetryReader`, that holds
-  `TelemetryCore` and `RunAdapter`; the main package depends on it by path
-  and re-exports both modules, and the two carry the same version number,
-  bumped together at a release.
+- `reader/` is a second package, `DeepSpaceTelemetryReader`, holding
+  `TelemetryCore` and `RunAdapter`. The main package depends on it by path
+  and re-exports both modules. The two carry the same version number, bumped
+  together at a release.
 - Manifests are not tracked: `Project.toml` defines an environment, with
   `[compat]` bounds on every dependency, and each CI leg resolves its own. A
   dependency change therefore touches `[deps]` and `[compat]` together.
@@ -20,8 +20,8 @@
 ## Tests and static analysis
 
 - Run `julia test/runtests.jl`. The suite includes the Aqua, JET,
-  and ExplicitImports checks and four integration missions, and takes about
-  four minutes.
+  and ExplicitImports checks and the end-to-end integration missions, and
+  takes about four minutes.
 - CI runs the suite on Linux for Julia 1.12 (the compat floor), the current
   release, and the prerelease, and on macOS and Windows for the current
   release.
@@ -59,9 +59,10 @@
 ## Configuration changes
 
 - A new key gets a checked coercion and bounds in `TelemetryCore`, with a
-  precise `[CONFIG]` error naming the key. It also gets a one-line comment in
-  `config.toml` and in every file under `scenarios/` (what it is, its allowed
-  values or bounds, its units) and a mention in `docs/src/usage.md`.
+  precise `[CONFIG]` error naming the key. Wherever it appears in
+  `config.toml` or under `scenarios/` it carries a one-line comment (what it
+  is, its allowed values or bounds, its units), and `docs/src/usage.md`
+  mentions it.
 - Configuration comments carry no scenario rationale; that belongs in the
   manual.
 
@@ -74,13 +75,15 @@
   trailers, generated footers, or tool identifiers.
 - User-visible changes get an entry under `[Unreleased]` in `CHANGELOG.md`.
 - A change to the public surface (the run-directory contract, the
-  configuration schema, the scripts' arguments and products) is marked
-  **Breaking** in the changelog and waits for a major release. A change to
-  the modules and functions is not breaking by itself.
+  configuration schema, the scripts' arguments and products, the public
+  names of `RunAdapter`) is marked **Breaking** in the changelog and waits
+  for a major release. A change to the other modules and functions is not
+  breaking by itself.
 - A pull-request description states the change, how it was verified (suite, docs
   build, runs), and any open points.
 
 ## Register
 
-- Identifiers, comments, documentation, and messages use standard scientific and
-  engineering terminology in sentence case; no colloquialisms are permitted.
+- Identifiers, comments, documentation, and messages use standard scientific
+  and engineering terminology without colloquialisms; labels and messages are
+  in sentence case.

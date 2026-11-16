@@ -12,7 +12,7 @@
 - [ ] `julia docs/make.jl` builds, doctests included
 - [ ] `CHANGELOG.md` has an entry under `[Unreleased]` for user-visible changes
 - [ ] New behavior comes with a test; new configuration keys are validated,
-      documented in every configuration file, and described in the manual
+      commented wherever a shipped configuration uses them, and described in the manual
 
 ## Open points
 

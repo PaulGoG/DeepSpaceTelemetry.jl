@@ -1074,6 +1074,7 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.2.0...HEAD
 [3.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.2...v3.2.0
 [3.1.2]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.0...v3.1.1
