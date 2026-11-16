@@ -244,6 +244,44 @@ end
         @test TelemetryCore.git_commit(nested) == ""
         id = TelemetryCore.source_identity(nested; manifest = nothing)
         @test id.identity_source == "directory" && id.git_tree_sha1 == content
+        # Committed there too (a vendored copy), it still keeps its own identity.
+        run(`$FIXTURE_GIT -C $outer add -A`)
+        run(`$FIXTURE_GIT -C $outer commit -q -m vendored`)
+        id = TelemetryCore.source_identity(nested; manifest = nothing)
+        @test id.identity_source == "directory" && id.git_tree_sha1 == content
+    end
+
+    # A directory tracked in a clone of this repository (the headless package
+    # of a clone) records the commit and the tree of its path; a tracked
+    # change anywhere in the clone sets git_dirty; an untracked manifest
+    # leaves the hashes alone.
+    if has_git()
+        clone = mktempdir()
+        write(
+            joinpath(clone, "Project.toml"),
+            "name = \"DeepSpaceTelemetry\"\nuuid = \"$(TelemetryCore.REPOSITORY_UUID)\"\n",
+        )
+        sub = write_tree_fixture(mkpath(joinpath(clone, "headless")))
+        sibling = mkpath(joinpath(clone, "reader"))
+        write(joinpath(sibling, "x.jl"), "x = 1\n")
+        run(`git -C $clone init -q`)
+        run(`$FIXTURE_GIT -C $clone add -A`)
+        run(`$FIXTURE_GIT -C $clone commit -q -m fixture`)
+        head = TelemetryCore.git_output(`rev-parse HEAD`; root = clone)
+        tree = TelemetryCore.git_output(`rev-parse HEAD:headless`; root = clone)
+        write(joinpath(sub, "Manifest.toml"), "manifest_format = \"2.0\"\n")
+        id = TelemetryCore.source_identity(sub; manifest = nothing)
+        @test id.identity_source == "work_tree" && id.git_commit == head
+        @test id.git_tree_sha1 == tree && !id.git_dirty
+        @test TelemetryCore.git_tree_sha1(sub; skip_manifests = true) == tree
+        @test TelemetryCore.git_tree_sha1(sub) != tree
+        write(joinpath(sibling, "x.jl"), "x = 2\n")
+        @test TelemetryCore.source_identity(sub; manifest = nothing).git_dirty
+    end
+    # The reader of this checkout is identified by its tree at HEAD.
+    if TelemetryCore.git_work_tree()
+        @test TelemetryCore.reader_tree_sha1() ==
+              TelemetryCore.git_output(`rev-parse HEAD:reader`)
     end
 
     # The manifest is resolved as code loading resolves it.

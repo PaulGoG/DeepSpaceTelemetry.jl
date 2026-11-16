@@ -6,3 +6,7 @@
 **/Manifest.toml
 **/Manifest-v*.toml
 headless/data/
+**/*.cov
+**/*.mem
+**/LocalPreferences.toml
+**/JuliaManifest.toml

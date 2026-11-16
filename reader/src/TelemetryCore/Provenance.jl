@@ -81,10 +81,7 @@ function platform_provenance()
     end
     # The reader's own source, which the manifest entry of a path dependency
     # does not fingerprint (the headless package in a container image).
-    reader = pkgdir(@__MODULE__)
-    provenance["reader_tree_sha1"] =
-        reader === nothing ? "" :
-        git_tree_sha1(reader; exclude = [DATA_ROOT[]], skip_manifests = true)
+    provenance["reader_tree_sha1"] = reader_tree_sha1()
     return provenance
 end
 
@@ -181,14 +178,24 @@ function source_identity(
     )
 end
 
-# The identity of `root` as a directory tracked at `HEAD` of a git work tree
-# it lies below (the headless package of a clone): the commit, the tree of
-# `HEAD:<path>`, and the tracked changes of the whole work tree, which holds
-# the path dependencies beside it. `nothing` when `root` is the top level, is
-# not in a work tree, or is not tracked at `HEAD`.
+# The UUID of DeepSpaceTelemetry, whose repository holds the reader and the
+# headless package as subdirectories.
+const REPOSITORY_UUID = "d178d3ae-5836-4a75-9bfd-2e34bfeccb6b"
+
+# The identity of `root` as a directory tracked at `HEAD` of a clone of this
+# repository (the headless package or the reader of a clone): the commit,
+# the tree of `HEAD:<path>`, and the tracked changes of the whole work tree,
+# which holds the path dependencies beside it. `nothing` when `root` is the
+# top level, is not in a work tree, lies in another repository (a vendored
+# copy is not given that repository's commit), or is not tracked at `HEAD`.
 function git_subtree_identity(root::AbstractString)
     top = git_output(`rev-parse --show-toplevel`; root)
     (top === nothing || isempty(top)) && return nothing
+    project = joinpath(top, "Project.toml")
+    isfile(project) || return nothing
+    parsed = TOML.tryparsefile(project)
+    (parsed isa AbstractDict && get(parsed, "uuid", "") == REPOSITORY_UUID) ||
+        return nothing
     path = replace(relpath(realpath(root), realpath(top)), '\\' => '/')
     path == "." && return nothing
     lines = split(something(git_output(`rev-parse HEAD HEAD:$path`; root), ""), '\n')
@@ -202,6 +209,22 @@ function git_subtree_identity(root::AbstractString)
         repo_url = "",
         repo_rev = "",
     )
+end
+
+"""
+    reader_tree_sha1() -> String
+
+The git tree hash of the reader package's directory: `HEAD:<path>` when it
+is tracked in a clone of this repository (whose `git_dirty` covers it), the
+hash of the directory otherwise ([`git_tree_sha1`](@ref), manifests left
+out); empty when the reader's directory is unknown.
+"""
+function reader_tree_sha1()
+    reader = pkgdir(@__MODULE__)
+    reader === nothing && return ""
+    tracked = git_subtree_identity(reader)
+    tracked === nothing || return tracked.git_tree_sha1
+    return git_tree_sha1(reader; exclude = [DATA_ROOT[]], skip_manifests = true)
 end
 
 """
@@ -296,7 +319,7 @@ function git_tree_sha1(
 end
 
 # File names of manifests, which the repository does not track.
-const MANIFEST_NAME = r"^Manifest(-v[0-9]+\.[0-9]+)?\.toml$"
+const MANIFEST_NAME = r"^(Julia)?Manifest(-v[0-9]+\.[0-9]+)?\.toml$"
 
 """
 The file the repository tracks as a placeholder of a directory kept empty of
