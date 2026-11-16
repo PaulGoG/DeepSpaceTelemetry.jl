@@ -173,7 +173,7 @@ semantics of `tagsave` and `safesave` do not cover. The correspondence:
 | `tagsave`: the git commit stored with the result | `TelemetryCore.setup_run_dir`: `config_snapshot.toml` with `[provenance.platform]` (source identity, hostname, hardware, Julia and package versions) beside `manifest_snapshot.toml` |
 | `safesave`: `#k` backup rotation, never an overwrite | `TelemetryCore.backup_existing` and `backup_existing_dir`: the same `<name>#k` rotation for every product written whole and for a batch directory that meets a namesake; a run directory is never reused (`setup_run_dir` refuses a non-empty one) |
 | `produce_or_load`: cached expensive stages | not provided: the mission phase is a live two-component process, and every post-processing product is regenerable from the run directory by `Supervisor.post_process!` or the function of its stage |
-| `datadir`, `projectdir` | `TelemetryCore.run_directory`: `<data root>/runs/<RUN_ID>`, the data root being `TelemetryCore.DATA_ROOT[]` (default: `data/` under the package directory) |
+| `datadir`, `projectdir` | `TelemetryCore.run_directory`: `<data root>/runs/<RUN_ID>`, the data root being `TelemetryCore.DATA_ROOT[]` (default: the directory named by `DEEPSPACETELEMETRY_DATA` when set, else `data/` under the package directory) |
 
 ### Source identity
 

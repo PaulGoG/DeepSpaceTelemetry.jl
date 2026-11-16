@@ -30,11 +30,11 @@ seed.
 
 ```text
 DeepSpaceTelemetry/
-├── src/            # The library: channel models, the instrument, emitter,
-│                   #   receiver, metrology, HDF5 export, publication figures,
-│                   #   the mission supervisor, and sweeps
-├── reader/         # The reader package: configuration and I/O (TelemetryCore)
-│                   #   and the run adapter for consumers, without the figure stack
+├── src/            # The main package: mission, metrology, and publication figures
+├── headless/       # The simulator without figures: channel models, instrument,
+│                   #   emitter, receiver, metrology tables, supervisor, sweeps
+├── reader/         # Configuration and I/O (TelemetryCore) and the run adapter
+├── deploy/         # Container image and entry point of the headless package
 ├── scripts/        # Entry points (headless run, dashboard, sweeps) and post-processing
 ├── scenarios/      # Twelve complete configurations and their coverage matrix
 ├── test/           # Static QA, unit, physics, and integration missions
@@ -81,9 +81,9 @@ git clone https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git
 cd DeepSpaceTelemetry.jl
 ```
 
-A consumer that only reads run directories adds the reader package alone.
-It holds `TelemetryCore` and `RunAdapter` without the figure stack and the
-HDF5 export, and shares the version of the main package:
+The repository holds three packages that share one version. A consumer
+that only reads run directories adds the reader package alone, with
+`TelemetryCore` and `RunAdapter`:
 
 ```julia
 using Pkg
@@ -91,15 +91,27 @@ Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", subdir = "read
 ```
 
 A project that depends on the main package adds it by URL. Julia 1.13
-resolves the reader through the package's own `[sources]` entry; the Pkg of
-Julia 1.12 does not follow the `[sources]` of a dependency, so there both
-packages are added in one call:
+resolves the reader and the headless package through the package's own
+`[sources]` entries; the Pkg of Julia 1.12 does not follow the `[sources]`
+of a dependency, so there the three packages are added in one call:
 
 ```julia
 using Pkg
 url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl"
-Pkg.add([Pkg.PackageSpec(; url, subdir = "reader"), Pkg.PackageSpec(; url)])
+Pkg.add([
+    Pkg.PackageSpec(; url, subdir = "reader"),
+    Pkg.PackageSpec(; url, subdir = "headless"),
+    Pkg.PackageSpec(; url),
+])
 ```
+
+A pipeline that runs missions without figures, in a container for
+instance, adds the headless package instead (`subdir = "headless"`, with
+the reader in the same call on Julia 1.12). Every package of its
+dependency closure is MIT-licensed, where the figure stack of the main
+package brings GPL-licensed binaries; `deploy/Dockerfile` builds an image
+of it. The manual's page Headless Package and Containers covers the
+licences, the data root, and the image.
 
 The commands below are written for the package root, the cloned repository
 directory. The scripts also run from any other working directory: a relative
@@ -121,6 +133,7 @@ julia -i test/activate.jl      # the test environment (Aqua, JET, StableRNGs, �
 julia -i docs/activate.jl      # Documenter
 julia -i bench/activate.jl     # BenchmarkTools
 julia -i reader/activate.jl    # the reader package alone
+julia -i headless/activate.jl  # the headless package alone
 julia -i scripts/activate.jl   # the entry points' environment (terminal UI, animation)
 ```
 
@@ -238,8 +251,9 @@ julia scripts/maintenance/cleanup.jl
 | `VirtualInstrument` | binary flag payload declared by the event markers, external ingestion | stable; flag rule, boundary cases, clock advance, and the payload grid across gaps and restarts tested |
 | `Emitter` / `Receiver` | spacecraft and ground-station state machines on the tick driver | stable; end-to-end integration missions and the tick missions in the suite |
 | `Masks` / `MissionFigures` | batch-state replay, mask products, the gap table; mission, session, and raster figures | stable; replay, gap-table, legend, and layout tests |
-| `Metrology` | alert-latency and delivery-delay metrics | stable; synthetic-schedule tests |
-| `Export` / `Publication` | HDF5 products, journal-width figure export with provenance | stable; round-trip and export tests |
+| `Metrology` / `MetrologyFigures` | alert-latency (complete-case and Kaplan–Meier) and delivery-delay tables; their figures | stable; synthetic-schedule tests with hand-derived latencies, Kaplan–Meier quantiles by hand |
+| `Export` / `Publication` | HDF5 products (an extension of the headless package, loaded with HDF5), journal-width figure export with provenance | stable; round-trip and export tests |
+| `DeepSpaceTelemetryHeadless` | the simulator without the figure stack, for pipelines and containers | stable; its own suite checks the licences of the dependency closure, the absence of the figure backend, and a mission without figures; `deploy/Dockerfile` verified with Podman at each release |
 | `Supervisor` | mission plan, supervised component tasks, failure policy, sentinels, banner | stable; restart, policy, and reproducibility tests |
 | `RunAdapter` | reference run adapter over the file contract: geometry, batches, payload, arrivals, state, labeled intervals; byte-offset feed cursors, hole-feed reader, delivered rows, marker rows, producer-version check | stable; tested against a lossy tick run with a generation gap and against the gap table |
 | `Sweeps` | ensembles and parameter sweeps on the tick clock, serial or several runs at once on threads, with a summary table and provenance | stable; a two-seed sweep in the suite, serial and concurrent, with identical tables |
@@ -255,19 +269,32 @@ julia scripts/maintenance/cleanup.jl
 ```text
 DeepSpaceTelemetry/
 ├── src/
-│   ├── DeepSpaceTelemetry.jl    # Main module
-│   ├── ChannelEffects.jl        # Packet-loss channels, disruption timeline, LinkModel
-│   ├── VirtualInstrument.jl     # Payload: binary flag series or external CSV ingestion
+│   ├── DeepSpaceTelemetry.jl    # Main module; re-exports the headless and reader modules
 │   ├── PlotTheme.jl             # CairoMakie theme and styling
-│   ├── Emitter.jl               # Satellite state machine (payload/queues)
-│   ├── Receiver.jl              # DSN ground station loop, loss handling, retention
-│   ├── Masks.jl                 # Batch-state replay, mask timeline, gap table
 │   ├── MissionFigures.jl        # Mission summary, session figures, batch-state raster
-│   ├── Metrology.jl             # Metrics: alert latency (LIFO vs FIFO drain), delivery delay
-│   ├── Export.jl                # HDF5 product export (products.h5 with provenance attributes)
-│   ├── Publication.jl           # Publication figure export at a declared printed width
-│   ├── Supervisor.jl            # Mission orchestration: plan, supervised tasks, sentinels
-│   └── Sweeps.jl                # Ensembles and sweeps on the tick clock
+│   ├── MetrologyFigures.jl      # Alert-latency and delivery-delay figures
+│   └── Publication.jl           # Publication figure export at a declared printed width
+├── headless/                    # DeepSpaceTelemetryHeadless, versioned with this package
+│   ├── Project.toml             # Headless package: the reader, CSV, DataFrames, logging, stdlib; HDF5 weak
+│   ├── activate.jl              # Activates and instantiates the headless environment
+│   ├── src/
+│   │   ├── DeepSpaceTelemetryHeadless.jl # Module header; exports the modules below
+│   │   ├── ChannelEffects.jl    # Packet-loss channels, disruption timeline, LinkModel, transfer completion
+│   │   ├── VirtualInstrument.jl # Payload: binary flag series or external CSV ingestion
+│   │   ├── Emitter.jl           # Satellite state machine (payload/queues)
+│   │   ├── Receiver.jl          # DSN ground station loop, loss handling, retention
+│   │   ├── Masks.jl             # Batch-state replay, mask timeline, gap table
+│   │   ├── Metrology.jl         # Alert latency (LIFO vs FIFO drain, Kaplan–Meier), delivery delay
+│   │   ├── Export.jl            # HDF5 product export through the extension below
+│   │   ├── Supervisor.jl        # Mission orchestration: plan, supervised tasks, sentinels
+│   │   └── Sweeps.jl            # Ensembles and sweeps on the tick clock
+│   ├── ext/DeepSpaceTelemetryHeadlessHDF5Ext.jl # products.h5 with provenance attributes
+│   └── test/                    # Licence check of the dependency closure, a mission without figures
+├── deploy/
+│   ├── Project.toml             # Runner environment: the headless package and the reader by path
+│   ├── activate.jl              # Activates and instantiates the runner environment
+│   ├── run_mission.jl           # Container entry point (<config.toml> [RUN_ID] [--tick])
+│   └── Dockerfile               # Image of the headless package, non-root, data root /data
 ├── reader/                      # DeepSpaceTelemetryReader, versioned with this package
 │   ├── Project.toml             # Reader package: CSV, DataFrames, JSON, TOML, SHA and stdlib only
 │   ├── activate.jl              # Activates and instantiates the reader environment
@@ -336,7 +363,7 @@ DeepSpaceTelemetry/
 │   │   ├── .gitkeep             # Keeps the directory in git
 │   │   └── <RUN_ID>/            # Run products; the analysis interfaces page documents the contract
 │   └── sweeps/<PREFIX>/         # Sweep summary.csv and sweep.toml (gitignored)
-├── .github/workflows/CI.yml     # Test matrix (Linux min / 1 / pre, macOS and Windows on 1), docs build and deployment
+├── .github/workflows/CI.yml     # Test matrix (Linux min / 1 / pre, macOS and Windows on 1), headless suite (min / 1), docs
 ├── .github/workflows/Format.yml # Formatter check on every push and pull request
 ├── .github/dependabot.yml       # Weekly Julia and GitHub Actions version updates
 ├── .github/ISSUE_TEMPLATE/      # Bug-report and feature-request forms

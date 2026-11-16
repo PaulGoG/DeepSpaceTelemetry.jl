@@ -4,6 +4,9 @@ updates:
     directories:
       - "/"
       - "/reader"
+      - "/headless"
+      - "/headless/test"
+      - "/deploy"
       - "/test"
       - "/docs"
       - "/bench"

@@ -33,20 +33,31 @@ julia scripts/run_full_sim.jl
 ```
 
 Runs are written under `data/runs/` of the clone; `data/` is the data root.
-A copy installed by Pkg writes under its own directory unless the caller
-passes `data_root` to `Supervisor.run_mission` or redirects the default
-data root, `TelemetryCore.DATA_ROOT[]`.
+The environment variable `DEEPSPACETELEMETRY_DATA` names another data root
+when it is set as the package loads. A copy installed by Pkg writes under
+its own directory unless that variable is set, the caller passes
+`data_root` to `Supervisor.run_mission`, or the default data root,
+`TelemetryCore.DATA_ROOT[]`, is redirected.
 
 A project that depends on the package adds it by URL. Julia 1.13 resolves
-the reader through the package's own `[sources]` entry; the Pkg of Julia
-1.12 does not follow the `[sources]` of a dependency, so there both
-packages are added in one call:
+the reader and the headless package through the package's own `[sources]`
+entries; the Pkg of Julia 1.12 does not follow the `[sources]` of a
+dependency, so there the three packages are added in one call:
 
 ```julia
 using Pkg
 url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl"
-Pkg.add([Pkg.PackageSpec(; url, subdir = "reader"), Pkg.PackageSpec(; url)])
+Pkg.add([
+    Pkg.PackageSpec(; url, subdir = "reader"),
+    Pkg.PackageSpec(; url, subdir = "headless"),
+    Pkg.PackageSpec(; url),
+])
 ```
+
+The simulator without its figures is the package
+`DeepSpaceTelemetryHeadless`, whose dependency closure is MIT-licensed
+throughout; [Headless Package and Containers](@ref) describes it and its
+container image.
 
 ## Capabilities
 * **Payload**: a binary flag series marking the segments that hold a declared event (`0` noise only, `1` flagged signal), or ingestion of an external continuous CSV time series, one or several of its columns as one payload.

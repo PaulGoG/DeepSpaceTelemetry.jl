@@ -16,6 +16,24 @@ and 1.12 on Linux. Defects are reported as issues of the
 [repository](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/issues), with the
 run's `descriptor.toml` where a run is involved.
 
+## From 3.2 to 3.3
+
+The simulator is now the package `DeepSpaceTelemetryHeadless`
+([Headless Package and Containers](@ref)). The main package re-exports its
+modules under the same names, so code that loads `DeepSpaceTelemetry`
+reaches them as before. What changes for a user of 3.2:
+
+| 3.2 | 3.3 |
+|---|---|
+| `Metrology.plot_alert_latency`, `Metrology.plot_delivery_delay` | `MetrologyFigures.plot_alert_latency`, `MetrologyFigures.plot_delivery_delay`; the tables stay in `Metrology` |
+| the HDF5 export loads with the package | an extension of the headless package, loaded with `HDF5`; the main package loads it, and `Export.hdf5_available()` tells whether it is there |
+| `events_rx.csv`: the `SimTime` of `ingested`, `retry` and `lost` is the start of the transfer | the completion instant of the transfer; delivery delays and alert latencies grow by about one transfer time, more where a transfer spans the end of a pass |
+| `alert_latency.csv`: a row where a window completed under both doctrines | a row wherever a live event's window lies within the run; on the added rows `N_Alerts = 0` and the complete-case quantiles are `NaN`; the Kaplan–Meier columns follow the existing ones |
+| `Receiver.ServicePacer`, `Receiver.serve_slot!` | removed |
+
+The configuration schema and `RunAdapter` are unchanged; a configuration of
+3.2 runs as it is.
+
 ## From 2.x to 3.0
 
 When 3.0 rejects a configuration, the `[CONFIG]` error names the key and its remedy. The changes:

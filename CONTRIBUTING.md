@@ -9,10 +9,19 @@
   statement. A new environment gets one, and a new script includes it.
 - The test, docs, scripts, and bench environments consume the package by path
   through a `[sources]` entry, so they always run against the local source.
-- `reader/` is a second package, `DeepSpaceTelemetryReader`, holding
-  `TelemetryCore` and `RunAdapter`. The main package depends on it by path
-  and re-exports both modules. The two carry the same version number, bumped
-  together at a release.
+- The repository holds three packages. `reader/` is
+  `DeepSpaceTelemetryReader`, holding `TelemetryCore` and `RunAdapter`;
+  `headless/` is `DeepSpaceTelemetryHeadless`, the simulator without the
+  figure stack, with the HDF5 export as a package extension; the root is
+  the main package, which adds the figures. Each depends on the ones
+  before it by path and re-exports their modules. The three carry the same
+  version number, bumped together at a release with the `[compat]` entries
+  on each other.
+- A dependency of the headless package or the reader needs an entry in
+  `headless/test/licences.toml`, after its licence file has been read: the
+  headless suite (`julia headless/test/runtests.jl`) fails on any package of
+  the closure that the list does not hold, and the closure stays
+  MIT-licensed.
 - Manifests are not tracked: `Project.toml` defines an environment, with
   `[compat]` bounds on every dependency, and each CI leg resolves its own. A
   dependency change therefore touches `[deps]` and `[compat]` together.
@@ -24,7 +33,7 @@
   takes about four minutes.
 - CI runs the suite on Linux for Julia 1.12 (the compat floor), the current
   release, and the prerelease, and on macOS and Windows for the current
-  release.
+  release, and the headless suite on Linux for 1.12 and the current release.
 - Every change lands with a green suite; new behavior comes with a test.
   Floating-point comparisons use `isapprox` with explicit tolerances; test
   randomness uses StableRNGs.
