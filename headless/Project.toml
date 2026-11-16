@@ -1,6 +1,6 @@
 name = "DeepSpaceTelemetryHeadless"
 uuid = "7814f18c-8b53-45b0-9d5f-98df027abb4e"
-version = "3.2.1"
+version = "3.3.0"
 authors = ["Paul-Adrian Gogîță"]
 
 [deps]
@@ -26,7 +26,7 @@ DeepSpaceTelemetryHeadlessHDF5Ext = "HDF5"
 CSV = "1.1"
 DataFrames = "1.8"
 Dates = "1"
-DeepSpaceTelemetryReader = "3.2"
+DeepSpaceTelemetryReader = "3.3"
 HDF5 = "0.17.3"
 Logging = "1"
 LoggingExtras = "1.2"
