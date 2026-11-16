@@ -14,6 +14,9 @@ Manifest-v*.toml
 !/data/runs/
 /data/runs/*
 !/data/runs/.gitkeep
+# The data root of the headless package run from a clone without
+# DEEPSPACETELEMETRY_DATA.
+/headless/data/
 # A root plots/ directory (DrWatson layout) and coverage outputs
 /plots/
 lcov.info

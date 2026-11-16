@@ -5,3 +5,4 @@
 !deploy/
 **/Manifest.toml
 **/Manifest-v*.toml
+headless/data/
