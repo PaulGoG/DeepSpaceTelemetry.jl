@@ -110,8 +110,9 @@ scheduled events, and one event marker.
 
 After retransmissions the link delivers fewer batches per pass than a day
 produces, so the backlog cannot shrink, and each disruption adds to it. The
-18-hour blackout after the solar particle event on day 2.5 removes one pass except for what the
-first hours of its 12-hour recovery ramp let through, and the partial
+18-hour blackout after the solar particle event on day 2.5 removes one
+pass except for what the first hours of its 12-hour recovery ramp let
+through, and the partial
 ground-station outage on day 5 holds a pass at a fifth of its capacity. The 15-minute antenna repointing on
 day 1.5 is a generation gap. The marker on day 4 opens,
 six hours later, a three-hour low-latency period at half capacity.
@@ -132,7 +133,7 @@ the ground colors: the sky-blue block of the batches generated during the
 pass, and to its left the green block of archive batches, whose lower edge
 slopes because the newest archive batch goes first. The columns still in
 the onboard color at the top are the backlog the week never cleared; the
-flare and the outage appear as passes whose blocks stay narrow.
+blackout and the outage appear as passes whose blocks stay narrow.
 
 ![Delivery-delay distribution of the stress scenario: cumulative fraction of generated batches against the measurement-to-ground delay, for all batches, the live family, and the archive family, with the 24-hour requirement](assets/gallery/stress_8h_bursty_delivery_delay.png)
 
@@ -167,11 +168,11 @@ content of `config.toml`: the event timeline of the stress scenario from
 passes to 12 hours; evaluated on the date of each pass, it stays within
 minutes of its maximum over the week.
 
-![Mission summary of the recovery scenario: 12-hour passes, the onboard buffer falling from 283 to 15 batches by day 2, then between about 50 and 220](assets/gallery/recovery_12h_seasonal_mission_summary_global.png)
+![Mission summary of the recovery scenario: 12-hour passes, the onboard buffer falling from 283 to 15 batches by day 2, then between about 75 and 220](assets/gallery/recovery_12h_seasonal_mission_summary_global.png)
 
 A 12-hour pass carries about 210 batches against 144 produced per day, so
-an undisturbed day lowers the buffer by some 65 batches. The flare and the
-outage each cost about one pass, and the week ends with the backlog below
+an undisturbed day lowers the buffer by some 65 batches. The blackout and
+the outage each cost about one pass, and the week ends with the backlog below
 its initial level where the 8-hour passes of the stress scenario nearly
 double it.
 
@@ -193,7 +194,7 @@ progress: Gaussian with σ = 0.15 (mean factor 0.38) and sine (mean factor
 
 The Gaussian scenario carries the event timeline of the stress scenario.
 Capacity concentrates around the culmination, so the received count rises
-as an S-curve within each pass. The flare's blackout ends at one
+as an S-curve within each pass. The 18-hour blackout ends at one
 culmination and leaves that pass a few percent of its capacity.
 
 ![Session figure of the first pass of the Gaussian-profile scenario: the bell-shaped capacity and the S-shaped received count](assets/gallery/abstraction_gaussian_peak_session_day00_detail.png)

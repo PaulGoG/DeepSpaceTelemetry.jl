@@ -57,13 +57,13 @@ period](docs/src/assets/gallery/stress_8h_bursty_mission_summary_global.png)
 
 One week of the shipped `scenarios/stress_8h_bursty.toml`: 8 h daily passes
 on the physical link, a bursty Gilbert–Elliott channel, an 18 h blackout
-after a solar particle event followed by a 12 h recovery ramp on day 2.5, a 12 h partial
-ground-station outage on day 5, a scheduled generation gap on day 1.5, and
-an event marker on day 4 whose triggered low-latency period opens six hours
-later at half capacity. After retransmissions the link delivers fewer
+after a solar particle event followed by a 12 h recovery ramp on day 2.5,
+a 12 h partial ground-station outage on day 5, a scheduled generation gap
+on day 1.5, and an event marker on day 4 whose triggered low-latency
+period opens six hours later at half capacity. After retransmissions the link delivers fewer
 batches per day than the spacecraft produces, and each disruption adds to
-the backlog: the onboard buffer grows from 288 to 530 batches over the week,
-while 760 batches reach the ground. Retransmission recovers all 49 rejected
+the backlog: the onboard buffer grows from 288 to 533 batches over the week,
+while 756 batches reach the ground. Retransmission recovers all 49 rejected
 transfers, and the lost-batch strip stays at zero. This is a tick-mode run,
 reproducible from the scenario, the seed, the commit, the platform, and the
 Julia version recorded in
