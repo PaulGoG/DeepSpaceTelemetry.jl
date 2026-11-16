@@ -279,10 +279,17 @@ time_row(g::RunGeometry, t::DateTime) =
     batch_rows(run::RunHandle, stage::AbstractString, name::AbstractString) -> UnitRange{Int}
 
 The payload rows of the batch `name` under `<run_dir>/<stage>/`, from the
-`payload_row` stamp of its metadata. Throws an `ArgumentError` for a `name`
-that is not a batch name and for a batch absent from that stage.
+`payload_row` stamp of its metadata. `stage` is one of the stage directories
+`"onboard"`, `"link"`, `"ground"`, `"lost"`. Throws an `ArgumentError` for
+another `stage`, for a `name` that is not a batch name, and for a batch absent
+from that stage.
 """
 function batch_rows(run::RunHandle, stage::AbstractString, name::AbstractString)
+    stage in ("onboard", "link", "ground", "lost") || throw(
+        ArgumentError(
+            "[ADAPTER] $(repr(stage)) is not a stage directory (onboard, link, ground, lost).",
+        ),
+    )
     require_batch_name(name)
     g = run.geometry
     dir = joinpath(run.run_dir, String(stage), String(name))

@@ -27,8 +27,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   as pruned.
 - `RunAdapter.list_batches` no longer lists the backup `<name>#k` of a
   rotated batch directory as a batch with index 0. `batch_rows` and the
-  payload reads refuse a name that is not a batch name, and `batch_rows`
-  reports an absent batch as absent.
+  payload reads refuse a name that is not a batch name, `batch_rows` refuses
+  a stage other than the four stage directories and reports an absent batch
+  as absent.
 - The terminal sentinel (`RUN_COMPLETE` or `RUN_ABORTED`) is written before
   `RUN_ACTIVE` is removed; for an instant a run directory carried no
   sentinel and `RunAdapter.open_run` refused it.
@@ -54,8 +55,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   names whole-batch retransmission as an adaptation of CFDP, the FIFO/LIFO
   order as a design choice of the package, and the 18-hour outage of the
   scenarios as a safe mode (a solar flare does not black out an X-band link
-  80° from the Sun); it cites the Definition Study Report by table and
-  section, and adds the DSN documents, Cobham (1954) and the ESA factsheet.
+  80° from the Sun); it states that the seasonal phase assumes a
+  constellation trailing Earth (the Report's baseline reads as leading); it
+  cites the Definition Study Report by table and section, and adds the DSN documents, Cobham (1954) and the ESA factsheet.
   Two deviations of the receiver are recorded as known: its outcome rows
   carry the start of a transfer, not its completion, and a transfer that
   follows an idle interval shorter than one transfer time is timed from the

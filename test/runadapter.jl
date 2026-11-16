@@ -100,6 +100,8 @@
             @test_throws ArgumentError RunAdapter.read_batch_matrix(run, bad)
             @test_throws ArgumentError RunAdapter.batch_rows(run, "ground", bad)
         end
+        # A stage other than the four stage directories is refused.
+        @test_throws ArgumentError RunAdapter.batch_rows(run, "..", ground_name)
         # An absent batch is reported as absent.
         @test_throws "No batch" RunAdapter.batch_rows(run, "ground", "LIVE_batch_999999")
         @test_throws ArgumentError RunAdapter.read_batch(run, lost_name; delivered = true)
