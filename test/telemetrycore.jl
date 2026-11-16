@@ -712,6 +712,26 @@ end
     messages = config_warnings(cfg)
     @test !any(contains("blacks out the link"), messages)
     @test !any(contains("overlap in time"), messages)
+    # A generation gap ignores its loss multiplier: neither warning applies.
+    for multiplier in (NaN, 0.5)
+        ignored = merge(gap, event(; loss_multiplier = multiplier))
+        cfg["disruption"] = Dict{String,Any}("events" => [link_event, ignored])
+        @test !any(contains("loss_multiplier"), config_warnings(cfg))
+    end
+    # A NaN multiplier does not hide the saturation of another link event.
+    cfg["packet_loss"] =
+        Dict{String,Any}("enabled" => true, "model" => "bernoulli", "p_loss" => 0.2)
+    saturating = event(;
+        start_day = 0.3,
+        duration_hours = 1.0,
+        severity = 0.5,
+        recovery_hours = 0.0,
+        loss_multiplier = 10.0,
+    )
+    not_a_number = merge(link_event, event(; loss_multiplier = NaN))
+    cfg["disruption"] = Dict{String,Any}("events" => [not_a_number, saturating])
+    @test any(contains("Loss saturation"), config_warnings(cfg))
+    delete!(cfg, "packet_loss")
     # The same span as a link blackout raises both warnings.
     blackout = event(;
         start_day = 0.12,

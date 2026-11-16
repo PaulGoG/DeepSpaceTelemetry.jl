@@ -28,11 +28,17 @@ end
     # release (the CI legs "1"); the compat floor and the prerelease skip it.
     # Each package is analysed from its own files: the main package never
     # calls RunAdapter, which an analysis of the main package alone misses.
-    if JET.JET_AVAILABLE && VERSION >= v"1.13" && isempty(VERSION.prerelease)
-        modules(pkg) =
-            Tuple(m for m in (getfield(pkg, n) for n in names(pkg)) if m isa Module)
-        for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryReader)
-            JET.test_package(pkg; target_modules = modules(pkg))
+    if VERSION >= v"1.13" && isempty(VERSION.prerelease)
+        # A JET that does not support this Julia loads stubs. On a leg meant
+        # to run the analysis that is a failure, not a skip: raise the JET
+        # bound of test/Project.toml.
+        @test JET.JET_AVAILABLE
+        if JET.JET_AVAILABLE
+            modules(pkg) =
+                Tuple(m for m in (getfield(pkg, n) for n in names(pkg)) if m isa Module)
+            for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryReader)
+                JET.test_package(pkg; target_modules = modules(pkg))
+            end
         end
     else
         @test_skip false

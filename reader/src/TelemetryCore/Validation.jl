@@ -48,7 +48,8 @@ Warnings:
   - disruption events that start at or after mission end (they never
     fire), black out the link to mission end, or have their blackout +
     recovery tail truncated by it; overlapping events (capacity composes as
-    the minimum, the loss multiplier as the maximum); `loss_multiplier < 1` (no effect)
+    the minimum, the loss multiplier as the maximum); `loss_multiplier < 1`
+    (no effect) or NaN (no loss while the event is active)
   - `post_processing.state_raster` with `generate_mask_timeline` disabled
     (the raster is drawn from the mask timeline and is skipped)
   - unrecognized sections and keys, which would otherwise fall back to
@@ -235,8 +236,12 @@ function validate_config(cfg::AbstractDict)
             @warn "[CONFIG] packet_loss.p_bad_to_good = 0: once the channel enters the BAD state it never recovers."
         end
         p_worst = loss.model == "gilbert_elliott" ? loss.p_loss_bad : loss.p_loss
+        # A NaN multiplier is reported below; it must not hide the others.
         max_mult = maximum(
-            (ev.loss_multiplier for ev in events if ev.affects == "link");
+            (
+                ev.loss_multiplier for
+                ev in events if ev.affects == "link" && !isnan(ev.loss_multiplier)
+            );
             init = 1.0,
         )
         if p_worst * max_mult >= 1.0
