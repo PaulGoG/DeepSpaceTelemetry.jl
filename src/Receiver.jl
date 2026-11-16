@@ -276,18 +276,16 @@ end
 
 The ground-station loop: serves the batches on `<run_dir>/link/`, each
 transfer taking `batch_transfer_sec` divided by the effective link capacity
-(visibility profile × disruption factor), draws one loss realization from
+(visibility profile × disruption factor) at its start, held until it
+completes, draws one loss realization from
 `loss_model` per transfer attempt, and moves delivered batches to `ground/`
 and retry-exhausted ones to `lost/`. Every milestone is appended to
 `events_rx.csv`, from which the post-processing reconstructs the run
 exactly. `run_dir` is the absolute path of the run directory.
 
-`clock` is the [`TelemetryCore.TickClock`](@ref) of the mission, paced or
-not: in wall mode the driver ([`TelemetryCore.run_ticks!`](@ref)) holds each
-wakeup back to its wall instant, which changes when the loop runs but not
-what it records. Every wait parks the task on the clock, and the loop ends
-at the horizon, on the stop flag, or on the `HALT` sentinel
-([`TelemetryCore.loop_should_stop`](@ref)).
+`clock` is the [`TelemetryCore.TickClock`](@ref) of the mission; every wait
+parks the task on it. The loop ends at the horizon, on the stop flag, or on
+the `HALT` sentinel ([`TelemetryCore.loop_should_stop`](@ref)).
 
 A lost transfer leaves the batch on the link; its retransmission is served
 no earlier than `round_trip_light_time_sec` after the loss was detected
@@ -361,11 +359,10 @@ function run_receiver(
     last_lost = -1
     last_bw = -1.0
 
-    # Ground and lost counters are receiver-owned (only this loop moves batches
-    # into those directories), so they are tracked incrementally after a single
-    # startup census: a per-tick readdir over ground/ is O(archive size) and
-    # measurably throttles the ingest rate on long missions. The on-board
-    # count comes from the emitter for the same reason.
+    # Only this loop moves batches into ground/ and lost/, so their counters
+    # are kept incrementally after one census at startup; listing ground/ on
+    # every iteration would cost O(archive size). The on-board count comes
+    # from the emitter for the same reason.
     ground_seed = filter(f -> isdir(joinpath(ground_path, f)), readdir(ground_path))
     ground_live = count(TelemetryCore.is_live_batch, ground_seed)
     ground_arch = count(TelemetryCore.is_archive_batch, ground_seed)
@@ -464,7 +461,7 @@ function run_receiver(
             if !isempty(eligible) && bw_factor > min_link_factor
                 # LIVE before ARCH; within LIVE oldest-first (FIFO), within ARCH
                 # newest-first (LIFO). Plain lexicographic readdir order would
-                # scramble numeric IDs (e.g. batch_29 before batch_31).
+                # scramble numeric IDs (e.g. batch_100 before batch_29).
                 sort!(
                     eligible,
                     by = x -> begin
@@ -475,8 +472,7 @@ function run_receiver(
                 batch_name = first(eligible)
 
                 # One transfer takes batch_transfer_sec / bw_factor mission
-                # seconds; the pacer chains the slots and converts them to
-                # the clock in use.
+                # seconds.
                 serve_slot!(pacer, clock, batch_transfer_sec / bw_factor)
 
                 loss_mult =

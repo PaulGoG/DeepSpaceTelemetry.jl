@@ -19,8 +19,8 @@ receiver declares lost and pruned batches, the emitter scheduled and
 recorder gaps, and the supervisor emitter outages; after the mission phase
 `Masks.settle_hole_feed!` appends the end-of-run holes, so that the feed of
 a finished run and `masks/gaps.csv` hold the same holes. One instance is
-shared by the components of a run, and `lock` serializes their appends,
-which come from separate threads under the wall clock. The payload grid
+shared by the components of a run, and `lock` serializes their appends.
+The payload grid
 (`origin`, `sample_rate`) and `points_per_batch` let a batch name alone fix
 its rows. Consumers tail the file directly or through
 [`read_hole_feed`](@ref) and `RunAdapter.declared_holes`.
@@ -109,8 +109,8 @@ end
 
 The `points_per_batch` payload rows of batch `name` from its `payload_row`
 stamp `first_row`; an `ArgumentError` when the batch carries none (a run of
-a producer before 2.1.0, which this version does not read). The one rule
-behind the hole feed, the gap table and the run adapter.
+a producer before 2.1.0, which this version does not read). Used by the hole
+feed, the gap table and the run adapter.
 """
 function batch_hole_rows(first_row, name::AbstractString, points_per_batch::Integer)
     first_row isa Integer || throw(
@@ -128,7 +128,7 @@ end
 The payload rows of the generation gap `[start, stop)`:
 `payload_time_row(origin, sample_rate, start)` to
 `payload_time_row(origin, sample_rate, stop) − 1`, empty when the gap holds
-no row. The one rule behind the hole feed, the gap table and the run adapter.
+no row. Used where [`batch_hole_rows`](@ref) is.
 """
 function gap_hole_rows(origin::DateTime, sample_rate::Real, start::DateTime, stop::DateTime)
     return payload_time_row(origin, sample_rate, start):(payload_time_row(
@@ -201,9 +201,9 @@ end
 """
     max_logged_batch_id(run_dir::String) -> Int
 
-Highest batch ID recorded in `events_tx.csv` (0 when the log is absent or
-empty) — the authoritative resume point for a re-attaching emitter's batch
-counter, immune to batches already delivered out of `onboard/`.
+Highest batch ID recorded in `events_tx.csv`, 0 when the log is absent or
+empty. A restarted emitter numbers its batches above it and above those
+still in `onboard/`, which delivered batches have left.
 """
 function max_logged_batch_id(run_dir::String)
     path = joinpath(run_dir, "events_tx.csv")

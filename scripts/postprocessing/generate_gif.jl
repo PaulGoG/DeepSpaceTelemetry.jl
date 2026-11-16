@@ -53,7 +53,7 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
     println("Generating the batch-routing animation for run $run_id ($profile profile)...")
     println("Rendering time scales with the mission length.")
 
-    # `ceil`, not `floor`: the frame count must not exceed `max_frames`.
+    # `ceil` keeps the frame count within `max_frames`.
     step_size = max(1, ceil(Int, nrow(df) / budget.max_frames))
     frame_rows = collect(1:step_size:nrow(df))
 
@@ -191,9 +191,8 @@ function generate_telemetry_gif(run_id::String; profile::Symbol = :archive)
             view_min += glide * (target_min - view_min)
             view_max += glide * (target_max - view_max)
             # On a decimated profile the newest batch advances by several
-            # identifiers per frame and the glide alone trails it by more
-            # than the lookahead, which put the leading edge of the queue
-            # past the frame: the right limit keeps a floor ahead of it.
+            # identifiers per frame, faster than the glide follows; the right
+            # limit keeps a floor ahead of it.
             if !isempty(all_x)
                 lead_floor = max(lead_buffer / 2, 0.02 * (view_max - view_min))
                 view_max = max(view_max, maximum(all_x) + lead_floor)

@@ -35,7 +35,7 @@ const COLOR_ARCHIVE = colorant"#009E73"
 "DSN link-capacity (bandwidth) curve: Okabe–Ito blue."
 const COLOR_BANDWIDTH = colorant"#0072B2"
 
-"Onboard SSD backlog curve, dashed so it survives grayscale: Okabe–Ito orange."
+"On-board recorder backlog curve, dashed so it survives grayscale: Okabe–Ito orange."
 const COLOR_ONBOARD = colorant"#E69F00"
 
 "Permanently lost (retry-exhausted) batches, drawn as ✕: Okabe–Ito vermillion."
@@ -76,11 +76,9 @@ so the generation front is the edge of the drawn area.
 const COLOR_FUTURE = colorant"#F5F5F5"
 
 # --- Standard layout ---
-# Every figure is composed once, at the standard layout below, and scaled as
-# a whole: `PlotStyle(scale)` multiplies every length by the same factor, so
-# a figure printed narrower is a miniature of the standard one and no two of
-# its elements can newly meet. Makie layout units are 1/96 inch; a vector
-# export enters LaTeX at native size.
+# Figures are composed at the standard layout below and scaled as a whole:
+# `PlotStyle(scale)` multiplies every length by one factor, so a narrower
+# print is a miniature of the standard figure.
 
 """
 Width of every figure, shared by the stacked time-series dashboards of a mission so that
@@ -181,8 +179,8 @@ end
     scaled(style::PlotStyle, length::Real) -> Float64
 
 `length`, given in Makie units at the standard layout, at the scale of
-`style`. Every absolute length a figure sets by hand — a reserved tick-label
-width, a gap, an offset — goes through here.
+`style`, for lengths a figure sets by hand: a reserved tick-label width, a
+gap, an offset.
 """
 scaled(style::PlotStyle, length::Real) = style.scale * length
 
@@ -218,8 +216,7 @@ Width of the single-line annotation `text` as a fraction of the axis it sits
 in, at half an em per character (the mean advance of the text face) against
 [`AXIS_WIDTH_SHARE`](@ref) of the figure width, capped at 0.45 — beyond that
 neither end of the axis is free. Independent of the scale of `style`.
-Nothing is positioned with it; [`annotation_side`](@ref) chooses an end of
-the axis by it.
+Used by [`annotation_side`](@ref) and [`annotation_anchor`](@ref).
 """
 annotation_fraction(style::PlotStyle, text) = min(
     0.45,
@@ -339,8 +336,7 @@ end
     count_tickformat(top::Real)
 
 Tick format of a count axis that reaches `top`: [`power_of_ten_labels`](@ref)
-from [`POWER_OF_TEN_THRESHOLD`](@ref) on, Makie's own format below it, so
-that axes under the threshold are drawn as before.
+from [`POWER_OF_TEN_THRESHOLD`](@ref) on, Makie's own format below it.
 """
 count_tickformat(top::Real) =
     abs(top) >= POWER_OF_TEN_THRESHOLD ? power_of_ten_labels : Makie.automatic
@@ -390,8 +386,7 @@ end
 The frameless horizontal legend strip above the panels of `fig`, in as many
 rows as the figure width requires ([`fit_legend!`](@ref)). `groups` is a
 vector of `(title, elements, labels)` tuples, one per series family, drawn
-side by side under bold headers; groups without entries are dropped. Every
-legend of the project is placed through here.
+side by side under bold headers; groups without entries are dropped.
 """
 function figure_legend!(
     fig,
@@ -475,11 +470,9 @@ end
 Runs `f()`, the drawing and saving of one figure, inside a telemetry theme
 scope of its own ([`telemetry_theme`](@ref)), runs the garbage collector,
 and returns the value of `f`. Makie keeps every figure drawn in a theme
-scope reachable until the scope ends, about 70 MiB per standard PNG, so a
-scope around a loop accumulates them (a year of daily session figures
-exhausted a host); a scope per figure and the release in
-[`save_figure`](@ref) bound the loop at one figure. Must not be nested in
-another theme scope, which would hold the figures.
+scope reachable until the scope ends, so a loop of figures takes one scope
+per figure; [`save_figure`](@ref) releases the buffers. Must not be nested
+in another theme scope, which would hold the figures.
 """
 function figure_scope(f, style::PlotStyle = PlotStyle())
     result = with_theme(f, telemetry_theme(style))
@@ -493,9 +486,9 @@ end
 The CairoMakie theme of every figure at the scale of `style`: boxed axes with
 inward ticks, no titles or minor ticks, a faint dashed grid, guide-weight
 rules, stroked markers, and frameless legends with top-aligned bold group
-headers. Faces are (New) Computer Modern via MathTeXEngine; current Makie
+headers. Faces are (New) Computer Modern through MathTeXEngine, since Makie
 ignores a plain `font = "Computer Modern"` and falls back to DejaVu. Tick
-labels are rotated per axis where they crowd (session HH:MM), not here.
+labels are rotated per axis (session HH:MM).
 """
 function telemetry_theme(style::PlotStyle = PlotStyle())
     u(length) = scaled(style, length)

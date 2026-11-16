@@ -52,9 +52,8 @@
 end
 
 @testset "Event-replay tolerance (pruned + unknown events)" begin
-    # A newer run's event log must never abort an older toolchain's replay:
-    # `pruned` is state-preserving and unknown event names are skipped with a
-    # warning, leaving the delivery state untouched.
+    # Replay of a newer run's event log: `pruned` keeps the batch state, and
+    # an unknown event name is skipped with a warning.
     mktempdir() do tmp
         t0 = DateTime(2035, 1, 1, 8, 0, 0)
         tx = DataFrame(
@@ -79,10 +78,9 @@ end
         @test isempty(states[1].lost)
     end
 
-    # Cross-component timestamp skew: emitter and receiver stamp milestones
-    # from separate clock reads, so an `ingested` record can carry an earlier
-    # timestamp than its own `tx` record at high speed-up. Per-batch causal
-    # order must win: the state sequence never regresses.
+    # Runs made before 2.8.0 stamped emitter and receiver milestones from
+    # separate wall-clock reads, so an `ingested` record could precede its
+    # own `tx` record. Per-batch causal order wins: the state never regresses.
     mktempdir() do tmp
         t0 = DateTime(2035, 1, 1, 8, 0, 0)
         tx = DataFrame(

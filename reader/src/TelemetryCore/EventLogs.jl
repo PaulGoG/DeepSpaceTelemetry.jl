@@ -119,9 +119,7 @@ end
 """
     save_metrics(run_dir::String, m::MissionMetrics)
 
-Appends a new metrics snapshot to `mission_profile.csv`. The packet-loss and
-disruption columns are appended after the legacy columns so pre-loss readers
-of old profiles keep working.
+Appends a new metrics snapshot to `mission_profile.csv`.
 """
 function save_metrics(run_dir::String, m::MissionMetrics)
     log_path = joinpath(run_dir, "mission_profile.csv")
@@ -158,8 +156,8 @@ onboard), `"tx"` (batch placed on the downlink), `"marker"` (`sim_t` an
 event-marker instant, `batch` the batch holding it), and the
 `"gap_start"`/`"gap_end"` pair bounding a generation gap (`batch` =
 `SCHEDULED`, `RECORDER`, or `STREAM`); marker and gap rows preserve the
-batch states. With [`log_rx_event`](@ref) it records the exact per-batch
-state history that the mask and animation reconstruction replays. The
+batch states. With [`log_rx_event`](@ref) it records the per-batch state
+history that the mask and animation reconstruction replays. The
 emitter writes the file; the supervisor appends the `STREAM` pair only
 while no emitter is live, so there is one writer at a time and no lock.
 """
@@ -178,7 +176,7 @@ lost, batch remains on the link), `"lost"` (retry budget exhausted, batch
 moved to `lost/`), and `"pruned"` (retention custodian deleted the delivered
 payload CSVs after the grace window; state-preserving for the mask replay).
 `attempt` counts failed transfer attempts so far (0 for `"pruned"`).
-Only the receiver task writes this file (single-writer; no lock needed).
+The receiver task alone writes this file.
 """
 function log_rx_event(
     run_dir::String,

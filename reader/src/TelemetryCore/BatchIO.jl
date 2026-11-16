@@ -90,8 +90,7 @@ end
 
 Batch name → content epoch (first-sample mission timestamp) for every batch
 directory under `onboard/`, `link/`, `ground/`, and `lost/` whose
-`metadata.json` records a `content_epoch` (batches written before that key
-existed are omitted).
+`metadata.json` records a `content_epoch`.
 """
 function batch_content_epochs(run_dir::String)
     return batch_metadata_values(
@@ -122,8 +121,7 @@ end
     save_segment(path::String, seg::DataSegment)
 
 Writes the samples of `seg` to the CSV at `path`, one column per payload
-column under its name. A segment named [`PAYLOAD_COLUMN_DEFAULT`](@ref)
-writes the single `Amplitude` column of releases before 2.6.0.
+column under its name.
 """
 function save_segment(path::String, seg::DataSegment)
     df = DataFrame([seg.data[:, j] for j in 1:length(seg.columns)], seg.columns)

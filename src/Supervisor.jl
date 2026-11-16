@@ -33,15 +33,12 @@ using SHA: sha256
     CleanFileLogger(path::String, rotate_bytes::Int)
 
 Component log sink: one `[Level] message` line per record, structured
-keyword values on indented lines, exceptions rendered compactly, and no
-`└ @ Module file:line` source-location suffix, which is noise when the file
-is followed in a dashboard terminal. ANSI escape sequences are stripped so
-the file reads cleanly after the run. Each record is appended with its own
-open (log rates are a few lines per batch), which allows size-capped
-rotation to `name#k.log` (`retention.log_rotate_mb`) without a stream held
-open across the rotation boundary. Neither formatting nor file I/O throws,
-as a throwing logger would terminate the task it logs for: a record whose
-rotation or write fails is dropped with a line on `stderr`.
+keyword values on indented lines, exceptions rendered compactly, no
+`└ @ Module file:line` suffix, and ANSI escape sequences stripped. Each
+record opens the file anew (a few lines per batch), so the file can rotate
+to `name#k.log` at `retention.log_rotate_mb` between records. A record
+whose rotation or write fails is dropped with a line on `stderr`, since a
+throwing logger would terminate the task it logs for.
 """
 struct CleanFileLogger <: Logging.AbstractLogger
     path::String
@@ -192,9 +189,8 @@ Adds `external_data_path`, `external_data_rows`, `external_data_sha256`,
 payload columns, `["Amplitude"]` when `physics.external_data_columns` is
 empty) to `cfg["provenance"]`, and logs whether the input covers
 `needed_days`. Row count and SHA-256 are computed before any directory
-exists, so exhaustion is predicted at startup rather than discovered
-mid-mission, and the run snapshot pins the exact input consumed without
-assuming sidecar or generator metadata.
+exists: exhaustion is reported at startup, and the snapshot pins the input
+by its bytes alone.
 """
 function stamp_external_provenance!(
     cfg::AbstractDict,
@@ -301,13 +297,11 @@ at the content end of the last finalized batch, `gap_end` at `resume`, the
 content instant at which the replacement instrument resumes. The content end
 is the instant of row `payload_row + points_per_batch` of the highest
 `payload_row` stamp, on the payload grid of `origin` and `sample_rate`, or
-`origin` when no batch has been finalized. A content instant, rather than
-the finalization or transmission instant of a logged event, places the rows
-of the partial batch the failed emitter held, which no batch carries, inside
-the gap. With a `hole_feed`, the same interval is appended to the
-declared-hole feed as a `stream` hole declared at the current mission time.
-Called before the replacement emitter is spawned, when no live `events_tx`
-writer exists.
+`origin` when no batch has been finalized. The gap thus covers the rows of
+the partial batch the failed emitter held. With a `hole_feed`, the same
+interval is appended to the declared-hole feed as a `stream` hole declared
+at the current mission time. Called before the replacement emitter is
+spawned, while no `events_tx` writer is live.
 """
 function record_generation_gap!(
     run_dir::String,
@@ -342,10 +336,9 @@ end
     log_component_event!(run_dir, clock, component, event)
 
 Appends one row to the single-writer `component_events.csv`
-(`SimTime,Component,Event`; events `down` and `restart`; runs made before
-2.8.0 may also hold `stalled` and `recovered` from the former watchdog) through [`TelemetryCore.write_table`](@ref), the header with
-the first row. Instants are written in the form of
-[`TelemetryCore.timestamp_text`](@ref).
+(`SimTime,Component,Event`; events `down` and `restart`) through
+[`TelemetryCore.write_table`](@ref), the header with the first row.
+Instants are written in the form of [`TelemetryCore.timestamp_text`](@ref).
 """
 function log_component_event!(
     run_dir::String,
@@ -424,11 +417,10 @@ attempt ≥ 1 a supervised restart). The tasks are driven by
 with an exception meets `policy.on_component_failure` through
 [`apply_failure_policy!`](@ref), a restart calling
 `on_restart(name, attempt)` first, up to `policy.max_restarts` times. A
-task that does not park does not stall the clock, it holds it. The
-heartbeat files of `heartbeats` are the driver's: touched while it releases
-wakeups, removed when it returns. A paced driver stops sleeping once
-`stop_flag` is raised or `halt_path` exists, so the components meet their
-stop and HALT checks promptly. Lifecycle transitions are appended to `component_events.csv`;
+task that never parks holds the clock. The driver touches the files of
+`heartbeats` while it releases wakeups and removes them when it returns. A
+paced driver stops sleeping once `stop_flag` is raised or `halt_path`
+exists. Lifecycle transitions are appended to `component_events.csv`;
 failures, policy decisions, and restarts are logged as `[SUPERVISOR]`
 records through the logger of the calling task (the global logger under
 [`run_mission`](@ref); the component tasks log to their own files).
@@ -637,16 +629,12 @@ end
 The derived products after both components have finished. Each stage is
 failure-isolated: the simulation data is already on disk, so an error is
 reported but does not abort the remaining stages, and every product can be
-regenerated by the standalone post-processing scripts. In order:
+regenerated by calling this function or its stage again. In order:
 
  1. the gap table ([`Masks.gap_table`](@ref), derived once and written by
-    [`Masks.write_gap_table`](@ref)), then the declared-hole feed
-    `holes.csv` settled from it ([`Masks.settle_hole_feed!`](@ref)): the
-    end-of-run holes (undelivered, not generated, a recorder gap still
-    open) are appended with the nominal mission end as `DeclaredAt`, so the
-    feed holds every hole of the table; a row the feed holds beyond them is
-    reported as a warning ([`Masks.hole_feed_excess`](@ref)), the table
-    being the reference;
+    [`Masks.write_gap_table`](@ref)), the declared-hole feed `holes.csv`
+    settled from it ([`Masks.settle_hole_feed!`](@ref)), and a warning for
+    any feed row the table does not derive ([`Masks.hole_feed_excess`](@ref));
  2. the label-span table ([`Masks.write_label_spans`](@ref)), only when
     absent (it is written at mission start);
  3. the metrology tables ([`Metrology.write_metrology_tables`](@ref)),
@@ -665,9 +653,9 @@ regenerated by the standalone post-processing scripts. In order:
 
 The figure stages (4, the products of 5, and 6) and the publication export
 run only when `figures` is set; the tables, the mask timeline, the HDF5
-export, and the descriptor do not depend on it. The gap table and the metrology tables are cheap and precede the mask
-replay and the figure stage, the long ones, so that they survive a failure
-of either.
+export, and the descriptor do not depend on it. The cheap tables come
+first, so a failure of the mask replay or of a figure stage leaves them
+written.
 
 `plan` is a [`MissionPlan`](@ref) or any object with the properties read
 here: `post_processing`, `ground`, `publication`, `physics`, `mission_days`,
@@ -827,17 +815,13 @@ const STRANDED_IDLE_SEC = 60.0
     mission_ended(run_dir::String, anchor) -> Bool
 
 Whether the record of a run reaches the end of its mission, `anchor` being
-the result of `TelemetryCore.load_clock_anchor`, or `nothing`. For an anchor
-with a horizon (both modes from 2.8.0 on), the mission instant (`SimTime`)
-of the last row of `mission_profile.csv` lies within one second, or one
-percent of the mission span if that is longer, of the horizon. For a wall
-anchor written before 2.8.0, which has no horizon, the wall-clock instant
-(`WallTime`) of that row lies within one second, or one percent of the
-mission's wall-clock span if that is longer, of the anchor's
-`deadline_wall`. `false` without an anchor or a profile, and for an anchor
-with neither a horizon nor a wall deadline. The components write until the
-end of the mission, so a profile that stops earlier is that of a process
-that died during the mission.
+the result of `TelemetryCore.load_clock_anchor`, or `nothing`. The last row
+of `mission_profile.csv` must lie within one second, or one percent of the
+respective span if that is longer, of the end: its `SimTime` against the
+horizon, or, for an anchor without one (wall runs before 2.8.0), its
+`WallTime` against `deadline_wall`. `false` without an anchor or a profile,
+and for an anchor with neither a horizon nor a wall deadline. A profile
+that stops earlier belongs to a process that died during the mission.
 """
 function mission_ended(run_dir::String, anchor)
     anchor === nothing && return false
@@ -1068,9 +1052,7 @@ which receives `figures`). Both modes run one path: a
 in tick mode, `speed_up · mission_wall_seconds` in wall mode), with its
 persisted anchor, and the cooperative component tasks driven on this thread
 ([`supervise_ticks!`](@ref)), with the heartbeat files `emitter_alive` and
-`receiver_alive`. In wall mode the driver paces the wakeups at `speed_up`,
-so the wall budget is nominal: a host that cannot keep pace finishes later
-with the same content. Touches `RUN_POSTPROCESSING` at the end of the
+`receiver_alive`. Touches `RUN_POSTPROCESSING` at the end of the
 mission phase; the other lifecycle sentinels belong to
 [`run_mission`](@ref), its caller.
 """
@@ -1118,9 +1100,8 @@ function execute_mission!(
     end
 
     stop_flag = Threads.Atomic{Bool}(false)
-    # One clock for both modes: the tick clock spans the mission, and in wall
-    # mode the driver paces its wakeups at `speed_up`. Compilation and a
-    # lagging host delay the wall instants, not the content.
+    # One clock for both modes; in wall mode the driver paces its wakeups at
+    # `speed_up`.
     span_days =
         plan.mode == "wall" ? plan.speed_up * plan.mission_wall_seconds / 86_400 :
         plan.mission_days

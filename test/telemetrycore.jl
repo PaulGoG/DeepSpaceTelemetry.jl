@@ -142,8 +142,7 @@ end
         @test_throws ArgumentError TelemetryCore.validate_config(cfg)
     end
 
-    # a malformed [packet_loss] section is rejected even while disabled:
-    # types, enumerations, and bounds must fail fast, never lie dormant
+    # A malformed [packet_loss] section is rejected while disabled as well.
     cfg = valid_test_cfg()
     cfg["packet_loss"] =
         Dict{String,Any}("enabled" => false, "model" => "unsupported_model")
@@ -621,8 +620,7 @@ end
     mid = DateTime(2030, 1, 1, 12, 0, 0)
     edge = DateTime(2030, 1, 1, 8, 0, 0)
 
-    # Documented sigmoid property: the profile does NOT vanish at the session
-    # boundary — it opens at ≈ 0.5 (tanh(0) + tanh(k))/2.
+    # The sigmoid profile opens at (tanh(0) + tanh(k)) / 2 ≈ 0.5, not at zero.
     sig = TelemetryCore.VisibilityModel(start, dur, "sigmoid")
     @test isapprox(TelemetryCore.get_bandwidth_factor(sig, edge), 0.5, atol = 0.01)
 

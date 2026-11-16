@@ -19,7 +19,8 @@ widens it symmetrically about its center, cosine-modulated with period
 (`date => (start, duration)`, zero duration for a missed pass) replace the
 window of a date verbatim, and a non-empty `schedule` of explicit passes
 replaces the daily generator. `low_latency` periods are additional windows
-at constant capacity outside the nominal passes. The three- to
+at constant capacity; where one overlaps a nominal pass, the pass profile
+applies. The three- to
 five-argument constructors build the plain daily model.
 
 # Examples
@@ -105,11 +106,9 @@ end
     seasonal_window_duration(model::VisibilityModel, date::Date) -> Second
 
 Duration of the generated window on `date`: `session_duration` plus the
-seasonal extension modulated as `½ [1 + cos(2π (d − d_peak) / P)]` with the
-day of year `d`, so the full extension applies at `season_peak_day_of_year`
-and none half a period away. `date` is the calendar date of the pass itself,
-so over a long mission the duration follows the season pass by pass; the
-mission epoch sets only the phase at which the mission enters the cycle.
+seasonal extension modulated as `½ [1 + cos(2π (d − d_peak) / P)]`, where
+`d` is the day of year of `date`, the pass's own date. The full extension
+applies at `season_peak_day_of_year` and none half a period away.
 """
 function seasonal_window_duration(model::VisibilityModel, date::Date)
     model.seasonal_extension.value == 0 && return model.session_duration
@@ -124,9 +123,9 @@ end
     nominal_window(model::VisibilityModel, date::Date) -> Union{Nothing,ContactWindow}
 
 The nominal pass anchored on `date` under the daily generator: the
-exception of that date verbatim when one exists (`nothing` for a missed
-pass), otherwise the configured window extended symmetrically by the
-seasonal term. `nothing` in explicit-schedule mode.
+exception of that date when one exists (`nothing` for a missed pass),
+otherwise the configured window extended symmetrically by the seasonal
+term. `nothing` in explicit-schedule mode.
 """
 function nominal_window(model::VisibilityModel, date::Date)
     isempty(model.schedule) || return nothing
@@ -145,8 +144,8 @@ end
 """
     contact_windows(model::VisibilityModel, t_lo::DateTime, t_hi::DateTime) -> Vector{ContactWindow}
 
-Every contact window — nominal passes and low-latency periods — that
-overlaps `[t_lo, t_hi]`, sorted by start.
+The contact windows, nominal passes and low-latency periods, that overlap
+`[t_lo, t_hi]`, sorted by start.
 """
 function contact_windows(model::VisibilityModel, t_lo::DateTime, t_hi::DateTime)
     windows = ContactWindow[]
@@ -166,8 +165,8 @@ end
 """
     active_window(model::VisibilityModel, t::DateTime) -> Union{Nothing,ContactWindow}
 
-The contact window containing `t` — a nominal pass first, else a
-low-latency period — or `nothing` when the spacecraft is out of contact.
+The contact window containing `t`, or `nothing` when the spacecraft is out
+of contact; a nominal pass takes precedence over a low-latency period.
 Under the daily generator only the windows anchored on the date of `t`
 and on the previous date (a pass crossing midnight) can contain `t`.
 """
@@ -194,7 +193,7 @@ end
 """
     is_visible(model::VisibilityModel, t::DateTime) -> Bool
 
-Whether the spacecraft is in ground contact at `t` — inside a nominal pass
+Whether the spacecraft is in ground contact at `t`: inside a nominal pass
 or a low-latency period ([`active_window`](@ref)).
 """
 is_visible(model::VisibilityModel, t::DateTime) = active_window(model, t) !== nothing

@@ -40,8 +40,7 @@ using Dates: Dates, DateTime, Hour, Millisecond, Second
 """
     hours_since(t::DateTime, t0::DateTime) -> Float64
 
-Elapsed mission hours from `t0` to `t` — the plot-coordinate transform of
-every figure (time axes are anchored at `start_sim_time`, 0-based days).
+Elapsed mission hours from `t0` to `t`, the time coordinate of the figures.
 """
 hours_since(t::DateTime, t0::DateTime) = Float64((t - t0).value) / TelemetryCore.MS_PER_HOUR
 
@@ -182,12 +181,11 @@ end
     plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict) -> PlotContext
 
 Assembles the [`PlotContext`](@ref) of a run from its metrics frame and its
-configuration snapshot. The time axis is anchored at `start_sim_time` — not
-at the first metrics row, which lands whenever the receiver first flushes —
-so day ticks and disruption shading sit exactly on mission-day boundaries;
-a legacy or corrupt snapshot falls back to the first row. A malformed
-disruption section warns and yields an empty timeline rather than aborting
-the post-processing of an otherwise complete run.
+configuration snapshot. The time axis is anchored at `start_sim_time`, so
+day ticks and disruption shading sit on mission-day boundaries; a snapshot
+without a parsable `start_sim_time` falls back to the first metrics row. A
+malformed disruption section warns and yields an empty timeline, and the
+post-processing continues.
 """
 function plot_context(run_dir::String, df::DataFrame, cfg::AbstractDict)
     vis_model = TelemetryCore.visibility_model(cfg)
@@ -253,9 +251,8 @@ end
 
 Low-latency periods of the run, scheduled ones and those triggered by an
 event marker, as `(start, stop)` pairs in hours since `t_start` for the
-periods overlapping `[0, x_end]`; the pairs are not clipped, the shading
-clamps at draw time. Empty when `contacts.low_latency_enabled` is unset, the
-[`TelemetryCore.VisibilityModel`](@ref) then carrying no such window.
+periods overlapping `[0, x_end]`, unclipped (the shading clamps them).
+Empty when `contacts.low_latency_enabled` is unset.
 """
 function low_latency_spans(
     model::TelemetryCore.VisibilityModel,
@@ -272,10 +269,9 @@ end
 """
     marker_times(run_dir::String, t_start::DateTime) -> Vector{Float64}
 
-Declared event markers of the run, in hours since `t_start`, read from the
-run's own `markers.csv` ([`TelemetryCore.load_markers`](@ref)). Empty when
-the run declared none or predates the marker record — the figures then draw
-no marker rules.
+Declared event markers of the run, in hours since `t_start`, from its
+`markers.csv` ([`TelemetryCore.load_markers`](@ref)). Empty when the run
+declared none or predates the marker record.
 """
 function marker_times(run_dir::String, t_start::DateTime)
     return [hours_since(m.time, t_start) for m in TelemetryCore.load_markers(run_dir)]
@@ -410,10 +406,10 @@ end
 """
     shade_low_latency!(ax, x_lo, x_hi, ctx::PlotContext; style)
 
-Low-latency periods behind the data of `ax`, in the capacity color at low
-alpha with dash-dot-dot same-hue edges, distinct from the dotted
-nominal-capacity curve — the periods run at `low_latency_capacity_fraction`
-of peak capacity, so the wash sits under the capacity curve it explains.
+Low-latency periods behind the data of `ax`: a low-alpha wash in the
+capacity color with dash-dot-dot edges of the same hue. A period is a
+contact at a fraction of peak capacity, so the wash sits under the capacity
+curve.
 """
 function shade_low_latency!(
     ax,
@@ -796,11 +792,10 @@ Nominal and effective link capacity [%] on `samples` equidistant instants
 spanning `[x_lo, x_hi]` hours since `t_start`, as
 `(hours, nominal, effective)`: the visibility model alone
 ([`TelemetryCore.get_bandwidth_factor`](@ref)) and the link model with its
-disruptions ([`ChannelEffects.effective_bandwidth`](@ref)). The figures draw
-these curves rather than the `Bandwidth_Pct` column of the metrics profile:
-the profile is written on change only, so joining its rows bridges every
-interval without one — the start-up before the first pass, a contact gap
-with the recorder full — by a sloped segment the capacity never followed.
+disruptions ([`ChannelEffects.effective_bandwidth`](@ref)). The
+`Bandwidth_Pct` column of the metrics profile is written on change only;
+joined row to row, it would slope across intervals without a row, such as
+the start-up before the first pass or a contact gap with the recorder full.
 Throws an `ArgumentError` for fewer than two samples.
 """
 function capacity_curves(
@@ -847,9 +842,8 @@ Nominal and effective link capacity [%] averaged over each mission day of
 staircase with `step = :post`: `hours` are the day boundaries `0, 24, …`
 closed by `x_hi`, and the value at a boundary is the mean over the day that
 begins there (the last value repeats the one before it). A day's mean times
-24 h is the contact time of that day at full capacity, which is what sets
-the daily balance against production; a pass, a missed pass, and a
-disruption each remain visible as a level.
+24 h is the contact time of that day at full capacity, which sets the daily
+balance against production.
 """
 function daily_mean_capacity(
     vis_model::TelemetryCore.VisibilityModel,
@@ -1096,8 +1090,8 @@ function plot_mission_summary(
         style,
     )
 
-    # Dedicated Lost strip: rare discrete events get their own small linear
-    # axis instead of an invisible flat line under the received bands.
+    # Lost strip: rare discrete events get a small linear axis of their own;
+    # under the received bands they would be a flat line.
     axes_to_link = [ax1, ax2]
     if ctx.show_lost_panel
         lost_curve = ctx.has_loss_cols ? Float64.(df.Lost_Count) : zeros(length(df_x))
@@ -1135,8 +1129,8 @@ function plot_mission_summary(
             markersize = style.markersize,
             strokewidth = 0,
         )
-        # A lossless run reads "0 lost (0 %)" rather than an empty strip; the
-        # text takes a free end of the axis or a gap between the upright rules.
+        # A lossless run reads "0 lost (0 %)". The text takes a free end of the
+        # axis or a gap between the upright rules.
         lost_final = Int(lost_curve[end])
         pct = 100 * lost_final / max(1.0, Float64(df.Ground_Total[end]) + lost_final)
         lost_text =
@@ -1260,8 +1254,6 @@ function plot_session(
         yaxisposition = :right,
         ylabel = "Buffered data batches",
         yticklabelcolor = PlotTheme.COLOR_ONBOARD,
-        # One grid per panel: the buffer ticks do not align with the
-        # capacity ticks, and two interleaved grids read as clutter.
         ygridvisible = false,
     )
     hidespines!(ax_s1_twin)
@@ -1629,8 +1621,7 @@ paths written. Windows come from the contact model (nominal daily passes,
 scheduled or generated, and low-latency periods), not from the effective
 bandwidth, so a blacked-out day still gets its zero-throughput figure and
 file names follow the summary's 0-based days. Each figure is drawn in its
-own theme scope and released after saving ([`PlotTheme.figure_scope`](@ref)),
-so memory does not grow with the number of windows.
+own [`PlotTheme.figure_scope`](@ref).
 `post_processing.session_figures` switches the session figures off and
 `post_processing.session_figures_max` caps them at that many windows,
 evenly spaced over the mission ([`evenly_spaced`](@ref)).
@@ -1646,7 +1637,7 @@ function generate_mission_plots(
     paths = String[]
     log_path = joinpath(run_dir, "mission_profile.csv")
     if !isfile(log_path)
-        @warn "[POST] mission_profile.csv missing in $run_dir — the receiver produced no metrics (component never ran?); skipping this product."
+        @warn "[POST] mission_profile.csv missing in $run_dir: the receiver wrote no metrics. Mission figures skipped."
         return paths
     end
     df = TelemetryCore.read_table(log_path)
@@ -1654,8 +1645,6 @@ function generate_mission_plots(
 
     cfg = TelemetryCore.load_run_config(run_dir)
     ctx = plot_context(run_dir, df, cfg)
-    # One theme scope per figure: a scope around the whole loop keeps every
-    # figure of the run in memory until it ends (PlotTheme.figure_scope).
     global_path = PlotTheme.figure_scope(style) do
         plot_mission_summary(ctx; style, plots_dir, formats, suffix)
     end

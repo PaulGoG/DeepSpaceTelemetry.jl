@@ -1,12 +1,10 @@
 """
     RunAdapter
 
-Run adapter for consumers: the geometry, batches, payload, arrivals, state,
-labeled intervals and identity of a run directory, read from the file
-contract alone (the configuration snapshot, the batch directories,
-`events_rx.csv`, `label_spans.csv`, `descriptor.toml`, the lifecycle
-sentinels), the same way for an active run followed through its arrival
-feed and for a finished one replayed from it. [`open_run`](@ref) checks
+Run adapter for consumers. It reads the geometry, batches, payload,
+arrivals, state, labeled intervals and identity of a run directory from
+the file contract alone, for an active run as for a finished one.
+[`open_run`](@ref) checks
 the producer's version against [`MINIMUM_PRODUCER_VERSION`](@ref);
 [`declared_holes`](@ref) reads the holes of the delivered record from the
 producer's feed, `holes.csv`, and [`delivered_rows`](@ref) the rows on the
@@ -238,11 +236,11 @@ payload geometry, `payload_columns`, and under `"products"` the `bytes` and
 `sha256` of every table present. Empty while the file is absent.
 Post-processing writes it last, so it is final once the run has ended
 ([`run_state`](@ref) not `:active`); a run that ended before
-post-processing has none. The producer renames the file into place whole
-(since 3.2.0), so a read during post-processing finds the descriptor or
-none, never part of one. Throws an `ArgumentError` when the file declares
-no schema or one other than `"deepspacetelemetry-run/1"` (producers 2.5.0
-to 2.11.0) and `"deepspacetelemetry-run/2"` (3.0.0 and later).
+post-processing has none. The producer renames the file into place, so a
+read during post-processing finds the whole descriptor or none. Throws an
+`ArgumentError` when the file declares no schema or one other than
+`"deepspacetelemetry-run/1"` (producers 2.5.0 to 2.11.0) and
+`"deepspacetelemetry-run/2"` (3.0.0 and later).
 """
 function run_descriptor(run::RunHandle)
     path = joinpath(run.run_dir, "descriptor.toml")
@@ -320,7 +318,7 @@ end
 # state of a batch there before the PRUNED check.
 const BATCH_STAGES = (("ground", :ground), ("lost", :lost))
 
-# A batch name as the producer writes it; nothing else reaches a joinpath.
+# A batch name as the producer writes it.
 const BATCH_NAME = r"^(?:LIVE|ARCH)_batch_\d+$"
 
 # The record of the batch `name` under `<run_dir>/<stage>/`, from one read of
@@ -353,9 +351,8 @@ end
 The [`BatchRecord`](@ref) of the batch `name`, by the record and state rule
 of [`list_batches`](@ref) (`:ground`, `:pruned`, `:lost`), from the
 metadata of that batch alone; `nothing` when it is in neither `ground/` nor
-`lost/` (not yet finalized, or still on the link). A consumer following the
-arrival feed resolves each named batch at constant cost, without the stage
-directory [`batch_rows`](@ref) asks for. Throws an `ArgumentError` for a
+`lost/` (not yet finalized, or still on the link). It reads one
+`metadata.json` and needs no stage directory. Throws an `ArgumentError` for a
 `name` that is not a batch name (`LIVE_batch_<k>` or `ARCH_batch_<k>`).
 
 ```julia
@@ -426,9 +423,8 @@ end
 The samples of one batch, one row per sample and one column per payload
 column of `run.geometry.columns`, its segments concatenated in ascending
 segment identifier, from `ground/` or, for a lost batch, from `lost/`. With
-`delivered = true` only a batch on the ground is read, as a consumer of the
-delivered record must; a lost batch is then refused like an absent or
-pruned one. Throws an `ArgumentError` for a batch that is absent or pruned
+`delivered = true` only a batch on the ground is read. Throws an
+`ArgumentError` for a batch that is absent or pruned
 (or, with `delivered = true`, lost), and for a segment whose columns differ
 from those of the geometry.
 """
@@ -453,14 +449,10 @@ end
                column::Union{Integer,AbstractString} = 1,
                delivered::Bool = false) -> Vector{Float32}
 
-The samples of one payload column of one batch, by
-index or by name, its segments concatenated in ascending segment
-identifier, from `ground/` or, for a lost batch, from `lost/`
-([`read_batch_matrix`](@ref) holds every column; `delivered = true` reads
-only a batch on the ground). For a one-column run the default is the whole
-payload. Throws an `ArgumentError` for a batch that is absent or pruned
-(or, with `delivered = true`, lost), and for a `column` that is not one of
-`run.geometry.columns`.
+Column `column` (an index or a name) of [`read_batch_matrix`](@ref), which
+receives `delivered`; for a one-column run the default is the whole
+payload. Throws the errors of [`read_batch_matrix`](@ref), and an
+`ArgumentError` for a `column` that is not one of `run.geometry.columns`.
 """
 function read_batch(
     run::RunHandle,
@@ -481,10 +473,10 @@ end
 """
     arrival_events(run::RunHandle; after::Int = 0) -> Vector{ArrivalEvent}
 
-The rows of `events_rx.csv` in file order, which is
-mission-time order, beyond the first `after` rows. A streaming consumer
-keeps the count of rows it has consumed and passes it here on every poll;
-the feed is append-only, and a batch's payload is in `ground/` before its
+The rows of `events_rx.csv` in file order, which is mission-time order,
+beyond the first `after` rows. The whole file is parsed, a last line still
+being written included; a streaming consumer follows the feed with a
+[`FeedCursor`](@ref). A batch's payload is in `ground/` before its
 `ingested` row is appended.
 """
 function arrival_events(run::RunHandle; after::Int = 0)
@@ -514,11 +506,6 @@ rows come from the batches' `payload_row` stamps ([`batch_rows`](@ref)), so
 they are exact across generation gaps and emitter restarts. A pruned batch
 counts as delivered, as its delivery happened; [`list_batches`](@ref) tells
 which payloads are still readable.
-
-It replaces the point-wise masks of 2.x (`masks/pointwise_mask_*.csv`,
-removed in 3.0), which placed batch `k` at row
-`(k − 1) · points_per_batch + 1` and were wrong after the first generation
-gap; on a run without one, the final mask was 1 exactly on these rows.
 """
 function delivered_rows(run::RunHandle; at::Union{DateTime,Nothing} = nothing)
     rows = UnitRange{Int}[]
@@ -562,9 +549,9 @@ end
 """
     label_spans(run::RunHandle) -> Vector{NamedTuple}
 
-The labeled intervals of the run's scenario from `label_spans.csv`
-(2.6.0 and later), `(class, type, label, rows, content_start,
-content_end)` with `rows` a `UnitRange{Int}` of payload rows: the
+The labeled intervals of the run's scenario from `label_spans.csv`,
+`(class, type, label, rows, content_start, content_end)` with `rows` a
+`UnitRange{Int}` of payload rows: the
 scenario's `[[labels]]` spans, the blackout and recovery phases of the
 link disruptions, the scheduled generation gaps as configured, the
 contact passes and low-latency periods, and the initial downtime. Empty
@@ -622,11 +609,9 @@ Hole(
     declared_holes(run::RunHandle; after::Integer = 0) -> Vector{Hole}
 
 The declared-hole feed `holes.csv` beyond its first `after` rows, each row
-a [`Hole`](@ref) with its `declared_at`. The producer appends a hole the
-moment it declares it and settles the feed with the end-of-run holes after
-the mission phase, so that on a finished run it holds the holes of
-`masks/gaps.csv`. Empty while no hole has been declared (the file appears
-with the first).
+a [`Hole`](@ref) with its `declared_at`, appended as the producer declares
+it; on a finished run the feed holds the holes of `masks/gaps.csv`. Empty
+while no hole has been declared (the file appears with the first).
 """
 function declared_holes(run::RunHandle; after::Integer = 0)
     table = TelemetryCore.read_hole_feed(run.run_dir; after = after)

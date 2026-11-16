@@ -4,8 +4,7 @@
 The batch-state products of a run: the replay of every batch's state
 (future, onboard, link, ground, lost) from the event logs, the 2D mask
 timeline it writes, the batch epoch map, the gap table of the delivered
-record, the label-span table of the scenario's labeled intervals, and the
-point-wise 0/1 availability expansion of one timeline row.
+record, and the label-span table of the scenario's labeled intervals.
 """
 module Masks
 
@@ -17,9 +16,9 @@ using Dates: DateTime, Millisecond
 """
     BatchStates
 
-Alias for the per-snapshot batch-location record shared by the mask generator
-and the GIF animation: batch-ID vectors for every (stage × stream) bucket plus
-the terminal `lost` bucket.
+Alias for the per-snapshot batch-location record of
+[`reconstruct_batch_states`](@ref), read by the GIF animation: batch-ID vectors
+for every (stage × stream) bucket plus the terminal `lost` bucket.
 """
 const BatchStates = NamedTuple{
     (
@@ -56,12 +55,10 @@ function replay_batch_states(f, run_dir::String, df::DataFrame)
         isfile(rx_path) ? TelemetryCore.read_table(rx_path) :
         DataFrame(SimTime = DateTime[], Batch = String[], Event = String[], Attempt = Int[])
 
-    # Chronological milestone list; the priority index breaks same-timestamp
-    # ties in causal order (a batch is generated before it is transmitted,
-    # transmitted before it is resolved). State-preserving events (`retry`:
-    # the batch stays on the link; `pruned`: delivery already happened) are
-    # skipped; unknown event names are tolerated with a warning so a newer
-    # run's log never aborts an older toolchain's replay.
+    # Milestones in time order; at an equal instant the rank orders them
+    # causally (gen, tx, then ingested or lost). The state-preserving `retry`
+    # and `pruned` rows are skipped. An unknown event name is skipped with a
+    # warning, so the log of a newer run still replays.
     event_rank = Dict("gen" => 1, "tx" => 2, "ingested" => 3, "lost" => 3)
     events = Vector{Tuple{DateTime,Int,String,String}}()
     for r in eachrow(tx)
@@ -85,9 +82,8 @@ function replay_batch_states(f, run_dir::String, df::DataFrame)
     end
     sort!(events, by = e -> (e[1], e[2]))
 
-    # The replay applies a prefix of the sorted events, those not later than
-    # the last metrics row; the identifier range is taken over that prefix,
-    # which is the column range the mask timeline has always had.
+    # The replay applies the sorted events up to the last metrics row; the
+    # identifier range is taken over those events.
     n_applied = 0
     if nrow(df) > 0
         t_last = maximum(df.SimTime)
@@ -113,7 +109,6 @@ function replay_batch_states(f, run_dir::String, df::DataFrame)
             ev_idx += 1
             id = TelemetryCore.batch_id(name)
             1 <= id <= max_id || continue
-            # Set on every event, which is harmless: a batch keeps its name.
             live[id] = TelemetryCore.is_live_batch(name)
             target = stage_code[kind]
             target > codes[id] && (codes[id] = target)
@@ -141,9 +136,9 @@ state-preserving `retry` and `pruned` rows are skipped. Returns one
 order of `rows`, evaluated at that row's `SimTime`; the identifiers of each
 bucket are sorted ascending (order within a bucket is not part of the
 contract). Each loss is attributed to its batch ID, which gives mask state
-`4 = Lost`. Emitter and receiver stamp milestones from separate clock reads,
-so recorded timestamps can invert within a batch at high speed-up; the
-replay enforces per-batch causal order (`gen` → `tx` → terminal) with later
+`4 = Lost`. Runs of producers before 2.8.0 can hold milestones whose
+timestamps invert within a batch; the replay enforces per-batch causal
+order (`gen` → `tx` → terminal) with later
 stages absorbing, keeping every batch's state sequence monotone. Events at
 the same instant are applied in causal order. The streaming form, which
 keeps no record per row, is [`replay_batch_states`](@ref).
@@ -210,8 +205,8 @@ end
 """
     generate_telemetry_masks(run_dir::String)
 
-Writes the replay of the LIFO/FIFO transmission state machine
-([`batch_states`](@ref)) as the 2D matrix `telemetry_mask_timeline.csv`:
+Writes the replay of the LIFO/FIFO transmission state machine as the 2D
+matrix `telemetry_mask_timeline.csv`:
 rows are time steps, columns the `Batch_ID`s, entries the batch's location
 (0=Future, 1=Onboard, 2=Link, 3=Ground, 4=Lost). The rows are streamed from
 [`replay_batch_states`](@ref) to disk, so the matrix is never held in memory.
@@ -232,13 +227,12 @@ function generate_telemetry_masks(run_dir::String)
 
     require_event_log(run_dir)
     mask_path = TelemetryCore.mask_timeline_path(run_dir)
-    # The header needs the largest batch ID, known only once the replay has
-    # run, so the rows go to a scratch file first. The text is the one the
-    # CSV writer produced for the former table: instants in the form of
-    # `timestamp_text`, the state codes as single digits, no quoting, `\n`
-    # line ends. Columns run over every ID up to the true maximum, not the
-    # batch count: the ID space may carry holes (truncated logs,
-    # hand-assembled or reconciled run directories).
+    # The header needs the largest batch ID, known only after the replay, so
+    # the rows go to a scratch file first. The text matches the CSV writer:
+    # instants in the form of `timestamp_text`, single-digit state codes, no
+    # quoting, `\n` line ends. Columns run over every ID up to the largest;
+    # the ID space may carry holes (truncated logs, hand-assembled or
+    # reconciled run directories).
     mktempdir() do scratch
         body_path = joinpath(scratch, "rows.csv")
         max_id = open(body_path, "w") do body
@@ -275,13 +269,9 @@ function generate_telemetry_masks(run_dir::String)
     end
     @info "[POST] Saved 2D telemetry data masks to: $(relpath(mask_path, run_dir))"
 
-    # Batch → epoch sidecar: the point-wise mask's row-index contract assumes
-    # a contiguous series, which generation gaps break; this map lets
-    # consumers re-anchor batch rows on the mission timeline and the payload.
-    # `GenSimTime` is the finalization (transmittable) instant from the event
-    # log; `ContentEpoch` and `PayloadRow` are the first-sample timestamp and
-    # payload row from each batch's metadata (missing for batches written
-    # before those keys existed).
+    # Batch → epoch sidecar: `GenSimTime` is the finalization instant from the
+    # event log; `ContentEpoch` and `PayloadRow` are the first-sample instant
+    # and payload row from each batch's metadata (`missing` without the key).
     tx_path = joinpath(run_dir, "events_tx.csv")
     if isfile(tx_path)
         tx_events = TelemetryCore.read_table(tx_path)
@@ -328,8 +318,9 @@ by `RowFirst`. Batch rows come from the `payload_row` stamp of the batch
 metadata; generation gaps from the
 `gap_start` / `gap_end` pairs of `events_tx.csv`, a gap left open at run
 end closed at the mission's end; the unreached tail from
-`external_data_rows` of the snapshot. The rows of the table and the rows
-no delivered batch covers are the same set. On a finished run the
+`external_data_rows` of the snapshot. Up to the last generated row (for an
+external record, up to `external_data_rows`), the rows of the table are the
+rows no delivered batch covers. On a finished run the
 declared-hole feed `holes.csv`, settled by [`settle_hole_feed!`](@ref),
 holds the same holes with the instant each was declared at.
 """
@@ -470,10 +461,9 @@ The rows of `holes.csv` beyond the holes of [`gap_table`](@ref): every row
 whose `(Cause, Batch, RowFirst, RowLast)` the table does not derive, and
 every repeat of a hole the feed already holds, in feed order with the
 feed's columns. Empty on a sound finished run, where the settled feed and
-the table hold the same holes. The table is the reference: its rows are
-exactly the rows no delivered batch covers, a property the feed, a log of
-declarations, cannot assert of itself. Post-processing reports a non-empty
-excess as a warning in the run log and leaves both files as they are.
+the table hold the same holes; the table is the reference. Post-processing
+reports a non-empty excess as a warning in the run log and alters neither
+file.
 `table` is the gap table when the caller has derived it already.
 """
 function hole_feed_excess(run_dir::String; table::DataFrame = gap_table(run_dir))

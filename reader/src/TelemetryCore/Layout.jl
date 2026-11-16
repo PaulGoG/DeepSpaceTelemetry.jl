@@ -9,10 +9,10 @@ const C_LIGHT = 2.99792458e8
 """
     PROJECT_ROOT
 
-Absolute path of the package root (a `Ref`): the directory whose
-`config.toml`, `scenarios/` and `data/` are addressed, against which relative
-configuration paths (`physics.external_data_path`, `contacts.schedule_csv`,
-the config file itself) resolve, and whose source identity a run records.
+Absolute path of the package root (a `Ref`), which holds `config.toml`,
+`scenarios/` and `data/`. `physics.external_data_path` resolves against it;
+`contacts.schedule_csv` and the config file resolve against the current
+directory first, then against it. A run records the root's source identity.
 `DeepSpaceTelemetry` sets it to its own root when it loads; on its own, the
 reader package points it at the reader's root.
 """
@@ -107,8 +107,7 @@ batch_name(id::Integer, live::Bool) = string(live ? "LIVE_batch_" : "ARCH_batch_
     batch_id(name::AbstractString) -> Int
 
 Numeric ID parsed from a batch directory name (the trailing `_<id>` field);
-`0` for a name that does not carry one, so directory sweeps tolerate stray
-entries instead of throwing.
+`0` for a name that does not carry one, such as a stray directory entry.
 
 # Examples
 ```jldoctest

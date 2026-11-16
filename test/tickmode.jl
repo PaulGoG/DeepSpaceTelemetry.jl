@@ -1,7 +1,6 @@
-# The tick clock: configuration of the two modes, the anchor, the
-# cooperative scheduler, and the determinism claim — the same seed twice
-# gives the same event logs and mask timeline to the byte, another seed
-# does not, and the production count follows from the span alone.
+# The tick clock: the two modes, the anchor and the cooperative scheduler.
+# A tick run is reproducible from its seed, and its production follows from
+# its span.
 
 @testset "Simulation mode configuration" begin
     tick = TelemetryCore.load_config(
@@ -204,8 +203,7 @@ end
         @test anchor.mode == "tick" && anchor.horizon == DateTime(2035, 1, 1, 6) + Hour(6)
         @test !isfile(joinpath(a, "emitter_alive")) &&
               !isfile(joinpath(a, "receiver_alive"))
-        # The claim: the same seed reproduces the telemetry record to the
-        # byte; another seed draws other losses.
+        # The same seed gives the same files; another seed draws other losses.
         @test products(a) == products(b)
         @test products(a) != products(c)
         # The paced wall run of the same span and seed reproduces the tick

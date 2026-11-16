@@ -3,7 +3,7 @@
 
 HDF5 product export: the consumer-facing products of a run (event logs,
 hole feed, metrics profile, batch-state timeline, batch epochs, gap table,
-point-wise masks, metrology tables, markers, label spans, component events)
+metrology tables, markers, label spans, component events)
 in one self-describing file with the run's provenance as attributes, for
 analysis pipelines that read HDF5 rather than a directory of CSV files. The
 CSV products remain the primary interface; the export is a derived,
@@ -159,11 +159,9 @@ end
 Root attributes: `format_version`, `run_id`, `start_sim_time`, `speed_up`,
 `exported_at`, the platform fingerprint of the run snapshot
 (`[provenance.platform]`: hostname, package version, git commit, Julia
-version, …), `config_snapshot` — the run's configuration as TOML text — and
-`config_source`, `"snapshot"`: the text is the run's own
-`config_snapshot.toml`. Files written by earlier versions may hold
-`"fallback"`, meaning the project `config.toml` stood in for a missing or
-corrupt snapshot.
+version, …), `config_snapshot`, the run's configuration as TOML text, and
+`config_source`, `"snapshot"` (files of earlier versions may hold
+`"fallback"`: the project `config.toml` stood in for the snapshot).
 """
 function write_provenance!(
     file::HDF5.File,

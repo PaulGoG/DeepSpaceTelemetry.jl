@@ -69,10 +69,9 @@ run_dir = DeepSpaceTelemetry.TelemetryCore.run_directory(run_id)
 
 println("Launching dashboard terminals for run: $run_id...")
 
-# Commands to run in the new windows: the running Julia binary, so the windows
-# run the same version, shell-escaped absolute paths, no working-directory
-# assumption, and a pure-Julia log follower (scripts/follow_log.jl) in place
-# of `tail -F`.
+# Commands of the new windows: the running Julia binary, so that they run the
+# same version, with shell-escaped absolute paths, and the pure-Julia log
+# follower scripts/follow_log.jl.
 julia_exe = Base.julia_cmd().exec[1]
 live_viewer_cmd =
     Base.shell_escape_posixly(julia_exe, joinpath(@__DIR__, "live_viewer.jl"), run_id)

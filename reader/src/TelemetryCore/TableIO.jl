@@ -23,8 +23,9 @@ end
     backup_existing(path::String) -> Union{String, Nothing}
 
 If `path` exists, renames it to `<name>#<k><ext>` with the smallest unused
-`k`: the backup rotation of DrWatson's `safesave`, without the dependency
-(the manual's "Provenance conventions" table lists the correspondences).
+`k`, so `#1` is the oldest backup. DrWatson's `safesave` numbers the other
+way (`<name>_#1<ext>` is the newest); the manual's "Provenance conventions"
+table lists the correspondences.
 Returns the backup path, or `nothing` if `path` did not exist.
 """
 function backup_existing(path::String)
@@ -122,9 +123,8 @@ end
     write_table(path::AbstractString, table; append = false) -> String
 
 Writes a table of the run directory, every `DateTime` column as text in the
-form of [`timestamp_text`](@ref). That form is the one these files have
-always carried and is part of the file contract; the default of the CSV
-writer is not, and it changed between CSV.jl 0.10 and 1.x.
+form of [`timestamp_text`](@ref), which is part of the file contract. The
+default of the CSV writer is not, and it changed between CSV.jl 0.10 and 1.x.
 """
 function write_table(path::AbstractString, table; append::Bool = false)
     source = DataFrame(table; copycols = false)

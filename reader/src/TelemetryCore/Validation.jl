@@ -2,15 +2,16 @@
     validate_config(cfg::AbstractDict)
 
 Validates a live configuration before any directory is created or any
-computation starts, and returns `cfg`; the safe interval of every key is
-documented inline in `config.toml`. A value that would break the pipeline
-raises a `[CONFIG]` `ArgumentError`; a runnable but suspicious one emits a
-`@warn`.
+computation starts, and returns `cfg`; the safe intervals are documented in
+`config.toml`, the scenario files and the manual. A value that would break
+the pipeline raises a `[CONFIG]` `ArgumentError`; a runnable but suspicious
+one emits a `@warn`.
 
 Errors:
-  - a missing required key: `simulation.start_sim_time` (and `speed_up` in
-    wall mode), `telemetry.session_start` and `session_duration_hours`, the
-    four core `[physics]` keys, and a link capacity
+  - a missing required key: `simulation.start_sim_time` (with `speed_up`
+    and `mission_wall_seconds` in wall mode, `mission_days` in tick mode),
+    `telemetry.session_start` and `session_duration_hours`, the four core
+    `[physics]` keys, and a link capacity
   - a span key of the other clock mode, and
     `dashboard.receiver_status_panel = true` in tick mode
   - every type, bound, and enumeration enforced by the accessors it calls:
@@ -31,9 +32,7 @@ Errors:
   - `data_source = "external"` with a missing file or with an
     `external_data_columns` entry absent from its header
   - the retired keys of `REMOVED_CONFIG_KEYS`, rejected with the
-    replacement named (in 3.0: the point-wise mask keys,
-    `supervision.watchdog_sec`, the `storage.bytes_*` calibration, and
-    `storage.onboard_capacity_days`, now `telemetry.onboard_capacity_days`)
+    replacement named
 
 Warnings:
   - the rate pair with a shaped `bandwidth_profile` (the profile mean scales
@@ -109,8 +108,7 @@ function validate_config(cfg::AbstractDict)
     tel = get(cfg, "telemetry", Dict{String,Any}())
     phy = get(cfg, "physics", Dict{String,Any}())
 
-    # Required keys: a missing core tunable is a configuration error, never
-    # a silently invented default.
+    # Required keys of a live configuration.
     mode = simulation_mode(cfg)
     for (section, sec_name, required) in (
         (
@@ -138,7 +136,7 @@ function validate_config(cfg::AbstractDict)
         )
 
     # -- [simulation] --
-    # A span key of the other mode is an error, not a value silently ignored.
+    # A span key of the other mode is an error.
     if mode == "tick"
         for key in ("speed_up", "mission_wall_seconds")
             haskey(sim, key) && config_error(

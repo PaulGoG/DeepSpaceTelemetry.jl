@@ -2,14 +2,10 @@
 """
     MissionClock
 
-The clock a mission runs on. [`TickClock`](@ref) is the only mission clock:
-it advances mission time logically, from one component wakeup to the next,
-either unpaced (`simulation.mode = "tick"`) or paced against the wall clock
-(`simulation.mode = "wall"`). The components read the current instant
-through [`get_current_sim_time`](@ref), wait through [`wait_until!`](@ref),
-[`wait_until_or_change!`](@ref), and [`wait_for_change!`](@ref), and stop
-at [`horizon_reached`](@ref); the mission's physics is expressed in mission
-time and is the same in both modes.
+The clock a mission runs on, with one subtype, [`TickClock`](@ref). The
+components read the current instant through [`get_current_sim_time`](@ref),
+wait through [`wait_until!`](@ref), [`wait_until_or_change!`](@ref), and
+[`wait_for_change!`](@ref), and stop at [`horizon_reached`](@ref).
 """
 abstract type MissionClock end
 
@@ -25,13 +21,13 @@ instants of the start; `horizon` is the mission end `horizon_sim`, or
 2.8.0 carry no horizon); `speed_up` is the pace of a wall run (`NaN` when
 absent); and `deadline_wall` is the nominal wall end of a wall run
 (`nothing` when absent). Throws an `ArgumentError` when the anchor file is
-absent (runs started by an older pipeline cannot be re-attached).
+absent.
 """
 function load_clock_anchor(run_dir::String)
     path = joinpath(run_dir, "clock_anchor.toml")
     isfile(path) || throw(
         ArgumentError(
-            "[RUN] clock_anchor.toml missing in $run_dir — component re-attachment requires the persisted anchor written at mission start.",
+            "[RUN] clock_anchor.toml missing in $run_dir: it is written at mission start.",
         ),
     )
     a = TOML.parsefile(path)
@@ -67,21 +63,15 @@ end
     TickClock(start_sim_time::DateTime, horizon::DateTime;
               wall_epoch = now(), pace = nothing) <: MissionClock
 
-The mission clock, and the only one. Mission time advances only while
-every component task is parked, jumping to the earliest requested wakeup,
-so a mission is a deterministic sequence of events for a given seed.
-`now_sim` is the current instant, `horizon` the mission end
-(`start_sim_time` plus [`mission_span_days`](@ref)), and `wall_epoch` the
-wall instant of the start. `pace` is the speed-up of a paced run
-(`simulation.mode = "wall"`), under which the driver releases a wakeup at
-logical instant `t` no earlier than `wall_epoch + (t − start_sim_time) /
-pace` of wall time, and catches up without sleeping when the host lags, so
-the content is that of the unpaced run; `nothing` for an unpaced run
-(`--tick`), which does not wait on the wall clock. A given `pace` must
-exceed 0 and is stored as `Float64`. The components are created by
-[`tick_spawn`](@ref), park through [`wait_until!`](@ref),
-[`wait_until_or_change!`](@ref), and [`wait_for_change!`](@ref), and are
-driven by [`run_ticks!`](@ref) on the driver's thread.
+The mission clock. Mission time advances only while every component task
+is parked, jumping to the earliest requested wakeup, so a mission is a
+deterministic sequence of events for a given seed. `now_sim` is the current
+instant, `horizon` the mission end (`start_sim_time` plus
+[`mission_span_days`](@ref)), and `wall_epoch` the wall instant of the
+start. `pace` (> 0, stored as `Float64`) is the speed-up of a paced run
+(`simulation.mode = "wall"`) and `nothing` for an unpaced one (`--tick`).
+[`run_ticks!`](@ref) states the pacing rule and drives the components that
+[`tick_spawn`](@ref) creates.
 """
 mutable struct TickClock <: MissionClock
     const start_sim_time::DateTime
@@ -127,9 +117,9 @@ Persists the anchor of a mission into `<run_dir>/clock_anchor.toml`,
 rotating an existing file ([`backup_existing`](@ref)): `mode` (`"wall"`
 for a paced clock, `"tick"` otherwise), `wall_epoch`, the mission epoch
 `start_sim_time`, and the horizon `horizon_sim`; a paced clock adds
-`speed_up` (its pace) and `deadline_wall`, the wall instant at which the
-paced horizon falls due, i.e. the nominal end of the wall budget. Written
-once at mission start and read back by [`load_clock_anchor`](@ref).
+`speed_up` (its pace) and `deadline_wall`, the nominal wall instant of the
+horizon. Written once at mission start and read back by
+[`load_clock_anchor`](@ref).
 """
 function save_clock_anchor(run_dir::String, clock::TickClock)
     path = joinpath(run_dir, "clock_anchor.toml")
@@ -162,8 +152,7 @@ get_current_sim_time(clock::TickClock) = clock.now_sim
 """
     horizon_reached(clock::TickClock) -> Bool
 
-Whether the tick clock has reached its horizon, that is, whether its
-instant equals the horizon.
+Whether the clock's instant has reached its horizon.
 """
 horizon_reached(clock::TickClock) = clock.now_sim >= clock.horizon
 
@@ -261,9 +250,10 @@ end
 """
     wait_for_change!(clock::TickClock; priority = 0)
 
-Parks the calling task until the next wakeup of another component has run
-(or the horizon, when none is parked): the receiver's idle wait under the
-tick clock, where the link can only change when the emitter runs.
+Parks the calling task at the next wakeup of another component (or the
+horizon, when none is parked). The task resumes after that component has
+run when its `priority` value is not smaller than the component's. The
+receiver's idle wait: the link changes only when the emitter runs.
 """
 function wait_for_change!(clock::TickClock; priority::Int = 0)
     return park!(clock, max(earliest_wakeup(clock), clock.now_sim), priority)
@@ -310,14 +300,14 @@ On a paced clock (`clock.pace` set, `simulation.mode = "wall"`) the driver
 sleeps, before each release, until the wall instant
 `wall_epoch + (t − start_sim_time) / pace` of the logical instant `t`, in
 chunks of at most 0.5 s; a host that lags releases at once and catches up.
-The sleep ends at once when `should_stop()` holds (the `HALT` sentinel or
-the stop flag), so the components, which check `HALT` at every wakeup, exit
-promptly. An unpaced clock never sleeps.
+`should_stop()` (the `HALT` sentinel or the stop flag) is tested between
+chunks and ends the sleep, so the components, which check `HALT` at every
+wakeup, exit within 0.5 s. An unpaced clock never sleeps.
 
-`heartbeats` maps component names to liveness files, present in both
-modes: the driver touches every file at the start, again after a release
-once [`HEARTBEAT_INTERVAL_MS`](@ref) have elapsed since the last touch (at
-most once per interval), and removes them when the mission phase ends.
+`heartbeats` maps component names to liveness files. The driver touches
+every file at the start, then at most once per
+[`HEARTBEAT_INTERVAL_MS`](@ref), after a release or between sleep chunks,
+and removes them when it returns normally.
 """
 function run_ticks!(
     clock::TickClock,

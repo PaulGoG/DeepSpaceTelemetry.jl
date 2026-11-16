@@ -1,9 +1,5 @@
-# The reference run adapter: the six questions answered from the file
-# contract of a lossy tick run with a marker, a scheduled generation gap, and
-# declared label spans, the declared-hole feed against the gap table, the feed
-# cursors, the delivered rows, the marker rows, the label-span table and its regeneration,
-# the per-batch lookup, the delivered-only reads, the descriptor, and the
-# version check.
+# The run adapter against a lossy tick run with a marker, a scheduled
+# generation gap and two label spans.
 
 @testset "Run adapter" begin
     cfg = TelemetryCore.load_config(

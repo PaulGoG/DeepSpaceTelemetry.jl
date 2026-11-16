@@ -6,7 +6,7 @@ using DeepSpaceTelemetry
 # into RUN_ABORTED when the mission itself was cut short. --force skips the
 # test for recent writes to the run directory.
 
-const USAGE = "Usage: julia --threads=3 scripts/postprocessing/complete_run.jl <RUN_ID> [--force]"
+const USAGE = "Usage: julia scripts/postprocessing/complete_run.jl <RUN_ID> [--force]"
 
 positional = filter(a -> !startswith(a, "--"), ARGS)
 if length(positional) != 1

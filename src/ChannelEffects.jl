@@ -19,8 +19,8 @@ using Random: Random, Xoshiro
 Abstract supertype for stochastic downlink packet-loss models. Concrete models
 implement [`sample_loss!`](@ref), which is drawn once per batch transfer
 attempt on the receiver side. The random models carry their own RNG, a
-`Xoshiro` seeded by [`build_loss_model`](@ref), so loss realizations depend
-on the seed alone.
+`Xoshiro` seeded by [`build_loss_model`](@ref): the variates of the `k`-th
+attempt depend on the seed alone.
 """
 abstract type LossModel end
 
@@ -36,8 +36,7 @@ struct NoLoss <: LossModel end
     BernoulliLoss(p, rng)
 
 Memoryless i.i.d. packet loss: each batch transfer attempt fails independently
-with probability `p ∈ [0, 1]`. The RNG type is a struct parameter so the
-per-attempt draw dispatches statically.
+with probability `p ∈ [0, 1]`.
 """
 struct BernoulliLoss{R<:Random.AbstractRNG} <: LossModel
     p::Float64
@@ -53,8 +52,7 @@ doi:10.1002/j.1538-7305.1963.tb00955.x). The channel alternates between a
 GOOD state with loss probability `p_loss_good` and a BAD state with loss
 probability `p_loss_bad`; state transitions occur once per transfer attempt
 with probabilities `p_good_to_bad` / `p_bad_to_good`. All four parameters
-must lie in `[0, 1]`. The RNG type is a struct parameter so the per-attempt
-draws dispatch statically.
+must lie in `[0, 1]`.
 """
 mutable struct GilbertElliottLoss{R<:Random.AbstractRNG} <: LossModel
     p_good_to_bad::Float64

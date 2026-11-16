@@ -3,11 +3,9 @@
 
 Ensembles and sweeps on the tick clock: the same configuration run over a
 set of seeds, with optional overrides of any key, and the realized totals of
-every run gathered into one table. On a given platform a seed reproduces a
-run's event logs to the byte and its metrics profile apart from the
-`WallTime` column. [`run_sweep`](@ref) drives the runs, serially or
-several at once on Julia threads; [`summarize_run`](@ref) reads one run's totals; the
-products land under `<data root>/sweeps/<prefix>/`.
+every run gathered into one table. [`run_sweep`](@ref) drives the runs,
+serially or several at once on Julia threads; [`summarize_run`](@ref) reads
+one run's totals. The products land under `<data root>/sweeps/<prefix>/`.
 """
 module Sweeps
 
@@ -122,8 +120,8 @@ The realized totals of one run: the counters of the last row of
 `mission_profile.csv`, the generated count and the share within the
 delivery requirement from `delivery_delay.csv`, the alert-latency medians
 at 24 h and 72 h (realized and counterfactual) from `alert_latency.csv`,
-and the hole count of `masks/gaps.csv`. A product that is absent leaves its
-fields `missing`.
+and the hole count of `masks/gaps.csv`. An absent delay, latency, or gap
+table leaves its fields `missing`; `mission_profile.csv` is required.
 """
 function summarize_run(run_dir::String)
     profile = TelemetryCore.read_table(joinpath(run_dir, "mission_profile.csv"))
@@ -216,8 +214,9 @@ Runs `cfg` on the tick clock once per seed in `seeds`, as
 applied to every run ([`sweep_configuration`](@ref)); with `workers > 0`
 at most that many runs proceed at once as tasks on the Julia threads, and a
 warning says so when the process has fewer threads; otherwise they run one
-after another. A run shares nothing with its siblings but the read-only
-configuration constants, so its products do not depend on `workers`. Writes `<data_root>/sweeps/<prefix>/summary.csv`, one row per
+after another. A run shares no mutable state with its siblings, so its
+products do not depend on `workers`. Writes
+`<data_root>/sweeps/<prefix>/summary.csv`, one row per
 run ([`summarize_run`](@ref), with the seed first), and `sweep.toml`, the
 sweep's provenance: the base configuration's hash, the overrides, the
 seeds, the package version and source identity

@@ -110,8 +110,8 @@ function pre_populate(
         if held >= onboard_capacity_batches
             discard_at_ceiling!(recorder_gap, run_dir, pending, held)
         else
-            # The finalization instant is the content end, inside the blind
-            # spot, as generation is instantaneous here.
+            # The finalization instant is the content end; generation is
+            # instantaneous here.
             finalize_batch!(run_dir, held + 1, pending, vi.last_t, false, markers, vi)
             held += 1
         end
@@ -126,11 +126,10 @@ end
 
 Scheduled generation gap: when the instrument's next content instant lies
 inside one of `gaps` (`(start, stop)` intervals), the segments of the
-incomplete batch are discarded (as in an emitter outage, so batch geometry
-stays uniform) and the content clock resumes at the first segment boundary
-at or after the gap's end ([`VirtualInstrument.advance_to!`](@ref)): the
-sampling phase of the payload origin is kept, so segment identifiers and
-payload rows continue on the same grid. The gap is bounded in
+incomplete batch are discarded, which keeps every batch at `batch_size`
+segments, and the content clock resumes at the first grid instant at or
+after the gap's end ([`VirtualInstrument.advance_to!`](@ref)). The gap is
+bounded in
 `events_tx.csv` (Batch = `SCHEDULED`) by `gap_start` at the first discarded
 epoch (or the content end when nothing was pending) and `gap_end` at the
 resumption instant, so `[gap_start, gap_end)` is exactly the content not
@@ -298,12 +297,11 @@ end
                       onboard_count = nothing) -> Int
 
 Places on-board batches on the downlink while `link` is transmittable at
-`sim_t` (visibility and no blackout). Free in-flight slots, the `link/`
-listing below `max_inflight_batches` (a slot frees the moment the receiver
-moves a batch out), are refilled from `live_queue` (FIFO, absolute
-priority), then from `arch_queue` (held newest first, so the archive drains
-LIFO). Each move from `onboard/` to `link/` is appended to `events_tx.csv`
-as a `tx` row and taken off `onboard_count`. Returns the number of batches
+`sim_t` (visibility and no blackout), until `link/` holds
+`max_inflight_batches`: first from `live_queue` (FIFO, absolute priority),
+then from `arch_queue` (held newest first, so the archive drains LIFO).
+Each move from `onboard/` to `link/` is appended to `events_tx.csv` as a
+`tx` row and taken off `onboard_count`. Returns the number of batches
 placed.
 """
 function transmit_onboard!(
@@ -359,12 +357,9 @@ continues from: on the first start the one returned by
 after the current mission time, with the payload origin of the first start,
 which leaves a genuine generation gap.
 
-`clock` is the [`TelemetryCore.TickClock`](@ref) of the mission, paced or
-not: in wall mode the driver ([`TelemetryCore.run_ticks!`](@ref)) holds each
-wakeup back to its wall instant, which changes when the loop runs but not
-what it produces. Generation is paced by the mission clock, not by the
-loop's own start: a segment is produced once the clock has passed the end
-of its content interval (`vi.last_t + segment_duration_sec`). While no
+`clock` is the [`TelemetryCore.TickClock`](@ref) of the mission. A segment
+is produced once the clock has passed the end of its content interval
+(`vi.last_t + segment_duration_sec`). While no
 segment is due the loop serves the downlink and parks the task
 ([`TelemetryCore.wait_until!`](@ref)) until that instant or the next
 boundary of the payload grid, whichever comes first, so a scheduled
@@ -457,11 +452,9 @@ function run_emitter(
     )
 
     while !TelemetryCore.loop_should_stop(clock, stop, halt_path, "[EMITTER]")
-        # 1. Pacing (see the docstring): a segment is due once its content
-        #    interval has elapsed, since the instrument delivers what it
-        #    has observed. Until then serve the downlink and sleep to the
-        #    next grid boundary; on the catch-up path, yield so a partner
-        #    task on the same thread is not starved.
+        # 1. Pacing: a segment is due once its content interval has elapsed.
+        #    Until then serve the downlink and park until the next grid
+        #    boundary.
         skip_generation_gaps!(
             vi,
             pending,
@@ -509,10 +502,7 @@ function run_emitter(
             )
             # LIVE/ARCH follows the link state at finalization: flight
             # software marks data near-real-time only if the link is up
-            # when it is ready to send. The content epoch is persisted
-            # independently (metadata.json `content_epoch`,
-            # masks/batch_epochs.csv), so pacing lag can shift the
-            # classification but not the science provenance.
+            # when it is ready to send.
             is_live = ChannelEffects.is_transmittable(link, sim_t)
             content_start = pending[1].timestamp
             batch_name = finalize_batch!(

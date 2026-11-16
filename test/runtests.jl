@@ -1,7 +1,6 @@
-# The suite runs in its own environment (test/Project.toml, the package taken
-# from the parent directory through [sources]) and loads DeepSpaceTelemetry as
-# a real package, never via include, so Aqua, JET, and ExplicitImports resolve
-# the package identity.
+# The suite runs in test/Project.toml, which takes both packages from this
+# checkout through [sources], and loads them with `using`: Aqua, JET and
+# ExplicitImports need the package identity, which `include` would lose.
 include(joinpath(@__DIR__, "activate.jl"))
 using Test, Dates, Statistics, CSV, DataFrames, Logging, TOML
 using StableRNGs
@@ -28,8 +27,8 @@ using DeepSpaceTelemetry:
 # data/ tree stays untouched even if the process is killed mid-suite.
 TelemetryCore.DATA_ROOT[] = mktempdir()
 
-# A single enclosing testset, so a failing file no longer aborts the files after
-# it and the per-testset times are printed.
+# One enclosing testset: a failing file does not abort the files after it,
+# and each testset prints its time.
 @testset verbose = true "DeepSpaceTelemetry" begin
     include("helpers.jl")
     include("static_qa.jl")

@@ -44,8 +44,7 @@ The configuration that produced a run, parsed from the run's own
 `config_snapshot.toml`, and its source, always `"snapshot"`. The second
 value is kept for the `config_source` attribute of the HDF5 export. A
 missing or unparsable snapshot raises a `[CONFIG]` `ArgumentError`: the
-directory is not a run of this package, and no other configuration stands
-in for it.
+directory is not a run of this package.
 """
 function load_run_config_with_source(run_dir::String)
     snapshot = joinpath(run_dir, "config_snapshot.toml")
@@ -67,13 +66,11 @@ end
 """
     load_run_config(run_dir::String)
 
-The configuration that produced a given run: its own `config_snapshot.toml`
-and nothing else ([`load_run_config_with_source`](@ref) without the
-source). A directory without a parsable snapshot is refused with a
-`[CONFIG]` `ArgumentError`. Post-processing must always use this instead of
-[`load_config`](@ref), otherwise editing `config.toml` silently
-re-parametrizes the analysis of old runs (disruption windows, session
-times, physics rates).
+The configuration that produced a given run, read from its own
+`config_snapshot.toml` ([`load_run_config_with_source`](@ref) without the
+source). Post-processing reads this and not [`load_config`](@ref): an edit
+of `config.toml` would re-parametrize the analysis of old runs (disruption
+windows, session times, physics rates).
 """
 load_run_config(run_dir::String) = first(load_run_config_with_source(run_dir))
 
@@ -99,8 +96,7 @@ read_mask_timeline(run_dir::String) = read_table(mask_timeline_path(run_dir); nt
     checked_number(v, name::String) -> Float64
 
 Coerces a config value to `Float64`, aborting with a `[CONFIG]` error naming
-the key when the TOML value is not numeric (e.g. a quoted `"3600"`), instead of
-surfacing a raw `MethodError` from deep inside the validator or a builder.
+the key when the TOML value is not numeric (e.g. a quoted `"3600"`).
 """
 function checked_number(v, name::String)
     (v isa Real && !(v isa Bool)) ||
@@ -147,16 +143,15 @@ end
     config_error(msg::AbstractString)
 
 Rejects a configuration with an `ArgumentError` carrying the `[CONFIG]`
-message — the single throw point for every validator and coercion rejection,
-so callers can rely on the exception type.
+message. The validator and the coercions reject through this function.
 """
 config_error(msg::AbstractString) = throw(ArgumentError(msg))
 
 """
     required_value(section::AbstractDict, sec_name::String, key::String)
 
-Fetches a required configuration key, rejecting with a precise `[CONFIG]`
-message (instead of a raw `KeyError`) when it is absent.
+Fetches a required configuration key; an absent key raises a `[CONFIG]`
+error naming `sec_name.key`.
 """
 required_value(section::AbstractDict, sec_name::String, key::String) =
     haskey(section, key) ? section[key] :
@@ -169,8 +164,7 @@ required_value(section::AbstractDict, sec_name::String, key::String) =
 Measured calibration constants of [`estimate_artifacts`](@ref): per-artifact
 disk sizes [bytes], and the RAM of the replay (`bytes_replay_cell`, per
 metrics row × batch membership) and of the figure stage
-(`bytes_figure_stage`, `bytes_figure_row`). Implementation calibration, not
-configuration: the `[storage]` overrides of these names were removed in 3.0.
+(`bytes_figure_stage`, `bytes_figure_row`).
 """
 const STORAGE_CALIBRATION = (
     bytes_per_sample = 15.0,      # one Float32 CSV value + newline (external series)
@@ -206,10 +200,10 @@ end
 """
     FIGURE_PRODUCTS
 
-The flagged figure products, in rendering order. The configuration schema,
-[`post_processing_settings`](@ref), the artifact estimator, the Supervisor's
-post-processing, and the publication export iterate this table, so a new
-product is one entry here and one [`render_figure_product`](@ref) method.
+The flagged figure products, in rendering order. The schema, the artifact
+estimator, the post-processing and the publication export iterate this
+table; a new product is one entry here and one
+[`render_figure_product`](@ref) method.
 """
 const FIGURE_PRODUCTS = (
     FigureProduct(
@@ -483,8 +477,7 @@ A copy of a configuration switched to `simulation.mode = "tick"` with the
 same mission span: `mission_days` set from [`mission_span_days`](@ref),
 `speed_up` and `mission_wall_seconds` removed, and the console status
 panel off. A wall scenario runs deterministically through it; a
-configuration already in tick mode comes back unchanged. The result is
-validated like any other configuration when it is run.
+configuration already in tick mode comes back unchanged.
 
 # Examples
 ```jldoctest
@@ -569,15 +562,15 @@ function simulation_settings(cfg::AbstractDict)
     )
 end
 
-# Section accessors: every consumer, the validator included, reads a section
-# through one of these, so each bound and default is defined once.
+# Section accessors. The validator and the run builders read a section
+# through one of these; each bound and default is defined here.
 
 """
     telemetry_settings(cfg::AbstractDict) -> NamedTuple
 
 Validated `[telemetry]` parameters: `session_start::Time`,
-`session_duration::Second` (`session_duration_hours ∈ (0, 24]`: the daily
-scheduler wraps `Time` arithmetic at 24 h), `bandwidth_profile::String` (one
+`session_duration::Second` (`session_duration_hours ∈ (0, 24]`: consecutive
+daily windows do not overlap), `bandwidth_profile::String` (one
 of [`BANDWIDTH_PROFILES`](@ref)), `sigmoid_steepness`, `gaussian_sigma`,
 `max_batches_per_hour`, `max_inflight_batches::Int`, `min_link_factor`, and
 `range_million_km ≥ 0` (spacecraft–Earth range; `0` disables the light-time
@@ -631,7 +624,7 @@ function telemetry_settings(cfg::AbstractDict)
         "telemetry.session_duration_hours",
     )
     0.0 < session_hours <= 24.0 || config_error(
-        "[CONFIG] telemetry.session_duration_hours must lie in (0, 24] (got $session_hours): the daily scheduler wraps Time arithmetic at 24 h.",
+        "[CONFIG] telemetry.session_duration_hours must lie in (0, 24] (got $session_hours): consecutive daily windows may not overlap.",
     )
     rate_form = haskey(tel, "downlink_kbps") || haskey(tel, "onboard_data_rate_kbps")
     if rate_form
@@ -775,9 +768,8 @@ Validated `[packet_loss]` parameters: `enabled`, `model` (`"bernoulli"` or
 `"gilbert_elliott"`, lower-cased), the five probabilities `p_loss`,
 `p_good_to_bad`, `p_bad_to_good`, `p_loss_good`, `p_loss_bad` (each in
 `[0, 1]`), `on_loss` (`"retransmit"` or `"drop"`), and `max_retries ≥ 0`.
-Types, enumerations, and bounds are enforced regardless of `enabled`: a
-malformed-but-disabled section fails fast instead of surfacing only once
-the channel is enabled.
+Types, enumerations, and bounds are enforced also when the channel is
+disabled.
 """
 function loss_channel_settings(cfg::AbstractDict)
     pl = get(cfg, "packet_loss", Dict{String,Any}())
@@ -887,8 +879,8 @@ end
 Payload rows of one batch,
 `samples_per_segment(sample_rate, segment_duration_sec) · batch_size`, from
 the `[physics]` settings ([`physics_settings`](@ref)) or any object with
-those three fields. The one definition behind the descriptor, the hole
-feed, the gap table, the adapter and the point-wise masks.
+those three fields. The descriptor, the hole feed, the gap table and the
+run adapter use it.
 """
 points_per_batch(physics) =
     samples_per_segment(physics.sample_rate, physics.segment_duration_sec) *
@@ -910,9 +902,8 @@ source; left empty, the `Amplitude` column is ingested, or else the first
 column, under the name `Amplitude`.
 
 Retired keys and the existence of the external file are checked by
-[`validate_config`](@ref) only, so that
-post-processing of a finished run reads its snapshot even after a key was
-retired or the input file removed.
+[`validate_config`](@ref) only: post-processing reads the snapshot of a
+finished run after a key was retired or the input file removed.
 """
 function physics_settings(cfg::AbstractDict)
     phy = get(cfg, "physics", Dict{String,Any}())
@@ -1295,10 +1286,10 @@ end
     save_markers(run_dir::String, markers::Vector{EventMarker};
                  origin = nothing, sample_rate = 0.0)
 
-Writes `<run_dir>/markers.csv` (`SimTime, Label, PayloadRow`) — the run's
-event instants for consumers and post-processing; `PayloadRow`, the payload
-row of the marker's instant, is written when `origin` is given and
-`sample_rate > 0`. Nothing is written when there are no markers.
+Writes the run's event instants to `<run_dir>/markers.csv` (`SimTime,
+Label, PayloadRow`). `PayloadRow`, the payload row of the marker's instant,
+is written when `origin` is given and `sample_rate > 0`. Nothing is written
+when there are no markers.
 """
 function save_markers(
     run_dir::String,
@@ -1411,7 +1402,6 @@ function write_run_descriptor(run_dir::String)
         TOML.print(io, descriptor)
     end
     backup_existing(path)
-    # A rename within the run directory: a reader sees the whole file or none.
     mv(staging, path)
     return path
 end
@@ -1482,8 +1472,7 @@ Validated `[[disruption.events]]` entries in file order: `type`, `label`,
 default: a capacity and loss disruption) or `"generation"` (a scheduled
 gap in data production of `duration_hours`; severity, recovery, and loss
 keys are ignored). `type = "antenna_repointing"` defaults to
-`"generation"`. A malformed event raises an error rather than being
-skipped: a silently missing disruption invalidates the scenario.
+`"generation"`. A malformed event raises a `[CONFIG]` error.
 """
 function disruption_event_settings(cfg::AbstractDict)
     d = get(cfg, "disruption", Dict{String,Any}())
@@ -1560,8 +1549,7 @@ end
     onboard_capacity(cfg::AbstractDict) -> NamedTuple
 
 The on-board recorder ceiling from `telemetry.onboard_capacity_days > 0`
-(`storage.onboard_capacity_days` in the snapshot of a run before 2.11, read
-here and rejected by [`validate_config`](@ref) in a live configuration):
+(`storage.onboard_capacity_days` in a snapshot written before 2.11):
 `days`; `batches`, the production over that span in whole batches (at least
 one), which the emitter enforces; and `gigabit`, the physical volume when
 the link is given as a rate pair, else `NaN`. The default of 14 days is the
@@ -1590,9 +1578,9 @@ end
     open_recorder_gap_start(run_dir::String) -> Union{DateTime,Nothing}
 
 The `SimTime` of the `RECORDER` `gap_start` row of `events_tx.csv` not yet
-matched by a `gap_end`, `nothing` when no recorder gap is open: a
+matched by a `gap_end`, or `nothing` when no recorder gap is open. A
 re-entering emitter closes that gap at its first finalization that finds
-room, and the declared-hole feed needs the start to declare it.
+room; the declared-hole feed declares the hole from this start.
 """
 function open_recorder_gap_start(run_dir::String)
     path = joinpath(run_dir, "events_tx.csv")
@@ -1734,9 +1722,9 @@ hours_period(hours::Float64) = Millisecond(round(Int, MS_PER_HOUR * hours))
 """
     contacts_settings(cfg::AbstractDict) -> ContactsSettings
 
-Validated `[contacts]` section — the ground-contact schedule layered on the
-daily window of `[telemetry]`; every key is optional and an absent section
-reproduces the plain daily window.
+Validated `[contacts]` section: the ground-contact schedule layered on the
+daily window of `[telemetry]`. Every key is optional; an absent section
+gives the plain daily window.
 
   - `seasonal_extension_hours ≥ 0` (default 0): peak extension of the daily
     window, cosine-modulated over `season_period_days > 0` (default 365.25)
@@ -1754,12 +1742,12 @@ reproduces the plain daily window.
   - `low_latency_enabled` (default `true`), `low_latency_capacity_fraction
     ∈ (0, 1]` (default 1), and `[[contacts.low_latency_periods]]` (`start`,
     `duration_hours > 0`, optional `capacity_fraction`, `label`): extra
-    contact windows at constant capacity outside the nominal passes.
+    contact windows at constant capacity; a nominal pass takes precedence
+    where they overlap.
     Periods triggered by `[[events.markers]]`
     ([`event_marker_settings`](@ref)) are appended, labeled by the marker.
 
-Malformed entries raise a `[CONFIG]` error: a silently dropped pass or
-period invalidates the scenario.
+Malformed entries raise a `[CONFIG]` error.
 """
 function contacts_settings(cfg::AbstractDict)
     c = get(cfg, "contacts", Dict{String,Any}())

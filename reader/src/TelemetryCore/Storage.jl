@@ -9,9 +9,10 @@ const RUN_FILE_COUNT_SLACK = 8 # rotation backups and sentinels beyond the per-c
 """
     storage_budget(cfg::AbstractDict) -> (max_gb, max_files, max_ram_gb)
 
-Resolves the run-directory disk budget [GB] and inode budget from `[storage]`;
-without the key the default of 5.0 GB applies. Every budget is > 0.
-`max_ram_gb` (default 8.0) budgets the post-processing RAM: the replay and the figure stage.
+The run-directory budgets of `[storage]`: disk `max_storage_gb` [GB]
+(default 5.0), file count `max_file_count` (default 1_000_000), and
+post-processing RAM `max_ram_gb` [GB] (default 8.0) for the replay and the
+figure stage. Every budget is > 0.
 """
 function storage_budget(cfg::AbstractDict)
     st = get(cfg, "storage", Dict{String,Any}())
@@ -49,8 +50,8 @@ end
 Parses the `[retention]` section into a [`RetentionPolicy`](@ref):
 `retention.grace_hours` converts to a `Millisecond` period at parse time,
 and `high_watermark_gb` defaults to 75 % of the storage budget and may not
-exceed it, as the custodian would then never trigger below the abort
-threshold. `grace_hours`, `high_watermark_gb` and `log_rotate_mb` are > 0.
+exceed it, since the custodian prunes only above the watermark.
+`grace_hours`, `high_watermark_gb` and `log_rotate_mb` are > 0.
 """
 function retention_settings(cfg::AbstractDict)
     ret = get(cfg, "retention", Dict{String,Any}())
@@ -71,7 +72,7 @@ function retention_settings(cfg::AbstractDict)
         v > 0.0 || config_error("[CONFIG] retention.$key must be > 0 (got $v).")
     end
     watermark_gb <= budget.max_gb || config_error(
-        "[CONFIG] retention.high_watermark_gb = $watermark_gb exceeds the storage budget ($(budget.max_gb) GB): the custodian would never trigger below the abort threshold.",
+        "[CONFIG] retention.high_watermark_gb = $watermark_gb exceeds the storage budget ($(budget.max_gb) GB): the custodian would prune only above the budget.",
     )
     return RetentionPolicy(
         enabled,
@@ -283,7 +284,7 @@ Base.showerror(io::IO, e::StorageBudgetError) = print(io, e.msg)
 """
     check_storage_limits(cfg::AbstractDict)
 
-Pre-run storage safety gate. Prints the per-class artifact estimate
+Pre-run storage safety gate. Logs the per-class artifact estimate
 ([`estimate_artifacts`](@ref)), then enforces the `[storage]` budgets with
 mitigation awareness:
 

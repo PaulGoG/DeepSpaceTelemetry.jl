@@ -1,14 +1,14 @@
 """
     Metrology
 
-Analysis metrics derived from a run's ground-truth event logs. The first
-metric is the alert-latency curve: for a transient caught in a live batch,
-how long after the event the whole look-back window of `δ` before it is on
-the ground — under the realized live-FIFO / archive-LIFO doctrine and under
-a counterfactual first-in, first-out drain that re-assigns the same service
-completions in content order. The second is the measurement-to-ground
-delay of every batch against a delivery requirement (the Definition Study
-Report's 24 hours; Colpi et al. 2024,
+Analysis metrics derived from a run's ground-truth event logs. The
+alert-latency curve gives, for a transient caught in a live batch, the time
+after the event at which the look-back window of length `δ` before it is on
+the ground, under the realized live-FIFO / archive-LIFO doctrine and under a
+counterfactual first-in, first-out drain of the same service completions.
+The delivery delay compares the measurement-to-ground delay of every batch
+with a delivery requirement (the Definition Study Report's 24 hours; Colpi
+et al. 2024,
 [doi:10.48550/arXiv.2402.07571](https://doi.org/10.48550/arXiv.2402.07571)).
 See [`alert_latency_table`](@ref),
 [`plot_alert_latency`](@ref), [`delivery_delay_table`](@ref), and
@@ -288,8 +288,8 @@ end
 """
     completion_curves(schedule, alert_idx, t_m, steps, span, first_epoch) -> (real, fifo)
 
-Window-completeness latencies of one alert — the batch `schedule[alert_idx]`
-with event instant `t_m` — on the look-back grid `δ = 0, span, …,
+Window-completeness latencies of the alert `schedule[alert_idx]`, with event
+instant `t_m`, on the look-back grid `δ = 0, span, …,
 steps·span`: for each `δ`, the instant (hours after `t_m`) at which every
 batch overlapping `[t_m − δ, t_m)` plus the alert batch itself has reached
 the ground, under the realized deliveries (`real`) and the counterfactual
@@ -339,8 +339,8 @@ end
 Window-completeness latency of every event marker of the run
 (`markers.csv`): `Label`, `Marker` (the instant), `Batch` (the batch whose
 content span holds it; empty when none does), `Lookback_Hours`, and
-`LIFO_Hours` / `FIFO_Hours` — [`completion_curves`](@ref) evaluated with
-the marker instant as `t_m`, so the latency counts from the event itself.
+`LIFO_Hours` / `FIFO_Hours`, [`completion_curves`](@ref) with the marker
+instant as `t_m`.
 Missing values mark an undelivered alert batch or a window containing a
 batch that never arrived; one row with `Lookback_Hours = 0` and missing
 latencies records a marker outside every batch. Empty when the run has no
@@ -507,7 +507,7 @@ function plot_alert_latency(
 )
     table = alert_latency_table(run_dir; lookback_hours = lookback_hours)
     if isempty(table)
-        @warn "[POST] No delivered live batch in $run_dir — alert-latency metric skipped."
+        @warn "[POST] No delivered live batch in $run_dir: alert-latency figure skipped."
         return nothing
     end
     marker_table = marker_latency_table(run_dir; lookback_hours = lookback_hours)
@@ -617,10 +617,10 @@ function plot_alert_latency(
         # would otherwise draw on the axis frame and read as unplotted.
         ylims!(ax, -0.05 * 1.25 * y_max, 1.25 * y_max)
         last = table[end, :]
-        # Two text primitives: the headline as a LaTeX string (italic δ; a
-        # single line, since MathTeXEngine centers continuation lines) and
-        # the remaining lines as a plain block one line advance below (a
-        # rich-text block would double the line spacing).
+        # Two text primitives. MathTeXEngine centers continuation lines, so
+        # the LaTeX headline (italic δ) is one line; the plain block starts one
+        # line advance below it, since a rich-text block would double the
+        # line spacing.
         comparison =
             "$(round(last.LIFO_Median_Hours, digits = 1)) h (realized) vs " *
             "$(round(last.FIFO_Median_Hours, digits = 1)) h (counterfactual);"
@@ -819,7 +819,7 @@ function plot_delivery_delay(
 )
     table = delivery_delay_table(run_dir)
     if nrow(table) == 0
-        @warn "[POST] No generated batch in $run_dir — delivery-delay metric skipped."
+        @warn "[POST] No generated batch in $run_dir: delivery-delay figure skipped."
         return nothing
     end
     summary = delivery_compliance(table, requirement_hours)
@@ -849,9 +849,9 @@ function plot_delivery_delay(
         xlims!(ax, 0, x_max)
         ylims!(ax, 0, Y_HEADROOM)
         # The requirement rule stops above the annotation block when it would
-        # otherwise pass behind it — a requirement beyond every realized delay
-        # lands at 0.87 of the axis, inside the block's corner. The curves
-        # occupy the upper-left, so the block cannot move instead.
+        # pass behind it: a requirement beyond every realized delay lands at
+        # 1/1.15 ≈ 0.87 of the axis, inside the block's corner. The curves
+        # occupy the upper left, so the block stays.
         n_lines = summary.via_low_latency > 0 ? 4 : 3
         block_top = annotation_block_top(style, n_lines)
         crosses_annotation = requirement_hours / x_max > ANNOTATION_BLOCK_LEFT
@@ -863,12 +863,10 @@ function plot_delivery_delay(
             linestyle = :dash,
             linewidth = style.linewidth_guide,
         )
-        # One curve per batch family present, the all-batches aggregate only
-        # when both families exist (it coincides with the single family
-        # otherwise); the legend entries follow the same guards. The
-        # empirical fraction holds from each delay to the next, the `:post`
-        # step; Makie's default `:pre` would raise every step one delay
-        # early.
+        # One curve per batch family present, and the all-batches aggregate
+        # when both exist; the legend follows the same guards. The empirical
+        # fraction holds from each delay to the next (`step = :post`; Makie's
+        # default `:pre` steps one delay early).
         has_live = count(table.Live) > 0
         has_archive = count(.!table.Live) > 0
         legend_elems = LineElement[]

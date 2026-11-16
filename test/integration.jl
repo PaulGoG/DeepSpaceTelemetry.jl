@@ -356,9 +356,8 @@ end
 end
 
 @testset "Emitter → Receiver Integration (lossless)" begin
-    # End-to-end miniature mission on external data: pre-population, live FIFO +
-    # archive LIFO transmission, metrics, event logs, and mask generation. Uses
-    # the real data/runs layout (paths are baked into the pipeline) and cleans up.
+    # End-to-end miniature mission on external data: pre-population, live FIFO
+    # and archive LIFO transmission, metrics, event logs and mask generation.
     run_id = "TEST_RUN_integration_pid$(getpid())"
     sample_rate = 4.0
     seg_dur = 60.0
@@ -482,9 +481,7 @@ end
                 @test issorted(mask_df[!, col])
             end
 
-            # Estimator upper bounds hold against the realized artifacts of
-            # this very mission (a safety gate that undercounts is worse
-            # than none).
+            # The storage estimate bounds the artifacts this mission wrote.
             est = TelemetryCore.estimate_artifacts(
                 Dict{String,Any}(
                     "simulation" => Dict{String,Any}(
@@ -1376,10 +1373,8 @@ end
         rx_events = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
         inside(t) = gap[1] + Minute(2) < DateTime(t) < gap[2]
         @test count(==("SCHEDULED"), tx.Batch) == 2
-        # The defect left the link idle through the gap: no batch was placed
-        # on it, and at most the `inflight` batches already there reached the
-        # ground. More than that is the downlink being served. The full
-        # rate, about eleven transfers in the window, is not asserted.
+        # An idle link would deliver at most the `inflight` batches already
+        # on it; more than that is the downlink being served.
         @test count(r -> r.Event == "tx" && inside(r.SimTime), eachrow(tx)) > inflight
         @test count(r -> r.Event == "ingested" && inside(r.SimTime), eachrow(rx_events)) >
               inflight

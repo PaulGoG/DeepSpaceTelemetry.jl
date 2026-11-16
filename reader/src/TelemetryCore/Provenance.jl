@@ -56,8 +56,8 @@ and architecture, CPU model and logical core count, total memory, Julia
 version and `versioninfo()` report, thread and BLAS-thread counts, the
 package version, and the source identity of [`source_identity`](@ref)
 (`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`,
-`repo_rev`), valid for a git checkout and a Pkg-installed copy alike. The
-manifest is recorded beside the snapshot by [`save_manifest_snapshot`](@ref).
+`repo_rev`). The manifest is recorded beside the snapshot by
+[`save_manifest_snapshot`](@ref).
 There are no GPU fields: the pipeline is I/O- and event-loop-bound and uses
 no GPU backend.
 """
@@ -98,8 +98,8 @@ The identity of the package source at `root`, stamped into
   install, a bare directory).
 - `git_tree_sha1` — the git tree hash of the source: `HEAD^{tree}` of the
   work tree, the entry's `git-tree-sha1`, or the hash of the directory
-  itself ([`git_tree_sha1`](@ref)). Never empty, and the same value for the
-  same content however the package was obtained.
+  itself ([`git_tree_sha1`](@ref)). Never empty; for a source that is not
+  dirty, the same value for the same content however it was obtained.
 - `git_dirty` — whether the code at `root` differs from that identity:
   uncommitted changes to tracked files of the work tree, or an installed
   directory whose tree hash differs from the entry's (with a warning).
@@ -239,7 +239,7 @@ would record it if every file under it were committed: entries in git's
 order, modes `100644`, `100755` (owner-executable), `120000` (symbolic link,
 hashed as its target) and `40000` (directory), empty directories and `.git`
 entries left out, as `git write-tree` and Pkg do. The hash of an unmodified
-installed copy therefore equals the `git-tree-sha1` of its manifest entry
+installed copy equals the `git-tree-sha1` of its manifest entry
 and `git rev-parse <commit>^{tree}` of the commit it was installed from.
 Under the paths in `exclude` only the `.gitkeep` placeholders are hashed
 ([`PLACEHOLDER_NAME`](@ref)): a directory the repository tracks as empty
@@ -428,8 +428,8 @@ Creates and returns the run directory of `run_id` under `data_root`
 `onboard`, `link`, `ground`, `lost`, `plots`, and `masks`; a directory under
 the same run ID that holds anything but dotfiles is rejected with an
 `ArgumentError`. Given the parsed configuration `cfg`, it writes
-`config_snapshot.toml` (rotating an existing one, [`backup_existing`](@ref))
-so that the run's parameters survive later edits of `config.toml`. The
+`config_snapshot.toml`, the run's own copy of its parameters (rotating an
+existing one, [`backup_existing`](@ref)). The
 snapshot adds the [`platform_provenance`](@ref) fingerprint under
 `[provenance.platform]` and the parameter hash [`config_sha256`](@ref) at
 `provenance.config_sha256`; the manifest of the active environment is

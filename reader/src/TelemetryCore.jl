@@ -3,11 +3,10 @@
 
 Shared infrastructure of the simulation: configuration loading, schema-aware
 validation, storage governance (artifact estimation, budgets, retention
-settings), the accelerated mission clock and its persisted anchor, run
+settings), the mission clock and its persisted anchor, run
 provenance (event logs, snapshots, `safesave` rotation), and batch/segment
-I/O. Contains no routing logic — the queuing doctrine lives in `Emitter`
-and `Receiver`. The module's source is split by concern into the files
-of `src/TelemetryCore/`, included in dependency order.
+I/O. Routing is implemented in `Emitter` and `Receiver`. The source is
+split by concern into the files of `src/TelemetryCore/`.
 """
 module TelemetryCore
 

@@ -391,7 +391,7 @@ end
                     batch_size = plan.physics.batch_size,
                 )
             end
-            # The former 5 s wall budget at the plan's speed-up.
+            # Five wall seconds at the plan's speed-up: 5 h of mission time.
             clock = TelemetryCore.TickClock(
                 plan.start_sim,
                 plan.start_sim + Second(5 * round(Int, plan.speed_up)),
@@ -543,9 +543,7 @@ end
         @test isfile(joinpath(run_dir, "delivery_delay.csv"))
         @test isfile(joinpath(run_dir, "plots", "mission_summary_global.png"))
         rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
-        # The floor separates a pipeline that moved data from one that moved
-        # none; the per-segment cost that sets the run time is measured by the
-        # physics/next_segment and io/batch_save_load benchmarks.
+        # A floor: the exact count belongs to the scenario, not to the code.
         @test count(==("ingested"), rx.Event) > 10
     finally
         rm(run_dir; recursive = true, force = true)
