@@ -932,9 +932,10 @@ function complete_run(run_id::AbstractString; force::Bool = false, orig_stdout::
         try
             post_process!(plan, run_dir; orig_stdout = orig_stdout)
         finally
+            # The terminal sentinel first: a consumer always finds one.
+            touch(sentinel(ended ? "RUN_COMPLETE" : "RUN_ABORTED"))
             rm(sentinel("RUN_ACTIVE"), force = true)
             rm(sentinel("RUN_POSTPROCESSING"), force = true)
-            touch(sentinel(ended ? "RUN_COMPLETE" : "RUN_ABORTED"))
         end
         if ended
             @info "[RUN] Settled as RUN_COMPLETE."
@@ -1205,10 +1206,11 @@ function run_mission(
     finally
         # Sentinels consistent on every exit path: an abort before lifecycle
         # end must not strand RUN_ACTIVE (a consumer would see a live run
-        # with no process).
+        # with no process). The terminal sentinel is written first, so a
+        # consumer always finds one.
+        touch(joinpath(run_dir, completed ? "RUN_COMPLETE" : "RUN_ABORTED"))
         rm(joinpath(run_dir, "RUN_ACTIVE"), force = true)
         rm(joinpath(run_dir, "RUN_POSTPROCESSING"), force = true)
-        touch(joinpath(run_dir, completed ? "RUN_COMPLETE" : "RUN_ABORTED"))
     end
     return run_dir
 end
