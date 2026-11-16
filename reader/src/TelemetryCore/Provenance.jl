@@ -56,7 +56,8 @@ and architecture, CPU model and logical core count, total memory, Julia
 version and `versioninfo()` report, thread and BLAS-thread counts, the
 package version, and the source identity of [`source_identity`](@ref)
 (`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`,
-`repo_rev`). The manifest is recorded beside the snapshot by
+`repo_rev`), and `reader_tree_sha1`, the tree hash of the reader package's
+directory. The manifest is recorded beside the snapshot by
 [`save_manifest_snapshot`](@ref).
 There are no GPU fields: the pipeline is I/O- and event-loop-bound and uses
 no GPU backend.
@@ -78,6 +79,12 @@ function platform_provenance()
     for (key, value) in pairs(source_identity())
         provenance[String(key)] = value
     end
+    # The reader's own source, which the manifest entry of a path dependency
+    # does not fingerprint (the headless package in a container image).
+    reader = pkgdir(@__MODULE__)
+    provenance["reader_tree_sha1"] =
+        reader === nothing ? "" :
+        git_tree_sha1(reader; exclude = [DATA_ROOT[]], skip_manifests = true)
     return provenance
 end
 
@@ -88,7 +95,8 @@ The identity of the package source at `root`, stamped into
 `[provenance.platform]` and copied into `descriptor.toml`:
 
 - `identity_source` — how it was determined: `"work_tree"` when `root` is
-  the top level of a git work tree ([`git_work_tree`](@ref)); `"manifest"`
+  the top level of a git work tree ([`git_work_tree`](@ref)) or a directory
+  tracked at `HEAD` of one (the headless package of a clone); `"manifest"`
   for an installed copy whose package UUID has an entry with a
   `git-tree-sha1` in the manifest `manifest` (the active environment's by
   default, [`active_manifest_path`](@ref)); `"directory"` otherwise.
@@ -97,11 +105,12 @@ The identity of the package source at `root`, stamped into
   `[sources]` pin by commit; empty otherwise (a branch or tag, a registry
   install, a bare directory).
 - `git_tree_sha1` — the git tree hash of the source: `HEAD^{tree}` of the
-  work tree, the entry's `git-tree-sha1`, or the hash of the directory
-  itself ([`git_tree_sha1`](@ref)). Never empty; for a source that is not
+  work tree (`HEAD:<path>` for a tracked directory), the entry's
+  `git-tree-sha1`, or the hash of the directory itself ([`git_tree_sha1`](@ref)). Never empty; for a source that is not
   dirty, the same value for the same content however it was obtained.
 - `git_dirty` — whether the code at `root` differs from that identity:
-  uncommitted changes to tracked files of the work tree, or an installed
+  uncommitted changes to tracked files of the work tree (anywhere in it for
+  a tracked directory, whose path dependencies lie beside it), or an installed
   directory whose tree hash differs from the entry's (with a warning).
   `false` for `"directory"`, whose identity is the content itself.
 - `repo_url`, `repo_rev` — the entry's `repo-url` and `repo-rev`; empty
@@ -111,7 +120,10 @@ The directory hash leaves out `.git` and, under the data root
 ([`DATA_ROOT`](@ref)) when it lies inside `root`, everything but the
 `.gitkeep` placeholders the repository tracks there: run outputs stay out of
 the hash and a pristine installed copy hashes to its manifest entry whatever
-the data root is set to.
+the data root is set to. It also leaves out the manifests
+(`Manifest.toml`, `Manifest-vX.Y.toml`), which the repository does not
+track, so a copied directory with its environment instantiated hashes to its
+committed tree.
 
 # Example
 ```julia
@@ -140,7 +152,9 @@ function source_identity(
             repo_rev = "",
         )
     end
-    content = git_tree_sha1(root; exclude = [DATA_ROOT[]])
+    subtree = git_subtree_identity(root)
+    subtree === nothing || return subtree
+    content = git_tree_sha1(root; exclude = [DATA_ROOT[]], skip_manifests = true)
     entry = manifest_entry(root, manifest)
     if entry === nothing || isempty(string(get(entry, "git-tree-sha1", "")))
         return (
@@ -164,6 +178,29 @@ function source_identity(
         git_dirty = dirty,
         repo_url = string(get(entry, "repo-url", "")),
         repo_rev = rev,
+    )
+end
+
+# The identity of `root` as a directory tracked at `HEAD` of a git work tree
+# it lies below (the headless package of a clone): the commit, the tree of
+# `HEAD:<path>`, and the tracked changes of the whole work tree, which holds
+# the path dependencies beside it. `nothing` when `root` is the top level, is
+# not in a work tree, or is not tracked at `HEAD`.
+function git_subtree_identity(root::AbstractString)
+    top = git_output(`rev-parse --show-toplevel`; root)
+    (top === nothing || isempty(top)) && return nothing
+    path = replace(relpath(realpath(root), realpath(top)), '\\' => '/')
+    path == "." && return nothing
+    lines = split(something(git_output(`rev-parse HEAD HEAD:$path`; root), ""), '\n')
+    length(lines) == 2 || return nothing
+    status = git_output(`status --porcelain --untracked-files=no`; root = top)
+    return (
+        identity_source = "work_tree",
+        git_commit = String(strip(lines[1])),
+        git_tree_sha1 = String(strip(lines[2])),
+        git_dirty = !isempty(something(status, "")),
+        repo_url = "",
+        repo_rev = "",
     )
 end
 
@@ -232,7 +269,7 @@ function manifest_entry(root::AbstractString, manifest::Union{AbstractString,Not
 end
 
 """
-    git_tree_sha1(dir::AbstractString; exclude = String[]) -> String
+    git_tree_sha1(dir::AbstractString; exclude = String[], skip_manifests = false) -> String
 
 The git tree hash (40 hexadecimal digits) of the directory `dir` as git
 would record it if every file under it were committed: entries in git's
@@ -243,17 +280,23 @@ installed copy equals the `git-tree-sha1` of its manifest entry
 and `git rev-parse <commit>^{tree}` of the commit it was installed from.
 Under the paths in `exclude` only the `.gitkeep` placeholders are hashed
 ([`PLACEHOLDER_NAME`](@ref)): a directory the repository tracks as empty
-keeps its placeholder and loses the content written into it.
+keeps its placeholder and loses the content written into it. With
+`skip_manifests`, files named `Manifest.toml` or `Manifest-vX.Y.toml` are
+left out at every level.
 """
 function git_tree_sha1(
     dir::AbstractString;
     exclude::AbstractVector{<:AbstractString} = String[],
+    skip_manifests::Bool = false,
 )
     isdir(dir) || throw(ArgumentError("[RUN] No directory $dir to hash."))
     excluded = Set{String}(normpath(abspath(p)) for p in exclude if !isempty(p))
-    entries = git_tree_entries(normpath(abspath(dir)), excluded)
+    entries = git_tree_entries(normpath(abspath(dir)), excluded; skip_manifests)
     return bytes2hex(git_tree_digest(entries))
 end
+
+# File names of manifests, which the repository does not track.
+const MANIFEST_NAME = r"^Manifest(-v[0-9]+\.[0-9]+)?\.toml$"
 
 """
 The file the repository tracks as a placeholder of a directory kept empty of
@@ -273,6 +316,7 @@ function git_tree_entries(
     dir::String,
     excluded::Set{String};
     placeholders_only::Bool = false,
+    skip_manifests::Bool = false,
 )
     entries = Tuple{String,String,Vector{UInt8}}[]
     for name in readdir(dir)
@@ -283,11 +327,16 @@ function git_tree_entries(
             only_placeholders && continue
             push!(entries, ("120000", name, git_blob_digest(codeunits(readlink(path)))))
         elseif isdir(path)
-            children =
-                git_tree_entries(path, excluded; placeholders_only = only_placeholders)
+            children = git_tree_entries(
+                path,
+                excluded;
+                placeholders_only = only_placeholders,
+                skip_manifests,
+            )
             isempty(children) || push!(entries, ("40000", name, git_tree_digest(children)))
         elseif isfile(path)
             only_placeholders && name != PLACEHOLDER_NAME && continue
+            skip_manifests && occursin(MANIFEST_NAME, name) && continue
             executable = @static if Sys.iswindows()
                 Sys.isexecutable(path)
             else

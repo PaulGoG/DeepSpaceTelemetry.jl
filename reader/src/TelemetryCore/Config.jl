@@ -229,13 +229,17 @@ const FIGURE_PRODUCTS = (
 """
     render_figure_product(product::Val, run_dir::String, post_processing::NamedTuple, ground::NamedTuple; kwargs...) -> Union{Nothing,String}
 
-Renders the figure product `Val(flag)` of [`FIGURE_PRODUCTS`](@ref) for the
-run in `run_dir` and returns the figure path, or `nothing` when the run
-holds nothing to draw. `post_processing` and `ground` are the results of
+Renders the figure product `Val(key)` for the run in `run_dir` and returns
+the figure path, or `nothing` when the run holds nothing to draw. The keys
+are the flags of [`FIGURE_PRODUCTS`](@ref), `:mission_summary` (the mission
+and session figures), and `:publication` (the journal-width export).
+`post_processing` and `ground` are the results of
 [`post_processing_settings`](@ref) and [`ground_settings`](@ref). The
 keywords are those of the plotting functions (`style`, `plots_dir`,
-`formats`, `suffix`). The methods live in the modules that own the
-figures, `Metrology` and `MissionFigures`.
+`formats`, `suffix`; `format`, `column_width_mm`, `export_dir` for
+`:publication`). The methods live in the main package, in the modules that
+own the figures (`MissionFigures`, `MetrologyFigures`, `Publication`); the
+supervisor of the headless package calls them when that package is loaded.
 """
 function render_figure_product end
 
@@ -1335,7 +1339,7 @@ Writes `<run_dir>/descriptor.toml`, the run's identity for a downstream
 collection to copy verbatim, and returns its path. Fields: `schema`,
 `run_id`, the producer's `package_version` and source identity
 (`identity_source`, `git_commit`, `git_tree_sha1`, `git_dirty`, `repo_url`,
-`repo_rev`; [`source_identity`](@ref)), `config_sha256`, the clock `mode`,
+`repo_rev`; [`source_identity`](@ref)) and `reader_tree_sha1`, `config_sha256`, the clock `mode`,
 `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload
 geometry (`sample_rate`, `segment_duration_sec`, `batch_size`,
 `points_per_batch`), `payload_columns` (those stamped into the provenance
@@ -1366,6 +1370,7 @@ function write_run_descriptor(run_dir::String)
         "git_dirty" => Bool(get(platform, "git_dirty", false)),
         "repo_url" => String(get(platform, "repo_url", "")),
         "repo_rev" => String(get(platform, "repo_rev", "")),
+        "reader_tree_sha1" => String(get(platform, "reader_tree_sha1", "")),
         "config_sha256" => String(get(provenance, "config_sha256", "")),
         "mode" => simulation_mode(cfg),
         "mission_days" => mission_span_days(cfg),
