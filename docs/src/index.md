@@ -55,8 +55,8 @@ Pkg.add([
 ```
 
 The simulator without its figures is the package
-`DeepSpaceTelemetryHeadless`, whose dependency closure is MIT-licensed
-throughout; [Headless Package and Containers](@ref) describes it and its
+`DeepSpaceTelemetryHeadless`, whose dependency closure carries permissive
+licences only; [Headless Package and Containers](@ref) describes it and its
 container image.
 
 ## Capabilities

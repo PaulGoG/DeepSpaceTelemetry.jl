@@ -106,11 +106,12 @@ Pkg.add([
 ```
 
 A pipeline that runs missions without figures, in a container for
-instance, adds the headless package instead (`subdir = "headless"`, with
-the reader in the same call on Julia 1.12). Every package of its
-dependency closure is MIT-licensed, where the figure stack of the main
-package brings GPL-licensed binaries; `deploy/Dockerfile` builds an image
-of it. The manual's page Headless Package and Containers covers the
+instance, adds the headless package instead, with the reader in the same
+call on every Julia version (`subdir = "headless"` and `subdir =
+"reader"`). Every package of its dependency closure is under a permissive
+licence (MIT, and Apache-2.0 for DataStrings), where the figure stack of
+the main package brings GPL-licensed and non-free binaries;
+`deploy/Dockerfile` builds an image of it. The manual's page Headless Package and Containers covers the
 licences, the data root, and the image.
 
 The commands below are written for the package root, the cloned repository

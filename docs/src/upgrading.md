@@ -29,6 +29,7 @@ reaches them as before. What changes for a user of 3.2:
 | the HDF5 export loads with the package | an extension of the headless package, loaded with `HDF5`; the main package loads it, and `Export.hdf5_available()` tells whether it is there |
 | `events_rx.csv`: the `SimTime` of `ingested`, `retry` and `lost` is the start of the transfer | the completion instant of the transfer; delivery delays and alert latencies grow by about one transfer time, more where a transfer spans the end of a pass |
 | `alert_latency.csv`: a row where a window completed under both doctrines | a row wherever a live event's window lies within the run; on the added rows `N_Alerts = 0` and the complete-case quantiles are `NaN`; the Kaplan–Meier columns follow the existing ones |
+| `Export.HDF5`, `Export.ensure_group`, `Export.write_column!`, `Export.write_table!`, `Export.write_mask_timeline!`, `Export.write_provenance!` | moved into the extension `DeepSpaceTelemetryHeadlessHDF5Ext`; `Export.export_hdf5` is the interface |
 | `Receiver.ServicePacer`, `Receiver.serve_slot!` | removed |
 
 The configuration schema and `RunAdapter` are unchanged; a configuration of

@@ -18,10 +18,10 @@
   version number, bumped together at a release with the `[compat]` entries
   on each other.
 - A dependency of the headless package or the reader needs an entry in
-  `headless/test/licences.toml`, after its licence file has been read: the
-  headless suite (`julia headless/test/runtests.jl`) fails on any package of
-  the closure that the list does not hold, and the closure stays
-  MIT-licensed.
+  `headless/test/licences.toml`, after its licence files have been read:
+  the headless suite (`julia headless/test/runtests.jl`) reads them too and
+  fails on any package of the closure that the list does not hold, that
+  states another licence, or that is not permissive (MIT, Apache-2.0, BSD).
 - Manifests are not tracked: `Project.toml` defines an environment, with
   `[compat]` bounds on every dependency, and each CI leg resolves its own. A
   dependency change therefore touches `[deps]` and `[compat]` together.

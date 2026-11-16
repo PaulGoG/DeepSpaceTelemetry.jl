@@ -15,7 +15,7 @@ Notable changes to DeepSpaceTelemetry. The format follows
   holes carry the completion instant of the transfer, where they carried
   its start; a transfer starts when the previous one has completed, without
   credit for an idle interval; its loss multiplier is the largest of the
-  disruption events active during it; and a transfer that would complete
+  disruption events active while it transmits; and a transfer that would complete
   at or after the horizon has no outcome. Contact windows are half-open,
   `[start, stop)`. The two receiver deviations that 3.2.1 recorded are
   gone: delivery delays and alert latencies grow by about one transfer
@@ -25,7 +25,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 - The simulator is a package of its own, `DeepSpaceTelemetryHeadless`
   (`headless/`): channel models, instrument, emitter and receiver, masks,
   metrology tables, HDF5 export, supervisor and sweeps, without the figure
-  stack. Every package of its dependency closure is MIT-licensed, which its
+  stack. Every package of its dependency closure has a permissive licence
+  (MIT, and Apache-2.0 for DataStrings), which its
   test suite checks against `headless/test/licences.toml`. The main package
   re-exports its modules under the same names and adds the figures; its
   products are byte-identical to those of the single package. The HDF5
@@ -55,8 +56,9 @@ Notable changes to DeepSpaceTelemetry. The format follows
   batches due or delivered by the run end together with the batches the
   on-board recorder discarded.
 - `alert_latency.csv` gains Kaplan–Meier estimates over every live event,
-  a window still incomplete at the run end censored there and a window
-  holding data discarded on board never complete: `N_Alerts_All`,
+  a window still incomplete at the run end censored there, and a window
+  holding data discarded on board or, under the realized doctrine, a batch
+  lost for good never complete: `N_Alerts_All`,
   `N_Censored_LIFO`, `N_Censored_FIFO`, and the median and quartiles
   `LIFO_KM_*_Hours` and `FIFO_KM_*_Hours` (`NaN` where not reached). The
   existing columns keep their complete-case definition.
@@ -75,6 +77,12 @@ Notable changes to DeepSpaceTelemetry. The format follows
   `Supervisor.figure_backend_loaded`, through which the supervisor reaches
   the figures when the main package is loaded.
 - CI runs the headless suite on the compat floor and the current release.
+- `reader_tree_sha1` in `[provenance.platform]` and `descriptor.toml`: the
+  tree hash of the reader package's directory, which identifies the
+  configuration and I/O layer of a run of the headless package in an image.
+  The headless package of a clone records the commit
+  (`identity_source = "work_tree"`, `git_tree_sha1` = `HEAD:headless`), and
+  a directory hash leaves out the untracked manifests.
 
 ### Fixed
 - `LowLatency` of `delivery_delay.csv` missed an arrival inside a

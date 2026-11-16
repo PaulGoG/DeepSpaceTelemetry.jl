@@ -49,9 +49,10 @@ about 9.3 h shortening to about 8.5 h over thirty days).
 | `external_ingest.toml` | 2 d | 48 s | physical, flat | 8 h, no seasonal term, 1 January | Bernoulli 1 % | none; 0.5-day backlog | ingestion of the generated example series (`scripts/maintenance/generate_example_strain.jl`, 16 Hz, 75 h) through the same pipeline |
 | `deterministic_1d.toml` | 1 d | as fast as the host (tick clock, no pacing) | physical, flat | 8 h, no seasonal term, 1 January | Bernoulli 1 % | none; 6 h backlog | `simulation.mode = "tick"`: the same seed reproduces the event logs and the mask timeline to the byte; the smoke scenario's physics over a full day |
 
-The delivered-per-day figures follow from the serial receiver: one batch per
-slot of transfer time divided by the profile factor, so a day's capacity is
-the link rate times the pass length times the profile mean (flat 1.0, sine
+The delivered-per-day figures follow from the serial receiver: one batch
+whenever the capacity integrated over the pass reaches one transfer time, so
+a day's capacity is the link rate times the pass length times the profile
+mean (flat 1.0, sine
 0.5, Gaussian with σ = 0.15: 0.38), reduced by the retransmission fraction.
 
 ## Gallery

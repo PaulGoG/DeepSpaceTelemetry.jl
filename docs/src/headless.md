@@ -15,10 +15,13 @@ both use.
 The code of all three packages is MIT-licensed. Their dependencies differ:
 
 - **Reader and headless package.** Every registered package of their
-  dependency closure is MIT-licensed. `headless/test/licences.toml` lists
-  them with the licence each one's licence file states, and the tests of the
-  headless package fail when a dependency enters the closure without an
-  entry there, so a new dependency cannot pass unread.
+  dependency closure is under a permissive licence: MIT, apart from
+  DataStrings, a dependency of CSV, which is Apache-2.0 with MIT-licensed
+  parts and ships a `NOTICE` file. `headless/test/licences.toml` lists them
+  with the licences their licence files state. The tests of the headless
+  package read those files and fail when a package of the closure is
+  missing from the list, states another licence, or is not permissive, so a
+  new dependency cannot pass unread.
 - **HDF5 export.** It is an extension of the headless package, loaded with
   the HDF5 package. The binaries HDF5 brings (`HDF5_jll`, the MPI libraries
   it links, OpenSSL) are under permissive licences, apart from libiconv
@@ -32,14 +35,20 @@ The code of all three packages is MIT-licensed. Their dependencies differ:
 Pkg downloads these binaries to the user's depot; the licence of this code
 is unaffected. A system image, an application bundle or a container image
 that ships them inherits their terms, and the non-free FFmpeg build cannot
-be redistributed. A bundle that must carry permissive licences only is
-built from the headless package without the HDF5 extension.
+be redistributed. A bundle built from the headless package without the
+HDF5 extension holds no GPL-licensed or non-free package binary; the
+Apache-2.0 terms of DataStrings ask that its `NOTICE` travel with it.
 
-The Julia binary distribution ships libraries of its own under other
-licences: the GCC runtime libraries (GPL-3.0 with the GCC Runtime Library
-Exception), libgit2 (GPL-2.0 with a linking exception), and the SuiteSparse
-modules that `SparseArrays` loads (some GPL-2.0), which the headless package
-does not use.
+Every bundle also carries the Julia runtime, whose libraries have licences
+of their own (`THIRDPARTY.md` of the Julia distribution): GMP (LGPL-3.0 or
+GPL-2.0) and MPFR (LGPL-3.0), which every Julia process loads, the GCC
+runtime libraries (GPL-3.0 with the GCC Runtime Library Exception), libgit2
+(GPL-2.0 with a linking exception), the SuiteSparse modules (several
+GPL-2.0 or LGPL-2.1), which the headless package does not load, and the CA
+certificates of `MozillaCACerts_jll` (MPL-2.0). A redistributor meets these
+terms by passing the licences on and offering the sources, which the
+non-free FFmpeg build does not allow. A container image adds the licences
+of its base image, the Debian userland of `julia:1.13`.
 
 ## Installation
 
@@ -50,10 +59,11 @@ packages of the checkout:
 julia deploy/run_mission.jl scenarios/smoke_1d.toml --tick SMOKE
 ```
 
-A project that depends on the headless package adds it by URL. Julia 1.13
-resolves the reader through the package's own `[sources]` entry; the Pkg of
-Julia 1.12 does not follow the `[sources]` of a dependency, so there both
-packages are added in one call:
+A project that depends on the headless package adds it by URL, together
+with the reader in one call on every Julia version: its `[sources]` entry
+points at the sibling directory `../reader`, which Pkg does not follow from
+a package added by `subdir` (on Julia 1.13.4 the headless package alone
+fails to resolve the reader):
 
 ```julia
 using Pkg
@@ -75,6 +85,12 @@ it is set, else `data/` beside the package (`data/` of the clone for the
 main package). A container or a cluster job sets the variable to a mounted
 volume; `Supervisor.run_mission(cfg; data_root)` overrides both.
 
+A relative path in a configuration (`physics.external_data_path`,
+`contacts.schedule_csv`) resolves against the package directory, which for
+the headless package is `headless/` and in the image
+`/opt/deepspacetelemetry/headless`. A configuration run in a container
+therefore names its inputs by absolute path, under a mounted volume.
+
 ## Container image
 
 `deploy/Dockerfile` builds an image of the headless package from the
@@ -84,9 +100,18 @@ non-root user:
 
 ```bash
 podman build -f deploy/Dockerfile -t deepspacetelemetry-headless .
-podman run --rm -v ./data:/data:Z -v ./scenarios:/scenarios:ro,Z \
+mkdir -p data
+podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+    -v ./data:/data:Z -v ./scenarios:/scenarios:ro,Z \
     deepspacetelemetry-headless /scenarios/smoke_1d.toml --tick SMOKE
 ```
+
+The image runs as the user `telemetry` (uid 1000), which must be able to
+write to the volume at `/data`. Rootless Podman maps the host user to root
+in the container; `--userns=keep-id:uid=1000,gid=1000` maps it to the
+image's user instead. With Docker, the host directory is made writable by
+uid 1000 (`chown 1000 data`); a Kubernetes pod sets `runAsUser: 1000` and
+`fsGroup: 1000` in its security context.
 
 The image's entry point is `deploy/run_mission.jl`: a configuration path,
 `--tick`, and a run ID, as for `scripts/run_full_sim.jl`. Its data root is
@@ -95,7 +120,16 @@ whose pod mounts a persistent volume claim at `/data` and the scenario at a
 read-only path, with one run ID per pod (for example the seed of an
 ensemble member); the run directory carries its own provenance.
 
-The source identity a run records in the image is that of the `headless/`
+A run in the image records the source identity of the `headless/`
 directory as copied into it (`identity_source = "directory"`): its git tree
 hash equals `git rev-parse <commit>:headless` of the commit the image was
-built from. The resolved environment is the run's `manifest_snapshot.toml`.
+built from, and `reader_tree_sha1` equals `git rev-parse <commit>:reader`.
+A run of the headless package in a clone records the commit itself
+(`identity_source = "work_tree"`), with `git_dirty` set by any change to
+a tracked file of the clone. The resolved environment is the run's
+`manifest_snapshot.toml`.
+
+The image compiles its package images for the CPU targets of the official
+Julia binaries on x86-64 (`JULIA_CPU_TARGET` in the Dockerfile), so a pod on
+another x86-64 processor loads them without recompiling; an image for
+another architecture is built with `--build-arg JULIA_CPU_TARGET=...`.
