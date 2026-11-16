@@ -339,9 +339,10 @@ DeepSpaceTelemetry/
 │       ├── usage.md             # Configuration reference and execution
 │       ├── gallery.md           # Ten scenarios through the figures of one run each
 │       ├── interfaces.md        # Filesystem contract for analysis pipelines
-│       ├── upgrading.md         # Support policy and the changes from 2.x
+│       ├── upgrading.md         # Support policy and the changes from 2.x and 3.2
+│       ├── headless.md          # Headless package, licences, data root, container image
 │       ├── api.md               # API reference index
-│       ├── api/                 # Fourteen per-module API pages
+│       ├── api/                 # Fifteen per-module API pages
 │       └── assets/              # gallery/ (figures of the manual and the README) and PROVENANCE.toml
 ├── scenarios/
 │   ├── README.md                # Coverage matrix, expected regime, and the mission summaries of ten scenarios

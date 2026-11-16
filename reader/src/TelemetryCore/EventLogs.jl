@@ -16,7 +16,7 @@ samples `data`, one row per sample and one column per payload column named
 in `columns`, the first sample at the mission instant `timestamp`. `id` is
 the segment's position on the payload grid,
 `(timestamp − origin) / segment_duration_sec + 1`
-([`DeepSpaceTelemetry.VirtualInstrument.segment_id`](@ref)), unique within
+([`DeepSpaceTelemetryHeadless.VirtualInstrument.segment_id`](@ref)), unique within
 a run. The vector form builds a one-column segment named
 [`PAYLOAD_COLUMN_DEFAULT`](@ref). Throws a `DimensionMismatch` when `data`
 does not have `length(columns)` columns and an `ArgumentError` when

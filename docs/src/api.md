@@ -14,6 +14,7 @@ One page per module:
 - [Masks](api/masks.md)
 - [MissionFigures](api/missionfigures.md)
 - [Metrology](api/metrology.md)
+- [MetrologyFigures](api/metrologyfigures.md)
 - [Export](api/export.md)
 - [Publication](api/publication.md)
 - [Supervisor](api/supervisor.md)
@@ -26,4 +27,11 @@ The public names of `RunAdapter` are versioned with the run-directory contract (
 ```@docs
 DeepSpaceTelemetryReader
 DeepSpaceTelemetry.PACKAGE_ROOT
+```
+
+The simulator without the figures is the headless package ([Headless Package and Containers](@ref)):
+
+```@docs
+DeepSpaceTelemetryHeadless
+DeepSpaceTelemetryHeadless.PACKAGE_ROOT
 ```

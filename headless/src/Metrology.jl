@@ -600,8 +600,8 @@ has event markers with an alert, `alert_latency_markers.csv`
 `delivery_delay.csv` ([`delivery_delay_table`](@ref)). A table that would be
 empty (no delivered live batch, no generated batch) is not written and is
 announced with a `[POST]` warning. The tables are run products independent
-of the figure flags; [`plot_alert_latency`](@ref) and
-[`plot_delivery_delay`](@ref) write none.
+of the figure flags; the metrology figures of the main package
+(`MetrologyFigures`) write none.
 """
 function write_metrology_tables(run_dir::String; lookback_hours::Float64 = 72.0)
     table = alert_latency_table(run_dir; lookback_hours)

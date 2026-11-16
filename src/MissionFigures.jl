@@ -1434,7 +1434,7 @@ Renders `masks/telemetry_mask_timeline.csv` as a raster, one column per
 batch, one row per recorded event, and one color per state, to
 `<plots_dir>/state_raster.png` with a vector twin, and returns its path;
 `nothing` when the timeline is absent, so a run that skipped
-[`DeepSpaceTelemetry.Masks.generate_telemetry_masks`](@ref) is not an error.
+[`DeepSpaceTelemetryHeadless.Masks.generate_telemetry_masks`](@ref) is not an error.
 Delivered batches take the live or the archive color by the batch family
 recorded in `events_tx.csv`. Opens its own telemetry theme scope.
 """
