@@ -46,3 +46,19 @@ end
         @test_skip false
     end
 end
+
+@testset "One version for the three packages" begin
+    # The main package, the reader and the headless package are released
+    # together: one version, and compat entries on each other at its minor.
+    root = dirname(@__DIR__)
+    projects = Dict(
+        dir => TOML.parsefile(joinpath(root, dir, "Project.toml")) for
+        dir in (".", "reader", "headless")
+    )
+    versions = unique(p["version"] for p in values(projects))
+    @test length(versions) == 1
+    minor = join(split(only(versions), ".")[1:2], ".")
+    @test projects["."]["compat"]["DeepSpaceTelemetryReader"] == minor
+    @test projects["."]["compat"]["DeepSpaceTelemetryHeadless"] == minor
+    @test projects["headless"]["compat"]["DeepSpaceTelemetryReader"] == minor
+end

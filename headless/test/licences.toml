@@ -1,7 +1,10 @@
 # The registered packages of the dependency closure of the headless package
-# (and of the reader), each with the licence its licence file states, read
-# 2026-11-16. A dependency that enters the closure is added here after its
-# licence is read; test/runtests.jl fails on one that is not.
+# (and of the reader), upgraded standard libraries included, each with the
+# licences its licence files state ("+" joins several), read 2026-11-16.
+# A dependency that enters the closure is added here after its licence is
+# read; test/runtests.jl fails on one that is not listed or whose licence
+# files state something else. DataStrings is Apache-2.0, with MIT-licensed
+# parts taken from CSV; its NOTICE travels with a bundle.
 [packages]
 CSV = "MIT"
 CodecZlib = "MIT"
@@ -9,7 +12,7 @@ Compat = "MIT"
 Crayons = "MIT"
 DataAPI = "MIT"
 DataFrames = "MIT"
-DataStrings = "MIT"
+DataStrings = "Apache-2.0+MIT"
 DataStructures = "MIT"
 DataValueInterfaces = "MIT"
 Durations = "MIT"
@@ -30,6 +33,7 @@ ProgressMeter = "MIT"
 Reexport = "MIT"
 SentinelArrays = "MIT"
 SortingAlgorithms = "MIT"
+Statistics = "MIT"
 StringManipulation = "MIT"
 StructUtils = "MIT"
 TableTraits = "MIT"

@@ -4,9 +4,9 @@
 The simulator of DeepSpaceTelemetry without its figures: the channel and
 instrument models, the emitter and the receiver on the tick driver, the
 post-processing tables, the mission supervisor and sweeps. Every package of
-its dependency closure is MIT-licensed (`test/licences.toml`), so it can be
-installed in a container or bundled in a system image without the terms of
-the figure stack. `DeepSpaceTelemetry` re-exports these modules and adds the
+its dependency closure carries a permissive licence (`test/licences.toml`),
+so it can be installed in a container or bundled in a system image without
+the terms of the figure stack. `DeepSpaceTelemetry` re-exports these modules and adds the
 figures; loaded alone, a mission writes every table and no figure. The HDF5
 export is an extension, loaded with the HDF5 package. Submodules:
 `TelemetryCore` and `RunAdapter` (from the reader package), `ChannelEffects`,

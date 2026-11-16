@@ -6,27 +6,17 @@ using Test, TOML
 using DeepSpaceTelemetryHeadless
 using DeepSpaceTelemetryHeadless: TelemetryCore, Supervisor, Export
 
-# The registered packages of the resolved closure, standard libraries left out.
-function registered_closure(manifest_path::AbstractString)
-    deps = TOML.parsefile(manifest_path)["deps"]
-    return sort!([name for name in keys(deps) if !isdir(joinpath(Sys.STDLIB, name))])
-end
+include("licences.jl")
 
 @testset "DeepSpaceTelemetryHeadless" begin
     @testset "Dependency closure: every package listed with its licence" begin
-        manifest = joinpath(@__DIR__, "Manifest.toml")
-        licences = TOML.parsefile(joinpath(@__DIR__, "licences.toml"))["packages"]
-        closure = filter(
-            n -> !(n in ("DeepSpaceTelemetryHeadless", "DeepSpaceTelemetryReader")),
-            registered_closure(manifest),
-        )
-        # A dependency the list does not name has not had its licence read.
-        unlisted = setdiff(closure, keys(licences))
-        @test isempty(unlisted)
-        @test all(
-            in(("MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause")),
-            values(licences),
-        )
+        # A dependency the list does not name has not had its licence read;
+        # the list states what the installed licence files state, and each of
+        # those is permissive.
+        problems = licence_report(joinpath(@__DIR__, "Manifest.toml"))
+        foreach(p -> @info("[LICENCE] $p"), problems)
+        @test isempty(problems)
+        @test length(registered_closure(joinpath(@__DIR__, "Manifest.toml"))) >= 30
     end
 
     @testset "No figure backend and no HDF5 export on its own" begin
