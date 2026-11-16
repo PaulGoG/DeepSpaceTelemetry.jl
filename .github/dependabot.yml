@@ -3,13 +3,14 @@ updates:
   - package-ecosystem: "julia"
     directories:
       - "/"
+      - "/reader"
       - "/test"
       - "/docs"
       - "/bench"
       - "/scripts"
     schedule:
       interval: "weekly"
-    # One pull request per directory and week, not one per package.
+    # One pull request per directory and week.
     groups:
       julia:
         patterns:
@@ -18,3 +19,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"

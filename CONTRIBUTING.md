@@ -33,10 +33,11 @@
 
 - JuliaFormatter belongs to none of the committed environments. Install it
   once into the default environment with
-  `julia -e 'using Pkg; Pkg.add(name = "JuliaFormatter", version = "2")'`
+  `julia -e 'using Pkg; Pkg.add(name = "JuliaFormatter", version = "2.14.12")'`
   and format from the package root with
   `julia -e 'using JuliaFormatter; format(".")'`, which reads the committed
-  `.JuliaFormatter.toml`. The CI formatting job fails on unformatted files.
+  `.JuliaFormatter.toml`. The `Format` workflow runs the same version on
+  every push and pull request and fails on unformatted files.
 
 ## Documentation
 

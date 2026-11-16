@@ -1,10 +1,12 @@
 # DeepSpaceTelemetry
 
-[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/)
-[![CI](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/)
+[![CI](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/PaulGoG/DeepSpaceTelemetry.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/PaulGoG/DeepSpaceTelemetry.jl)
-[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Aqua QA](https://juliatesting.github.io/Aqua.jl/dev/assets/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
+[![JET](https://img.shields.io/badge/tested%20with-JET.jl-233f9a)](https://github.com/aviatesk/JET.jl)
+[![Format](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/Format.yml/badge.svg?branch=main)](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/actions/workflows/Format.yml?query=branch%3Amain)
+[![Julia](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FPaulGoG%2FDeepSpaceTelemetry.jl%2Fmain%2FProject.toml&query=%24.compat.julia&label=julia&color=9558b2)](https://julialang.org/downloads/)
 
 A Julia framework simulating the telemetry environment of deep-space science
 missions: duty-cycled deep-space-network (DSN) contact windows, prioritized
@@ -334,7 +336,8 @@ DeepSpaceTelemetry/
 │   │   ├── .gitkeep             # Keeps the directory in git
 │   │   └── <RUN_ID>/            # Run products; the analysis interfaces page documents the contract
 │   └── sweeps/<PREFIX>/         # Sweep summary.csv and sweep.toml (gitignored)
-├── .github/workflows/CI.yml     # Test matrix (Linux 1.12 / 1 / pre, macOS and Windows on 1), formatter, docs build and deployment
+├── .github/workflows/CI.yml     # Test matrix (Linux min / 1 / pre, macOS and Windows on 1), docs build and deployment
+├── .github/workflows/Format.yml # Formatter check on every push and pull request
 ├── .github/dependabot.yml       # Weekly Julia and GitHub Actions version updates
 ├── .github/ISSUE_TEMPLATE/      # Bug-report and feature-request forms
 ├── .github/PULL_REQUEST_TEMPLATE.md # Change, verification, open points

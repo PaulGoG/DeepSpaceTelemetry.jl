@@ -1,0 +1,32 @@
+name: Format
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  format:
+    # "Formatting" is a required status check of main.
+    name: Formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1"
+      - name: Check the committed style
+        shell: julia --color=yes {0}
+        run: |
+          using Pkg
+          Pkg.activate(; temp = true)
+          Pkg.add(name = "JuliaFormatter", version = "2.14.12")
+          using JuliaFormatter
+          if !format("."; overwrite = false)
+              format(".") # rewrites the checkout only to name the files
+              run(`git diff --stat`)
+              error("Unformatted files: run JuliaFormatter over them.")
+          end

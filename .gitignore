@@ -21,7 +21,6 @@ lcov.info
 
 # Documenter.jl artifacts
 docs/build/
-docs/site/
 
 # VS Code / OS config
 .vscode/

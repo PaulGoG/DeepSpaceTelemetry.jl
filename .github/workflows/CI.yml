@@ -21,25 +21,21 @@ jobs:
     permissions:
       contents: read
       actions: write
-    # Every leg blocks the workflow except "pre", which watches the next
-    # prerelease and may fail without failing the workflow: Linux on the
-    # current stable release and on "1.12" (the compat floor), macOS and
-    # Windows on the current stable release. Coverage runs once: it disables
+    # "pre" may fail without failing the workflow; every other leg blocks.
+    # "min" is the [compat] floor of Project.toml, which lies above the LTS
+    # series and takes its place. Coverage runs on one leg: it disables
     # package images and roughly doubles the precompile time. No manifest is
-    # tracked, so every leg resolves its environment from Project.toml and
-    # [compat] on its own Julia version.
+    # tracked; each leg resolves its environment on its own Julia version.
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
-      # The compat floor (1.12) is above the LTS series, so the matrix covers
-      # the floor, the current release, and the prerelease instead of LTS.
       matrix:
         include:
           - version: "1"
             os: ubuntu-latest
             coverage: true
             experimental: false
-          - version: "1.12"
+          - version: "min"
             os: ubuntu-latest
             coverage: false
             experimental: false
@@ -75,18 +71,6 @@ jobs:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
-  format:
-    name: Formatting
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: "1"
-      - run: |
-          julia -e 'using Pkg; Pkg.add(name = "JuliaFormatter", version = "2"); using JuliaFormatter;
-                    format(".", verbose = false) || error("Formatting check failed: run JuliaFormatter over the repository.")'
   docs:
     name: Documentation
     runs-on: ubuntu-latest
@@ -103,8 +87,7 @@ jobs:
       contents: write
       pull-requests: read
       statuses: write
-      # julia-actions/cache deletes superseded caches only with actions: write.
-      actions: write
+      actions: write # julia-actions/cache prunes superseded caches
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
