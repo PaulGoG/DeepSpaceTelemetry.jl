@@ -1,0 +1,13 @@
+# The environment of the headless runner: the headless package and the reader
+# from this checkout, outside both package directories, so that a run records
+# the source identity of an unmodified headless/ tree.
+[deps]
+DeepSpaceTelemetryHeadless = "7814f18c-8b53-45b0-9d5f-98df027abb4e"
+DeepSpaceTelemetryReader = "e55ec139-ac3a-4c75-8569-7dfdf846ff66"
+
+[compat]
+julia = "1.12"
+
+[sources]
+DeepSpaceTelemetryHeadless = {path = "../headless"}
+DeepSpaceTelemetryReader = {path = "../reader"}

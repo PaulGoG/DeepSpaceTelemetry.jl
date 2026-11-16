@@ -1,10 +1,11 @@
 include(joinpath(@__DIR__, "activate.jl"))
 using Documenter
 using DeepSpaceTelemetry
+using DeepSpaceTelemetryHeadless
 using DeepSpaceTelemetryReader
 
 # Doctest blocks in the docstrings run in a fresh module with these imports.
-for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryReader)
+for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryHeadless, DeepSpaceTelemetryReader)
     DocMeta.setdocmeta!(
         pkg,
         :DocTestSetup,
@@ -31,6 +32,7 @@ makedocs(
     ),
     modules = [
         DeepSpaceTelemetry,
+        DeepSpaceTelemetryHeadless,
         DeepSpaceTelemetryReader,
         DeepSpaceTelemetry.TelemetryCore,
         DeepSpaceTelemetry.ChannelEffects,
@@ -41,6 +43,7 @@ makedocs(
         DeepSpaceTelemetry.Masks,
         DeepSpaceTelemetry.MissionFigures,
         DeepSpaceTelemetry.Metrology,
+        DeepSpaceTelemetry.MetrologyFigures,
         DeepSpaceTelemetry.Export,
         DeepSpaceTelemetry.Publication,
         DeepSpaceTelemetry.Supervisor,
@@ -53,6 +56,7 @@ makedocs(
         "Usage & Configuration" => "usage.md",
         "Scenario Gallery" => "gallery.md",
         "Analysis Interfaces" => "interfaces.md",
+        "Headless Package and Containers" => "headless.md",
         "Upgrading and Support" => "upgrading.md",
         "API Reference" => [
             "Overview" => "api.md",
@@ -64,6 +68,7 @@ makedocs(
             "Masks" => "api/masks.md",
             "MissionFigures" => "api/missionfigures.md",
             "Metrology" => "api/metrology.md",
+            "MetrologyFigures" => "api/metrologyfigures.md",
             "Export" => "api/export.md",
             "Publication" => "api/publication.md",
             "Supervisor" => "api/supervisor.md",

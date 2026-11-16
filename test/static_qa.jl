@@ -11,11 +11,12 @@
     # starts no task.
     persistent = !(get(ENV, "CI", "") == "true" && Base.JLOptions().code_coverage != 0)
     Aqua.test_all(DeepSpaceTelemetry; persistent_tasks = persistent)
+    Aqua.test_all(DeepSpaceTelemetryHeadless; persistent_tasks = persistent)
     Aqua.test_all(DeepSpaceTelemetryReader; persistent_tasks = persistent)
 end
 
 @testset "Static QA (ExplicitImports)" begin
-    for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryReader)
+    for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryHeadless, DeepSpaceTelemetryReader)
         @test ExplicitImports.check_no_stale_explicit_imports(pkg) === nothing
         @test ExplicitImports.check_no_implicit_imports(pkg) === nothing
         @test ExplicitImports.check_all_explicit_imports_via_owners(pkg) === nothing
@@ -36,7 +37,8 @@ end
         if JET.JET_AVAILABLE
             modules(pkg) =
                 Tuple(m for m in (getfield(pkg, n) for n in names(pkg)) if m isa Module)
-            for pkg in (DeepSpaceTelemetry, DeepSpaceTelemetryReader)
+            for pkg in
+                (DeepSpaceTelemetry, DeepSpaceTelemetryHeadless, DeepSpaceTelemetryReader)
                 JET.test_package(pkg; target_modules = modules(pkg))
             end
         end

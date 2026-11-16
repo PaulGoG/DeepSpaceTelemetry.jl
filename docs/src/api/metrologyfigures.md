@@ -1,0 +1,17 @@
+# MetrologyFigures
+
+```@docs
+DeepSpaceTelemetry.MetrologyFigures
+DeepSpaceTelemetry.MetrologyFigures.plot_alert_latency
+DeepSpaceTelemetry.MetrologyFigures.plot_delivery_delay
+DeepSpaceTelemetry.MetrologyFigures.QUARTILE_BAND_ALPHA
+DeepSpaceTelemetry.MetrologyFigures.SINGLE_PANEL_SHARE
+DeepSpaceTelemetry.MetrologyFigures.Y_HEADROOM
+DeepSpaceTelemetry.MetrologyFigures.ANNOTATION_BLOCK_BOTTOM
+DeepSpaceTelemetry.MetrologyFigures.annotation_block_top
+DeepSpaceTelemetry.MetrologyFigures.REQUIREMENT_LABEL_MARGIN
+DeepSpaceTelemetry.MetrologyFigures.requirement_label_occupancy
+DeepSpaceTelemetry.MetrologyFigures.requirement_label_slot
+DeepSpaceTelemetry.MetrologyFigures.requirement_label_anchor
+DeepSpaceTelemetry.MetrologyFigures.ANNOTATION_BLOCK_LEFT
+```

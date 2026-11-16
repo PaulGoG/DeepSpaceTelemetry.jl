@@ -9,7 +9,7 @@ batch-state timeline of the run directory.
 module MissionFigures
 
 using ..TelemetryCore: TelemetryCore
-using ..ChannelEffects
+using ..ChannelEffects: ChannelEffects
 using ..PlotTheme
 using CairoMakie:
     Axis,
@@ -1668,6 +1668,17 @@ function generate_mission_plots(
     end
     @info "[POST] Saved session figures: $(length(chosen)) of $(length(stems)) contact windows."
     return paths
+end
+
+# The mission summary and session figures, drawn by `Supervisor.post_process!`.
+function TelemetryCore.render_figure_product(
+    ::Val{:mission_summary},
+    run_dir::String,
+    post_processing::NamedTuple,
+    ground::NamedTuple;
+    kwargs...,
+)
+    return generate_mission_plots(run_dir; kwargs...)
 end
 
 end # module MissionFigures

@@ -5,7 +5,9 @@ include(joinpath(@__DIR__, "activate.jl"))
 using Test, Dates, Statistics, CSV, DataFrames, Logging, TOML
 using StableRNGs
 using Aqua, JET, ExplicitImports
+using HDF5: HDF5
 using DeepSpaceTelemetry
+using DeepSpaceTelemetryHeadless
 using DeepSpaceTelemetryReader
 using DeepSpaceTelemetry:
     TelemetryCore,
@@ -16,6 +18,7 @@ using DeepSpaceTelemetry:
     Masks,
     MissionFigures,
     Metrology,
+    MetrologyFigures,
     Export,
     Publication,
     PlotTheme,

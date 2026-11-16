@@ -22,16 +22,37 @@ const PROJECT_ROOT = Ref{String}(dirname(dirname(@__DIR__)))
     DATA_ROOT
 
 Default base directory for run storage (a `Ref`; default
-`<PROJECT_ROOT[]>/data`): the data root of the entry points
+[`default_data_root`](@ref) of the package root): the data root of the entry points
 (`Supervisor.run_mission`, the scripts, `RunAdapter.open_run` by run ID)
 when none is given. The components take their run directory explicitly.
 """
 const DATA_ROOT = Ref{String}("")
 
+"""
+    DATA_ROOT_VARIABLE
+
+The environment variable that names the default data root
+([`default_data_root`](@ref)): `DEEPSPACETELEMETRY_DATA`.
+"""
+const DATA_ROOT_VARIABLE = "DEEPSPACETELEMETRY_DATA"
+
+"""
+    default_data_root(root::AbstractString) -> String
+
+The data root a package rooted at `root` uses by default: the directory
+named by the environment variable [`DATA_ROOT_VARIABLE`](@ref) when it is set
+and not empty (made absolute), else `<root>/data`. A container or a cluster
+job sets the variable to a mounted volume.
+"""
+function default_data_root(root::AbstractString)
+    dir = get(ENV, DATA_ROOT_VARIABLE, "")
+    return isempty(dir) ? joinpath(root, "data") : abspath(dir)
+end
+
 function __init__()
     # Runtime (not precompile-time) initialization; tests and embedding
     # applications may redirect after loading.
-    DATA_ROOT[] = joinpath(PROJECT_ROOT[], "data")
+    DATA_ROOT[] = default_data_root(PROJECT_ROOT[])
     return nothing
 end
 

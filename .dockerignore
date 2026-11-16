@@ -1,0 +1,7 @@
+# Build context of deploy/Dockerfile: the packages it installs and the runner.
+*
+!reader/
+!headless/
+!deploy/
+**/Manifest.toml
+**/Manifest-v*.toml

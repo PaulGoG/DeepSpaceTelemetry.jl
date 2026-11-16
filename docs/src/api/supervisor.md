@@ -15,6 +15,7 @@ DeepSpaceTelemetry.Supervisor.apply_failure_policy!
 DeepSpaceTelemetry.Supervisor.supervise_ticks!
 DeepSpaceTelemetry.Supervisor.build_instrument
 DeepSpaceTelemetry.Supervisor.component_spawners
+DeepSpaceTelemetry.Supervisor.figure_backend_loaded
 DeepSpaceTelemetry.Supervisor.TIMELINE_PRODUCTS
 DeepSpaceTelemetry.Supervisor.render_products!
 DeepSpaceTelemetry.Supervisor.post_process!

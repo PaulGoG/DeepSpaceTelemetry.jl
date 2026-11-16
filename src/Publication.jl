@@ -126,4 +126,18 @@ function write_provenance(
     return path
 end
 
+# The publication export, run by `Supervisor.post_process!` with the
+# `[post_processing.publication]` settings as keywords.
+function TelemetryCore.render_figure_product(
+    ::Val{:publication},
+    run_dir::String,
+    post_processing::NamedTuple,
+    ground::NamedTuple;
+    format,
+    column_width_mm,
+    export_dir,
+)
+    return export_publication_figures(run_dir; format, column_width_mm, export_dir)
+end
+
 end # module Publication

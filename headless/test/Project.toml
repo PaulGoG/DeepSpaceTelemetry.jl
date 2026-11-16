@@ -1,0 +1,14 @@
+[deps]
+DeepSpaceTelemetryHeadless = "7814f18c-8b53-45b0-9d5f-98df027abb4e"
+DeepSpaceTelemetryReader = "e55ec139-ac3a-4c75-8569-7dfdf846ff66"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+TOML = "1"
+Test = "1"
+julia = "1.12"
+
+[sources]
+DeepSpaceTelemetryHeadless = {path = ".."}
+DeepSpaceTelemetryReader = {path = "../../reader"}

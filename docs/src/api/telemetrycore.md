@@ -4,6 +4,8 @@
 DeepSpaceTelemetry.TelemetryCore
 DeepSpaceTelemetry.TelemetryCore.C_LIGHT
 DeepSpaceTelemetry.TelemetryCore.DATA_ROOT
+DeepSpaceTelemetry.TelemetryCore.DATA_ROOT_VARIABLE
+DeepSpaceTelemetry.TelemetryCore.default_data_root
 DeepSpaceTelemetry.TelemetryCore.PROJECT_ROOT
 DeepSpaceTelemetry.TelemetryCore.run_directory
 DeepSpaceTelemetry.TelemetryCore.runs_root

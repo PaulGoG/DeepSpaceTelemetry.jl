@@ -80,7 +80,7 @@
 
         with_logger(NullLogger()) do
             @test endswith(
-                Metrology.plot_alert_latency(dir; lookback_hours = 0.25),
+                MetrologyFigures.plot_alert_latency(dir; lookback_hours = 0.25),
                 "alert_latency.png",
             )
             Metrology.write_metrology_tables(dir; lookback_hours = 0.25)
@@ -156,7 +156,7 @@ end
         @test summary.fraction_within ≈ 1 / 3 rtol = 1e-12
         with_logger(NullLogger()) do
             @test endswith(
-                Metrology.plot_delivery_delay(dir; requirement_hours = 24.0),
+                MetrologyFigures.plot_delivery_delay(dir; requirement_hours = 24.0),
                 "delivery_delay.png",
             )
             Metrology.write_metrology_tables(dir)
@@ -166,7 +166,7 @@ end
     end
 
     @testset "Requirement label at a free slot beside its rule" begin
-        anchor = Metrology.requirement_label_anchor
+        anchor = MetrologyFigures.requirement_label_anchor
         none = Tuple{Float64,Float64}[]
         level(h...) = [(v, v) for v in h]                 # curves flat across the footprint
         y, h, s = anchor(level(0.36, 0.53), none, 0.0, 0.0, 0.35)   # room above the highest curve
@@ -195,8 +195,8 @@ end
     end
 
     @testset "Occupancy of step curves across a band" begin
-        occupancy = Metrology.requirement_label_occupancy
-        Y = Metrology.Y_HEADROOM
+        occupancy = MetrologyFigures.requirement_label_occupancy
+        Y = MetrologyFigures.Y_HEADROOM
         x = [0.0, 2.0, 4.0, 6.0]
         y = [0.0, 0.25, 0.5, 1.0]
         curves = ((x, y, true), (x, y, false))
@@ -641,7 +641,7 @@ end
         @test nrow(before) == 1 && before.Batch[1] == "" && ismissing(before.LIFO_Hours[1])
         with_logger(NullLogger()) do
             @test endswith(
-                Metrology.plot_alert_latency(
+                MetrologyFigures.plot_alert_latency(
                     dir;
                     lookback_hours = 0.1,
                     processing_latency_hours = 0.5,

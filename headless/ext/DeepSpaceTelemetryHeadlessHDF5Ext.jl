@@ -1,51 +1,18 @@
 """
-    Export
+    DeepSpaceTelemetryHeadlessHDF5Ext
 
-HDF5 product export: the consumer-facing products of a run (event logs,
-hole feed, metrics profile, batch-state timeline, batch epochs, gap table,
-metrology tables, markers, label spans, component events)
-in one self-describing file with the run's provenance as attributes, for
-analysis pipelines that read HDF5 rather than a directory of CSV files. The
-CSV products remain the primary interface; the export is a derived,
-regenerable view of them ([`export_hdf5`](@ref)).
+The HDF5 writer of [`Export.export_hdf5`](@ref), loaded with the HDF5 package.
 """
-module Export
+module DeepSpaceTelemetryHeadlessHDF5Ext
 
-using ..TelemetryCore: TelemetryCore
+using DeepSpaceTelemetryHeadless: TelemetryCore, Export
 using DataFrames: DataFrame, nrow
 using Dates: DateTime, now
 using HDF5: HDF5, h5open, create_group
 using TOML: TOML
 
-"""
-    FORMAT_VERSION
-
-Layout version of the exported file, stored as the root attribute
-`format_version`; incremented when a group or dataset changes meaning.
-"""
-const FORMAT_VERSION = "1"
-
-"""
-    TABLE_PRODUCTS
-
-`(group, relative path)` pairs of the tabular CSV products written by
-[`export_hdf5`](@ref) through [`write_table!`](@ref); absent files are
-skipped.
-"""
-const TABLE_PRODUCTS = (
-    ("events/tx", "events_tx.csv"),
-    ("events/rx", "events_rx.csv"),
-    ("holes", "holes.csv"),
-    ("metrics/mission_profile", "mission_profile.csv"),
-    ("masks/batch_epochs", joinpath("masks", "batch_epochs.csv")),
-    ("masks/gaps", joinpath("masks", "gaps.csv")),
-    ("metrology/alert_latency", "alert_latency.csv"),
-    ("metrology/alert_latency_markers", "alert_latency_markers.csv"),
-    ("metrology/delivery_delay", "delivery_delay.csv"),
-    ("markers", "markers.csv"),
-    ("label_spans", "label_spans.csv"),
-    ("component_events", "component_events.csv"),
-)
+const FORMAT_VERSION = Export.FORMAT_VERSION
+const TABLE_PRODUCTS = Export.TABLE_PRODUCTS
 
 """
     ensure_group(parent, path::String)
@@ -191,18 +158,8 @@ function write_provenance!(
     return file
 end
 
-"""
-    export_hdf5(run_dir::String; path = joinpath(run_dir, "products.h5")) -> String
-
-Writes the run's products into one HDF5 file (default
-`<run_dir>/products.h5`, an existing file is rotated to `products#k.h5`):
-the tabular products of [`TABLE_PRODUCTS`](@ref) as column datasets, the
-batch-state timeline ([`write_mask_timeline!`](@ref)), and the provenance
-attributes
-([`write_provenance!`](@ref)). Times are seconds since the run's
-`start_sim_time` with ISO-8601 twins. Returns the file path.
-"""
-function export_hdf5(run_dir::String; path::String = joinpath(run_dir, "products.h5"))
+# The body of Export.export_hdf5.
+function write_hdf5(run_dir::String, path::String)
     isdir(run_dir) || throw(ArgumentError("[EXPORT] Run directory not found: $run_dir"))
     cfg, config_source = TelemetryCore.load_run_config_with_source(run_dir)
     sim = get(cfg, "simulation", Dict{String,Any}())
@@ -229,4 +186,4 @@ function export_hdf5(run_dir::String; path::String = joinpath(run_dir, "products
     return path
 end
 
-end # module Export
+end # module DeepSpaceTelemetryHeadlessHDF5Ext

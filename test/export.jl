@@ -1,7 +1,6 @@
 # Export: the HDF5 product file.
 
 @testset "HDF5 product export" begin
-    HDF5 = DeepSpaceTelemetry.Export.HDF5
     mktempdir() do dir
         t0 = DateTime(2035, 1, 1, 6)
         D = Minute(3)

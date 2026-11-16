@@ -6,15 +6,31 @@ missions: duty-cycled ground-station contact windows, a physical downlink
 with stochastic loss and scheduled disruptions, live-FIFO/archive-LIFO
 routing, and provenance-tracked data products. The shipped scenarios model
 the LISA mission; the telemetry, channel, and queuing layers are
-mission-agnostic. Submodules: `TelemetryCore` and `RunAdapter` (from the
-reader package `DeepSpaceTelemetryReader`, re-exported here),
-`ChannelEffects`, `VirtualInstrument`, `PlotTheme`, `Emitter`, `Receiver`,
-`Masks`, `MissionFigures`, `Metrology`, `Export`, `Publication`,
-`Supervisor`, `Sweeps`.
+mission-agnostic. The simulator is the package `DeepSpaceTelemetryHeadless`,
+whose modules are re-exported here under the same names; this package adds
+the figures and loads HDF5, which enables the HDF5 export. Submodules:
+`TelemetryCore` and `RunAdapter` (from the reader package
+`DeepSpaceTelemetryReader`), `ChannelEffects`, `VirtualInstrument`,
+`Emitter`, `Receiver`, `Masks`, `Metrology`, `Export`, `Supervisor`,
+`Sweeps` (from `DeepSpaceTelemetryHeadless`), and `PlotTheme`,
+`MissionFigures`, `MetrologyFigures`, `Publication`.
 """
 module DeepSpaceTelemetry
 
 using DeepSpaceTelemetryReader: DeepSpaceTelemetryReader, TelemetryCore, RunAdapter
+using DeepSpaceTelemetryHeadless:
+    DeepSpaceTelemetryHeadless,
+    ChannelEffects,
+    VirtualInstrument,
+    Emitter,
+    Receiver,
+    Masks,
+    Metrology,
+    Export,
+    Supervisor,
+    Sweeps
+# Loading HDF5 loads the HDF5 export of the headless package (its extension).
+using HDF5: HDF5
 
 "Absolute path of this package's root: the directory of `config.toml`, `scenarios/` and `data/`."
 const PACKAGE_ROOT = dirname(@__DIR__)
@@ -22,22 +38,14 @@ const PACKAGE_ROOT = dirname(@__DIR__)
 function __init__()
     # The reader package addresses this package's files and records its identity.
     TelemetryCore.PROJECT_ROOT[] = PACKAGE_ROOT
-    TelemetryCore.DATA_ROOT[] = joinpath(PACKAGE_ROOT, "data")
+    TelemetryCore.DATA_ROOT[] = TelemetryCore.default_data_root(PACKAGE_ROOT)
     return nothing
 end
 
-include("ChannelEffects.jl")
-include("VirtualInstrument.jl")
 include("PlotTheme.jl")
-include("Emitter.jl")
-include("Receiver.jl")
-include("Masks.jl")
 include("MissionFigures.jl")
-include("Metrology.jl")
-include("Export.jl")
+include("MetrologyFigures.jl")
 include("Publication.jl")
-include("Supervisor.jl")
-include("Sweeps.jl")
 
 export TelemetryCore,
     ChannelEffects,
@@ -48,6 +56,7 @@ export TelemetryCore,
     Masks,
     MissionFigures,
     Metrology,
+    MetrologyFigures,
     Export,
     Publication,
     Supervisor,
