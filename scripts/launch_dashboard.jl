@@ -87,7 +87,16 @@ dashboard.open_live_viewer && launch_terminal("Telemetry Live Viewer", live_view
 dashboard.open_receiver_log && launch_terminal("Receiver Log", tail_rx_cmd)
 dashboard.open_emitter_log && launch_terminal("Emitter Log", tail_tx_cmd)
 
-println("Dashboard launched: live viewer and log-tail terminals spawned.")
+requested = count((
+    dashboard.open_live_viewer,
+    dashboard.open_receiver_log,
+    dashboard.open_emitter_log,
+))
+println(
+    requested == 0 ?
+    "No dashboard window requested: the three [dashboard] open_* flags are false." :
+    "Dashboard: $requested terminal window(s) requested.",
+)
 println(
     "Starting main simulation (span: $(DeepSpaceTelemetry.TelemetryCore.mission_wall_seconds(cfg)) wall-clock s)...",
 )

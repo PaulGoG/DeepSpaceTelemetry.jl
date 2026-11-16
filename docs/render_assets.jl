@@ -427,7 +427,7 @@ function main(args)
     # The figures are drawn during each run, at the commit its entry records;
     # the animations and the reduction happen here, at this commit.
     code_changes = DeepSpaceTelemetry.TelemetryCore.git_output(
-        `status --porcelain --untracked-files=no -- src scripts`,
+        `status --porcelain --untracked-files=no -- src reader scripts`,
     )
     record = Dict{String,Any}(
         "render" => Dict{String,Any}(
