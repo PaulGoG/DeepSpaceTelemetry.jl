@@ -17,33 +17,54 @@ function registered_closure(manifest_path::AbstractString)
     ])
 end
 
-# The licences the licence files of an installed package state, joined with
-# "+" in sorted order ("UNKNOWN" for a text this does not recognize).
+# Phrases that identify a licence in a licence file. Every phrase a file
+# holds counts, so a text that names a copyleft licence beside a permissive
+# one is not read as permissive.
+const LICENCE_PHRASES = (
+    "Apache-2.0" => "apache license",
+    "GPL" => "general public license",
+    "MPL-2.0" => "mozilla public license",
+    "MIT" => "permission is hereby granted, free of charge",
+    "BSD" => "redistribution and use in source and binary forms",
+)
+
+# The licences the top-level licence files of an installed package state,
+# joined with "+" in sorted order ("UNKNOWN" for a file this does not
+# recognize, "NONE" without a licence file).
 function licence_of(name::AbstractString, uuid::Base.UUID)
     root = dirname(dirname(Base.locate_package(Base.PkgId(uuid, name))))
     files = filter(f -> occursin(r"^(licen[cs]e|copying)"i, f), readdir(root))
-    kinds = map(files) do f
+    kinds = String[]
+    for f in files
         text = lowercase(read(joinpath(root, f), String))
-        occursin("apache license", text) ? "Apache-2.0" :
-        occursin("general public license", text) ? "GPL" :
-        occursin("mozilla public license", text) ? "MPL-2.0" :
-        occursin("permission is hereby granted, free of charge", text) ? "MIT" :
-        occursin("redistribution and use in source and binary forms", text) ? "BSD" :
-        "UNKNOWN"
+        found = [kind for (kind, phrase) in LICENCE_PHRASES if occursin(phrase, text)]
+        append!(kinds, isempty(found) ? ["UNKNOWN"] : found)
     end
     return isempty(kinds) ? "NONE" : join(sort!(unique(kinds)), "+")
 end
 
 # The packages of the closure that the list lacks, whose licence files state
 # something else than the list, or whose licence is not permissive; empty
-# when every package passes.
+# when every package passes. A binary package (`_jll`) also needs the
+# licence of its artifact under `[binaries]`, read from the artifact's
+# `share/licenses`, since its own licence file covers the wrapper only.
 function licence_report(
     manifest_path::AbstractString,
     list_path::AbstractString = joinpath(@__DIR__, "licences.toml"),
 )
-    listed = TOML.parsefile(list_path)["packages"]
+    list = TOML.parsefile(list_path)
+    listed = list["packages"]
+    binaries = get(list, "binaries", Dict{String,Any}())
     problems = String[]
     for (name, uuid) in registered_closure(manifest_path)
+        if endswith(name, "_jll")
+            binary = get(binaries, name, nothing)
+            binary === nothing &&
+                push!(problems, "$name is a binary package without its artifact's licence")
+            binary === nothing ||
+                all(in(PERMISSIVE), split(binary, "+")) ||
+                push!(problems, "$name carries a $binary binary, which is not permissive")
+        end
         found = licence_of(name, uuid)
         expected = get(listed, name, nothing)
         if expected === nothing

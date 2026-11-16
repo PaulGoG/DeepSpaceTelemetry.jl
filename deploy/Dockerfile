@@ -43,6 +43,7 @@ COPY deploy deploy
 RUN julia deploy/activate.jl && \
     julia -e 'include("deploy/activate.jl"); using DeepSpaceTelemetryHeadless' && \
     julia -e 'include("deploy/activate.jl"); include("headless/test/licences.jl"); \
+        length(registered_closure("deploy/Manifest.toml")) >= 30 || error("closure not resolved"); \
         problems = licence_report("deploy/Manifest.toml"); \
         isempty(problems) || error(join(problems, "; "))'
 

@@ -576,8 +576,10 @@ end
 The content intervals `[start, stop)` the on-board recorder discarded at its
 ceiling, from the `RECORDER` gap rows of `events_tx.csv`; a span still open
 at the end of the log closes at the mission end. The parts of a span that
-a scheduled generation gap or a stream gap (`SCHEDULED`, `STREAM` rows)
-covers held no data and are left out.
+a scheduled generation gap (`SCHEDULED` rows) covers held no data and are
+left out. A stream gap of an emitter outage is not: it starts at the
+content end of the last batch, which during an overflow is where the
+recorder began to discard.
 """
 function recorder_spans(run_dir::String)
     tx = TelemetryCore.read_table(joinpath(run_dir, "events_tx.csv"))
@@ -585,7 +587,7 @@ function recorder_spans(run_dir::String)
     t_end = TelemetryCore.mission_end(TelemetryCore.load_run_config(run_dir))
     recorder = gap_spans(tx, ("RECORDER",), t_end)
     isempty(recorder) && return recorder
-    return subtract_spans(recorder, gap_spans(tx, ("SCHEDULED", "STREAM"), t_end))
+    return subtract_spans(recorder, gap_spans(tx, ("SCHEDULED",), t_end))
 end
 
 # The [gap_start, gap_end) intervals of the gap rows of `sources` in an

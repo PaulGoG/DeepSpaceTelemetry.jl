@@ -5,6 +5,10 @@
 # read; test/runtests.jl fails on one that is not listed or whose licence
 # files state something else. DataStrings is Apache-2.0, with MIT-licensed
 # parts taken from CSV; its NOTICE travels with a bundle.
+# The licences of the artifacts of binary packages (`_jll`), from their
+# share/licenses directories; none is in the closure.
+[binaries]
+
 [packages]
 CSV = "MIT"
 CodecZlib = "MIT"
