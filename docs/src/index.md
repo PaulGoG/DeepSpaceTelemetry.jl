@@ -8,8 +8,8 @@ Deep-space missions communicate on asymmetric duty cycles: a daily ground-statio
 ![Mission summary of the stress scenario](assets/gallery/stress_8h_bursty_mission_summary_global.png)
 
 One week of `scenarios/stress_8h_bursty.toml`: 8 h daily passes on the
-physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare blackout
-with a 12 h recovery ramp on day 2.5, a partial ground-station outage on day
+physical link, a bursty Gilbert–Elliott channel, an 18 h blackout after a
+solar particle event with a 12 h recovery ramp on day 2.5, a partial ground-station outage on day
 5, and a scheduled generation gap on day 1.5. The onboard buffer grows from
 288 to 530 batches over the week, and retransmission recovers every rejected
 transfer. The [Scenario Gallery](@ref) shows the other products of this

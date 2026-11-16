@@ -106,11 +106,11 @@ the archive; on the ground the archive grows at about twice the live rate.
 backlog, a bursty Gilbert–Elliott channel (stationary loss 6.25 %), three
 scheduled events, and one event marker.
 
-![Mission summary of the stress scenario: seven daily passes against a growing onboard buffer, a solar-flare blackout with its recovery ramp, a partial ground-station outage, a generation gap, and an event marker with its low-latency period](assets/gallery/stress_8h_bursty_mission_summary_global.png)
+![Mission summary of the stress scenario: seven daily passes against a growing onboard buffer, a blackout after a solar particle event with its recovery ramp, a partial ground-station outage, a generation gap, and an event marker with its low-latency period](assets/gallery/stress_8h_bursty_mission_summary_global.png)
 
 After retransmissions the link delivers fewer batches per pass than a day
 produces, so the backlog cannot shrink, and each disruption adds to it. The
-18-hour solar-flare blackout on day 2.5 removes one pass except for what the
+18-hour blackout after the solar particle event on day 2.5 removes one pass except for what the
 first hours of its 12-hour recovery ramp let through, and the partial
 ground-station outage on day 5 holds a pass at a fifth of its capacity. The 15-minute antenna repointing on
 day 1.5 is a generation gap. The marker on day 4 opens,

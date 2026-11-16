@@ -50,14 +50,14 @@ The [analysis interfaces](https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable
 page specifies the layout and file contract of a run directory.
 
 ![Mission summary of the stress scenario: seven daily passes against a
-growing onboard buffer, an 18 h solar-flare blackout with a 12 h recovery
-ramp, a partial ground-station outage, a scheduled generation gap, and an
-event marker with its triggered low-latency
+growing onboard buffer, an 18 h blackout after a solar particle event with
+a 12 h recovery ramp, a partial ground-station outage, a scheduled
+generation gap, and an event marker with its triggered low-latency
 period](docs/src/assets/gallery/stress_8h_bursty_mission_summary_global.png)
 
 One week of the shipped `scenarios/stress_8h_bursty.toml`: 8 h daily passes
-on the physical link, a bursty Gilbert–Elliott channel, an 18 h solar-flare
-blackout followed by a 12 h recovery ramp on day 2.5, a 12 h partial
+on the physical link, a bursty Gilbert–Elliott channel, an 18 h blackout
+after a solar particle event followed by a 12 h recovery ramp on day 2.5, a 12 h partial
 ground-station outage on day 5, a scheduled generation gap on day 1.5, and
 an event marker on day 4 whose triggered low-latency period opens six hours
 later at half capacity. After retransmissions the link delivers fewer

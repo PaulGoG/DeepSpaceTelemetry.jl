@@ -87,9 +87,9 @@ physics: 60 s segments, 10 segments per batch → 144 batches/day) served by
 12-hour passes of about 210 batches each over a bursty Gilbert–Elliott channel
 (sticky BAD state, 50 % loss while BAD). Three scheduled events stress the
 mission: a 15-minute antenna repointing on day 1.5 (a generation gap), a
-day-2.5 solar-flare-class full blackout (18 h, then a 12 h linear recovery
-ramp with 5× elevated loss), and a day-5.0 partial DSN outage (severity
-0.8, 12 h, 6 h ramp, 3× loss). An event marker at 14:00 on day 4 triggers,
+day-2.5 full blackout after a solar particle event (18 h, then a 12 h
+linear recovery ramp with 5× elevated loss), and a day-5.0 partial DSN
+outage (severity 0.8, 12 h, 6 h ramp, 3× loss). An event marker at 14:00 on day 4 triggers,
 six hours later, a 3-hour low-latency period at half capacity.
 
 `scenarios/stress_8h_bursty.toml` runs the same disruption timeline on
@@ -143,7 +143,7 @@ max_retries = 3
 
 [[disruption.events]]
 type = "link_disruption"    # free string
-label = "solar flare"       # optional display name on the dashboard status line
+label = "ground outage"     # optional display name on the dashboard status line
 start_day = 10.0            # mission days after start_sim_time
 duration_hours = 60.0       # full-blackout phase
 severity = 1.0              # 1.0 = zero capacity; 0.4 = 60% capacity retained

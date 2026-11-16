@@ -149,8 +149,8 @@ duration_hours = 0.25                # Duration of the generation gap [h]. SAFE:
 affects = "generation"               # What the event interrupts. One of: "link" | "generation".
 
 [[disruption.events]]
-type = "solar_flare"                 # Event type identifier. Free string.
-label = "solar flare"                # Display label for logs and viewer.
+type = "solar_particle_event"        # Event type identifier. Free string.
+label = "solar particle event"       # Display label for logs and viewer.
 start_day = 4.0                      # Event onset time [mission days]. SAFE: >= 0.
 duration_hours = 18.0                # Disruption duration before the recovery ramp [h]. SAFE: > 0.
 severity = 1.0                       # Link capacity reduction factor. SAFE: [0, 1].

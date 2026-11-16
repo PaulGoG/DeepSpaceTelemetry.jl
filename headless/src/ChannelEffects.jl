@@ -127,8 +127,8 @@ stationary_loss_rate(m::GilbertElliottLoss) = TelemetryCore.gilbert_elliott_loss
 """
     DisruptionEvent
 
-A scheduled link-degrading event (a solar flare, a spacecraft safe-mode entry,
-a ground-station outage, …). Between `start_time` and `blackout_end` the link
+A scheduled link-degrading event (a spacecraft safe mode after a solar
+particle event, a ground-station outage, …). Between `start_time` and `blackout_end` the link
 capacity is multiplied by `1 - severity` (`severity = 1` is a full blackout);
 between `blackout_end` and `recovery_end` capacity ramps linearly back to
 nominal. Throughout the whole event (blackout + recovery) the stochastic loss
