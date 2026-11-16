@@ -6,6 +6,82 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The receiver times a transfer by the link capacity integrated from its
+  start: a transfer lasts until `∫ c(t) dt` reaches the full-capacity
+  transfer time (`ChannelEffects.transfer_completion`), so a transfer cut
+  by the end of a pass or by a blackout resumes at the next contact. The
+  `ingested`, `retry` and `lost` rows of `events_rx.csv` and the `lost`
+  holes carry the completion instant of the transfer, where they carried
+  its start; a transfer starts when the previous one has completed, without
+  credit for an idle interval; its loss multiplier is the largest of the
+  disruption events active during it; and a transfer that would complete
+  at or after the horizon has no outcome. Contact windows are half-open,
+  `[start, stop)`. The two receiver deviations that 3.2.1 recorded are
+  gone: delivery delays and alert latencies grow by about one transfer
+  time, more where a transfer spans the end of a pass, and `DeclaredAt` of
+  `holes.csv` is non-decreasing. `Receiver.ServicePacer` and `serve_slot!`
+  are removed.
+- The simulator is a package of its own, `DeepSpaceTelemetryHeadless`
+  (`headless/`): channel models, instrument, emitter and receiver, masks,
+  metrology tables, HDF5 export, supervisor and sweeps, without the figure
+  stack. Every package of its dependency closure is MIT-licensed, which its
+  test suite checks against `headless/test/licences.toml`. The main package
+  re-exports its modules under the same names and adds the figures; its
+  products are byte-identical to those of the single package. The HDF5
+  export is an extension of the headless package, loaded with `HDF5` (the
+  main package loads it); `Export.hdf5_available()` tells whether it is
+  there, and a configuration that asks for `hdf5_export` without it stops
+  at the configuration check. The three packages share one version.
+- The metrology figures moved from `Metrology` to `MetrologyFigures`
+  (`plot_alert_latency`, `plot_delivery_delay`); the tables stay in
+  `Metrology`.
+- The alert-latency figure draws the Kaplan–Meier medians and quartiles
+  and states the censored counts; the delivery-delay figure states the
+  share within the requirement of the batches due or delivered by the run
+  end, the batches not yet due, and the batches discarded at the on-board
+  recorder.
+- `alert_latency.csv` has a row for every look-back at which a live event's
+  window lies within the run; where no window completed under both
+  doctrines, `N_Alerts` is 0 and the complete-case quantiles are `NaN`.
+- The scenarios name their 18-hour outage `solar_particle_event` (label
+  "solar particle event"), the safe mode such an event can trigger.
+
+### Added
+- `delivery_delay.csv` gains `Due`: whether the content end plus the
+  delivery requirement falls at or before the mission end.
+  `Metrology.delivery_compliance` gains `due`, `pending`, `discarded` and
+  `fraction_within_resolved`, the share within the requirement of the
+  batches due or delivered by the run end together with the batches the
+  on-board recorder discarded.
+- `alert_latency.csv` gains Kaplan–Meier estimates over every live event,
+  a window still incomplete at the run end censored there and a window
+  holding data discarded on board never complete: `N_Alerts_All`,
+  `N_Censored_LIFO`, `N_Censored_FIFO`, and the median and quartiles
+  `LIFO_KM_*_Hours` and `FIFO_KM_*_Hours` (`NaN` where not reached). The
+  existing columns keep their complete-case definition.
+- `Metrology.km_quantile`, `recorder_spans` and `discarded_batches`;
+  `Sweeps.summarize_run` gains `pending`, `discarded`,
+  `within_requirement_resolved` and the Kaplan–Meier medians at 24 h and
+  72 h.
+- The environment variable `DEEPSPACETELEMETRY_DATA` names the data root
+  (`TelemetryCore.default_data_root`), so a container or a cluster job
+  writes its runs to a mounted volume.
+- `deploy/`: a Dockerfile and an entry point that run missions with the
+  headless package alone, as a non-root user, with the data root at
+  `/data`. A run in the image records the git tree of `headless/` as its
+  source identity.
+- `TelemetryCore.render_figure_product` and
+  `Supervisor.figure_backend_loaded`, through which the supervisor reaches
+  the figures when the main package is loaded.
+- CI runs the headless suite on the compat floor and the current release.
+
+### Fixed
+- `LowLatency` of `delivery_delay.csv` missed an arrival inside a
+  low-latency period that overlaps a nominal pass.
+- A run without figures no longer announces a plots directory at the end
+  of the mission.
+
 ## [3.2.1] - 2026-11-16
 
 ### Fixed
