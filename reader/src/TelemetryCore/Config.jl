@@ -1612,10 +1612,11 @@ open_recorder_gap(run_dir::String) = open_recorder_gap_start(run_dir) !== nothin
     ContactWindow
 
 One ground-contact interval on the mission timeline: `start` and `stop`
-(`DateTime`, closed interval), the link `capacity` relative to peak (`1.0`
-for a nominal pass; the station-availability fraction of a low-latency
-period), the `low_latency` flag, and a free-text `label` (empty for
-nominal passes). `ContactWindow(start, stop)` builds a nominal pass.
+(`DateTime`), the link `capacity` relative to peak (`1.0` for a nominal
+pass; the station-availability fraction of a low-latency period), the
+`low_latency` flag, and a free-text `label` (empty for nominal passes).
+The window is half-open, `[start, stop)`. `ContactWindow(start, stop)`
+builds a nominal pass.
 """
 struct ContactWindow
     start::DateTime

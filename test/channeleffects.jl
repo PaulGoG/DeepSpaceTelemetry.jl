@@ -205,3 +205,107 @@ end
         ),
     )
 end
+
+@testset "Transfer completion: integrated capacity" begin
+    flat = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "flat")
+    link = ChannelEffects.LinkModel(flat)
+    far = DateTime(2035, 2, 1)
+    day = DateTime(2035, 1, 1)
+    # Full capacity inside a pass: one full-capacity transfer time, to the ms.
+    work = 600 * 75 / 230 # 195.652… s, a 600 s batch at 75 / 230 kbit/s
+    t0 = day + Hour(9)
+    @test ChannelEffects.transfer_completion(link, t0, work, far) ==
+          t0 + Millisecond(round(Int, 1000 * work))
+    # Interrupted by the end of the pass (16:00) after 120 s, resumed at the
+    # next pass (08:00) for the remaining 180 s.
+    t0 = day + Hour(15) + Minute(58)
+    resumed = day + Day(1) + Hour(8)
+    @test ChannelEffects.transfer_completion(link, t0, 300.0, far) == resumed + Second(180)
+    # A transfer that does not complete strictly before the horizon has no
+    # completion instant.
+    @test ChannelEffects.transfer_completion(link, t0, 300.0, resumed + Second(120)) ===
+          nothing
+    @test ChannelEffects.transfer_completion(link, t0, 300.0, resumed + Second(180)) ===
+          nothing
+    @test ChannelEffects.transfer_completion(
+        link,
+        t0,
+        300.0,
+        resumed + Second(180) + Millisecond(1),
+    ) == resumed + Second(180)
+    # A full blackout from 10:00 to 11:00 inside the pass suspends the
+    # transfer: 60 s before it, 60 s after.
+    blackout = ChannelEffects.DisruptionEvent(
+        "test",
+        "",
+        day + Hour(10),
+        day + Hour(11),
+        day + Hour(11),
+        1.0,
+        5.0,
+    )
+    link_b = ChannelEffects.LinkModel(flat, ChannelEffects.DisruptionTimeline([blackout]))
+    @test ChannelEffects.transfer_completion(
+        link_b,
+        day + Hour(9) + Minute(59),
+        120.0,
+        far,
+    ) == day + Hour(11) + Minute(1)
+    # A linear recovery ramp from 0 at 11:00 to 1 at 13:00 (R = 7200 s): from
+    # the start of the ramp, ∫₀^τ s/R ds = τ²/(2R) = W, so τ = √(2RW). Within
+    # the completing step the capacity is held at its midpoint value; with a
+    # slope of 1/7200 s⁻¹ and 60 s steps that costs well under a second.
+    ramp = ChannelEffects.DisruptionEvent(
+        "test",
+        "",
+        day + Hour(10),
+        day + Hour(11),
+        day + Hour(13),
+        1.0,
+        1.0,
+    )
+    link_r = ChannelEffects.LinkModel(flat, ChannelEffects.DisruptionTimeline([ramp]))
+    exact = day + Hour(11) + Millisecond(round(Int, 1000 * sqrt(2 * 7200 * 600.0)))
+    got = ChannelEffects.transfer_completion(link_r, day + Hour(11), 600.0, far)
+    @test abs((got - exact).value) <= 1000
+    # The sine profile over a pass of T = 8 h: F(s) = s/2 − T/(4π) sin(2πs/T)
+    # is the integrated capacity from the start of the pass. The completion
+    # of a 1800 s transfer started 1800 s into the pass solves
+    # F(s) − F(1800) = 1800, by bisection here.
+    sine = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(8 * 3600), "sine")
+    T = 8 * 3600.0
+    F(s) = s / 2 - T / (4π) * sin(2π * s / T)
+    lo, hi = 1800.0, T
+    for _ in 1:200
+        mid = (lo + hi) / 2
+        F(mid) - F(1800.0) < 1800.0 ? (lo = mid) : (hi = mid)
+    end
+    exact = day + Hour(8) + Millisecond(round(Int, 1000 * lo))
+    got = ChannelEffects.transfer_completion(
+        ChannelEffects.LinkModel(sine),
+        day + Hour(8) + Second(1800),
+        1800.0,
+        far,
+    )
+    @test abs((got - exact).value) <= 1000
+    @test_throws ArgumentError ChannelEffects.transfer_completion(link, day, 0.0, far)
+end
+
+@testset "Loss multiplier of a transfer" begin
+    day = DateTime(2035, 1, 1)
+    event = ChannelEffects.DisruptionEvent(
+        "test",
+        "",
+        day + Hour(10),
+        day + Hour(11),
+        day + Hour(12),
+        0.5,
+        5.0,
+    )
+    tl = ChannelEffects.DisruptionTimeline([event])
+    m(t0, t1) = ChannelEffects.disruption_loss_multiplier(tl, t0, t1)
+    @test m(day + Hour(9) + Minute(59), day + Hour(10) + Minute(1)) == 5.0
+    @test m(day + Hour(11) + Minute(59), day + Hour(12) + Minute(5)) == 5.0
+    @test m(day + Hour(9), day + Hour(9) + Minute(59)) == 1.0
+    @test m(day + Hour(12), day + Hour(12) + Minute(5)) == 1.0
+end

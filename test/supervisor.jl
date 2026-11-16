@@ -246,6 +246,7 @@ end
             )
             @test key(holes) == key(gaps)
             @test isempty(Masks.hole_feed_excess(run_dir))
+            @test issorted(holes.DeclaredAt)
             sched_hole = holes[holes.Cause .== "scheduled", :]
             @test nrow(sched_hole) == 1 &&
                   sched_hole.ContentStart[1] <= sched_hole.DeclaredAt[1]

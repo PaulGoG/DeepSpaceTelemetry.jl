@@ -161,15 +161,16 @@ function contact_windows(model::VisibilityModel, t_lo::DateTime, t_hi::DateTime)
         append!(windows, model.schedule)
     end
     append!(windows, model.low_latency)
-    filter!(w -> w.stop >= t_lo && w.start <= t_hi, windows)
+    filter!(w -> w.stop > t_lo && w.start <= t_hi, windows)
     return sort!(windows; by = w -> w.start)
 end
 
 """
     active_window(model::VisibilityModel, t::DateTime) -> Union{Nothing,ContactWindow}
 
-The contact window containing `t`, or `nothing` when the spacecraft is out
-of contact; a nominal pass takes precedence over a low-latency period.
+The contact window containing `t` (windows are half-open, `[start, stop)`),
+or `nothing` when the spacecraft is out of contact; a nominal pass takes
+precedence over a low-latency period.
 Under the daily generator only the windows anchored on the date of `t`
 and on its two neighbouring dates can contain `t`: a pass crossing
 midnight, or one whose seasonal half-extension opens it the day before.
@@ -179,17 +180,17 @@ function active_window(model::VisibilityModel, t::DateTime)
         date = Date(t)
         for d in (date, date - Day(1), date + Day(1))
             w = nominal_window(model, d)
-            w !== nothing && w.start <= t <= w.stop && return w
+            w !== nothing && w.start <= t < w.stop && return w
         end
     else
         for w in model.schedule
             w.start > t && break
-            t <= w.stop && return w
+            t < w.stop && return w
         end
     end
     for w in model.low_latency
         w.start > t && break
-        t <= w.stop && return w
+        t < w.stop && return w
     end
     return nothing
 end

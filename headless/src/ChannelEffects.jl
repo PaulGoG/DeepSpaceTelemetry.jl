@@ -9,7 +9,7 @@ composite `LinkModel` (visibility × disruption) gating both pipeline loops.
 module ChannelEffects
 
 using ..TelemetryCore: TelemetryCore
-using Dates: Dates, DateTime, Millisecond
+using Dates: Dates, DateTime, Day, Millisecond
 using Random: Random, Xoshiro
 
 # --- Stochastic Packet-Loss Models ---
@@ -220,6 +220,23 @@ function disruption_loss_multiplier(tl::DisruptionTimeline, t::DateTime)
 end
 
 """
+    disruption_loss_multiplier(tl::DisruptionTimeline, t0::DateTime, t1::DateTime) -> Float64
+
+The largest loss multiplier (≥ 1) of the events active at some instant of
+`[t0, t1]`: the multiplier of a transfer that starts at `t0` and completes
+at `t1`.
+"""
+function disruption_loss_multiplier(tl::DisruptionTimeline, t0::DateTime, t1::DateTime)
+    m = 1.0
+    for ev in tl.events
+        if ev.start_time <= t1 && t0 < ev.recovery_end
+            m = max(m, ev.loss_multiplier)
+        end
+    end
+    return m
+end
+
+"""
     active_disruption_label(tl::DisruptionTimeline, t::DateTime) -> String
 
 The `label` of the earliest-starting disruption event active at time `t` that
@@ -269,6 +286,101 @@ geometrically visible *and* not inside a full blackout.
 function is_transmittable(link::LinkModel, t::DateTime)
     return TelemetryCore.is_visible(link.visibility, t) &&
            disruption_factor(link.disruptions, t) > 0.0
+end
+
+"""
+    transfer_completion(link::LinkModel, t0::DateTime, work_sec::Real,
+                        horizon::DateTime; step_sec::Real = 60.0)
+        -> Union{DateTime,Nothing}
+
+The instant at which a transfer that starts at `t0` and needs `work_sec`
+seconds at full capacity completes: the first `τ` with
+`∫_{t0}^{τ} c(t) dt = work_sec`, `c` the effective capacity
+([`effective_bandwidth`](@ref)), which is zero outside the contact windows.
+A transfer interrupted by the end of a contact or by a blackout resumes at
+the next contact. The integral is evaluated by the midpoint rule on
+sub-intervals of at most `step_sec` seconds, split at the window boundaries
+and at the breakpoints of the disruption timeline so that the capacity is
+smooth on each; within the sub-interval that completes the transfer the
+capacity is taken constant at its midpoint value. Exact for a capacity that
+is piecewise linear between the breakpoints. Returns `nothing` when the
+transfer does not complete before `horizon`; the result is rounded to the
+millisecond.
+"""
+function transfer_completion(
+    link::LinkModel,
+    t0::DateTime,
+    work_sec::Real,
+    horizon::DateTime;
+    step_sec::Real = 60.0,
+)
+    work_sec > 0 ||
+        throw(ArgumentError("[LINK] A transfer needs work_sec > 0 (got $work_sec)."))
+    step_sec >= 0.001 || throw(
+        ArgumentError("[LINK] The integration step must be >= 0.001 s (got $step_sec)."),
+    )
+    remaining = Float64(work_sec)
+    breaks = disruption_breakpoints(link.disruptions)
+    t = t0
+    lookahead = Day(2)
+    while t < horizon
+        chunk_end = min(horizon, t + lookahead)
+        windows = TelemetryCore.contact_windows(link.visibility, t, chunk_end)
+        # The capacity also changes form at the edges of a window merged
+        # into another (a pass inside a low-latency period).
+        edges = sort!(vcat(breaks, DateTime[x for w in windows for x in (w.start, w.stop)]))
+        for (a, b) in merged_intervals(windows)
+            b <= t && continue
+            a >= chunk_end && break
+            lo = max(a, t)
+            hi = min(b, chunk_end)
+            while lo < hi
+                next_break = first_break_after(edges, lo)
+                stop = min(hi, lo + Millisecond(round(Int, step_sec * 1000)), next_break)
+                h = (stop - lo).value / 1000
+                c = effective_bandwidth(link, lo + Millisecond(round(Int, 500 * h)))
+                if c * h >= remaining
+                    done = lo + Millisecond(round(Int, 1000 * remaining / c))
+                    return done < horizon ? done : nothing
+                end
+                remaining -= c * h
+                lo = stop
+            end
+        end
+        t = chunk_end
+    end
+    return nothing
+end
+
+# The contact windows as disjoint intervals [start, stop), overlapping or
+# abutting windows merged; `windows` is sorted by start.
+function merged_intervals(windows)
+    merged = Tuple{DateTime,DateTime}[]
+    for w in windows
+        w.stop > w.start || continue
+        if !isempty(merged) && w.start <= merged[end][2]
+            merged[end] = (merged[end][1], max(merged[end][2], w.stop))
+        else
+            push!(merged, (w.start, w.stop))
+        end
+    end
+    return merged
+end
+
+# The instants at which the disruption factor changes form: event starts,
+# blackout ends, recovery ends; sorted and unique.
+disruption_breakpoints(tl::DisruptionTimeline) = sort!(
+    unique!(
+        DateTime[
+            t for ev in tl.events for t in (ev.start_time, ev.blackout_end, ev.recovery_end)
+        ],
+    ),
+)
+
+# The first breakpoint strictly after `t`, or `typemax(DateTime)`.
+function first_break_after(breaks::Vector{DateTime}, t::DateTime)
+    i = searchsortedfirst(breaks, t + Millisecond(1))
+    return i <= length(breaks) ? breaks[i] : typemax(DateTime)
 end
 
 # --- Config Builders ---

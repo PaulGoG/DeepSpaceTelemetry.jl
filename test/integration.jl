@@ -742,6 +742,9 @@ end
             holes = TelemetryCore.read_hole_feed(run_dir)
             @test Set(skipmissing(holes.Batch)) == Set(lost)
             @test all(==("lost"), holes.Cause)
+            # Outcomes are stamped at the completion of their transfer, so
+            # both logs are in mission-time order.
+            @test issorted(holes.DeclaredAt) && issorted(rx_events.SimTime)
             for r in eachrow(lost_rows)
                 row = findfirst(==(r.Batch), coalesce.(holes.Batch, ""))
                 @test row !== nothing && holes.DeclaredAt[row] == r.SimTime

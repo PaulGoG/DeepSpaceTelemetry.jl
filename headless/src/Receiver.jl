@@ -47,39 +47,6 @@ end
 
 # --- Service pacing ---
 """
-    ServicePacer
-
-The running completion instant `sim` of the receiver's download slot on the
-mission timeline of the [`TelemetryCore.TickClock`](@ref). Consecutive slots
-are chained against it ([`serve_slot!`](@ref)), so back-to-back transfers
-follow one another at the modeled rate.
-"""
-mutable struct ServicePacer
-    sim::DateTime
-end
-
-"""
-    serve_slot!(pacer::ServicePacer, clock::TelemetryCore.TickClock, slot_sim_sec::Real)
-
-Waits out one download slot of `slot_sim_sec` mission seconds. The slot
-starts when the previous one completed, or now after an idle stretch of at
-least one slot, and the task parks on the tick clock until it ends
-([`TelemetryCore.wait_until!`](@ref)), so the slot elapses as mission time
-exactly.
-"""
-function serve_slot!(
-    pacer::ServicePacer,
-    clock::TelemetryCore.TickClock,
-    slot_sim_sec::Real,
-)
-    slot = Millisecond(round(Int, slot_sim_sec * 1000))
-    t = clock.now_sim
-    pacer.sim = (t - pacer.sim >= slot ? t : pacer.sim) + slot
-    TelemetryCore.wait_until!(clock, pacer.sim; priority = TelemetryCore.RECEIVER_PRIORITY)
-    return nothing
-end
-
-"""
     idle_wait!(clock::TelemetryCore.TickClock, link_path::String)
 
 The receiver's wait while nothing is on the link: a park on the tick clock
@@ -275,13 +242,17 @@ end
     run_receiver(clock, link, run_dir; ...)
 
 The ground-station loop: serves the batches on `<run_dir>/link/`, each
-transfer taking `batch_transfer_sec` divided by the effective link capacity
-(visibility profile × disruption factor) at its start, held until it
-completes, draws one loss realization from
-`loss_model` per transfer attempt, and moves delivered batches to `ground/`
-and retry-exhausted ones to `lost/`. Every milestone is appended to
-`events_rx.csv`, from which the post-processing reconstructs the run
-exactly. `run_dir` is the absolute path of the run directory.
+transfer lasting until the effective link capacity (visibility profile ×
+disruption factor) integrated from its start reaches `batch_transfer_sec`
+([`ChannelEffects.transfer_completion`](@ref)), so that a transfer
+interrupted by the end of a contact or a blackout resumes at the next
+contact; it draws one loss realization from `loss_model` per transfer
+attempt, with the largest loss multiplier of the events active during the
+transfer, and records the outcome at the completion instant. A transfer
+that would complete at or after the horizon has no outcome. The loop moves
+delivered batches to `ground/` and retry-exhausted ones to `lost/`. Every
+milestone is appended to `events_rx.csv`, from which the post-processing
+reconstructs the run exactly. `run_dir` is the absolute path of the run directory.
 
 `clock` is the [`TelemetryCore.TickClock`](@ref) of the mission; every wait
 parks the task on it. The loop ends at the horizon, on the stop flag, or on
@@ -311,15 +282,17 @@ in `events_rx.csv`. Event logs, metrics, masks, and `lost/` are not pruned.
     off by default, set by the supervisor from
     `dashboard.receiver_status_panel`.
   - `batch_transfer_sec`: transfer time of one batch at full link capacity
-    [mission s] (`telemetry_settings(cfg).nominal_batch_transfer_sec`).
+    [mission s] (`telemetry_settings(cfg).nominal_batch_transfer_sec`); at a
+    lower capacity the transfer lasts until the integrated capacity reaches
+    it.
   - `loss_model`: stochastic packet-loss channel (`ChannelEffects.LossModel`).
   - `max_retries`: retransmissions allowed per batch; `0` moves a batch to
     `lost/` at its first failed transfer.
   - `retention`: the custodian's [`TelemetryCore.RetentionPolicy`](@ref).
   - `stop`: cooperative stop flag raised by the supervisor.
   - `min_link_factor`: capacity floor below which no transfer is attempted.
-  - `round_trip_light_time_sec`: earliest retransmission delay after a
-    detected loss [mission s]; `0.0` retries immediately.
+  - `round_trip_light_time_sec`: earliest retransmission delay after the
+    completion of a failed transfer [mission s]; `0.0` retries immediately.
   - `hole_feed`: the declared-hole feed the receiver appends its lost and
     pruned batches to, `nothing` for none.
   - `onboard_count`: the emitter's count of batches on board
@@ -380,8 +353,6 @@ function run_receiver(
     round_trip = Millisecond(round(Int, round_trip_light_time_sec * 1000))
 
     @info "[RECEIVER] Ground-station loop started."
-
-    pacer = ServicePacer(TelemetryCore.get_current_sim_time(clock))
 
     try
         while !TelemetryCore.loop_should_stop(clock, stop, halt_path, "[RECEIVER]")
@@ -471,17 +442,42 @@ function run_receiver(
                 )
                 batch_name = first(eligible)
 
-                # One transfer takes batch_transfer_sec / bw_factor mission
-                # seconds.
-                serve_slot!(pacer, clock, batch_transfer_sec / bw_factor)
+                # The transfer completes when the capacity integrated from
+                # now reaches one full-capacity transfer time
+                # (ChannelEffects.transfer_completion); its outcome is
+                # recorded at that instant. A transfer that would complete
+                # at or after the horizon has no outcome: the batch stays on
+                # the link.
+                done = ChannelEffects.transfer_completion(
+                    link,
+                    sim_t,
+                    batch_transfer_sec,
+                    clock.horizon,
+                )
+                if done === nothing
+                    TelemetryCore.wait_until!(
+                        clock,
+                        clock.horizon;
+                        priority = TelemetryCore.RECEIVER_PRIORITY,
+                    )
+                    continue
+                end
+                TelemetryCore.wait_until!(
+                    clock,
+                    done;
+                    priority = TelemetryCore.RECEIVER_PRIORITY,
+                )
+                done_t = TelemetryCore.get_current_sim_time(clock)
 
-                loss_mult =
-                    ChannelEffects.disruption_loss_multiplier(link.disruptions, sim_t)
+                loss_mult = ChannelEffects.disruption_loss_multiplier(
+                    link.disruptions,
+                    sim_t,
+                    done_t,
+                )
                 if ChannelEffects.sample_loss!(loss_model; multiplier = loss_mult)
                     attempts = get(retry_counts, batch_name, 0) + 1
                     retry_counts[batch_name] = attempts
                     total_retries += 1
-                    detected_at = TelemetryCore.get_current_sim_time(clock)
                     if attempts > max_retries
                         # Retry budget exhausted: preserve the data in lost/;
                         # leaving link/ frees the emitter's window slot.
@@ -492,23 +488,23 @@ function run_receiver(
                         lost_count += 1
                         TelemetryCore.log_rx_event(
                             run_dir,
-                            sim_t,
+                            done_t,
                             batch_name,
                             "lost",
                             attempts,
                         )
                         hole_feed === nothing || TelemetryCore.declare_batch_hole!(
                             hole_feed,
-                            sim_t,
+                            done_t,
                             "lost",
                             joinpath(lost_path, batch_name),
                         )
-                        @warn "[RECEIVER] LOST: $batch_name after $attempts failed transfers @ SimTime: $sim_t"
+                        @warn "[RECEIVER] LOST: $batch_name after $attempts failed transfers @ SimTime: $done_t"
                     else
-                        retry_after[batch_name] = detected_at + round_trip
+                        retry_after[batch_name] = done_t + round_trip
                         TelemetryCore.log_rx_event(
                             run_dir,
-                            sim_t,
+                            done_t,
                             batch_name,
                             "retry",
                             attempts,
@@ -516,7 +512,7 @@ function run_receiver(
                         @info "[RECEIVER] Transfer failed ($attempts/$(max_retries + 1)): $batch_name — retrying"
                     end
                 else
-                    @info "[RECEIVER] Ingesting: $batch_name @ SimTime: $sim_t"
+                    @info "[RECEIVER] Ingesting: $batch_name @ SimTime: $done_t"
                     @info "[RECEIVER] Bandwidth: $(round(bandwidth_pct))% | Batches buffered: $onboard | Total Data Batches: $ground_count"
 
                     prior_attempts = get(retry_counts, batch_name, 0)
@@ -531,7 +527,7 @@ function run_receiver(
                     end
                     TelemetryCore.log_rx_event(
                         run_dir,
-                        sim_t,
+                        done_t,
                         batch_name,
                         "ingested",
                         prior_attempts,
