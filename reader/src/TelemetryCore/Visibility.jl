@@ -109,6 +109,9 @@ Duration of the generated window on `date`: `session_duration` plus the
 seasonal extension modulated as `½ [1 + cos(2π (d − d_peak) / P)]`, where
 `d` is the day of year of `date`, the pass's own date. The full extension
 applies at `season_peak_day_of_year` and none half a period away.
+Over a long mission the duration follows the season pass by pass. The day
+of year restarts on 1 January, so the term repeats from year to year only
+for a period of one year.
 """
 function seasonal_window_duration(model::VisibilityModel, date::Date)
     model.seasonal_extension.value == 0 && return model.session_duration
@@ -150,7 +153,7 @@ The contact windows, nominal passes and low-latency periods, that overlap
 function contact_windows(model::VisibilityModel, t_lo::DateTime, t_hi::DateTime)
     windows = ContactWindow[]
     if isempty(model.schedule)
-        for date in (Date(t_lo)-Day(1)):Day(1):Date(t_hi)
+        for date in (Date(t_lo)-Day(1)):Day(1):(Date(t_hi)+Day(1))
             w = nominal_window(model, date)
             w === nothing || push!(windows, w)
         end
@@ -168,12 +171,13 @@ end
 The contact window containing `t`, or `nothing` when the spacecraft is out
 of contact; a nominal pass takes precedence over a low-latency period.
 Under the daily generator only the windows anchored on the date of `t`
-and on the previous date (a pass crossing midnight) can contain `t`.
+and on its two neighbouring dates can contain `t`: a pass crossing
+midnight, or one whose seasonal half-extension opens it the day before.
 """
 function active_window(model::VisibilityModel, t::DateTime)
     if isempty(model.schedule)
         date = Date(t)
-        for d in (date, date - Day(1))
+        for d in (date, date - Day(1), date + Day(1))
             w = nominal_window(model, d)
             w !== nothing && w.start <= t <= w.stop && return w
         end
@@ -205,6 +209,7 @@ The capacity profile of a nominal pass at the normalized position
 `progress ∈ [0, 1]` within the window: `sin²(π p)` for `sine`,
 `[tanh(k p) + tanh(k (1 − p))] / 2` for `sigmoid`,
 `exp(−(p − ½)² / (2σ²))` for `gaussian`, and `1` for `flat`.
+The `sigmoid` plateau is `tanh(k/2)`, below 1 for a small steepness.
 """
 function profile_factor(model::VisibilityModel, progress::Float64)
     if model.profile == "sine"

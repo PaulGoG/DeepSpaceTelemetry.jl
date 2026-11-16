@@ -48,7 +48,7 @@ Warnings:
   - disruption events that start at or after mission end (they never
     fire), black out the link to mission end, or have their blackout +
     recovery tail truncated by it; overlapping events (capacity composes as
-    the minimum, the loss multiplier as the maximum); `loss_multiplier < 1`
+    the minimum, the loss multiplier as the maximum); `loss_multiplier < 1` (no effect)
   - `post_processing.state_raster` with `generate_mask_timeline` disabled
     (the raster is drawn from the mask timeline and is skipped)
   - unrecognized sections and keys, which would otherwise fall back to
@@ -196,7 +196,13 @@ function validate_config(cfg::AbstractDict)
     end
 
     # -- [contacts], [[events.markers]], [[labels]], [ground], [post_processing.publication] --
-    contacts_settings(cfg)
+    contact_plan = contacts_settings(cfg)
+    if contact_plan.seasonal_extension_hours > 0 && !(
+        contacts_section isa AbstractDict &&
+        haskey(contacts_section, "season_peak_day_of_year")
+    )
+        @warn "[CONFIG] contacts.seasonal_extension_hours > 0 without contacts.season_peak_day_of_year: the default peak day is 172, while the shipped scenarios set 89 (manual, Physics page)."
+    end
     label_settings(cfg)
     ground_settings(cfg)
     publication_settings(cfg)
@@ -229,7 +235,10 @@ function validate_config(cfg::AbstractDict)
             @warn "[CONFIG] packet_loss.p_bad_to_good = 0: once the channel enters the BAD state it never recovers."
         end
         p_worst = loss.model == "gilbert_elliott" ? loss.p_loss_bad : loss.p_loss
-        max_mult = maximum((ev.loss_multiplier for ev in events); init = 1.0)
+        max_mult = maximum(
+            (ev.loss_multiplier for ev in events if ev.affects == "link");
+            init = 1.0,
+        )
         if p_worst * max_mult >= 1.0
             regime =
                 max_mult > 1.0 ?
@@ -242,20 +251,25 @@ function validate_config(cfg::AbstractDict)
     # -- [disruption] --
     event_windows = Tuple{Float64,Float64,Int}[] # (start_h, end_h incl. ramp, event index)
     for (i, ev) in enumerate(events)
-        ev.loss_multiplier >= 1.0 ||
-            @warn "[CONFIG] disruption.events[$i].loss_multiplier < 1 reduces loss during the event."
+        link = ev.affects == "link"
+        link &&
+            ev.loss_multiplier < 1.0 &&
+            @warn "[CONFIG] disruption.events[$i].loss_multiplier < 1 has no effect: the loss multiplier of an event is at least 1."
         end_h = ev.start_day * 24.0 + ev.duration_hours + ev.recovery_hours
         if ev.start_day >= mission_days
             # Inclusive boundary: an event at the exact final instant is
             # never simulated either.
             @warn "[CONFIG] disruption.events[$i] starts on mission day $(ev.start_day) but the mission spans only $(round(mission_days, digits=2)) days: the event never fires."
+        elseif !link
+            # A generation gap has no severity or recovery: the link checks
+            # below do not apply to it.
         elseif ev.severity >= 1.0 &&
                ev.start_day * 24.0 + ev.duration_hours >= mission_days * 24.0
             @warn "[CONFIG] disruption.events[$i] blacks out the link from day $(ev.start_day) to mission end: no batch after the event onset will ever reach the ground."
         elseif end_h > mission_days * 24.0
             @warn "[CONFIG] disruption.events[$i] extends beyond mission end (blackout + recovery reach day $(round(end_h / 24.0, digits=2)) of $(round(mission_days, digits=2))): the tail is truncated and never observed."
         end
-        push!(event_windows, (ev.start_day * 24.0, end_h, i))
+        link && push!(event_windows, (ev.start_day * 24.0, end_h, i))
     end
     sort!(event_windows, by = first)
     for k in 2:length(event_windows)

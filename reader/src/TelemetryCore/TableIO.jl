@@ -59,6 +59,10 @@ const TIMESTAMP_COLUMNS = (
     :Marker,
 )
 
+# Columns of the run-directory tables that hold text. read_table reads them
+# as String whatever their content: a label such as "1" or "true" stays text.
+const TEXT_COLUMNS = (:Batch, :Event, :Cause, :Class, :Type, :Label, :Component)
+
 """
     timestamp_text(t) -> Union{String,Missing}
 
@@ -75,11 +79,12 @@ timestamp_text(::Missing) = missing
 
 Reads a table of the run directory with stated types: the columns of
 [`TIMESTAMP_COLUMNS`](@ref) present in its header as `DateTime` (`missing`
-where a field is empty) and every text column as `String`; numbers and
-booleans are inferred. The inference of the CSV parser is not part of the
-file contract: CSV.jl 1.x reads an ISO instant as a nanosecond timestamp
-type and text as a string type of its own. `kwargs` are passed to
-`CSV.read`.
+where a field is empty) and the text columns of the contract (`Batch`,
+`Event`, `Cause`, `Class`, `Type`, `Label`, `Component`) as `String`,
+whatever their content; the other columns are inferred. The inference of
+the CSV parser is not part of the file contract: CSV.jl 1.x reads an ISO
+instant as a nanosecond timestamp type and text as a string type of its
+own. `kwargs` are passed to `CSV.read`.
 """
 function read_table(path::AbstractString; kwargs...)
     return CSV.read(
@@ -93,10 +98,15 @@ end
 
 # The stated types of read_table for a header line.
 function column_types(header::AbstractString)
-    names = Symbol.(strip.(split(header, ',')))
-    return Dict{Symbol,Type}(
-        name => DateTime for name in names if name in TIMESTAMP_COLUMNS
-    )
+    types = Dict{Symbol,Type}()
+    for name in Symbol.(strip.(split(header, ',')))
+        if name in TIMESTAMP_COLUMNS
+            types[name] = DateTime
+        elseif name in TEXT_COLUMNS
+            types[name] = String
+        end
+    end
+    return types
 end
 
 """

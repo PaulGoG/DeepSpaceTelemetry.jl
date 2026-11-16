@@ -614,6 +614,108 @@ end
     )
 end
 
+@testset "Pass opening on the previous calendar day" begin
+    # session_start 00:00 with a 4 h extension at the peak day (30 March 2035
+    # is day 89): the pass anchored on 30 March is [29 March 22:00, 30 March
+    # 10:00]. The pass anchored on 29 March closes before 10:00 that day.
+    cfg = valid_test_cfg()
+    cfg["telemetry"]["session_start"] = "00:00:00"
+    cfg["telemetry"]["bandwidth_profile"] = "flat"
+    cfg["contacts"] = Dict{String,Any}(
+        "seasonal_extension_hours" => 4.0,
+        "season_peak_day_of_year" => 89.0,
+        "season_period_days" => 365.25,
+    )
+    m = TelemetryCore.visibility_model(cfg)
+    opening = DateTime(2035, 3, 29, 22)
+    closing = DateTime(2035, 3, 30, 10)
+    w = TelemetryCore.active_window(m, DateTime(2035, 3, 29, 23))
+    @test w !== nothing && w.start == opening && w.stop == closing
+    @test TelemetryCore.is_visible(m, opening)
+    @test TelemetryCore.get_bandwidth_factor(m, DateTime(2035, 3, 29, 23, 30)) == 1.0
+    @test !TelemetryCore.is_visible(m, DateTime(2035, 3, 29, 21, 59))
+    @test TelemetryCore.is_visible(m, DateTime(2035, 3, 30, 9, 59))
+    @test !TelemetryCore.is_visible(m, DateTime(2035, 3, 30, 10, 1))
+    # The window list of an interval that ends before midnight holds it too.
+    listed = TelemetryCore.contact_windows(
+        m,
+        DateTime(2035, 3, 29, 12),
+        DateTime(2035, 3, 29, 23, 30),
+    )
+    @test [(x.start, x.stop) for x in listed] == [(opening, closing)]
+end
+
+@testset "Text columns keep their text" begin
+    # Labels are free strings: one that reads as a number or a boolean stays
+    # text.
+    mktempdir() do dir
+        markers = [
+            TelemetryCore.EventMarker(DateTime(2035, 1, 1, 10), "1"),
+            TelemetryCore.EventMarker(DateTime(2035, 1, 2, 10), "007"),
+            TelemetryCore.EventMarker(DateTime(2035, 1, 3, 10), "true"),
+        ]
+        TelemetryCore.save_markers(dir, markers)
+        @test [m.label for m in TelemetryCore.load_markers(dir)] == ["1", "007", "true"]
+        table = TelemetryCore.read_table(joinpath(dir, "markers.csv"))
+        @test eltype(table.Label) == String
+    end
+end
+
+# The warnings validate_config raises for a configuration.
+function config_warnings(cfg)
+    logs, _ = Test.collect_test_logs(; min_level = Logging.Warn) do
+        TelemetryCore.validate_config(cfg)
+    end
+    return [string(l.message) for l in logs]
+end
+
+@testset "Disruption warnings by event kind" begin
+    # The mission of valid_test_cfg spans 3600 × 10 s = 10 h.
+    event(; kwargs...) = Dict{String,Any}(string(k) => v for (k, v) in kwargs)
+    link_event = event(;
+        start_day = 0.1,
+        duration_hours = 1.0,
+        severity = 0.5,
+        recovery_hours = 0.5,
+        loss_multiplier = 2.0,
+    )
+    # A multiplier below 1 is announced as inert.
+    cfg = valid_test_cfg()
+    cfg["disruption"] =
+        Dict{String,Any}("events" => [merge(link_event, event(; loss_multiplier = 0.5))])
+    @test any(contains("loss_multiplier < 1 has no effect"), config_warnings(cfg))
+    # A generation gap that reaches the mission end is no link blackout, and
+    # its overlap with a link event composes nothing.
+    cfg = valid_test_cfg()
+    gap = event(; start_day = 0.12, duration_hours = 24.0, affects = "generation")
+    cfg["disruption"] = Dict{String,Any}("events" => [link_event, gap])
+    messages = config_warnings(cfg)
+    @test !any(contains("blacks out the link"), messages)
+    @test !any(contains("overlap in time"), messages)
+    # The same span as a link blackout raises both warnings.
+    blackout = event(;
+        start_day = 0.12,
+        duration_hours = 24.0,
+        severity = 1.0,
+        recovery_hours = 0.0,
+        loss_multiplier = 1.0,
+    )
+    cfg["disruption"] = Dict{String,Any}("events" => [link_event, blackout])
+    messages = config_warnings(cfg)
+    @test any(contains("blacks out the link"), messages)
+    @test any(contains("overlap in time"), messages)
+end
+
+@testset "Seasonal extension without a peak day" begin
+    cfg = valid_test_cfg()
+    cfg["contacts"] = Dict{String,Any}("seasonal_extension_hours" => 4.0)
+    @test any(contains("season_peak_day_of_year"), config_warnings(cfg))
+    cfg["contacts"]["season_peak_day_of_year"] = 89.0
+    @test !any(contains("season_peak_day_of_year"), config_warnings(cfg))
+    cfg["contacts"] = Dict{String,Any}("seasonal_extension_hours" => 0.0)
+    @test !any(contains("season_peak_day_of_year"), config_warnings(cfg))
+end
+
 @testset "Bandwidth profile shapes and edges" begin
     start = Time(8, 0, 0)
     dur = Second(8 * 3600)
