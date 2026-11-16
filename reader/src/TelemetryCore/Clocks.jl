@@ -283,7 +283,7 @@ end
 
 """
     run_ticks!(clock::TickClock, tasks::Dict{Symbol,Task};
-               on_task_failed = (name, task) -> nothing,
+               on_task_failed = (name, task) -> throw(TaskFailedException(task)),
                heartbeats = Dict{Symbol,String}(), should_stop = () -> false)
 
 The driver of the tick clock. It advances the clock to the earliest wakeup
@@ -293,8 +293,8 @@ parked. The clock stops at the horizon: a later wakeup resumes there, where
 the component sees [`horizon_reached`](@ref) and leaves. A task that ended
 with an exception is handed to `on_task_failed(name, task)` once; the
 callback returns a replacement `Task` created by [`tick_spawn`](@ref),
-which takes the name in `tasks`, or `nothing`. Runs on the calling task's
-thread.
+which takes the name in `tasks`, or `nothing`. Without a callback the
+driver ends with the task's exception. Runs on the calling task's thread.
 
 On a paced clock (`clock.pace` set, `simulation.mode = "wall"`) the driver
 sleeps, before each release, until the wall instant
@@ -312,7 +312,7 @@ and removes them when it returns normally.
 function run_ticks!(
     clock::TickClock,
     tasks::Dict{Symbol,Task};
-    on_task_failed = (name, task) -> nothing,
+    on_task_failed = (name, task) -> throw(TaskFailedException(task)),
     heartbeats::AbstractDict{Symbol,String} = Dict{Symbol,String}(),
     should_stop = () -> false,
 )

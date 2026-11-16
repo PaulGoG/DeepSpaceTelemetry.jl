@@ -162,6 +162,16 @@ end
         end,
     )
     @test failures == [:emitter] && !istaskfailed(tasks[:emitter])
+    # Without a callback a failing task ends the driver with its exception.
+    clock = TelemetryCore.TickClock(epoch, epoch + Hour(1))
+    tasks = Dict{Symbol,Task}(
+        :emitter => TelemetryCore.tick_spawn(
+            clock,
+            TelemetryCore.EMITTER_PRIORITY,
+            () -> error("component fault"),
+        ),
+    )
+    @test_throws TaskFailedException TelemetryCore.run_ticks!(clock, tasks)
 end
 
 @testset "Deterministic tick missions" begin
