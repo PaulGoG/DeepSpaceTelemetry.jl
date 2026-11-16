@@ -311,9 +311,6 @@ function plot_alert_latency(
             marker_peak,
         )
         xlims!(ax, 0, maximum(x) > 0 ? maximum(x) : 1.0)
-        # A margin below zero, as on the lost strip: a zero realized latency
-        # would otherwise draw on the axis frame and read as unplotted.
-        ylims!(ax, -0.05 * 1.25 * y_max, 1.25 * y_max)
         # The annotated row: the largest look-back where both Kaplan–Meier
         # medians are reached.
         reached = findlast(
@@ -357,6 +354,18 @@ function plot_alert_latency(
                 "\n",
             )
         end
+        # The annotation block hangs from 0.97 of the axis height, one line
+        # advance per line; the data maximum stays 0.02 below its bottom.
+        # A margin below zero, as on the lost strip: a zero realized latency
+        # would otherwise draw on the axis frame and read as unplotted. With
+        # limits [-0.05 T, T], y_max sits at (y_max / T + 0.05) / 1.05.
+        n_lines = 2 + count(==('\n'), body)
+        block_bottom =
+            0.97 -
+            n_lines * PlotTheme.line_advance(style) /
+            (SINGLE_PANEL_SHARE * style.panel_height) - 0.02
+        top = y_max / max(1.05 * block_bottom - 0.05, 0.25)
+        ylims!(ax, -0.05 * top, top)
         text!(
             ax,
             0.02,
