@@ -6,6 +6,76 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- A pass that opens on the previous calendar day, when half the seasonal
+  extension exceeds `telemetry.session_start`, was missed by the link until
+  midnight while the masks and the session figures counted it.
+  `TelemetryCore.active_window` and `contact_windows` now include the next
+  anchor date. No shipped scenario opens a pass before its own date.
+- A marker or label that reads as a number or a boolean (`"1"`, `"007"`,
+  `"true"`) made post-processing throw a `MethodError`.
+  `TelemetryCore.read_table` reads the text columns of the contract
+  (`Batch`, `Event`, `Cause`, `Class`, `Type`, `Label`, `Component`) as
+  `String`. A text column without any value now reads as
+  `Union{Missing,String}`, and the HDF5 export writes it as empty strings.
+- `TelemetryCore.load_segment` reads a payload column as numbers under any
+  name; a column of an external file named like a timestamp column of the
+  tables (`Marker`, `SimTime`, …) could not be read back.
+- `RunAdapter.read_batch_matrix` and `read_batch` throw an `ArgumentError`
+  for a batch whose segments do not hold `points_per_batch` samples, where
+  they returned a shorter array, and report a batch pruned during the read
+  as pruned.
+- `RunAdapter.list_batches` no longer lists the backup `<name>#k` of a
+  rotated batch directory as a batch with index 0. `batch_rows` and the
+  payload reads refuse a name that is not a batch name, and `batch_rows`
+  reports an absent batch as absent.
+- The terminal sentinel (`RUN_COMPLETE` or `RUN_ABORTED`) is written before
+  `RUN_ACTIVE` is removed; for an instant a run directory carried no
+  sentinel and `RunAdapter.open_run` refused it.
+- `validate_config` applied its link checks to generation events: a gap
+  reaching the mission end was reported as a link blackout, and its overlap
+  with a link event as composed capacity. The warning for
+  `loss_multiplier < 1` said that it reduces loss; it has no effect, and the
+  message says so. A multiplier that is not a number has its own warning.
+- `TelemetryCore.run_ticks!` ends with the exception of a failed task when
+  no `on_task_failed` callback is given, where it dropped the failure.
+- `scripts/launch_dashboard.jl` states how many windows the `[dashboard]`
+  flags request; it printed "terminals spawned" also when none was.
+  `scripts/postprocessing/complete_run.jl` no longer asks for three threads
+  in its usage line.
+
+### Added
+- `validate_config` warns when `contacts.seasonal_extension_hours` is
+  positive and `contacts.season_peak_day_of_year` is absent: the default is
+  day 172, where the shipped scenarios set 89.
+
+### Changed
+- The manual states what the code and the sources support. The physics page
+  names whole-batch retransmission as an adaptation of CFDP, the FIFO/LIFO
+  order as a design choice of the package, and the 18-hour outage of the
+  scenarios as a safe mode (a solar flare does not black out an X-band link
+  80° from the Sun); it cites the Definition Study Report by table and
+  section, and adds the DSN documents, Cobham (1954) and the ESA factsheet.
+  Two deviations of the receiver are recorded as known: its outcome rows
+  carry the start of a transfer, not its completion, and a transfer that
+  follows an idle interval shorter than one transfer time is timed from the
+  previous completion. The interfaces page is corrected against the writers
+  (reproducibility of wall runs, the heartbeat files, the terminal
+  sentinels, presence conditions of the optional files, both worked
+  examples). The usage page lists the defaults of the keys it does not
+  discuss.
+- The README gives the Julia 1.12 route for a project that depends on the
+  main package: its Pkg does not follow the `[sources]` of a dependency, so
+  both packages are added in one call.
+- Configuration comments: the storage budgets are in GiB and MiB (the code
+  always used binary multiples); wall-mode-only keys are marked; a batch is
+  lost at failure `max_retries + 1`.
+- CI: the formatter check is its own workflow on every push and pull
+  request with a pinned JuliaFormatter; the floor leg follows `[compat]`
+  (`min`); Dependabot watches `reader/`. JET analyses both packages from
+  their own files, on the current stable release only, and two
+  ExplicitImports owner checks are added.
+
 ## [3.2.0] - 2026-11-03
 
 ### Added
