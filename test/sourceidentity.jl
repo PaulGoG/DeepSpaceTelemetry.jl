@@ -273,8 +273,12 @@ end
         id = TelemetryCore.source_identity(sub; manifest = nothing)
         @test id.identity_source == "work_tree" && id.git_commit == head
         @test id.git_tree_sha1 == tree && !id.git_dirty
-        @test TelemetryCore.git_tree_sha1(sub; skip_manifests = true) == tree
-        @test TelemetryCore.git_tree_sha1(sub) != tree
+        # The directory hash equals git's tree where file modes mean the same
+        # to both (not on Windows, as above).
+        if !Sys.iswindows()
+            @test TelemetryCore.git_tree_sha1(sub; skip_manifests = true) == tree
+            @test TelemetryCore.git_tree_sha1(sub) != tree
+        end
         write(joinpath(sibling, "x.jl"), "x = 2\n")
         @test TelemetryCore.source_identity(sub; manifest = nothing).git_dirty
         # The same layout in a repository of another package keeps the
@@ -286,7 +290,8 @@ end
         )
         run(`$FIXTURE_GIT -C $clone commit -q -am other`)
         id = TelemetryCore.source_identity(sub; manifest = nothing)
-        @test id.identity_source == "directory" && id.git_tree_sha1 == tree
+        @test id.identity_source == "directory"
+        Sys.iswindows() || @test id.git_tree_sha1 == tree
     end
     # The reader of a clean checkout is identified by its tree at HEAD, of a
     # modified one by its directory.
