@@ -85,8 +85,8 @@ record, and nothing it reads will change.
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run, columns `SimTime, Label, PayloadRow` (`PayloadRow`: the payload row of the instant): the instants at which the alert-latency metric is evaluated (`alert_latency_markers.csv`). Absent when the scenario declares no markers. |
 | `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid, columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd`, rows as in `masks/gaps.csv`. `Class` is `label` (a `[[labels]]` span a payload exporter declares in payload rows), `blackout` or `recovery` (the phases of a link disruption, `Type` the event type), `generation_gap` (a scheduled generation gap as configured, `Type` the event type; the realized gap of the gap table may differ by the segment-grid snap), `contact` (`Type = pass`), `low_latency` (`Type = triggered` for a marker's period, `scheduled` otherwise), or `initial_downtime`. |
 | `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema` (`"deepspacetelemetry-run/2"` since 3.0, `/1` before), `run_id`, the producer's `package_version` and source identity (the fields of Source identity), `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry (`sample_rate`, `segment_duration_sec`, `batch_size`, `points_per_batch`), `payload_columns`, the external record's `external_data_sha256` and `external_data_rows`, `written_at`, and under `[products]` the `bytes` and `sha256` of every table present; `RunAdapter.run_descriptor` returns it. Written as `descriptor.toml.partial` and renamed into place (since 3.2.0), so a reader finds the whole file or none. |
-| `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period); `plots/delivery_delay.png` renders the distribution against the requirement. |
-| `alert_latency.csv` | post-processing | Read. Alert-latency curves: the median and quartiles of the ground availability of the look-back data of a live event, for the realized doctrine and the counterfactual FIFO drain, columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours`; `plots/alert_latency.png` renders the curves. |
+| `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency, Due` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period, also where it overlaps a nominal pass; `Due`, since 3.3.0, whether `ContentEnd` plus `post_processing.delivery_requirement_hours` falls at or before the mission end); `plots/delivery_delay.png` renders the distribution against the requirement. |
+| `alert_latency.csv` | post-processing | Read. Alert-latency curves: the median and quartiles of the ground availability of the look-back data of a live event, for the realized doctrine and the counterfactual FIFO drain, columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours` over the windows delivered in full under both doctrines, then, since 3.3.0, `N_Alerts_All, N_Censored_LIFO, N_Censored_FIFO, LIFO_KM_Median_Hours, LIFO_KM_Q25_Hours, LIFO_KM_Q75_Hours, FIFO_KM_Median_Hours, FIFO_KM_Q25_Hours, FIFO_KM_Q75_Hours`: the Kaplan–Meier estimates over every live event, a window still incomplete at the run end censored there (`NaN` where a quantile is not reached; [Alert-Latency Metrology](@ref)). `plots/alert_latency.png` renders the Kaplan–Meier curves. |
 | `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
 | `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, and the provenance attributes in one HDF5 file ([HDF5 Product Export](@ref)), without the batch payloads, the clock anchor, the sentinels and the logs; regenerable from the CSV products. |
 | `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact (none when `post_processing.session_figures` is off; at most `session_figures_max` evenly spaced contacts when that cap is set), `alert_latency`, `delivery_delay`, and `state_raster` (the batch-state timeline as a raster), each as `.png` and `.pdf`. Every figure but `mission_summary_global` is gated by its `[post_processing]` flag, and a sweep run draws none. `scripts/postprocessing/generate_gif.jl` adds `telemetry_animation.gif` (with `--web`, `telemetry_animation_web.gif`). |
@@ -296,11 +296,10 @@ replay treats gap events as state-preserving.
 ## Event Feeds
 
 `events_rx.csv` — columns `SimTime, Batch, Event, Attempt`; `Attempt` is
-populated on every row. Known deviation: the `SimTime` of an `ingested`,
-`retry` or `lost` row is the start of the transfer that resolved the batch,
-not its completion, which these rows are meant to carry; the row is
-appended when the transfer ends, up to one transfer time later
-([Packet Loss Channel Models](@ref)):
+populated on every row. The `SimTime` of an `ingested`, `retry` or `lost`
+row is the completion instant of the transfer that resolved the batch, at
+which the row is appended ([Packet Loss Channel Models](@ref)); before
+3.3.0 it was the start of the transfer:
 
 * `ingested` — the batch reached the ground archive; `Attempt` is the
   number of failed attempts before the successful transfer (`0` for a batch
@@ -330,8 +329,10 @@ appended when the transfer ends, up to one transfer time later
 `holes.csv` — columns `DeclaredAt, Cause, Batch, RowFirst, RowLast,
 ContentStart, ContentEnd`. `DeclaredAt` is the mission instant of the
 declaration; the other columns are those of `masks/gaps.csv`. The file is
-append-only, with rows in declaration order; `DeclaredAt` is not monotone
-across the writers, by up to one transfer slot.
+append-only, with rows in declaration order, and every writer declares at
+the current mission instant, so `DeclaredAt` is non-decreasing (since
+3.3.0; before, a `lost` row could precede the row above it by up to one
+transfer time).
 
 | `Cause` | Declared by | When |
 |---|---|---|
