@@ -277,11 +277,30 @@ end
         @test TelemetryCore.git_tree_sha1(sub) != tree
         write(joinpath(sibling, "x.jl"), "x = 2\n")
         @test TelemetryCore.source_identity(sub; manifest = nothing).git_dirty
+        # The same layout in a repository of another package keeps the
+        # directory identity.
+        write(joinpath(sibling, "x.jl"), "x = 1\n")
+        write(
+            joinpath(clone, "Project.toml"),
+            "name = \"Other\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n",
+        )
+        run(`$FIXTURE_GIT -C $clone commit -q -am other`)
+        id = TelemetryCore.source_identity(sub; manifest = nothing)
+        @test id.identity_source == "directory" && id.git_tree_sha1 == tree
     end
-    # The reader of this checkout is identified by its tree at HEAD.
+    # The reader of a clean checkout is identified by its tree at HEAD, of a
+    # modified one by its directory.
     if TelemetryCore.git_work_tree()
-        @test TelemetryCore.reader_tree_sha1() ==
-              TelemetryCore.git_output(`rev-parse HEAD:reader`)
+        status = TelemetryCore.git_output(`status --porcelain --untracked-files=no`)
+        expected =
+            isempty(something(status, "")) ?
+            TelemetryCore.git_output(`rev-parse HEAD:reader`) :
+            TelemetryCore.git_tree_sha1(
+                pkgdir(TelemetryCore);
+                exclude = [TelemetryCore.DATA_ROOT[]],
+                skip_manifests = true,
+            )
+        @test TelemetryCore.reader_tree_sha1() == expected
     end
 
     # The manifest is resolved as code loading resolves it.

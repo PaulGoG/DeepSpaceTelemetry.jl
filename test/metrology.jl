@@ -252,6 +252,11 @@ end
             (t0 + Minute(20), t0 + Minute(30)),
         ]
         @test Metrology.discarded_batches(dir) == 5
+        # A stream gap (an emitter outage) is not taken out: during an
+        # overflow it starts where the recorder began to discard.
+        TelemetryCore.log_tx_event(dir, t0 + Minute(20), "STREAM", "gap_start")
+        TelemetryCore.log_tx_event(dir, t0 + Minute(25), "STREAM", "gap_end")
+        @test Metrology.discarded_batches(dir) == 5
     end
     # A window that holds a batch lost for good never completes under the
     # realized doctrine. ARCH_1, ARCH_2 and LIVE_3 arrive (LIVE_3's window

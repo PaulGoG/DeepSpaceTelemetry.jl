@@ -10,3 +10,11 @@ headless/data/
 **/*.mem
 **/LocalPreferences.toml
 **/JuliaManifest.toml
+**/*.ji
+**/*.jld2
+**/lcov.info
+**/.vscode
+**/.idea
+**/.DS_Store
+**/.AppleDouble
+**/.LSOverride

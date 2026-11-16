@@ -123,7 +123,10 @@ ensemble member); the run directory carries its own provenance.
 A run in the image records the source identity of the `headless/`
 directory as copied into it (`identity_source = "directory"`): its git tree
 hash equals `git rev-parse <commit>:headless` of the commit the image was
-built from, and `reader_tree_sha1` equals `git rev-parse <commit>:reader`.
+built from, and `reader_tree_sha1` equals `git rev-parse <commit>:reader`,
+when the image is built from a clean checkout: an untracked file under
+`headless/` or `reader/` that `.dockerignore` does not exclude enters the
+hash.
 A run of the headless package in a clone records the commit itself
 (`identity_source = "work_tree"`), with `git_dirty` set by any change to
 a tracked file of the clone. The resolved environment is the run's

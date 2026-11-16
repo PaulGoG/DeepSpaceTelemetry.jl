@@ -36,6 +36,11 @@ Notable changes to DeepSpaceTelemetry. The format follows
   main package loads it); `Export.hdf5_available()` tells whether it is
   there, and a configuration that asks for `hdf5_export` without it stops
   at the configuration check. The three packages share one version.
+- `mission_profile.csv` has rows throughout a transfer: the receiver writes
+  the profile at every emitter step while a transfer is in flight, where it
+  slept through each transfer slot, so a run has more profile rows (about
+  75 % more on the stress scenario) and a mask timeline and an animation
+  with more frames.
 - The metrology figures moved from `Metrology` to `MetrologyFigures`
   (`plot_alert_latency`, `plot_delivery_delay`); the tables stay in
   `Metrology`.

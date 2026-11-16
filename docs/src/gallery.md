@@ -147,11 +147,16 @@ compliance fraction of the run.
 ![Alert-latency curves of the stress scenario: time until a look-back window before a live event is complete on the ground, under the realized doctrine and under a counterfactual first-in, first-out drain](assets/gallery/stress_8h_bursty_alert_latency.png)
 
 The alert latency ([Alert-Latency Metrology](@ref)) is the time after a live
-event until the data of the preceding hours are complete on the ground. The realized routing completes
-about a day of look-back within a day; a first-in, first-out drain of the
-same service completions would need close to three. The medians are
-conditional on windows delivered in full within the run
-([Alert-Latency Metrology](@ref)).
+event until the data of the preceding hours are complete on the ground.
+Under the realized routing the Kaplan–Meier median stays below an hour for
+look-backs up to six hours, reaches about 3 h at twelve hours and about two
+days at seventeen; beyond that more than half of the windows are still
+incomplete at the end of the week, and the median is not reached within the
+run. A first-in, first-out drain of the same service completions would need
+about 71 h at every look-back. The complete-case medians, over the windows
+delivered in full under both doctrines, put the realized latency at about
+2 h for 18 h of look-back: they leave out the windows still open at the
+end of the run ([Alert-Latency Metrology](@ref)).
 
 ![Session figure of the low-latency period of the stress scenario: capacity at 50 %, the received batches as a staircase](assets/gallery/stress_8h_bursty_session_day04_low_latency_detail.png)
 
@@ -168,7 +173,7 @@ content of `config.toml`: the event timeline of the stress scenario from
 passes to 12 hours; evaluated on the date of each pass, it stays within
 minutes of its maximum over the week.
 
-![Mission summary of the recovery scenario: 12-hour passes, the onboard buffer falling from 283 to 15 batches by day 2, then between about 75 and 220](assets/gallery/recovery_12h_seasonal_mission_summary_global.png)
+![Mission summary of the recovery scenario: 12-hour passes, the onboard buffer falling from 283 to 15 batches at day 2.5, then between about 75 and 220](assets/gallery/recovery_12h_seasonal_mission_summary_global.png)
 
 A 12-hour pass carries about 210 batches against 144 produced per day, so
 an undisturbed day lowers the buffer by some 65 batches. The blackout and

@@ -33,7 +33,11 @@ one run at a time.
    entry-point scripts.** Semantic versioning applies to those three: a
    change that alters what a consumer reads from a run directory, rejects a
    configuration that was accepted, or changes a script's arguments or
-   products is a major release. The Julia modules and functions are the
+   products is a major release. A correction that brings a writer into line
+   with this contract, where the contract had recorded the writer's
+   deviation from it, is a defect fix and comes in a minor release, listed
+   on the [Upgrading and Support](@ref) page; 3.3.0 moved the instants of
+   `events_rx.csv` to the completion of the transfer that way. The Julia modules and functions are the
    implementation and may change between minor releases; the API pages
    document them for contributors. The exception is `RunAdapter`: its public
    names are versioned with this contract.
@@ -187,7 +191,7 @@ identity is defined for a git checkout and for a copy Pkg installed under
 |---|---|
 | `identity_source` | How the identity was determined: `work_tree` (the package directory is the top level of a git checkout, or since 3.3.0 a directory tracked in a clone of this repository, as the headless package), `manifest` (a copy installed by Pkg, matched by UUID to its entry in the manifest of the active environment), or `directory` (neither; the content of the directory alone). |
 | `git_tree_sha1` | The git tree hash of the source: `HEAD^{tree}` of the checkout (`HEAD:<path>` for a tracked directory), the `git-tree-sha1` of the manifest entry, or the hash of the package directory computed as git computes it (leaving out `.git`, the untracked manifests, and, under a data root inside it, everything but the `.gitkeep` placeholders the repository tracks). Never empty. |
-| `reader_tree_sha1` | The tree hash of the reader package's directory, computed the same way: the identity of the configuration and I/O layer where the package identity does not hold it, as for the headless package in a container image (since 3.3.0). |
+| `reader_tree_sha1` | The tree hash of the reader package: its tree at `HEAD` in a clean clone of this repository, otherwise the hash of its directory computed as above. The identity of the configuration and I/O layer where the package identity does not hold it, as for the headless package in a container image (since 3.3.0). |
 | `git_commit` | The checkout's `HEAD`; for an installed copy, the `repo-rev` of the manifest entry when it is a full 40-digit commit hash, as in a `[sources]` pin by commit. Empty for a copy pinned by branch or tag, one installed from a registry, and a bare directory. |
 | `git_dirty` | The code that ran differs from the recorded identity: uncommitted changes to tracked files of the checkout, or an installed directory whose tree hash differs from its manifest entry's (a `[RUN]` warning on the console at startup, before `supervisor.log` exists). |
 | `repo_url`, `repo_rev` | The `repo-url` and `repo-rev` of the manifest entry of a copy added by URL; empty otherwise. |

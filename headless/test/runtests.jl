@@ -19,6 +19,32 @@ include("licences.jl")
         @test length(registered_closure(joinpath(@__DIR__, "Manifest.toml"))) >= 30
     end
 
+    @testset "Licence classification and its rejections" begin
+        mit = "Permission is hereby granted, free of charge, to any person"
+        gpl = "GNU General\n   Public License, version 2"   # broken across lines
+        package(files...) = mktempdir() do dir
+            for (name, text) in files
+                write(joinpath(dir, name), text)
+            end
+            licence_of_directory(dir)
+        end
+        @test package("LICENSE" => mit) == "MIT"
+        @test package("LICENSE" => gpl) == "GPL"
+        @test package("LICENSE.md" => mit * "\n" * gpl) == "GPL+MIT"
+        @test package("LICENSE.md" => "Apache License", "LICENSE-X.md" => mit) ==
+              "Apache-2.0+MIT"
+        @test package("COPYING" => "All rights reserved.") == "UNKNOWN"
+        @test package("README.md" => mit) == "NONE"
+        listed = Dict("A" => "MIT", "B" => "GPL+MIT", "C_jll" => "MIT", "D_jll" => "MIT")
+        binaries = Dict("D_jll" => "GPL")
+        @test isempty(package_problems("A", "MIT", listed, binaries))
+        @test !isempty(package_problems("A", "Apache-2.0", listed, binaries))
+        @test !isempty(package_problems("B", "GPL+MIT", listed, binaries))
+        @test !isempty(package_problems("Z", "MIT", listed, binaries))
+        @test !isempty(package_problems("C_jll", "MIT", listed, binaries))
+        @test !isempty(package_problems("D_jll", "MIT", listed, binaries))
+    end
+
     @testset "No figure backend and no HDF5 export on its own" begin
         @test !Supervisor.figure_backend_loaded()
         @test !Export.hdf5_available()

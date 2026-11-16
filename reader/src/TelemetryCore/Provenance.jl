@@ -117,10 +117,10 @@ The directory hash leaves out `.git` and, under the data root
 ([`DATA_ROOT`](@ref)) when it lies inside `root`, everything but the
 `.gitkeep` placeholders the repository tracks there: run outputs stay out of
 the hash and a pristine installed copy hashes to its manifest entry whatever
-the data root is set to. It also leaves out the manifests
-(`Manifest.toml`, `Manifest-vX.Y.toml`), which the repository does not
-track, so a copied directory with its environment instantiated hashes to its
-committed tree.
+the data root is set to. It also leaves out the manifests (`Manifest.toml`,
+`JuliaManifest.toml`, and their `-vX.Y` forms), which the repository does
+not track, so a copied directory with its environment instantiated hashes
+to its committed tree.
 
 # Example
 ```julia
@@ -215,15 +215,17 @@ end
     reader_tree_sha1() -> String
 
 The git tree hash of the reader package's directory: `HEAD:<path>` when it
-is tracked in a clone of this repository (whose `git_dirty` covers it), the
-hash of the directory otherwise ([`git_tree_sha1`](@ref), manifests left
-out); empty when the reader's directory is unknown.
+is tracked in a clone of this repository without uncommitted changes to
+tracked files, the hash of the directory as it is otherwise
+([`git_tree_sha1`](@ref), manifests left out), so that a modified reader
+never records a committed tree; empty when the reader's directory is
+unknown. Without git, files git would ignore enter the directory hash.
 """
 function reader_tree_sha1()
     reader = pkgdir(@__MODULE__)
     reader === nothing && return ""
     tracked = git_subtree_identity(reader)
-    tracked === nothing || return tracked.git_tree_sha1
+    (tracked === nothing || tracked.git_dirty) || return tracked.git_tree_sha1
     return git_tree_sha1(reader; exclude = [DATA_ROOT[]], skip_manifests = true)
 end
 
@@ -304,8 +306,8 @@ and `git rev-parse <commit>^{tree}` of the commit it was installed from.
 Under the paths in `exclude` only the `.gitkeep` placeholders are hashed
 ([`PLACEHOLDER_NAME`](@ref)): a directory the repository tracks as empty
 keeps its placeholder and loses the content written into it. With
-`skip_manifests`, files named `Manifest.toml` or `Manifest-vX.Y.toml` are
-left out at every level.
+`skip_manifests`, files named `Manifest.toml`, `JuliaManifest.toml`, or a
+`-vX.Y` form of either are left out at every level.
 """
 function git_tree_sha1(
     dir::AbstractString;

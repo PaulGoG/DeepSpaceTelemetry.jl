@@ -28,26 +28,54 @@ const LICENCE_PHRASES = (
     "BSD" => "redistribution and use in source and binary forms",
 )
 
-# The licences the top-level licence files of an installed package state,
-# joined with "+" in sorted order ("UNKNOWN" for a file this does not
-# recognize, "NONE" without a licence file).
-function licence_of(name::AbstractString, uuid::Base.UUID)
-    root = dirname(dirname(Base.locate_package(Base.PkgId(uuid, name))))
+# The licences the licence files at the top of `root` state, joined with "+"
+# in sorted order ("UNKNOWN" for a file this does not recognize, "NONE"
+# without a licence file). Whitespace runs read as one space, so a phrase
+# broken across lines is found.
+function licence_of_directory(root::AbstractString)
     files = filter(f -> occursin(r"^(licen[cs]e|copying)"i, f), readdir(root))
     kinds = String[]
     for f in files
-        text = lowercase(read(joinpath(root, f), String))
+        text = lowercase(replace(read(joinpath(root, f), String), r"\s+" => " "))
         found = [kind for (kind, phrase) in LICENCE_PHRASES if occursin(phrase, text)]
         append!(kinds, isempty(found) ? ["UNKNOWN"] : found)
     end
     return isempty(kinds) ? "NONE" : join(sort!(unique(kinds)), "+")
 end
 
-# The packages of the closure that the list lacks, whose licence files state
-# something else than the list, or whose licence is not permissive; empty
-# when every package passes. A binary package (`_jll`) also needs the
-# licence of its artifact under `[binaries]`, read from the artifact's
-# `share/licenses`, since its own licence file covers the wrapper only.
+# The licences of an installed package of the active environment.
+licence_of(name::AbstractString, uuid::Base.UUID) =
+    licence_of_directory(dirname(dirname(Base.locate_package(Base.PkgId(uuid, name)))))
+
+# What is wrong with one package of the closure: `found` is what its licence
+# files state, `listed` and `binaries` the tables of the list. A binary
+# package (`_jll`) also needs the licence of its artifact under
+# `[binaries]`, read from the artifact's `share/licenses`, since its own
+# licence file covers the wrapper only.
+function package_problems(name::AbstractString, found::AbstractString, listed, binaries)
+    problems = String[]
+    permissive(kinds) = all(in(PERMISSIVE), split(kinds, "+"))
+    if endswith(name, "_jll")
+        binary = get(binaries, name, nothing)
+        if binary === nothing
+            push!(problems, "$name is a binary package without its artifact's licence")
+        elseif !permissive(binary)
+            push!(problems, "$name carries a $binary binary, which is not permissive")
+        end
+    end
+    expected = get(listed, name, nothing)
+    if expected === nothing
+        push!(problems, "$name is not listed (its licence files state $found)")
+    elseif found != expected
+        push!(problems, "$name is listed as $expected, its licence files state $found")
+    elseif !permissive(found)
+        push!(problems, "$name carries $found, which is not permissive")
+    end
+    return problems
+end
+
+# The problems of every registered package of the closure (empty when every
+# one passes): unlisted, stated otherwise than listed, or not permissive.
 function licence_report(
     manifest_path::AbstractString,
     list_path::AbstractString = joinpath(@__DIR__, "licences.toml"),
@@ -57,23 +85,7 @@ function licence_report(
     binaries = get(list, "binaries", Dict{String,Any}())
     problems = String[]
     for (name, uuid) in registered_closure(manifest_path)
-        if endswith(name, "_jll")
-            binary = get(binaries, name, nothing)
-            binary === nothing &&
-                push!(problems, "$name is a binary package without its artifact's licence")
-            binary === nothing ||
-                all(in(PERMISSIVE), split(binary, "+")) ||
-                push!(problems, "$name carries a $binary binary, which is not permissive")
-        end
-        found = licence_of(name, uuid)
-        expected = get(listed, name, nothing)
-        if expected === nothing
-            push!(problems, "$name is not listed (its licence files state $found)")
-        elseif found != expected
-            push!(problems, "$name is listed as $expected, its licence files state $found")
-        elseif !all(in(PERMISSIVE), split(found, "+"))
-            push!(problems, "$name carries $found, which is not permissive")
-        end
+        append!(problems, package_problems(name, licence_of(name, uuid), listed, binaries))
     end
     return problems
 end
