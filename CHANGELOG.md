@@ -6,6 +6,25 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The alert-latency figure throws an `ArgumentError` when its annotation
+  would leave the curves to peak below a quarter of the upper limit
+  (`MetrologyFigures.latency_axis_top`), where it held the curve maximum at
+  a quarter of the limit and drew the curves into an annotation of fifteen
+  lines or more. The annotation has at most four lines; no figure changes.
+- The licence check of the headless package reads every entry of a package
+  name in the manifest, where it read the first.
+- `docs/src/assets/PROVENANCE.toml` records the SHA-256 digest of each
+  gallery run's manifest snapshot (`manifest_sha256`) and of the manifest of
+  the script environment that renders the animations
+  (`[render] scripts_manifest_sha256`).
+
+### Changed
+- A correction of a writer's deviation that the contract recorded comes in
+  a minor release when it changes what a consumer reads from the runs of the
+  shipped scenarios, and in a patch release when it leaves them unchanged
+  (Design Principles, Upgrading and Support).
+
 ## [3.3.0] - 2026-11-16
 
 ### Changed
