@@ -204,6 +204,18 @@ First 16 hexadecimal characters of the SHA-256 digest of the file at `path`.
 sha256_prefix(path::String) = bytes2hex(open(sha256, path))[1:16]
 
 """
+    manifest_sha256(path::Union{String,Nothing}, what::String) -> String
+
+SHA-256 digest (64 hexadecimal characters) of the manifest at `path`. Throws
+when `path` is `nothing` or not a file; `what` names the manifest in the
+message.
+"""
+function manifest_sha256(path::Union{String,Nothing}, what::String)
+    path !== nothing && isfile(path) || error("[ASSETS] No manifest of $what found.")
+    return bytes2hex(open(sha256, path))
+end
+
+"""
     asset_record(id::String, source::String, target::String) -> Dict{String,Any}
 
 Provenance entry of one published file: producing run, source path relative
@@ -281,9 +293,10 @@ end
     run_record(id::String, entry) -> Dict{String,Any}
 
 Provenance entry of one run: scenario, command, commit and versions, config
-digest, date, mission span, platform fingerprint, and realized totals, taken
-from the run's `config_snapshot.toml`, `mission_profile.csv`, and
-`delivery_delay.csv`. Host name and `versioninfo` are not copied.
+digest, manifest digest, date, mission span, platform fingerprint, and
+realized totals, taken from the run's `config_snapshot.toml`,
+`manifest_snapshot.toml`, `mission_profile.csv`, and `delivery_delay.csv`.
+Host name and `versioninfo` are not copied.
 """
 function run_record(id::String, entry)
     dir = run_directory(id)
@@ -320,6 +333,8 @@ function run_record(id::String, entry)
         "package_version" => get(platform, "package_version", ""),
         "julia_version" => get(platform, "julia_version", ""),
         "config_sha256" => get(provenance, "config_sha256", ""),
+        "manifest_sha256" =>
+            manifest_sha256(joinpath(dir, "manifest_snapshot.toml"), "run $id"),
         "date" => date,
         "mission_days" => round(mission_days, digits = 3),
         "platform" => Dict{String,Any}(
@@ -359,8 +374,10 @@ function write_provenance(path::String, record::Dict{String,Any})
             # docs/render_assets.jl, which runs every listed scenario, reduces the run
             # products to the published size, and records each run and each file here.
             # Every run is a tick-mode run (`--tick`): its realized totals follow
-            # from the scenario, the seed, and the commit recorded with it, on the
-            # platform stated with it.
+            # from the scenario, the seed, the commit, and the manifest digest
+            # recorded with it, on the platform stated with it. The animations are
+            # rendered in the script environment whose manifest digest is under
+            # [render].
             """,
         )
         TOML.print(io, record; sorted = true)
@@ -436,6 +453,12 @@ function main(args)
             "commit" => DeepSpaceTelemetry.TelemetryCore.git_commit(),
             "code_dirty" => !isempty(something(code_changes, "")),
             "image_tool" => tool,
+            "scripts_manifest_sha256" => manifest_sha256(
+                DeepSpaceTelemetry.TelemetryCore.active_manifest_path(
+                    joinpath(REPO, "scripts", "Project.toml"),
+                ),
+                "the script environment",
+            ),
             "png_transform" =>
                 "magick <source> -resize $(PNG_WIDTH_PX)x -strip " *
                 "-define png:compression-level=9 <target>",
