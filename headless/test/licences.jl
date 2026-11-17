@@ -77,6 +77,8 @@ end
 
 # The problems of every registered package of the closure (empty when every
 # one passes): unlisted, stated otherwise than listed, or not permissive.
+# The list is keyed by name, so two packages of one name pass only when
+# both carry the licence listed for it; otherwise both are reported.
 function licence_report(
     manifest_path::AbstractString,
     list_path::AbstractString = joinpath(@__DIR__, "licences.toml"),

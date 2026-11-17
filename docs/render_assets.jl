@@ -374,8 +374,8 @@ function write_provenance(path::String, record::Dict{String,Any})
             # docs/render_assets.jl, which runs every listed scenario, reduces the run
             # products to the published size, and records each run and each file here.
             # Every run is a tick-mode run (`--tick`): its realized totals follow
-            # from the scenario, the seed, the commit, and the manifest digest
-            # recorded with it, on the platform stated with it. The animations are
+            # from the scenario, the seed, the commit, and the manifest whose digest
+            # is recorded with it, on the platform stated with it. The animations are
             # rendered in the script environment whose manifest digest is under
             # [render].
             """,
@@ -411,6 +411,17 @@ function main(args)
     ids = Dict{String,String}(
         entry.scenario => ensure_run(prefix, entry) for entry in GALLERY
     )
+    # The run records and the animations come before the first asset is
+    # replaced: a run that cannot be recorded (no manifest snapshot, no
+    # profile row) or rendered stops the script while the published files
+    # and PROVENANCE.toml still agree.
+    for entry in GALLERY
+        runs[ids[entry.scenario]] = run_record(ids[entry.scenario], entry)
+    end
+    animations = Dict{String,String}(
+        ids[entry.scenario] => render_animation(ids[entry.scenario]) for
+        entry in GALLERY if entry.animation
+    )
     for entry in GALLERY
         id = ids[entry.scenario]
         plots = joinpath(run_directory(id), "plots")
@@ -422,14 +433,13 @@ function main(args)
             assets["$(GALLERY_SUBDIR)/$name"] = asset_record(id, source, target)
         end
         if entry.animation
-            source = render_animation(id)
+            source = animations[id]
             name = "$(entry.scenario)_$(WEB_ANIMATION)"
             target = joinpath(ASSET_DIR, GALLERY_SUBDIR, name)
             mkpath(dirname(target))
             cp(source, target; force = true)
             assets["$(GALLERY_SUBDIR)/$name"] = asset_record(id, source, target)
         end
-        runs[id] = run_record(id, entry)
     end
 
     gallery_dir = joinpath(ASSET_DIR, GALLERY_SUBDIR)

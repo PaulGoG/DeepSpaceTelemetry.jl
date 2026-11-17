@@ -67,7 +67,9 @@ while 756 batches reach the ground. Retransmission recovers all 49 rejected
 transfers, and the lost-batch strip stays at zero. This is a tick-mode run,
 reproducible from the scenario, the seed, the commit, the platform, and the
 Julia version recorded in
-[`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml). The
+[`docs/src/assets/PROVENANCE.toml`](docs/src/assets/PROVENANCE.toml), which
+also identifies the resolved dependencies by the digest of the run's
+manifest. The
 [scenario library](scenarios/README.md#gallery) shows nine further scenarios
 through the same figure.
 

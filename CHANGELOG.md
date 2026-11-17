@@ -24,7 +24,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 ### Changed
 - A correction of a writer's deviation that the contract recorded comes in
   a minor release when it changes what a consumer reads from the runs of the
-  shipped scenarios, and in a patch release when it leaves them unchanged
+  shipped scenarios on the tick clock, and in a patch release when it leaves
+  them unchanged
   (Design Principles, Upgrading and Support).
 
 ## [3.3.0] - 2026-11-16

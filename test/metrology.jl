@@ -430,19 +430,23 @@ end
         top = MetrologyFigures.latency_axis_top
         style = PlotTheme.PlotStyle()
         # Reference values: the limit drawn up to 3.3.0, y_max / (1.05 b - 0.05)
-        # with b = 0.95 - 0.9 n / 19 the bottom of an n-line block.
-        @test top(1.0, 4, style) ≈ 1.3359114079803132 rtol = 1e-9
-        @test top(30.0, 4, style) ≈ 30 * 1.3359114079803132 rtol = 1e-9
-        @test top(1.0, 4, PlotTheme.style_for_width(88)) ≈ 1.3359114079803132 rtol = 1e-9
-        @test top(1.0, 13, style) ≈ 3.323130738959336 rtol = 1e-9
+        # with b = 0.95 - 9 n / 190 the bottom of an n-line block, in exact
+        # fractions (a line advance is 9/190 of the axis height).
+        @test top(1.0, 4, style) ≈ 7600 / 5689 rtol = 1e-9
+        @test top(30.0, 4, style) ≈ 30 * 7600 / 5689 rtol = 1e-9
+        @test top(1.0, 4, PlotTheme.style_for_width(88)) ≈ 7600 / 5689 rtol = 1e-9
+        @test top(1.0, 13, style) ≈ 7600 / 2287 rtol = 1e-9
+        @test top(1.0, 14, style) ≈ 7600 / 1909 rtol = 1e-9 # the last line count held
         # Fifteen lines leave the curves 0.20 of the limit: refused instead of
         # drawn into the block (the clamp of 3.3.0 returned 4.0 here).
         @test_throws ArgumentError top(1.0, 15, style)
         @test_throws ArgumentError top(1.0, 16, style)
         @test_throws ArgumentError top(0.0, 4, style)
+        @test_throws ArgumentError top(-1.0, 4, style)
         @test_throws ArgumentError top(Inf, 4, style)
         @test_throws ArgumentError top(NaN, 4, style)
         @test_throws ArgumentError top(1.0, 0, style)
+        @test_throws ArgumentError top(1.0, -1, style)
     end
 end
 

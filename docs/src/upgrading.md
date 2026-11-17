@@ -10,8 +10,9 @@ within 3.x ([Design Principles](@ref)). Anything removed from that surface
 first warns through at least one minor release, as everything 3.0 removed
 did in 2.11. A writer that deviated from the contract as the contract
 recorded it is corrected in a minor release when the correction changes
-what a consumer reads from the runs of the shipped scenarios, and in a
-patch release when it leaves them unchanged; either way the change is
+what a consumer reads from the runs of the shipped scenarios on the tick
+clock, and in a patch release when it leaves them unchanged; either way the
+change is
 listed below.
 
 The supported Julia versions are 1.12 and the current stable release; the

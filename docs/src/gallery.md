@@ -22,8 +22,8 @@ julia docs/render_assets.jl
 ```
 
 The totals below reproduce from the scenario, the seed, the commit, the
-platform, the Julia version, and the dependency versions (the digest of the
-run's manifest snapshot) recorded with each run. The regime each scenario is built to
+platform, and the Julia version recorded with each run; the record also
+identifies the resolved dependencies by the digest of the run's manifest. The regime each scenario is built to
 reach follows from its link budget and is derived in the coverage matrix of
 `scenarios/README.md`.
 
