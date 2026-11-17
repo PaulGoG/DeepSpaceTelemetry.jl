@@ -75,6 +75,42 @@ annotation.
 const REQUIREMENT_LABEL_MARGIN = 0.02
 
 """
+Smallest fraction of the alert-latency figure's upper limit at which its
+curves may peak below the corner annotation ([`latency_axis_top`](@ref)).
+"""
+const MIN_CURVE_SHARE = 0.25
+
+"""
+    latency_axis_top(y_max::Real, n_lines::Integer, style::PlotTheme.PlotStyle) -> Float64
+
+Upper y-limit [h] of the alert-latency figure, whose lower limit is −0.05 of
+it, for curves peaking at `y_max` [h] below a corner annotation of `n_lines`
+lines. The annotation hangs from 0.97 of the axis height, one line advance
+per line; the curves peak 0.02 of the axis height below its bottom. With
+limits `[-0.05 T, T]`, a height `y` sits at `(y / T + 0.05) / 1.05` of the
+axis. Throws an `ArgumentError` when `y_max` is not finite and positive, when
+`n_lines < 1`, or when the annotation would leave the curves to peak below
+[`MIN_CURVE_SHARE`](@ref) of the upper limit.
+"""
+function latency_axis_top(y_max::Real, n_lines::Integer, style::PlotTheme.PlotStyle)
+    isfinite(y_max) && y_max > 0 ||
+        throw(ArgumentError("Curve maximum $y_max h is not finite and positive."))
+    n_lines >= 1 || throw(ArgumentError("Annotation of $n_lines lines; at least one."))
+    block_bottom =
+        0.97 -
+        n_lines * PlotTheme.line_advance(style) /
+        (SINGLE_PANEL_SHARE * style.panel_height) - 0.02
+    share = 1.05 * block_bottom - 0.05
+    share >= MIN_CURVE_SHARE || throw(
+        ArgumentError(
+            "An annotation of $n_lines lines leaves the curves " *
+            "$(round(share, digits = 3)) of the upper limit, below $MIN_CURVE_SHARE.",
+        ),
+    )
+    return y_max / share
+end
+
+"""
     requirement_label_occupancy(curves, xa::Real, xb::Real) -> Vector{Tuple{Float64,Float64}}
 
 Relative height intervals the drawn step curves of the delivery-delay figure
@@ -354,17 +390,9 @@ function plot_alert_latency(
                 "\n",
             )
         end
-        # The annotation block hangs from 0.97 of the axis height, one line
-        # advance per line; the data maximum stays 0.02 below its bottom.
         # A margin below zero, as on the lost strip: a zero realized latency
-        # would otherwise draw on the axis frame and read as unplotted. With
-        # limits [-0.05 T, T], y_max sits at (y_max / T + 0.05) / 1.05.
-        n_lines = 2 + count(==('\n'), body)
-        block_bottom =
-            0.97 -
-            n_lines * PlotTheme.line_advance(style) /
-            (SINGLE_PANEL_SHARE * style.panel_height) - 0.02
-        top = y_max / max(1.05 * block_bottom - 0.05, 0.25)
+        # would otherwise draw on the axis frame and read as unplotted.
+        top = latency_axis_top(y_max, 2 + count(==('\n'), body), style)
         ylims!(ax, -0.05 * top, top)
         text!(
             ax,

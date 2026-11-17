@@ -425,6 +425,25 @@ end
         @test occupancy(curves, 5.0, 9.0) == [(0.5 / Y, 1.0 / Y)]   # ends inside the band
         @test occupancy(curves, -1.0, 1.0) == [(0.0, 0.0)]          # band clipped at the origin, before the first step
     end
+
+    @testset "Upper limit of the alert-latency figure" begin
+        top = MetrologyFigures.latency_axis_top
+        style = PlotTheme.PlotStyle()
+        # Reference values: the limit drawn up to 3.3.0, y_max / (1.05 b - 0.05)
+        # with b = 0.95 - 0.9 n / 19 the bottom of an n-line block.
+        @test top(1.0, 4, style) ≈ 1.3359114079803132 rtol = 1e-9
+        @test top(30.0, 4, style) ≈ 30 * 1.3359114079803132 rtol = 1e-9
+        @test top(1.0, 4, PlotTheme.style_for_width(88)) ≈ 1.3359114079803132 rtol = 1e-9
+        @test top(1.0, 13, style) ≈ 3.323130738959336 rtol = 1e-9
+        # Fifteen lines leave the curves 0.20 of the limit: refused instead of
+        # drawn into the block (the clamp of 3.3.0 returned 4.0 here).
+        @test_throws ArgumentError top(1.0, 15, style)
+        @test_throws ArgumentError top(1.0, 16, style)
+        @test_throws ArgumentError top(0.0, 4, style)
+        @test_throws ArgumentError top(Inf, 4, style)
+        @test_throws ArgumentError top(NaN, 4, style)
+        @test_throws ArgumentError top(1.0, 0, style)
+    end
 end
 
 @testset "Contact schedule and low-latency periods" begin
