@@ -148,7 +148,7 @@ source = "data/runs/V330_STRESS_8H_BURSTY/plots/telemetry_animation_web.gif"
 [render]
 code_dirty = false
 command = "julia docs/render_assets.jl V330"
-commit = "66e7747461ccb884811eebf2570d1bb0b83bb13e"
+commit = "9efb382b49fe7e2d32fc63fad94ce2234597ec72"
 date = "2026-11-17"
 gif_transform = "none; the --web rendering profile writes the published size directly"
 image_tool = "ImageMagick 7.1.2-35"
