@@ -8,12 +8,13 @@ using TOML: TOML
 const PERMISSIVE = ("MIT", "Apache-2.0", "BSD")
 
 # The registered packages of a resolved closure (the entries with a tree
-# hash, upgraded standard libraries included), with their UUIDs.
+# hash, upgraded standard libraries included), with their UUIDs. Every entry
+# of a name counts: two packages of one name are both in the closure.
 function registered_closure(manifest_path::AbstractString)
     deps = TOML.parsefile(manifest_path)["deps"]
     return sort!([
-        (name, Base.UUID(entries[1]["uuid"])) for
-        (name, entries) in deps if haskey(entries[1], "git-tree-sha1")
+        (name, Base.UUID(entry["uuid"])) for (name, entries) in deps for
+        entry in entries if haskey(entry, "git-tree-sha1")
     ])
 end
 

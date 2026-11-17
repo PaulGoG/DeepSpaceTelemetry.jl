@@ -43,6 +43,31 @@ include("licences.jl")
         @test !isempty(package_problems("Z", "MIT", listed, binaries))
         @test !isempty(package_problems("C_jll", "MIT", listed, binaries))
         @test !isempty(package_problems("D_jll", "MIT", listed, binaries))
+        # Two packages of one name, a standard library without a tree hash.
+        mktempdir() do dir
+            path = joinpath(dir, "Manifest.toml")
+            write(
+                path,
+                """
+                manifest_format = "2.0"
+
+                [[deps.A]]
+                git-tree-sha1 = "0000000000000000000000000000000000000001"
+                uuid = "00000000-0000-0000-0000-000000000002"
+
+                [[deps.A]]
+                git-tree-sha1 = "0000000000000000000000000000000000000002"
+                uuid = "00000000-0000-0000-0000-000000000001"
+
+                [[deps.B]]
+                uuid = "00000000-0000-0000-0000-000000000003"
+                """,
+            )
+            @test registered_closure(path) == [
+                ("A", Base.UUID("00000000-0000-0000-0000-000000000001")),
+                ("A", Base.UUID("00000000-0000-0000-0000-000000000002")),
+            ]
+        end
     end
 
     @testset "No figure backend and no HDF5 export on its own" begin
