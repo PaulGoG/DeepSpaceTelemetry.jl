@@ -6,6 +6,8 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-11-17
+
 ### Fixed
 - The alert-latency figure throws an `ArgumentError` when its annotation
   would leave the curves to peak below a quarter of the upper limit
@@ -1258,7 +1260,8 @@ scenario library; `CITATION.cff` and `CONTRIBUTING.md`; static QA (Aqua,
 ExplicitImports, JET) in the test suite. The package, module, and
 repository were renamed to DeepSpaceTelemetry on 2026-08-02.
 
-[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.3.1...HEAD
+[3.3.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.3.0...v3.3.1
 [3.3.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/PaulGoG/DeepSpaceTelemetry.jl/compare/v3.1.2...v3.2.0
