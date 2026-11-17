@@ -35,9 +35,11 @@ one run at a time.
    configuration that was accepted, or changes a script's arguments or
    products is a major release. A correction that brings a writer into line
    with this contract, where the contract had recorded the writer's
-   deviation from it, is a defect fix and comes in a minor release, listed
-   on the [Upgrading and Support](@ref) page; 3.3.0 moved the instants of
-   `events_rx.csv` to the completion of the transfer that way. The Julia modules and functions are the
+   deviation from it, is a defect fix, listed on the
+   [Upgrading and Support](@ref) page. It comes in a minor release when it
+   changes what a consumer reads from the runs of the shipped scenarios, as
+   3.3.0 did in moving the instants of `events_rx.csv` to the completion of
+   the transfer, and in a patch release when it leaves them unchanged. The Julia modules and functions are the
    implementation and may change between minor releases; the API pages
    document them for contributors. The exception is `RunAdapter`: its public
    names are versioned with this contract.
