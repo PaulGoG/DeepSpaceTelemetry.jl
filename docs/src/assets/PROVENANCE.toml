@@ -2,8 +2,10 @@
 # docs/render_assets.jl, which runs every listed scenario, reduces the run
 # products to the published size, and records each run and each file here.
 # Every run is a tick-mode run (`--tick`): its realized totals follow
-# from the scenario, the seed, and the commit recorded with it, on the
-# platform stated with it.
+# from the scenario, the seed, the commit, and the manifest digest
+# recorded with it, on the platform stated with it. The animations are
+# rendered in the script environment whose manifest digest is under
+# [render].
 
 [assets."gallery/abstraction_gaussian_peak_mission_summary_global.png"]
 bytes = 348569
@@ -146,11 +148,12 @@ source = "data/runs/V330_STRESS_8H_BURSTY/plots/telemetry_animation_web.gif"
 [render]
 code_dirty = false
 command = "julia docs/render_assets.jl V330"
-commit = "e98be8772ef66686ced0ec276228bcfd7efe7a42"
-date = "2026-11-16"
+commit = "96dd476371135b30bbd6d5283e062becb02051e5"
+date = "2026-11-17"
 gif_transform = "none; the --web rendering profile writes the published size directly"
 image_tool = "ImageMagick 7.1.2-35"
 png_transform = "magick <source> -resize 1400x -strip -define png:compression-level=9 <target>"
+scripts_manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 
 [runs.V330_ABSTRACTION_GAUSSIAN_PEAK]
 command = "julia --threads=1 scripts/run_full_sim.jl --tick V330_ABSTRACTION_GAUSSIAN_PEAK scenarios/abstraction_gaussian_peak.toml"
@@ -159,6 +162,7 @@ config_sha256 = "ba934fab8aa3af646175dc0725b0e28a65c611cc12b96dd8e4cb8332d07a75b
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 7.0
 package_version = "3.3.0"
 scenario = "scenarios/abstraction_gaussian_peak.toml"
@@ -191,6 +195,7 @@ config_sha256 = "925c779645d62912bbb66609207a6882c9db7fddcdaab9a42505cd91926eeec
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 7.0
 package_version = "3.3.0"
 scenario = "scenarios/backlog_recovery_sine.toml"
@@ -223,6 +228,7 @@ config_sha256 = "f150c8ebb2080bd62aea172a121b1afc6c4e778546244e7a7a5405618fbfc28
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 3.0
 package_version = "3.3.0"
 scenario = "scenarios/drop_policy.toml"
@@ -255,6 +261,7 @@ config_sha256 = "9c5ceb72623237da8aa1071778ba7e5f990258abca0bbc7704c29a1c27b8f68
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 7.0
 package_version = "3.3.0"
 scenario = "scenarios/explicit_schedule.toml"
@@ -287,6 +294,7 @@ config_sha256 = "ccff04fda834bfac508341b563e9f27e77a7331f822a5307d9cf3ae1bd38919
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 2.0
 package_version = "3.3.0"
 scenario = "scenarios/external_ingest.toml"
@@ -319,6 +327,7 @@ config_sha256 = "593ae7e4726d2751883277657bd1154c36f05455bebbb297bbeaeca9b3f464a
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 30.0
 package_version = "3.3.0"
 scenario = "scenarios/long_30d_seasonal.toml"
@@ -351,6 +360,7 @@ config_sha256 = "a369b71d65564443516fcd34c846797b8cdf8f839f2c83d1917c50d48e1e98c
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 7.0
 package_version = "3.3.0"
 scenario = "scenarios/long_segments_2400s.toml"
@@ -383,6 +393,7 @@ config_sha256 = "bdd3873ca7375f47bce03655892fe0115a2d18d597131ea1d77d345496bcab7
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 7.0
 package_version = "3.3.0"
 scenario = "scenarios/nominal_8h.toml"
@@ -415,6 +426,7 @@ config_sha256 = "03dbfe418801a0cd1fbb17b6529039f3112a15498becaa68ed815da4a95e05c
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 7.0
 package_version = "3.3.0"
 scenario = "scenarios/recovery_12h_seasonal.toml"
@@ -447,6 +459,7 @@ config_sha256 = "5a3747b3b77fd8bf19537884b453e5eb8ad489e01aafebc519b7b69323e64d4
 date = "2026-11-16"
 git_dirty = false
 julia_version = "1.13.4"
+manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
 mission_days = 7.0
 package_version = "3.3.0"
 scenario = "scenarios/stress_8h_bursty.toml"
