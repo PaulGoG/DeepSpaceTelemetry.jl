@@ -2,8 +2,8 @@
 # docs/render_assets.jl, which runs every listed scenario, reduces the run
 # products to the published size, and records each run and each file here.
 # Every run is a tick-mode run (`--tick`): its realized totals follow
-# from the scenario, the seed, the commit, and the manifest digest
-# recorded with it, on the platform stated with it. The animations are
+# from the scenario, the seed, the commit, and the manifest whose digest
+# is recorded with it, on the platform stated with it. The animations are
 # rendered in the script environment whose manifest digest is under
 # [render].
 
@@ -148,12 +148,12 @@ source = "data/runs/V330_STRESS_8H_BURSTY/plots/telemetry_animation_web.gif"
 [render]
 code_dirty = false
 command = "julia docs/render_assets.jl V330"
-commit = "96dd476371135b30bbd6d5283e062becb02051e5"
+commit = "66e7747461ccb884811eebf2570d1bb0b83bb13e"
 date = "2026-11-17"
 gif_transform = "none; the --web rendering profile writes the published size directly"
 image_tool = "ImageMagick 7.1.2-35"
 png_transform = "magick <source> -resize 1400x -strip -define png:compression-level=9 <target>"
-scripts_manifest_sha256 = "729d3ebce592c88f8ba6cde3e214aa89f0bc254441096ad7f7e021d8e61b9863"
+scripts_manifest_sha256 = "de7999bb19aadf6c995f2ce44d34cdd70cc4bc337d1de301a790de4d7533a1ca"
 
 [runs.V330_ABSTRACTION_GAUSSIAN_PEAK]
 command = "julia --threads=1 scripts/run_full_sim.jl --tick V330_ABSTRACTION_GAUSSIAN_PEAK scenarios/abstraction_gaussian_peak.toml"
