@@ -388,10 +388,12 @@ end
 """
     main(args) -> Nothing
 
-Runs every gallery scenario in order, then publishes the listed run products
-under `ASSET_DIR`, warns about gallery files the table does not
-produce, and writes `PROVENANCE.toml`. Throws on a malformed argument list or
-prefix.
+Runs every gallery scenario in order, reduces the listed run products into a
+staging directory and builds the record, then replaces the published files
+under `ASSET_DIR`, writes `PROVENANCE.toml`, and warns about gallery files the
+table does not produce. Throws on a malformed argument list or prefix, and
+before replacing any published file when a run cannot be recorded or a
+product cannot be reduced.
 """
 function main(args)
     length(args) <= 1 || error("usage: julia docs/render_assets.jl [PREFIX]")
@@ -411,44 +413,31 @@ function main(args)
     ids = Dict{String,String}(
         entry.scenario => ensure_run(prefix, entry) for entry in GALLERY
     )
-    # The run records and the animations come before the first asset is
-    # replaced: a run that cannot be recorded (no manifest snapshot, no
-    # profile row) or rendered stops the script while the published files
-    # and PROVENANCE.toml still agree.
-    for entry in GALLERY
-        runs[ids[entry.scenario]] = run_record(ids[entry.scenario], entry)
-    end
-    animations = Dict{String,String}(
-        ids[entry.scenario] => render_animation(ids[entry.scenario]) for
-        entry in GALLERY if entry.animation
-    )
+    # The published files are reduced into a staging directory and the whole
+    # record is built before any of them is replaced, so a failure at any step
+    # (a run without a manifest snapshot, a missing figure, ImageMagick)
+    # leaves the published files and PROVENANCE.toml as they were.
+    staging = mktempdir()
+    staged = Dict{String,String}() # published path under ASSET_DIR => staged file
     for entry in GALLERY
         id = ids[entry.scenario]
+        runs[id] = run_record(id, entry)
         plots = joinpath(run_directory(id), "plots")
         for stem in entry.figures
             name = "$(entry.scenario)_$(stem).png"
-            target = joinpath(ASSET_DIR, GALLERY_SUBDIR, name)
             source = joinpath(plots, stem * ".png")
-            publish_png(source, target)
+            target = publish_png(source, joinpath(staging, name))
+            staged["$(GALLERY_SUBDIR)/$name"] = target
             assets["$(GALLERY_SUBDIR)/$name"] = asset_record(id, source, target)
         end
         if entry.animation
-            source = animations[id]
+            source = render_animation(id)
             name = "$(entry.scenario)_$(WEB_ANIMATION)"
-            target = joinpath(ASSET_DIR, GALLERY_SUBDIR, name)
-            mkpath(dirname(target))
+            target = joinpath(staging, name)
             cp(source, target; force = true)
+            staged["$(GALLERY_SUBDIR)/$name"] = target
             assets["$(GALLERY_SUBDIR)/$name"] = asset_record(id, source, target)
         end
-    end
-
-    gallery_dir = joinpath(ASSET_DIR, GALLERY_SUBDIR)
-    for name in readdir(gallery_dir)
-        path = joinpath(gallery_dir, name)
-        isfile(path) || continue
-        haskey(assets, "$(GALLERY_SUBDIR)/$name") && continue
-        @warn "[ASSETS] File not produced by the gallery table; remove it if it is no " *
-              "longer referenced." file = replace(relpath(path, REPO), '\\' => '/')
     end
 
     # The figures are drawn during each run, at the commit its entry records;
@@ -477,7 +466,20 @@ function main(args)
         "runs" => runs,
         "assets" => assets,
     )
+
+    gallery_dir = joinpath(ASSET_DIR, GALLERY_SUBDIR)
+    mkpath(gallery_dir)
+    for (key, file) in staged
+        cp(file, joinpath(ASSET_DIR, key); force = true)
+    end
     provenance_path = write_provenance(joinpath(ASSET_DIR, "PROVENANCE.toml"), record)
+    for name in readdir(gallery_dir)
+        path = joinpath(gallery_dir, name)
+        isfile(path) || continue
+        haskey(assets, "$(GALLERY_SUBDIR)/$name") && continue
+        @warn "[ASSETS] File not produced by the gallery table; remove it if it is no " *
+              "longer referenced." file = replace(relpath(path, REPO), '\\' => '/')
+    end
 
     total_bytes = 0
     for key in sort!(collect(keys(assets)))
