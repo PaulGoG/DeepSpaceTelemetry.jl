@@ -227,6 +227,29 @@
             @test isempty(RunAdapter.declared_holes(bare))
             @test isempty(RunAdapter.declared_holes(RunAdapter.FeedCursor(bare, :holes)))
         end
+        # A last line still being written, cut inside any field, is left out
+        # by the whole-file readers as by the cursors.
+        mktempdir() do tmp
+            torn_dir = joinpath(tmp, basename(run_dir))
+            cp(run_dir, torn_dir)
+            torn = RunAdapter.open_run(torn_dir)
+            last_row = split(readlines(joinpath(torn_dir, "events_rx.csv"))[end], ',')
+            for fragment in (
+                join(last_row[1:2], ',') * ",inges",
+                last_row[1] * ",LIVE_bat",
+                "2035-01-0",
+            )
+                rx = read(joinpath(run_dir, "events_rx.csv"), String)
+                write(joinpath(torn_dir, "events_rx.csv"), rx * fragment)
+                @test RunAdapter.arrival_events(torn) == events
+                @test RunAdapter.arrival_events(torn; after = length(events) - 3) ==
+                      events[(end-2):end]
+                @test RunAdapter.delivered_rows(torn) == delivered
+            end
+            feed = read(joinpath(run_dir, "holes.csv"), String)
+            write(joinpath(torn_dir, "holes.csv"), feed * "lost,ARCH_bat")
+            @test isequal(RunAdapter.declared_holes(torn), declared)
+        end
         # The descriptor names the run, the producer, and the products with
         # their hashes.
         descriptor = TOML.parsefile(joinpath(run_dir, "descriptor.toml"))

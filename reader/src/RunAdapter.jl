@@ -270,7 +270,8 @@ row_time(g::RunGeometry, row::Integer) =
     time_row(geometry::RunGeometry, t::DateTime) -> Int
 
 The payload row at the mission instant `t`, the inverse of
-[`row_time`](@ref).
+[`row_time`](@ref) for sample rates up to 1 kHz: the instants live on the
+millisecond grid, and above that rate several rows share one.
 """
 time_row(g::RunGeometry, t::DateTime) =
     TelemetryCore.payload_time_row(g.payload_origin, g.sample_rate, t)
@@ -515,17 +516,15 @@ end
     arrival_events(run::RunHandle; after::Int = 0) -> Vector{ArrivalEvent}
 
 The rows of `events_rx.csv` in file order, which is mission-time order,
-beyond the first `after` rows. The whole file is parsed, a last line still
-being written included; a streaming consumer follows the feed with a
-[`FeedCursor`](@ref). A batch's payload is in `ground/` before its
+beyond the first `after` rows. The whole file is read; a last line still
+being written (no terminating newline yet) is left out, as by a
+[`FeedCursor`](@ref), which a streaming consumer uses to follow the feed at
+the cost of the new rows alone. A batch's payload is in `ground/` before its
 `ingested` row is appended.
 """
 function arrival_events(run::RunHandle; after::Int = 0)
-    path = joinpath(run.run_dir, "events_rx.csv")
-    isfile(path) || return ArrivalEvent[]
-    table = TelemetryCore.read_table(path)
-    after >= nrow(table) && return ArrivalEvent[]
-    return [arrival_event(r) for r in eachrow(table[(after+1):end, :])]
+    events = arrival_events(FeedCursor(run, :arrivals))
+    return after >= length(events) ? ArrivalEvent[] : events[(after+1):end]
 end
 
 # One row of events_rx.csv.
@@ -652,11 +651,12 @@ Hole(
 The declared-hole feed `holes.csv` beyond its first `after` rows, each row
 a [`Hole`](@ref) with its `declared_at`, appended as the producer declares
 it; on a finished run the feed holds the holes of `masks/gaps.csv`. Empty
-while no hole has been declared (the file appears with the first).
+while no hole has been declared (the file appears with the first). A last
+line still being written is left out, as by a [`FeedCursor`](@ref).
 """
 function declared_holes(run::RunHandle; after::Integer = 0)
-    table = TelemetryCore.read_hole_feed(run.run_dir; after = after)
-    return Hole[declared_hole(r) for r in eachrow(table)]
+    holes = declared_holes(FeedCursor(run, :holes))
+    return after >= length(holes) ? Hole[] : holes[(after+1):end]
 end
 
 # One row of holes.csv.
@@ -682,12 +682,17 @@ line still being written (no terminating newline yet) is left for the next
 call. No file handle is held between calls, and an absent file yields no
 rows until it appears.
 
+The run state is read before the feed, so the rows appended just ahead of
+the terminal sentinel are consumed on the last pass:
+
 ```julia
 arrivals = RunAdapter.FeedCursor(run, :arrivals)
-while RunAdapter.run_state(run) === :active
+while true
+    ended = RunAdapter.run_state(run) !== :active
     for e in RunAdapter.arrival_events(arrivals)
         # consume e
     end
+    ended && break
     sleep(poll_interval)
 end
 ```
