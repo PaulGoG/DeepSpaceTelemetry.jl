@@ -317,8 +317,77 @@ end
         1800.0,
         far,
     )
-    @test abs((got - exact).value) <= 1000
+    @test abs((got - exact).value) <= 50
+    # Observed order of accuracy, against the same closed form on a one-hour
+    # pass, where the capacity curves more per step: a 60 s transfer that
+    # starts 300 s after the opening completes 354.813 s later. The midpoint
+    # rule with a linear completing step is of second order, so each halving
+    # of the step from 60 s to 7.5 s divides the error by about four (0.122,
+    # 0.039, 0.011 and 0.003 s, the last within reach of the millisecond
+    # rounding).
+    hour = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(3600), "sine")
+    G(s) = s / 2 - 3600 / (4π) * sin(2π * s / 3600)
+    lo, hi = 300.0, 3600.0
+    for _ in 1:200
+        mid = (lo + hi) / 2
+        G(mid) - G(300.0) < 60.0 ? (lo = mid) : (hi = mid)
+    end
+    errors = map((60.0, 30.0, 15.0, 7.5)) do step
+        done = ChannelEffects.transfer_completion(
+            ChannelEffects.LinkModel(hour),
+            day + Hour(8) + Second(300),
+            60.0,
+            far;
+            step_sec = step,
+        )
+        abs((done - (day + Hour(8))).value / 1000 - lo)
+    end
+    @test errors[1] < 0.2
+    @test issorted(errors; rev = true)
+    @test all(1.5 .< log2.(errors[1:3] ./ errors[2:4]) .< 2.5)
     @test_throws ArgumentError ChannelEffects.transfer_completion(link, day, 0.0, far)
+    # Work equal to the capacity left in the pass completes at the end of the
+    # pass. A partial outage holds the capacity at 1 − 0.86 = 0.14 over the
+    # last four minutes of the pass: 240 s × 0.14 = 33.6 s of work. In
+    # floating point the four steps leave a residual of about 4e-15 s, which
+    # must not send the completion to the opening of the next pass.
+    outage(severity) = ChannelEffects.LinkModel(
+        flat,
+        ChannelEffects.DisruptionTimeline([
+            ChannelEffects.DisruptionEvent(
+                "test",
+                "",
+                day + Hour(6),
+                day + Hour(20),
+                day + Hour(20),
+                severity,
+                3.0,
+            ),
+        ]),
+    )
+    t0 = day + Hour(15) + Minute(56)
+    segments = Tuple{DateTime,DateTime}[]
+    @test ChannelEffects.transfer_completion(outage(0.86), t0, 33.6, far; segments) ==
+          day + Hour(16)
+    @test segments == [(t0, day + Hour(16))]
+    @test ChannelEffects.transfer_completion(outage(0.9), t0, 24.0, far) == day + Hour(16)
+    # 0.1 s of work beyond the capacity of the pass waits for the next one,
+    # at full capacity after the outage.
+    @test ChannelEffects.transfer_completion(outage(0.86), t0, 33.7, far) ==
+          day + Day(1) + Hour(8) + Millisecond(100)
+    # Work below the tolerance still needs capacity. Started at the opening
+    # of a pass that a full outage holds at zero, it completes at the
+    # opening of the next pass, and no interval of the first is recorded as
+    # transmitting.
+    segments = Tuple{DateTime,DateTime}[]
+    @test ChannelEffects.transfer_completion(
+        outage(1.0),
+        day + Hour(8),
+        1e-10,
+        far;
+        segments,
+    ) == day + Day(1) + Hour(8)
+    @test all(s -> s[1] >= day + Day(1) + Hour(8), segments)
 end
 
 @testset "Transfer completion: merged windows" begin

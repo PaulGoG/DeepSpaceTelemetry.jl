@@ -294,6 +294,16 @@ function is_transmittable(link::LinkModel, t::DateTime)
 end
 
 """
+    WORK_TOLERANCE_SEC
+
+Work below which a transfer counts as complete in
+[`transfer_completion`](@ref): 1 ns of full-capacity transfer. The remaining
+work accumulates rounding of the order of 10⁻¹³ s over the steps of a
+transfer, and the completion instants live on the millisecond grid.
+"""
+const WORK_TOLERANCE_SEC = 1e-9
+
+"""
     transfer_completion(link::LinkModel, t0::DateTime, work_sec::Real,
                         horizon::DateTime; step_sec::Real = 60.0, segments = nothing)
         -> Union{DateTime,Nothing}
@@ -309,7 +319,12 @@ and at the breakpoints of the disruption timeline so that the capacity is
 smooth on each; within the sub-interval that completes the transfer the
 capacity is interpolated linearly between its ends and the integral solved
 for `τ` ([`linear_fill_time`](@ref)). Exact for a capacity that is
-piecewise linear between the breakpoints. Returns `nothing` when the
+piecewise linear between the breakpoints, second order in `step_sec`
+otherwise. A step of positive capacity completes the transfer when the work
+left after it is within [`WORK_TOLERANCE_SEC`](@ref), so a transfer whose
+work equals the capacity left in a contact window completes at the end of
+that window and not, on a rounding residual, at the opening of the next.
+Returns `nothing` when the
 transfer does not complete before `horizon`; the result is rounded to the
 millisecond. With a vector `segments`, the intervals during which the
 transfer transmitted (positive capacity) are appended to it, abutting ones
@@ -348,7 +363,7 @@ function transfer_completion(
                 stop = min(hi, lo + Millisecond(round(Int, step_sec * 1000)), next_break)
                 h = (stop - lo).value / 1000
                 c = effective_bandwidth(link, lo + Millisecond(round(Int, 500 * h)))
-                if c * h >= remaining
+                if c > 0 && c * h >= remaining - WORK_TOLERANCE_SEC
                     # The capacity at both ends of the completing step, the
                     # far end extrapolated from 1 ms inside it (the window
                     # or the event phase may end there).
