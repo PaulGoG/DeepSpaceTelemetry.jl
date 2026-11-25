@@ -56,14 +56,22 @@ exceed it, since the custodian prunes only above the watermark.
 function retention_settings(cfg::AbstractDict)
     ret = get(cfg, "retention", Dict{String,Any}())
     enabled = checked_flag(get(ret, "enabled", false), "retention.enabled")
-    grace_hours = checked_number(get(ret, "grace_hours", 24.0), "retention.grace_hours")
+    grace_hours = checked_number(
+        get(ret, "grace_hours", 24.0),
+        "retention.grace_hours";
+        finite = true,
+    )
     budget = storage_budget(cfg)
     default_wm = DEFAULT_WATERMARK_FRACTION * budget.max_gb
     watermark_gb = checked_number(
         get(ret, "high_watermark_gb", default_wm),
         "retention.high_watermark_gb",
     )
-    rotate_mb = checked_number(get(ret, "log_rotate_mb", 64.0), "retention.log_rotate_mb")
+    rotate_mb = checked_number(
+        get(ret, "log_rotate_mb", 64.0),
+        "retention.log_rotate_mb";
+        finite = true,
+    )
     for (key, v) in (
         ("grace_hours", grace_hours),
         ("high_watermark_gb", watermark_gb),

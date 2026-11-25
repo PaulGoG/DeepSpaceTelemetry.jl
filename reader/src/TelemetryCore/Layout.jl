@@ -49,6 +49,22 @@ function default_data_root(root::AbstractString)
     return isempty(dir) ? joinpath(root, "data") : abspath(dir)
 end
 
+"""
+    inside_depot(path::AbstractString, depots = DEPOT_PATH) -> Bool
+
+Whether `path` lies under the `packages` directory of one of `depots`: the
+location of a copy installed by Pkg, which `Pkg.gc` deletes, with everything
+written under it, once that package version is no longer in use.
+"""
+function inside_depot(path::AbstractString, depots = DEPOT_PATH)
+    target = abspath(path)
+    return any(depots) do depot
+        isempty(depot) && return false
+        root = joinpath(abspath(depot), "packages")
+        return target == root || startswith(target, root * Base.Filesystem.path_separator)
+    end
+end
+
 function __init__()
     # Runtime (not precompile-time) initialization; tests and embedding
     # applications may redirect after loading.

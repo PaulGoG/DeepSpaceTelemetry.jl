@@ -93,14 +93,19 @@ read_mask_timeline(run_dir::String) = read_table(mask_timeline_path(run_dir); nt
 
 # --- Checked config coercions ---
 """
-    checked_number(v, name::String) -> Float64
+    checked_number(v, name::String; finite::Bool = false) -> Float64
 
 Coerces a config value to `Float64`, aborting with a `[CONFIG]` error naming
-the key when the TOML value is not numeric (e.g. a quoted `"3600"`).
+the key when the TOML value is not numeric (e.g. a quoted `"3600"`). With
+`finite`, an infinite value is refused as well (TOML reads `inf` as a
+float): the keys whose value is converted to an instant, a period or a count
+set it, since the conversion to an integer fails on one. A `NaN` passes: it
+fails the bounds of the keys that have them.
 """
-function checked_number(v, name::String)
+function checked_number(v, name::String; finite::Bool = false)
     (v isa Real && !(v isa Bool)) ||
         config_error("[CONFIG] $name must be a number (got $(repr(v))).")
+    (finite && isinf(v)) && config_error("[CONFIG] $name must be finite (got $(repr(v))).")
     return Float64(v)::Float64
 end
 
@@ -419,7 +424,7 @@ function mission_wall_seconds(cfg::AbstractDict)
     raw = get(sim, "mission_wall_seconds", nothing)
     raw === nothing &&
         config_error("[CONFIG] Missing required key simulation.mission_wall_seconds.")
-    v = checked_number(raw, "simulation.mission_wall_seconds")
+    v = checked_number(raw, "simulation.mission_wall_seconds"; finite = true)
     v > 0.0 ||
         config_error("[CONFIG] simulation.mission_wall_seconds must be > 0 (got $v).")
     return v
@@ -469,7 +474,7 @@ function mission_days_setting(cfg::AbstractDict)
     raw === nothing && config_error(
         "[CONFIG] Missing required key simulation.mission_days (simulation.mode = \"tick\" spans mission_days of logical time).",
     )
-    v = checked_number(raw, "simulation.mission_days")
+    v = checked_number(raw, "simulation.mission_days"; finite = true)
     v > 0.0 || config_error("[CONFIG] simulation.mission_days must be > 0 (got $v).")
     return v
 end
@@ -517,8 +522,11 @@ The mission span in days in either mode: `mission_wall_seconds × speed_up /
 function mission_span_days(cfg::AbstractDict)
     simulation_mode(cfg) == "tick" && return mission_days_setting(cfg)
     sim = get(cfg, "simulation", Dict{String,Any}())
-    speed_up =
-        checked_number(required_value(sim, "simulation", "speed_up"), "simulation.speed_up")
+    speed_up = checked_number(
+        required_value(sim, "simulation", "speed_up"),
+        "simulation.speed_up";
+        finite = true,
+    )
     return mission_wall_seconds(cfg) * speed_up / 86_400.0
 end
 
@@ -540,14 +548,16 @@ function simulation_settings(cfg::AbstractDict)
     if wall
         speed_up = checked_number(
             required_value(sim, "simulation", "speed_up"),
-            "simulation.speed_up",
+            "simulation.speed_up";
+            finite = true,
         )
         speed_up > 0.0 ||
             config_error("[CONFIG] simulation.speed_up must be > 0 (got $speed_up).")
     end
     downtime = checked_number(
         get(sim, "initial_downtime_days", 0.0),
-        "simulation.initial_downtime_days",
+        "simulation.initial_downtime_days";
+        finite = true,
     )
     downtime >= 0.0 || config_error(
         "[CONFIG] simulation.initial_downtime_days must be ≥ 0 (got $downtime).",
@@ -635,8 +645,11 @@ function telemetry_settings(cfg::AbstractDict)
         haskey(tel, "max_batches_per_hour") && config_error(
             "[CONFIG] telemetry.max_batches_per_hour and the rate pair downlink_kbps / onboard_data_rate_kbps are mutually exclusive.",
         )
-        downlink_kbps =
-            checked_number(get(tel, "downlink_kbps", 0.0), "telemetry.downlink_kbps")
+        downlink_kbps = checked_number(
+            get(tel, "downlink_kbps", 0.0),
+            "telemetry.downlink_kbps";
+            finite = true,
+        )
         downlink_kbps > 0.0 || config_error(
             "[CONFIG] telemetry.downlink_kbps must be > 0 (got $downlink_kbps).",
         )
@@ -656,7 +669,8 @@ function telemetry_settings(cfg::AbstractDict)
     else
         max_batches_per_hour = checked_number(
             get(tel, "max_batches_per_hour", 20.0),
-            "telemetry.max_batches_per_hour",
+            "telemetry.max_batches_per_hour";
+            finite = true,
         )
         max_batches_per_hour > 0.0 || config_error(
             "[CONFIG] telemetry.max_batches_per_hour must be > 0 (got $max_batches_per_hour).",
@@ -691,8 +705,11 @@ function telemetry_settings(cfg::AbstractDict)
         checked_number(get(tel, "gaussian_sigma", 0.15), "telemetry.gaussian_sigma")
     gaussian_sigma > 0.0 ||
         config_error("[CONFIG] telemetry.gaussian_sigma must be > 0 (got $gaussian_sigma).")
-    range_million_km =
-        checked_number(get(tel, "range_million_km", 0.0), "telemetry.range_million_km")
+    range_million_km = checked_number(
+        get(tel, "range_million_km", 0.0),
+        "telemetry.range_million_km";
+        finite = true,
+    )
     range_million_km >= 0.0 || config_error(
         "[CONFIG] telemetry.range_million_km must be ≥ 0 (got $range_million_km).",
     )
@@ -911,13 +928,17 @@ finished run after a key was retired or the input file removed.
 """
 function physics_settings(cfg::AbstractDict)
     phy = get(cfg, "physics", Dict{String,Any}())
-    sample_rate =
-        checked_number(required_value(phy, "physics", "sample_rate"), "physics.sample_rate")
+    sample_rate = checked_number(
+        required_value(phy, "physics", "sample_rate"),
+        "physics.sample_rate";
+        finite = true,
+    )
     sample_rate > 0.0 ||
         config_error("[CONFIG] physics.sample_rate must be > 0 (got $sample_rate).")
     segment_duration = checked_number(
         required_value(phy, "physics", "segment_duration_sec"),
-        "physics.segment_duration_sec",
+        "physics.segment_duration_sec";
+        finite = true,
     )
     segment_duration > 0.0 || config_error(
         "[CONFIG] physics.segment_duration_sec must be > 0 (got $segment_duration).",
@@ -1007,14 +1028,16 @@ function event_marker_settings(cfg::AbstractDict)
         label = checked_string(get(e, "label", "marker $i"), "events.markers[$i].label")
         after = checked_number(
             get(e, "low_latency_after_hours", 0.0),
-            "events.markers[$i].low_latency_after_hours",
+            "events.markers[$i].low_latency_after_hours";
+            finite = true,
         )
         after >= 0.0 || config_error(
             "[CONFIG] events.markers[$i].low_latency_after_hours must be ≥ 0 (got $after).",
         )
         duration = checked_number(
             get(e, "low_latency_duration_hours", 0.0),
-            "events.markers[$i].low_latency_duration_hours",
+            "events.markers[$i].low_latency_duration_hours";
+            finite = true,
         )
         duration >= 0.0 || config_error(
             "[CONFIG] events.markers[$i].low_latency_duration_hours must be ≥ 0 (got $duration).",
@@ -1166,7 +1189,7 @@ function post_processing_settings(cfg::AbstractDict)
     pp = get(cfg, "post_processing", Dict{String,Any}())
     flag(key, default) = checked_flag(get(pp, key, default), "post_processing.$key")
     function positive(key, default)
-        v = checked_number(get(pp, key, default), "post_processing.$key")
+        v = checked_number(get(pp, key, default), "post_processing.$key"; finite = true)
         v > 0.0 || config_error("[CONFIG] post_processing.$key must be > 0 (got $v).")
         return v
     end
@@ -1485,21 +1508,26 @@ function disruption_event_settings(cfg::AbstractDict)
     for (i, e) in enumerate(get(d, "events", Any[]))
         e isa AbstractDict ||
             config_error("[CONFIG] disruption.events[$i] must be a table of event keys.")
-        start_day =
-            checked_number(get(e, "start_day", -1.0), "disruption.events[$i].start_day")
+        start_day = checked_number(
+            get(e, "start_day", -1.0),
+            "disruption.events[$i].start_day";
+            finite = true,
+        )
         start_day >= 0.0 || config_error(
             "[CONFIG] disruption.events[$i].start_day must be ≥ 0 (got $start_day).",
         )
         duration_hours = checked_number(
             get(e, "duration_hours", 24.0),
-            "disruption.events[$i].duration_hours",
+            "disruption.events[$i].duration_hours";
+            finite = true,
         )
         duration_hours > 0.0 || config_error(
             "[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $duration_hours).",
         )
         recovery_hours = checked_number(
             get(e, "recovery_hours", 0.0),
-            "disruption.events[$i].recovery_hours",
+            "disruption.events[$i].recovery_hours";
+            finite = true,
         )
         recovery_hours >= 0.0 || config_error(
             "[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $recovery_hours).",
@@ -1566,7 +1594,8 @@ function onboard_capacity(cfg::AbstractDict)
     key = "$section.onboard_capacity_days"
     days = checked_number(
         get(get(cfg, section, Dict{String,Any}()), "onboard_capacity_days", 14.0),
-        key,
+        key;
+        finite = true,
     )
     days > 0.0 || config_error("[CONFIG] $key must be > 0 (got $days).")
     physics = physics_settings(cfg)
@@ -1796,7 +1825,8 @@ function contacts_settings(cfg::AbstractDict)
         start = parsed_datetime(get(e, "start", nothing), "contacts.passes[$i].start")
         hours = checked_number(
             get(e, "duration_hours", 0.0),
-            "contacts.passes[$i].duration_hours",
+            "contacts.passes[$i].duration_hours";
+            finite = true,
         )
         hours > 0.0 || config_error(
             "[CONFIG] contacts.passes[$i].duration_hours must be > 0 (got $hours).",
@@ -1821,7 +1851,8 @@ function contacts_settings(cfg::AbstractDict)
             start = parsed_datetime(r.Start, "contacts.schedule_csv row $i Start")
             hours = checked_number(
                 r.DurationHours,
-                "contacts.schedule_csv row $i DurationHours",
+                "contacts.schedule_csv row $i DurationHours";
+                finite = true,
             )
             hours > 0.0 || config_error(
                 "[CONFIG] contacts.schedule_csv row $i DurationHours must be > 0 (got $hours).",
@@ -1882,7 +1913,8 @@ function contacts_settings(cfg::AbstractDict)
         )
         hours = checked_number(
             get(e, "duration_hours", 0.0),
-            "contacts.low_latency_periods[$i].duration_hours",
+            "contacts.low_latency_periods[$i].duration_hours";
+            finite = true,
         )
         hours > 0.0 || config_error(
             "[CONFIG] contacts.low_latency_periods[$i].duration_hours must be > 0 (got $hours).",

@@ -164,7 +164,7 @@ function validate_config(cfg::AbstractDict)
     segment_duration_sec = physics.segment_duration_sec
     n_samples = physics.sample_rate * segment_duration_sec
     if !isapprox(n_samples, round(n_samples); atol = 1e-9)
-        @warn "[CONFIG] sample_rate × segment_duration_sec = $n_samples is not an integer; segment length is rounded to $(round(Int, n_samples)) samples."
+        @warn "[CONFIG] sample_rate × segment_duration_sec = $n_samples is not an integer: a segment is written with $(round(Int, n_samples)) samples, so the payload rows no longer lie at (r − 1) / sample_rate, and the row intervals of masks/gaps.csv, holes.csv and label_spans.csv, which follow that rule, do not match the segments. Choose a segment duration that holds a whole number of samples."
     end
     if physics.data_source == "external"
         ext_path =
@@ -194,6 +194,14 @@ function validate_config(cfg::AbstractDict)
               "$(round(Int, balance.capacity_per_pass)) batches per $(balance.pass_hours) h nominal pass against " *
               "$(round(Int, balance.produced_per_day)) produced per day. Use \"flat\" for the physical link; " *
               "a shaped profile with max_batches_per_hour is the abstraction of a partially usable pass."
+    end
+    # The emitter refills the link once per segment. Unless the batches
+    # waiting behind the one in service outlast a segment, the link empties
+    # between two refills and idles with a backlog on board.
+    transfer_sec = tel_settings.nominal_batch_transfer_sec
+    if (tel_settings.max_inflight_batches - 1) * transfer_sec < segment_duration_sec
+        @warn "[CONFIG] telemetry.max_inflight_batches = $(tel_settings.max_inflight_batches): the emitter places batches on the link once per segment ($(segment_duration_sec) s), and the batches waiting behind the one in service last $(round((tel_settings.max_inflight_batches - 1) * transfer_sec, digits = 1)) s at full capacity, less than a segment, so the link can empty and idle until the next segment boundary. " *
+              "At least $(ceil(Int, segment_duration_sec / transfer_sec) + 1) batches in flight keep the link served."
     end
 
     # -- [contacts], [[events.markers]], [[labels]], [ground], [post_processing.publication] --
@@ -278,12 +286,16 @@ function validate_config(cfg::AbstractDict)
         end
         link && push!(event_windows, (ev.start_day * 24.0, end_h, i))
     end
+    # Each event against the one that ends last among those starting before
+    # it: an event inside a long one overlaps it whatever lies between.
     sort!(event_windows, by = first)
-    for k in 2:length(event_windows)
-        (_, end_prev, i_prev) = event_windows[k-1]
-        (start_k, _, i_k) = event_windows[k]
-        if start_k < end_prev
-            @warn "[CONFIG] disruption.events[$i_prev] and disruption.events[$i_k] overlap in time: link capacity composes as the minimum over active events and the loss multiplier as their maximum — verify this is the intended physics."
+    if !isempty(event_windows)
+        (_, latest_end, i_latest) = event_windows[1]
+        for (start_k, end_k, i_k) in event_windows[2:end]
+            if start_k < latest_end
+                @warn "[CONFIG] disruption.events[$i_latest] and disruption.events[$i_k] overlap in time: link capacity composes as the minimum over active events and the loss multiplier as their maximum — verify this is the intended physics."
+            end
+            end_k > latest_end && ((latest_end, i_latest) = (end_k, i_k))
         end
     end
 

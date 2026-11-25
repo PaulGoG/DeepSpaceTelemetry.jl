@@ -501,7 +501,9 @@ Creates and returns the run directory of `run_id` under `data_root`
 ([`run_directory`](@ref)) with its subdirectories
 `onboard`, `link`, `ground`, `lost`, `plots`, and `masks`; a directory under
 the same run ID that holds anything but dotfiles is rejected with an
-`ArgumentError`. Given the parsed configuration `cfg`, it writes
+`ArgumentError`, and one inside a package depot ([`inside_depot`](@ref)),
+where `Pkg.gc` would delete it, draws a warning. Given the parsed
+configuration `cfg`, it writes
 `config_snapshot.toml`, the run's own copy of its parameters (rotating an
 existing one, [`backup_existing`](@ref)). The
 snapshot adds the [`platform_provenance`](@ref) fingerprint under
@@ -524,6 +526,8 @@ function setup_run_dir(
             ),
         )
     end
+    inside_depot(base_dir) &&
+        @warn "[RUN] $base_dir lies inside a package depot: Pkg.gc deletes it together with this package version. Name a data root with $(DATA_ROOT_VARIABLE) or the data_root keyword."
     paths = [
         joinpath(base_dir, "onboard"),
         joinpath(base_dir, "link"),

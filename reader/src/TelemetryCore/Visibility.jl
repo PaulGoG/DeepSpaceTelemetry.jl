@@ -172,7 +172,7 @@ The contact window containing `t` (windows are half-open, `[start, stop)`),
 or `nothing` when the spacecraft is out of contact; a nominal pass takes
 precedence over a low-latency period.
 Under the daily generator only the windows anchored on the date of `t`
-and on its two neighbouring dates can contain `t`: a pass crossing
+and on its two neighboring dates can contain `t`: a pass crossing
 midnight, or one whose seasonal half-extension opens it the day before.
 """
 function active_window(model::VisibilityModel, t::DateTime)

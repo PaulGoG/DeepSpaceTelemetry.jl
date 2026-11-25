@@ -744,6 +744,117 @@ end
     messages = config_warnings(cfg)
     @test any(contains("blacks out the link"), messages)
     @test any(contains("overlap in time"), messages)
+    # An event inside a long one overlaps it whatever lies between: A covers
+    # hours 0.0 to 8.0, B hours 1.0 to 1.5, C hours 5.0 to 5.5. A–B and A–C
+    # overlap; B and C do not.
+    short(start_hours) = event(;
+        start_day = start_hours / 24,
+        duration_hours = 0.5,
+        severity = 0.5,
+        recovery_hours = 0.0,
+        loss_multiplier = 2.0,
+    )
+    long = merge(short(0.0), event(; duration_hours = 8.0))
+    cfg["disruption"] = Dict{String,Any}("events" => [long, short(1.0), short(5.0)])
+    overlaps = filter(contains("overlap in time"), config_warnings(cfg))
+    @test length(overlaps) == 2
+    @test any(contains("events[1] and disruption.events[2]"), overlaps)
+    @test any(contains("events[1] and disruption.events[3]"), overlaps)
+end
+
+@testset "In-flight window against the emitter step" begin
+    # The emitter refills the link once per 60 s segment. valid_test_cfg
+    # transfers a batch in 3600 / 20 = 180 s: one batch in flight leaves the
+    # link empty after each transfer, two keep it served ((2 − 1) × 180 ≥ 60).
+    cfg = valid_test_cfg()
+    cfg["telemetry"]["max_inflight_batches"] = 1
+    @test any(contains("max_inflight_batches = 1"), config_warnings(cfg))
+    cfg["telemetry"]["max_inflight_batches"] = 2
+    @test !any(contains("max_inflight_batches"), config_warnings(cfg))
+    # Transfers of 3600 / 360 = 10 s: five batches are served in 50 s and
+    # the link idles 10 s; seven cover the segment ((7 − 1) × 10 ≥ 60).
+    cfg["telemetry"]["max_batches_per_hour"] = 360.0
+    cfg["telemetry"]["max_inflight_batches"] = 5
+    @test any(contains("At least 7 batches in flight"), config_warnings(cfg))
+    cfg["telemetry"]["max_inflight_batches"] = 7
+    @test !any(contains("max_inflight_batches"), config_warnings(cfg))
+end
+
+@testset "Non-finite configuration values" begin
+    # TOML reads `inf` as a float. Where the value is converted to an
+    # instant, a period or a count, an infinite one is refused by name at
+    # the configuration check; it used to end in an InexactError: before the
+    # run, in the receiver (the range) or in the metrology tables (the two
+    # post-processing spans).
+    for (section, key) in (
+        ("telemetry", "max_batches_per_hour"),
+        ("telemetry", "onboard_capacity_days"),
+        ("telemetry", "range_million_km"),
+        ("simulation", "initial_downtime_days"),
+        ("simulation", "speed_up"),
+        ("physics", "sample_rate"),
+        ("post_processing", "alert_lookback_hours"),
+        ("post_processing", "delivery_requirement_hours"),
+    )
+        cfg = valid_test_cfg()
+        get!(Dict{String,Any}, cfg, section)[key] = Inf
+        err = try
+            with_logger(NullLogger()) do
+                TelemetryCore.validate_config(cfg)
+            end
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("$section.$key must be finite", err.msg)
+    end
+    @test TelemetryCore.checked_number(Inf, "x") == Inf
+    @test_throws ArgumentError TelemetryCore.checked_number(Inf, "x"; finite = true)
+    # The keys that ran with an infinite value keep it. An infinite disk or
+    # RAM budget switches its gate off, and the default watermark, three
+    # quarters of the budget, follows it.
+    unbounded = valid_test_cfg()
+    unbounded["storage"] = Dict{String,Any}("max_storage_gb" => Inf, "max_ram_gb" => Inf)
+    @test TelemetryCore.storage_budget(unbounded).max_gb == Inf
+    @test TelemetryCore.retention_settings(unbounded).watermark_bytes == Inf
+    @test with_logger(() -> TelemetryCore.validate_config(unbounded), NullLogger()) isa
+          AbstractDict
+    @test_throws ArgumentError TelemetryCore.checked_number(-Inf, "x"; finite = true)
+    # An infinite loss multiplier clamps a positive loss probability to 1.
+    cfg = valid_test_cfg()
+    cfg["disruption"] = Dict{String,Any}(
+        "events" => [
+            Dict{String,Any}(
+                "start_day" => 0.1,
+                "duration_hours" => 1.0,
+                "loss_multiplier" => Inf,
+            ),
+        ],
+    )
+    @test TelemetryCore.disruption_event_settings(cfg)[1].loss_multiplier == Inf
+end
+
+@testset "Samples per segment" begin
+    # 0.3 Hz × 5 s = 1.5 samples: accepted with a warning that states what
+    # the rounding breaks.
+    cfg = valid_test_cfg()
+    cfg["physics"]["sample_rate"] = 0.3
+    cfg["physics"]["segment_duration_sec"] = 5.0
+    @test any(contains("do not match the segments"), config_warnings(cfg))
+    cfg["physics"]["sample_rate"] = 0.4
+    @test !any(contains("not an integer"), config_warnings(cfg))
+end
+
+@testset "Data root inside a package depot" begin
+    mktempdir() do depot
+        installed = joinpath(depot, "packages", "DeepSpaceTelemetry", "abcde")
+        @test TelemetryCore.inside_depot(joinpath(installed, "data"), [depot])
+        @test TelemetryCore.inside_depot(joinpath(depot, "packages"), [depot])
+        @test !TelemetryCore.inside_depot(joinpath(depot, "packages-of-mine"), [depot])
+        @test !TelemetryCore.inside_depot(joinpath(depot, "dev", "X", "data"), [depot])
+        @test !TelemetryCore.inside_depot(joinpath(installed, "data"), ["", tempname()])
+    end
 end
 
 @testset "Seasonal extension without a peak day" begin
