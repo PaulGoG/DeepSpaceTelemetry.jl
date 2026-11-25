@@ -39,11 +39,21 @@ byte-identical to those of 3.3.1 under the fixes below.
   nothing delivered, and the two post-processing spans in the metrology
   tables of a finished run. The keys that ran with an infinite value
   (storage budgets, `loss_multiplier`, the on-board data rate, and others)
-  are unchanged.
+  are unchanged. An infinite `sigmoid_steepness` is refused under the
+  sigmoid profile, where it gave a capacity of NaN. `estimate_artifacts`
+  and `check_storage_limits` refuse the keys they read when called without
+  the configuration check.
+- A value that is no array in place of an array of tables
+  (`[[disruption.events]]`, `[[events.markers]]`, `[[contacts.passes]]`,
+  `[[contacts.exceptions]]`, `[[contacts.low_latency_periods]]`,
+  `[[labels]]`) is refused with a `[CONFIG]` error that names the key
+  (`TelemetryCore.checked_table_array`). An empty string was read as no
+  entries, and a single table gave an error about its first element.
 - `scripts/run_sweep.jl --seeds a:step:b` runs the stepped range; it ran
   `a:b`. A `--set` override of a key outside the configuration schema is
   refused; it left every run on the default while `sweep.toml` recorded it
-  as applied.
+  as applied. An override of an array of tables, which a dotted key cannot
+  address, or of `[provenance]`, which the pipeline writes, is refused too.
 - The overlap warning of `validate_config` also catches a link event inside
   a longer one that started earlier, whatever lies between them; it
   compared neighbors in start order only.
