@@ -81,8 +81,10 @@ key of the configuration schema: a section absent from
 `TelemetryCore.KNOWN_CONFIG_KEYS`, a key absent from its section, a key of
 `post_processing.publication` absent from
 `TelemetryCore.KNOWN_PUBLICATION_KEYS`, a path below a key that is no table,
-or the `post_processing.publication` table itself. The sections of
-`TelemetryCore.FREE_FORM_SECTIONS` take any key. An override of an unknown
+or the `post_processing.publication` table itself. An array of tables
+(`TelemetryCore.TABLE_ARRAY_KEYS`, `[[labels]]`), which a dotted key cannot
+address, and `[provenance]`, which the pipeline writes for each run, are
+refused as well. `[payload]` takes any key. An override of an unknown
 key would leave every run on the default while `sweep.toml` records it as
 applied.
 """
@@ -96,10 +98,25 @@ function require_known_override(key::AbstractString)
             "[SWEEP] Override \"$key\": the configuration has no section [$section].",
         ),
     )
+    section == "provenance" && throw(
+        ArgumentError(
+            "[SWEEP] Override \"$key\": [provenance] is written by the pipeline for each run.",
+        ),
+    )
     section in TelemetryCore.FREE_FORM_SECTIONS && return nothing
+    section == "labels" && throw(
+        ArgumentError(
+            "[SWEEP] Override \"$key\": [[labels]] is an array of tables, which an override cannot address.",
+        ),
+    )
     name = String(parts[2])
     name in TelemetryCore.KNOWN_CONFIG_KEYS[section] || throw(
         ArgumentError("[SWEEP] Override \"$key\": section [$section] has no key $name."),
+    )
+    (section, name) in TelemetryCore.TABLE_ARRAY_KEYS && throw(
+        ArgumentError(
+            "[SWEEP] Override \"$key\": [[$section.$name]] is an array of tables, which an override cannot address.",
+        ),
     )
     if section == "post_processing" && name == "publication"
         length(parts) == 3 || throw(

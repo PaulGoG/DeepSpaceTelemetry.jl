@@ -29,6 +29,12 @@
         "packet_loss.max_retries.typo=1",
         "post_processing.publication.format.typo=pdf",
         "post_processing.publication=false",
+        # Arrays of tables, which a dotted key cannot address: an empty
+        # value erased every entry. The pipeline writes [provenance] itself.
+        "disruption.events=",
+        "contacts.passes=3",
+        "labels.label=burst",
+        "provenance.note=first",
     )
         @test_throws ArgumentError Sweeps.sweep_configuration(cfg, 1; overrides = [bad])
     end
