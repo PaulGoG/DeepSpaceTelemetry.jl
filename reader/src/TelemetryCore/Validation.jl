@@ -33,6 +33,8 @@ Errors:
     `external_data_columns` entry absent from its header
   - the retired keys of `REMOVED_CONFIG_KEYS`, rejected with the
     replacement named
+  - a value that is no array where the schema holds an array of tables
+    (`TABLE_ARRAY_KEYS` and `[[labels]]`)
 
 Warnings:
   - the rate pair with a shaped `bandwidth_profile` (the profile mean scales
@@ -72,22 +74,32 @@ function validate_config(cfg::AbstractDict)
             end
         end
     end
-    for (i, e) in
-        enumerate(get(get(cfg, "disruption", Dict{String,Any}()), "events", Any[]))
+    # The arrays of tables, checked as arrays where they are first read.
+    for (i, e) in enumerate(
+        checked_table_array(
+            get(get(cfg, "disruption", Dict{String,Any}()), "events", Any[]),
+            "disruption.events",
+        ),
+    )
         e isa AbstractDict || continue
         for key in keys(e)
             key in KNOWN_EVENT_KEYS ||
                 @warn "[CONFIG] Unrecognized key disruption.events[$i].$key — ignored."
         end
     end
-    for (i, e) in enumerate(get(get(cfg, "events", Dict{String,Any}()), "markers", Any[]))
+    for (i, e) in enumerate(
+        checked_table_array(
+            get(get(cfg, "events", Dict{String,Any}()), "markers", Any[]),
+            "events.markers",
+        ),
+    )
         e isa AbstractDict || continue
         for key in keys(e)
             key in KNOWN_MARKER_KEYS ||
                 @warn "[CONFIG] Unrecognized key events.markers[$i].$key — ignored."
         end
     end
-    for (i, e) in enumerate(get(cfg, "labels", Any[]))
+    for (i, e) in enumerate(checked_table_array(get(cfg, "labels", Any[]), "labels"))
         e isa AbstractDict || continue
         for key in keys(e)
             key in KNOWN_LABEL_KEYS ||
@@ -96,7 +108,9 @@ function validate_config(cfg::AbstractDict)
     end
     contacts_section = get(cfg, "contacts", Dict{String,Any}())
     for (list, known) in KNOWN_CONTACT_ENTRY_KEYS
-        for (i, e) in enumerate(get(contacts_section, list, Any[]))
+        for (i, e) in enumerate(
+            checked_table_array(get(contacts_section, list, Any[]), "contacts.$list"),
+        )
             e isa AbstractDict || continue
             for key in keys(e)
                 key in known ||

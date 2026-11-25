@@ -862,7 +862,8 @@ end
 @testset "Arrays of tables" begin
     # `[[disruption.events]]` and its like are arrays of tables. A string
     # iterates as well, and an empty one read as no entries; a single table,
-    # `[disruption.events]`, is the likely slip.
+    # `[disruption.events]`, is the likely slip; a TOML date does not
+    # iterate at all.
     check(cfg) = with_logger(() -> TelemetryCore.validate_config(cfg), NullLogger())
     for (section, key) in (
             ("disruption", "events"),
@@ -871,13 +872,13 @@ end
             ("contacts", "exceptions"),
             ("contacts", "low_latency_periods"),
         ),
-        value in ("", Dict{String,Any}())
+        value in ("", Dict{String,Any}(), DateTime(2035, 1, 2))
 
         cfg = valid_test_cfg()
         get!(Dict{String,Any}, cfg, section)[key] = value
         @test_throws "$section.$key must be an array of tables" check(cfg)
     end
-    for value in ("", Dict{String,Any}())
+    for value in ("", Dict{String,Any}(), DateTime(2035, 1, 2))
         cfg = valid_test_cfg()
         cfg["labels"] = value
         @test_throws "labels must be an array of tables" check(cfg)
@@ -888,6 +889,10 @@ end
     cfg["events"] = Dict{String,Any}("markers" => Any[])
     cfg["labels"] = Any[]
     @test check(cfg) isa AbstractDict
+    @test isempty(TelemetryCore.disruption_event_settings(cfg))
+    # The accessors read the snapshot of an earlier run, which was not
+    # checked this way when it ran: they take the value as they did.
+    cfg["disruption"]["events"] = ""
     @test isempty(TelemetryCore.disruption_event_settings(cfg))
 end
 
