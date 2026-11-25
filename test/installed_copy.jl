@@ -12,11 +12,16 @@
 
     repo = joinpath(work, "repo")
     mkpath(repo)
-    # The reader package travels with the main one: a URL install resolves it
-    # from the clone through the main package's [sources].
-    for item in ("Project.toml", "src", "reader")
+    # The reader and the headless package travel with the main one: a URL
+    # install resolves them from the clone through the main package's [sources].
+    for item in ("Project.toml", "src", "reader", "headless")
         cp(joinpath(TelemetryCore.PROJECT_ROOT[], item), joinpath(repo, item))
     end
+    # Resolved manifests and run data of the checkout stay out of the fixture.
+    for (dir, _, files) in walkdir(repo)
+        "Manifest.toml" in files && rm(joinpath(dir, "Manifest.toml"); force = true)
+    end
+    rm(joinpath(repo, "headless", "data"); recursive = true, force = true)
     run(`git -C $repo init -q`)
     run(`$FIXTURE_GIT -C $repo add -A`)
     run(`$FIXTURE_GIT -C $repo commit -q -m fixture`)
@@ -42,6 +47,7 @@
     seed = TOML.parsefile(TelemetryCore.active_manifest_path())
     delete!(seed["deps"], "DeepSpaceTelemetry")
     delete!(seed["deps"], "DeepSpaceTelemetryReader")
+    delete!(seed["deps"], "DeepSpaceTelemetryHeadless")
     open(io -> TOML.print(io, seed), joinpath(env, "Manifest.toml"), "w")
 
     scenario = joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml")

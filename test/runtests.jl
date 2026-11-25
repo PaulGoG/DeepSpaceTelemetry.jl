@@ -1,4 +1,4 @@
-# The suite runs in test/Project.toml, which takes both packages from this
+# The suite runs in test/Project.toml, which takes the three packages from this
 # checkout through [sources], and loads them with `using`: Aqua, JET and
 # ExplicitImports need the package identity, which `include` would lose.
 include(joinpath(@__DIR__, "activate.jl"))

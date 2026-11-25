@@ -1,4 +1,4 @@
-# Static QA: Aqua, ExplicitImports, JET over both packages.
+# Static QA: Aqua, ExplicitImports, JET over the three packages.
 
 @testset "Static QA (Aqua)" begin
     # Scripts and benchmarks carry their own environments (scripts/Project.toml,
@@ -27,7 +27,7 @@ end
 @testset "Static QA (JET)" begin
     # JET follows the compiler, so the analysis runs on the current stable
     # release (the CI legs "1"); the compat floor and the prerelease skip it.
-    # Each package is analysed from its own files: the main package never
+    # Each package is analyzed from its own files: the main package never
     # calls RunAdapter, which an analysis of the main package alone misses.
     if VERSION >= v"1.13" && isempty(VERSION.prerelease)
         # A JET that does not support this Julia loads stubs. On a leg meant
