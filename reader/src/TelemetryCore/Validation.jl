@@ -34,7 +34,8 @@ Errors:
   - the retired keys of `REMOVED_CONFIG_KEYS`, rejected with the
     replacement named
   - a value that is no array where the schema holds an array of tables
-    (`TABLE_ARRAY_KEYS` and `[[labels]]`)
+    (`TABLE_ARRAY_KEYS` and `[[labels]]`), and a value that is no table
+    where it holds a section (`[[disruption]]` for `[[disruption.events]]`)
 
 Warnings:
   - the rate pair with a shaped `bandwidth_profile` (the profile mean scales
@@ -63,10 +64,13 @@ function validate_config(cfg::AbstractDict)
         content = get(cfg, section, nothing)
         content isa AbstractDict && reject_removed_key(content, section, key)
     end
-    # Unrecognized-key sweep.
+    # Unrecognized-key sweep. Every section of the schema is a table but
+    # `labels`, an array of tables checked below.
     for (section, content) in cfg
         if !haskey(KNOWN_CONFIG_KEYS, section)
             @warn "[CONFIG] Unrecognized section [$section] — its keys are ignored."
+        elseif section != "labels" && !(content isa AbstractDict)
+            config_error("[CONFIG] [$section] must be a table (got $(repr(content))).")
         elseif !(section in FREE_FORM_SECTIONS) && content isa AbstractDict
             for key in keys(content)
                 key in KNOWN_CONFIG_KEYS[section] ||

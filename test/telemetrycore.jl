@@ -883,6 +883,18 @@ end
         cfg["labels"] = value
         @test_throws "labels must be an array of tables" check(cfg)
     end
+    # A section is a table: `[[disruption]]` written for
+    # `[[disruption.events]]` makes an array of the section itself.
+    for (section, value) in (
+        "disruption" => Any[Dict{String,Any}("start_day" => 0.1)],
+        "contacts" => Any[Dict{String,Any}()],
+        "simulation" => 3,
+        "provenance" => "first",
+    )
+        cfg = valid_test_cfg()
+        cfg[section] = value
+        @test_throws "[$section] must be a table" check(cfg)
+    end
     # An empty array is a configuration without entries.
     cfg = valid_test_cfg()
     cfg["disruption"] = Dict{String,Any}("events" => Any[])

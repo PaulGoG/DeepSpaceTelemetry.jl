@@ -49,8 +49,11 @@ byte-identical to those of 3.3.1 under the fixes below.
   `[[labels]]`) is refused by `validate_config` with a `[CONFIG]` error that
   names the key (`TelemetryCore.checked_table_array`). An empty string was
   read as no entries, a single table gave an error about its first element,
-  and a date gave a `MethodError`. The accessors read the snapshots of
-  earlier runs as before.
+  and a date gave a `MethodError`. A section given a value that is no table,
+  such as `[[disruption]]` written for `[[disruption.events]]`, is refused
+  the same way; it gave a `MethodError` that named no key, or, for
+  `[provenance]` and `[payload]`, passed the check. The accessors read the
+  snapshots of earlier runs as before.
 - `scripts/run_sweep.jl --seeds a:step:b` runs the stepped range; it ran
   `a:b`. A `--set` override of a key outside the configuration schema is
   refused; it left every run on the default while `sweep.toml` recorded it
