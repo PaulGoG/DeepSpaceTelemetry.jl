@@ -1,6 +1,6 @@
 # DeepSpaceTelemetry
 
-A Julia framework that simulates the telemetry environment of deep-space science missions: contact windows, link physics, queuing, loss, and disruption. The shipped scenarios, a library under `scenarios/`, model the **LISA (Laser Interferometer Space Antenna)** mission. Missions run on a wall-paced clock for rehearsals with live dashboards, or unpaced on a logical clock for analysis; both produce the same record, to the byte, for a given seed.
+A Julia framework that simulates the telemetry environment of deep-space science missions: contact windows, link physics, queuing, loss, and disruption. The shipped scenarios, a library under `scenarios/`, model the **LISA (Laser Interferometer Space Antenna)** mission. Missions run on a wall-paced clock for rehearsals with live dashboards, or unpaced on a logical clock for analysis; both produce the same record, to the byte, for a given seed on a given platform.
 
 ## Overview
 Deep-space missions communicate on asymmetric duty cycles: a daily ground-station contact window followed by a long blind spot in which science data accumulates onboard. The shipped configuration models LISA, which orbits the Sun 50 million kilometers behind Earth, with an 8-hour DSN window against a 16-hour blind spot (12 h passes near the seasonal peak in the default configuration). The telemetry, channel, and queuing layers remain mission-agnostic. "DSN" denotes throughout a deep-space ground-station network in the generic sense; the LISA passes are ESA ESTRACK 35 m antenna passes.
@@ -11,9 +11,10 @@ One week of `scenarios/stress_8h_bursty.toml`: 8 h daily passes on the
 physical link, a bursty Gilbert–Elliott channel, an 18 h blackout after a
 solar particle event with a 12 h recovery ramp on day 2.5, a partial
 ground-station outage on day 5, and a scheduled generation gap on day 1.5.
-The onboard buffer grows from 288 to 533 batches over the week, and retransmission recovers every rejected
-transfer. The [Scenario Gallery](@ref) shows the other products of this
-run, nine further scenarios, and the totals of all ten.
+The onboard buffer grows from 288 to 533 batches over the week, and
+retransmission recovers every rejected transfer. The
+[Scenario Gallery](@ref) shows the other products of this run, nine further
+scenarios, and the totals of all ten.
 
 ## Installation
 
@@ -35,9 +36,11 @@ julia scripts/run_full_sim.jl
 Runs are written under `data/runs/` of the clone; `data/` is the data root.
 The environment variable `DEEPSPACETELEMETRY_DATA` names another data root
 when it is set as the package loads. A copy installed by Pkg writes under
-its own directory unless that variable is set, the caller passes
-`data_root` to `Supervisor.run_mission`, or the default data root,
-`TelemetryCore.DATA_ROOT[]`, is redirected.
+its own directory in the depot unless that variable is set, the caller
+passes `data_root` to `Supervisor.run_mission`, or the default data root,
+`TelemetryCore.DATA_ROOT[]`, is redirected. `Pkg.gc` removes that directory
+with the package version, runs included, so an installed copy warns when it
+creates a run there: give it a data root.
 
 A project that depends on the package adds it by URL. Julia 1.13 resolves
 the reader and the headless package through the package's own `[sources]`

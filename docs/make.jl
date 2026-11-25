@@ -25,6 +25,7 @@ makedocs(
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
         canonical = "https://PaulGoG.github.io/DeepSpaceTelemetry.jl/stable/",
+        description = "Manual of DeepSpaceTelemetry.jl, a telemetry, channel, and queuing simulator for deep-space science missions, with LISA as the shipped scenario library.",
         # The TelemetryCore API page is about 204 KiB, above Documenter's
         # default thresholds (error 200 KiB, warning 100 KiB); both are raised.
         size_threshold_warn = 150 * 2^10,

@@ -13,19 +13,21 @@ julia scripts/run_full_sim.jl <RUN_ID> scenarios/<file>.toml
 julia scripts/run_full_sim.jl --tick <RUN_ID> scenarios/<file>.toml
 ```
 
-One command regenerates the figures and the totals of this page. It runs the ten scenarios one after
-another on the tick clock, reduces the figures, and records every run and
-every file in `docs/src/assets/PROVENANCE.toml`:
+One command regenerates the figures and the totals of this page. It runs
+the ten scenarios one after another on the tick clock, reduces the figures,
+and records every run and every file in `docs/src/assets/PROVENANCE.toml`.
+A completed run of the same ID is reused, so a regeneration at a new commit
+takes a new run-ID prefix:
 
 ```bash
-julia docs/render_assets.jl
+julia docs/render_assets.jl [RUN_ID_PREFIX]
 ```
 
 The totals below reproduce from the scenario, the seed, the commit, the
 platform, and the Julia version recorded with each run; the record also
-identifies the resolved dependencies by the digest of the run's manifest. The regime each scenario is built to
-reach follows from its link budget and is derived in the coverage matrix of
-`scenarios/README.md`.
+identifies the resolved dependencies by the digest of the run's manifest.
+The regime each scenario is built to reach follows from its link budget and
+is derived in the coverage matrix of `scenarios/README.md`.
 
 ## Realized Totals
 

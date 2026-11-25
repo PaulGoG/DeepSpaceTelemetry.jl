@@ -24,13 +24,16 @@
   states another licence, or that is not permissive (MIT, Apache-2.0, BSD).
 - Manifests are not tracked: `Project.toml` defines an environment, with
   `[compat]` bounds on every dependency, and each CI leg resolves its own. A
-  dependency change therefore touches `[deps]` and `[compat]` together.
+  dependency change therefore touches `[deps]` and `[compat]` together, and
+  in a clone it is followed by `Pkg.resolve()` in every environment that
+  takes the changed package by path: an existing manifest does not update
+  itself.
 
 ## Tests and static analysis
 
 - Run `julia test/runtests.jl`. The suite includes the Aqua, JET,
   and ExplicitImports checks and the end-to-end integration missions, and
-  takes about four minutes.
+  takes about five minutes.
 - CI runs the suite on Linux for Julia 1.12 (the compat floor), the current
   release, and the prerelease, and on macOS and Windows for the current
   release, and the headless suite on Linux for 1.12 and the current release.
@@ -84,11 +87,13 @@
 - Commit messages and pull-request descriptions contain no attribution
   trailers, generated footers, or tool identifiers.
 - User-visible changes get an entry under `[Unreleased]` in `CHANGELOG.md`.
-- A change to the public surface (the run-directory contract, the
-  configuration schema, the scripts' arguments and products, the public
-  names of `RunAdapter`) is marked **Breaking** in the changelog and waits
-  for a major release. A change to the other modules and functions is not
-  breaking by itself.
+- A change that alters or removes part of the public surface (the
+  run-directory contract, the configuration schema, the scripts' arguments
+  and products, the public names of `RunAdapter`) is marked **Breaking** in
+  the changelog and waits for a major release. Additions come in minor
+  releases, and the manual's Upgrading and Support page gives the rule for
+  correcting a writer that deviates from the contract. A change to the other
+  modules and functions is not breaking by itself.
 - A pull-request description states the change, how it was verified (suite, docs
   build, runs), and any open points.
 

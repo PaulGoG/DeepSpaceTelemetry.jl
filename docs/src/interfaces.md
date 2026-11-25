@@ -23,9 +23,9 @@ one run at a time.
    works unchanged against a real-time run (`speed_up = 1.0`) or a tick-mode
    run (`simulation.mode = "tick"`); only the wall-clock arrival cadence
    differs. Both modes write the heartbeats and the anchor's horizon; a
-   wall run adds its speed-up and nominal wall deadline. Development runs
-   accelerated or on the tick clock (Reproducibility below); rehearsal runs
-   at mission cadence.
+   wall run adds its speed-up and nominal wall deadline. Develop against an
+   accelerated or a tick-clock run (Reproducibility, below); rehearse at
+   mission cadence.
 4. **`config_snapshot.toml` is the only source of derived quantities.**
    Sample rates, segment/batch geometry, and session parameters are read from
    the run's own snapshot, never from the live `config.toml`.
@@ -33,16 +33,16 @@ one run at a time.
    entry-point scripts.** Semantic versioning applies to those three: a
    change that alters what a consumer reads from a run directory, rejects a
    configuration that was accepted, or changes a script's arguments or
-   products is a major release. A correction that brings a writer into line
-   with this contract, where the contract had recorded the writer's
-   deviation from it, is a defect fix, listed on the
-   [Upgrading and Support](@ref) page. It comes in a minor release when it
-   changes what a consumer reads from the runs of the shipped scenarios on
-   the tick clock, as 3.3.0 did in moving the instants of `events_rx.csv` to the completion of
-   the transfer, and in a patch release when it leaves them unchanged. The Julia modules and functions are the
-   implementation and may change between minor releases; the API pages
-   document them for contributors. The exception is `RunAdapter`: its public
-   names are versioned with this contract.
+   products is a major release. Where this contract records a writer's
+   deviation from it, bringing the writer into line is a defect fix, listed
+   on the [Upgrading and Support](@ref) page. The fix comes in a minor
+   release if it changes what a consumer reads from the tick-clock runs of
+   the shipped scenarios, as 3.3.0 did in moving the instants of
+   `events_rx.csv` to the completion of the transfer, and in a patch release
+   otherwise. The Julia modules and functions are the implementation and may
+   change between minor releases; the API pages document them for
+   contributors. The exception is `RunAdapter`: its public names are
+   versioned with this contract.
 
 ## Two Consumer Classes
 
@@ -57,14 +57,15 @@ A **stationary consumer** opens a *finished* run as a fixed record: a
 post-hoc replay of the arrival stream for a latency study, a batch analysis
 of the delivered series with its gaps declared, a comparison across runs. It
 may read everything, including the products post-processing derives from the
-record, and nothing it reads will change.
+record. The record itself no longer changes; a derived product is rewritten
+only when post-processing or an export is run on the directory again.
 
 | | Streaming (active run) | Stationary (finished run) |
 |---|---|---|
 | Sentinel to check | `RUN_ACTIVE` present, heartbeats fresh during the mission phase | `RUN_COMPLETE` or `RUN_ABORTED`; either may close a truncated record ([Availability Window & Lifecycle Sentinels](@ref)) |
 | Source of truth | `events_rx.csv`, tailed, plus the batch directories it names | the batch directories, the two event logs, `mission_profile.csv`, and everything post-processing derived from them |
 | Order of the data | arrival order: the live front FIFO, the backlog LIFO behind it | any order; the record is complete |
-| What can still change | new batches, `lost` and `pruned` events, a declared gap closing, the terminal sentinel | nothing |
+| What can still change | new batches, `lost` and `pruned` events, a declared gap closing, the terminal sentinel | nothing in the record; derived products when post-processing is repeated |
 | Gaps | holes that may close (undelivered yet) or are permanent (`lost`, a generation gap) | declared intervals with a cause |
 | State | the consumer's: coverage, pending windows, horizon | none required; the mask timeline carries the live view at every snapshot |
 | Read with | [Streaming Consumption](@ref) | [Stationary Analysis](@ref) |
@@ -89,11 +90,11 @@ record, and nothing it reads will change.
 | `component_events.csv` | supervisor (single writer) | Tail/read. Component lifecycle record, columns `SimTime, Component, Event`, with `Component` either `emitter` or `receiver` and `Event` `down` or `restart` (runs before 2.8.0 may also hold `stalled` and `recovered`). |
 | `emitter_alive` / `receiver_alive` | the driver (heartbeats, both modes) | Read mtime. Liveness of the mission driver, not of either component: the driver touches both files together, at most once per second, from the start of the mission phase, and deletes them when it ends. Both are absent before the mission phase (setup, pre-population) and after it; a stale mtime while `RUN_ACTIVE` stands without `RUN_POSTPROCESSING` means the driver is stalled. A component outage is read from `component_events.csv`. |
 | `markers.csv` | pipeline (at mission start) | Read. Event markers of the run, columns `SimTime, Label, PayloadRow` (`PayloadRow`: the payload row of the instant): the instants at which the alert-latency metric is evaluated (`alert_latency_markers.csv`). Absent when the scenario declares no markers. |
-| `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid, columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd`, rows as in `masks/gaps.csv`. `Class` is `label` (a `[[labels]]` span a payload exporter declares in payload rows), `blackout` or `recovery` (the phases of a link disruption, `Type` the event type), `generation_gap` (a scheduled generation gap as configured, `Type` the event type; the realized gap of the gap table may differ by the segment-grid snap), `contact` (`Type = pass`), `low_latency` (`Type = triggered` for a marker's period, `scheduled` otherwise), or `initial_downtime`. |
+| `label_spans.csv` | pipeline (at mission start; post-processing regenerates it only when absent) | Read. Every labeled interval of the scenario on the payload grid, columns `Class, Type, Label, RowFirst, RowLast, ContentStart, ContentEnd`, rows as in `masks/gaps.csv`. `Class` is `label` (a `[[labels]]` span a payload exporter declares in payload rows), `blackout` or `recovery` (the phases of a link disruption, `Type` the event type), `generation_gap` (a scheduled generation gap as configured, `Type` the event type; the realized gap of the gap table opens at the first segment of the batch in progress, up to one batch span earlier, and closes on the segment grid), `contact` (`Type = pass`), `low_latency` (`Type = triggered` for a marker's period, `scheduled` otherwise), or `initial_downtime`. |
 | `descriptor.toml` | post-processing (last) | Read/copy. The run's identity for a downstream collection: `schema` (`"deepspacetelemetry-run/2"` since 3.0, `/1` before), `run_id`, the producer's `package_version` and source identity (the fields of Source identity), `config_sha256`, the clock `mode`, `mission_days`, `start_sim_time`, `payload_origin`, `rng_seed`, the payload geometry (`sample_rate`, `segment_duration_sec`, `batch_size`, `points_per_batch`), `payload_columns`, the external record's `external_data_sha256` and `external_data_rows`, `written_at`, and under `[products]` the `bytes` and `sha256` of every table present; `RunAdapter.run_descriptor` returns it. Written as `descriptor.toml.partial` and renamed into place (since 3.2.0), so a reader finds the whole file or none. |
 | `delivery_delay.csv` | post-processing | Read. Measurement-to-ground delay of every generated batch, columns `Batch, Live, ContentEnd, AvailableAt, Delay_Hours, LowLatency, Due` (`AvailableAt` and `Delay_Hours` missing for undelivered batches; `LowLatency` flags deliveries inside a low-latency period, also where it overlaps a nominal pass; `Due`, since 3.3.0, whether `ContentEnd` plus `post_processing.delivery_requirement_hours` falls at or before the mission end); `plots/delivery_delay.png` renders the distribution against the requirement. |
-| `alert_latency.csv` | post-processing | Read. Alert-latency curves: the median and quartiles of the ground availability of the look-back data of a live event, for the realized doctrine and the counterfactual FIFO drain, columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours` over the windows delivered in full under both doctrines, then, since 3.3.0, `N_Alerts_All, N_Censored_LIFO, N_Censored_FIFO, LIFO_KM_Median_Hours, LIFO_KM_Q25_Hours, LIFO_KM_Q75_Hours, FIFO_KM_Median_Hours, FIFO_KM_Q25_Hours, FIFO_KM_Q75_Hours`: the Kaplan–Meier estimates over every live event delivered under the realized doctrine, a window still incomplete at the run end censored there and one holding discarded data, or a batch lost for good under the realized doctrine, never complete (`NaN` where a quantile is not reached; [Alert-Latency Metrology](@ref)). `plots/alert_latency.png` renders the Kaplan–Meier curves. |
-| `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`. |
+| `alert_latency.csv` | post-processing | Read. Alert-latency curves: the median and quartiles of the ground availability of the look-back data of a live event, for the realized doctrine and the counterfactual FIFO drain, columns `Lookback_Hours, N_Alerts, LIFO_Median_Hours, LIFO_Q25_Hours, LIFO_Q75_Hours, FIFO_Median_Hours, FIFO_Q25_Hours, FIFO_Q75_Hours` over the windows delivered in full under both doctrines, then, since 3.3.0, `N_Alerts_All, N_Censored_LIFO, N_Censored_FIFO, LIFO_KM_Median_Hours, LIFO_KM_Q25_Hours, LIFO_KM_Q75_Hours, FIFO_KM_Median_Hours, FIFO_KM_Q25_Hours, FIFO_KM_Q75_Hours`: the Kaplan–Meier estimates over every live event delivered under the realized doctrine. A window still incomplete at the run end is censored there; a window holding data discarded on board, or under the realized doctrine a batch lost for good, never completes (`NaN` where a quantile is not reached; [Alert-Latency Metrology](@ref)). `plots/alert_latency.png` renders the Kaplan–Meier curves. |
+| `alert_latency_markers.csv` | post-processing | Read. The alert latency at every event marker, columns `Label, Marker, Batch, Lookback_Hours, LIFO_Hours, FIFO_Hours`: `Batch` the batch holding the marker, the latencies in hours and missing where the window holds a batch that never arrived or data discarded on board. A marker outside every batch has one row, with an empty `Batch` and `Lookback_Hours = 0`. |
 | `products.h5` | post-processing (`hdf5_export`) | Read/copy. The tabular products, the mask timeline, and the provenance attributes in one HDF5 file ([HDF5 Product Export](@ref)), without the batch payloads, the clock anchor, the sentinels and the logs; regenerable from the CSV products. |
 | `plots/` | post-processing | Read/copy. Figures `mission_summary_global`, one `session_<stem>_detail` per contact (none when `post_processing.session_figures` is off; at most `session_figures_max` evenly spaced contacts when that cap is set), `alert_latency`, `delivery_delay`, and `state_raster` (the batch-state timeline as a raster), each as `.png` and `.pdf`. Every figure but `mission_summary_global` is gated by its `[post_processing]` flag, and a sweep run draws none. `scripts/postprocessing/generate_gif.jl` adds `telemetry_animation.gif` (with `--web`, `telemetry_animation_web.gif`). |
 | `publication/` | post-processing (`[post_processing.publication]`) | Read/copy. Journal-width figure export (the directory is the default of `[post_processing.publication] export_dir`, which may lie outside the run directory), `<stem>__<run_id>.<format>`, with a `PROVENANCE.toml` sidecar (`[export]`: `run_id`, `run_directory`, `exported_at`, `column_width_mm`, `format`, `package_version`, `git_commit`, `git_tree_sha1`, `git_dirty`, `config_snapshot_sha256`, `figures`). |
@@ -115,6 +116,15 @@ may stand beside `#k` backups of itself (`masks/gaps#1.csv`,
 `descriptor#1.toml`) once post-processing has been repeated, and
 `descriptor.toml.partial` exists while the descriptor is written; neither
 is part of the contract.
+
+In `mission_profile.csv`, `Mission_Day` and `Hours_Elapsed` count from
+`start_sim_time` and are rounded to 0.01. `Bandwidth_Pct` is the effective
+capacity (visibility times disruption) and `Nominal_Bandwidth_Pct` the
+visibility alone, in percent of the peak and rounded to 0.1. The buffer and
+`Ground_*` columns count batches, `Lost_Count` and `Retry_Count` are
+cumulative, and `Disruption_Active` tells whether a disruption lowers the
+link. A row is written when a count changes or the capacity moves by more
+than 0.1 percentage points.
 
 A batch directory contains `metadata.json` and one `seg_<id>.csv` per
 segment. A segment file has one column per payload column, under its name:
@@ -169,17 +179,18 @@ The `[provenance]` section of `config_snapshot.toml`:
 ### Provenance conventions
 
 The run directory follows the conventions of DrWatson's provenance tooling
-without the dependency. Two concurrent components write the layout batch by
-batch and the provenance is recorded at setup, which the whole-file
-semantics of `tagsave` and `safesave` do not cover. The correspondence:
+without the dependency. `tagsave` and `safesave` act on whole files, whereas
+two concurrent components write this layout batch by batch and the
+provenance is recorded at setup, so the package implements the conventions
+itself. The correspondence:
 
 | DrWatson | This package |
 |---|---|
 | `savename`: parameter-derived identifier | `TelemetryCore.generate_run_id`: `RUN_cfg=<8 hex of config_sha256>_pid=<pid>_t=<yyyymmdd_HHMMSS>`, key=value fields in `savename` order |
 | `tagsave`: the git commit stored with the result | `TelemetryCore.setup_run_dir`: `config_snapshot.toml` with `[provenance.platform]` (source identity, hostname, hardware, Julia and package versions) beside `manifest_snapshot.toml` |
-| `safesave`: `#k` backup rotation, never an overwrite | `TelemetryCore.backup_existing` and `backup_existing_dir`: the same `<name>#k` rotation for every product written whole and for a batch directory that meets a namesake; a run directory is never reused (`setup_run_dir` refuses a non-empty one) |
+| `safesave`: numbered backups, never an overwrite | `TelemetryCore.backup_existing` and `backup_existing_dir`: a `<name>#k` rotation, `#1` the oldest backup, for every product written whole and for a batch directory that meets a namesake; a run directory is never reused (`setup_run_dir` refuses a non-empty one) |
 | `produce_or_load`: cached expensive stages | not provided: the mission phase is a live two-component process, and every post-processing product is regenerable from the run directory by `Supervisor.post_process!` or the function of its stage |
-| `datadir`, `projectdir` | `TelemetryCore.run_directory`: `<data root>/runs/<RUN_ID>`, the data root being `TelemetryCore.DATA_ROOT[]` (default: the directory named by `DEEPSPACETELEMETRY_DATA` when set, else `data/` under the package directory) |
+| `datadir`, `projectdir` | `TelemetryCore.run_directory`: `<data root>/runs/<RUN_ID>`, the data root being `TelemetryCore.DATA_ROOT[]` (default: the directory named by `DEEPSPACETELEMETRY_DATA` when set, else `data/` under the directory of the package that was loaded: the clone for the main package, `headless/` or `reader/` for those packages alone. With a copy installed by Pkg, set the variable: `Pkg.gc` removes a data root inside the depot together with the package version) |
 
 ### Source identity
 
@@ -191,7 +202,7 @@ identity is defined for a git checkout and for a copy Pkg installed under
 
 | Field | Content |
 |---|---|
-| `identity_source` | How the identity was determined: `work_tree` (the package directory is the top level of a git checkout, or since 3.3.0 a directory tracked in a clone of this repository, as the headless package), `manifest` (a copy installed by Pkg, matched by UUID to its entry in the manifest of the active environment), or `directory` (neither; the content of the directory alone). |
+| `identity_source` | How the identity was determined: `work_tree` (the package directory is the top level of a git checkout or, since 3.3.0, a directory tracked in a clone of this repository, such as the headless package), `manifest` (a copy installed by Pkg, matched by UUID to its entry in the manifest of the active environment), or `directory` (neither; the content of the directory alone). |
 | `git_tree_sha1` | The git tree hash of the source: `HEAD^{tree}` of the checkout (`HEAD:<path>` for a tracked directory), the `git-tree-sha1` of the manifest entry, or the hash of the package directory computed as git computes it (leaving out `.git`, the untracked manifests, and, under a data root inside it, everything but the `.gitkeep` placeholders the repository tracks). Never empty. |
 | `reader_tree_sha1` | The tree hash of the reader package: its tree at `HEAD` in a clean clone of this repository, otherwise the hash of its directory computed as above. The identity of the configuration and I/O layer where the package identity does not hold it, as for the headless package in a container image (since 3.3.0). |
 | `git_commit` | The checkout's `HEAD`; for an installed copy, the `repo-rev` of the manifest entry when it is a full 40-digit commit hash, as in a `[sources]` pin by commit. Empty for a copy pinned by branch or tag, one installed from a registry, and a bare directory. |
@@ -200,11 +211,13 @@ identity is defined for a git checkout and for a copy Pkg installed under
 
 `git_tree_sha1` identifies the code: with `git_dirty = false` it fixes the
 source, however the package was obtained. Equal content gives an equal
-value, the `git-tree-sha1` Pkg writes into a manifest and the output of
-`git rev-parse <commit>^{tree}`. A non-empty `git_commit` has
-`git_tree_sha1` as its tree and adds the history. `repo_url` and
-`repo_rev` say where an installed copy came from and identify nothing, as
-a branch or a tag moves. A downstream collection
+value: the `git-tree-sha1` Pkg writes into a manifest, and the output of
+`git rev-parse <commit>^{tree}` for a package at the top level of its
+repository or of `git rev-parse <commit>:<path>` for one in a subdirectory,
+as the headless package and the reader are. A non-empty `git_commit` holds
+that tree and adds the history. `repo_url` and `repo_rev` record where an
+installed copy came from; they do not identify the code, since a branch or
+a tag can move. A downstream collection
 keys a run's producer by `git_tree_sha1` and `git_dirty` and copies
 `git_commit` when present. A run with `git_dirty = true` cannot be
 reproduced from its recorded identity. Runs made before 2.6.1 record only
@@ -336,10 +349,12 @@ which the row is appended ([Packet Loss Channel Models](@ref)); before
 `holes.csv` — columns `DeclaredAt, Cause, Batch, RowFirst, RowLast,
 ContentStart, ContentEnd`. `DeclaredAt` is the mission instant of the
 declaration; the other columns are those of `masks/gaps.csv`. The file is
-append-only, with rows in declaration order, and every writer declares at
-the current mission instant, so `DeclaredAt` is non-decreasing (since
-3.3.0; before, a `lost` row could precede the row above it by up to one
-transfer time).
+append-only, with rows in declaration order. The components declare at the
+current mission instant, pre-population at `start_sim_time`, and
+post-processing at the nominal mission end, which on a halted run lies
+beyond the last instant the run reached; `DeclaredAt` is non-decreasing
+(since 3.3.0; before, a `lost` row could precede the row above it by up to
+one transfer time).
 
 | `Cause` | Declared by | When |
 |---|---|---|
@@ -479,45 +494,29 @@ settled as [Availability Window & Lifecycle Sentinels](@ref) describes. The
 end-of-run rows of `holes.csv` land during post-processing: read the feed
 once more after the terminal sentinel.
 
-A minimal consumer in Julia, with the package as a reader (consumers in
-other languages read the same files):
+A minimal consumer in Julia, on the run adapter described below (consumers
+in other languages read the same files):
 
 ```julia
-using DeepSpaceTelemetry: TelemetryCore
-
-segment_files(dir) = sort(
-    filter(f -> occursin(r"^seg_\d+\.csv$", f), readdir(dir));
-    by = f -> parse(Int, match(r"\d+", f).match),
-)
-read_payload(dir) = reduce(vcat, (TelemetryCore.load_segment(joinpath(dir, f)).data for f in segment_files(dir)))  # samples × columns
+using DeepSpaceTelemetryReader: RunAdapter  # or `using DeepSpaceTelemetry: RunAdapter`
 
 function follow_run(run_id; poll_seconds = 5.0)
-    run_dir = TelemetryCore.run_directory(run_id)
-    cfg = TelemetryCore.load_run_config(run_dir)
-    phys = cfg["physics"]
-    points_per_batch = round(Int, phys["sample_rate"] * phys["segment_duration_sec"]) * phys["batch_size"]
+    run = RunAdapter.open_run(run_id)     # a path or an identifier
+    arrivals = RunAdapter.FeedCursor(run, :arrivals)
+    declared = RunAdapter.FeedCursor(run, :holes)
     covered = UnitRange{Int}[]            # delivered payload rows
     holes = Pair{UnitRange{Int},Symbol}[] # permanent holes with their cause
-    consumed = 0
-    rx_path = joinpath(run_dir, "events_rx.csv")  # absent until the first arrival
     while true
-        finished = !isfile(joinpath(run_dir, "RUN_ACTIVE"))  # tested before the read
-        rx = isfile(rx_path) ? TelemetryCore.read_table(rx_path) : nothing
-        for row in (rx === nothing ? () : eachrow(rx[(consumed + 1):end, :]))
-            consumed += 1
-            row.Event == "retry" && continue  # the batch is still under link/
-            stage = row.Event == "lost" ? "lost" : "ground"
-            meta = TelemetryCore.read_batch_metadata(joinpath(run_dir, stage, row.Batch))
-            row_first = meta["payload_row"]
-            rows = row_first:(row_first + points_per_batch - 1)
-            if row.Event == "ingested"
-                payload = read_payload(joinpath(run_dir, "ground", row.Batch))
-                push!(covered, rows)          # feed `payload` at `rows` to the analysis
-            elseif row.Event == "lost"
-                push!(holes, rows => :lost)
-            elseif row.Event == "pruned"
-                push!(holes, rows => :pruned)
-            end
+        finished = RunAdapter.run_state(run) !== :active  # tested before the read
+        for e in RunAdapter.arrival_events(arrivals)
+            e.event === :ingested || continue
+            record = RunAdapter.batch_record(run, e.batch)
+            record.state === :ground || continue  # pruned since its arrival
+            payload = RunAdapter.read_batch_matrix(run, e.batch; delivered = true)  # samples × columns
+            push!(covered, record.rows)       # feed `payload` at `record.rows` to the analysis
+        end
+        for h in RunAdapter.declared_holes(declared)
+            push!(holes, h.rows => h.cause)   # lost and pruned batches, generation gaps
         end
         finished && break
         sleep(poll_seconds)
@@ -526,7 +525,11 @@ function follow_run(run_id; poll_seconds = 5.0)
 end
 ```
 
-The generation gaps enter the same `holes` list from `events_tx.csv`: each
+Each cursor reads the bytes appended since its last call and leaves a line
+still being written for the next one. The permanent holes come from
+`holes.csv`, where the producer declares each lost or pruned batch and each
+generation gap as it occurs. A consumer that reads the files directly pairs
+the `gap_start` / `gap_end` rows of `events_tx.csv` instead: each
 `gap_start` row with `Batch` in `STREAM`, `SCHEDULED`, or `RECORDER` opens a
 hole at the row of its instant, closed by the matching `gap_end` (the
 conversion between an instant and a payload row is in
@@ -547,7 +550,7 @@ RunAdapter.batch_record(run, "LIVE_batch_7") # the same record for one batch, fr
 RunAdapter.read_batch(run, "LIVE_batch_7"; column = 1)   # one payload column, Float32, segments in ascending id (read_batch_matrix: all columns)
 RunAdapter.read_batch_matrix(run, "LIVE_batch_7"; delivered = true)   # refuses a batch not on the ground (lost, pruned, absent)
 RunAdapter.arrival_events(run; after = n)    # the feed beyond the n rows already consumed, in mission-time order
-RunAdapter.delivered_rows(run; at = t)       # the payload rows on the ground at mission instant t, as disjoint intervals
+RunAdapter.delivered_rows(run; at = t)       # the payload rows delivered by mission instant t, as disjoint intervals (a batch pruned since still counts)
 RunAdapter.run_state(run)                    # :active | :complete | :aborted, from the sentinels
 RunAdapter.run_descriptor(run)               # descriptor.toml as a Dict (empty until post-processing writes it), schema checked
 RunAdapter.markers(run)                      # the event markers with their payload row
@@ -578,12 +581,11 @@ The adapter's types (`RunHandle`, `RunGeometry`, `BatchRecord`,
 exported: a consumer qualifies them, as in the example. Principle 5
 versions them with this contract; the changelog gives the release of each.
 
-**Streaming archetypes.** The loop above is what a *streaming engine* does
-generically: a coverage set, a window scheduler that emits each window
-once, conditioning on the delivered stretch, a scorer, and an ordered
-commit with an order horizon for stateful estimators. Such an engine is
-best kept behind the adapter, which serves its follow mode on an active
-run and its replay mode on a finished one. A *detector* (a classifier, a
+**Streaming archetypes.** A *streaming engine* generalizes the loop above:
+it keeps a coverage set, schedules each window once, conditions it on the
+delivered stretch, scores it, and, for a stateful estimator, commits the
+results in order behind an order horizon. Such an engine is best built on
+the adapter, which follows an active run and replays a finished one. A *detector* (a classifier, a
 matched filter) then scores the conditioned windows. An *online estimator*
 that requires strictly increasing sample times fits the live FIFO front
 only; the LIFO backfill behind it is out of order for such a consumer and
@@ -625,10 +627,10 @@ a gap, appear in neither. The causes and where the record declares each:
 
 `holes.csv` holds the same rows on a finished run, each with its
 declaration instant ([Event Feeds](@ref)): read the feed for the declaration
-history, `masks/gaps.csv` for the table. The table is the reference:
-post-processing settles the feed from it and reports in the run log any row
-of the feed the table does not derive (`Masks.hole_feed_excess`) and alters
-neither file.
+history, `masks/gaps.csv` for the table. The table is the reference.
+Post-processing appends to the feed each hole of the table that the feed
+lacks; a row of the feed that the table does not derive is reported in the
+run log (`Masks.hole_feed_excess`) and left in place.
 
 A gap-aware statistic takes the holes as declared intervals rather than
 inferring them from the spacing of the delivered samples: the spacing cannot
@@ -636,34 +638,27 @@ tell a lost batch from an undelivered one, and cannot see a gap before the
 first or after the last delivered sample.
 
 ```julia
-using DeepSpaceTelemetry: TelemetryCore
+using DeepSpaceTelemetryReader: RunAdapter
 
-run_dir = TelemetryCore.run_directory("RUN_ID")
-cfg = TelemetryCore.load_run_config(run_dir)
-phys = cfg["physics"]
-points_per_batch = round(Int, phys["sample_rate"] * phys["segment_duration_sec"]) * phys["batch_size"]
-
-holes = TelemetryCore.read_table(joinpath(run_dir, "masks", "gaps.csv"))
-rx = TelemetryCore.read_table(joinpath(run_dir, "events_rx.csv"))
-first_row = TelemetryCore.batch_payload_rows(run_dir)      # every generated batch, all stages
-delivered = setdiff(Set(rx.Batch[rx.Event .== "ingested"]), Set(rx.Batch[rx.Event .== "pruned"]))
+run = RunAdapter.open_run("RUN_ID")
+batches = filter(b -> b.state === :ground, RunAdapter.list_batches(run))
+holes = RunAdapter.declared_holes(run)  # on a finished run, the rows of masks/gaps.csv
 
 n_rows = max(
-    maximum(holes.RowLast; init = 0),
-    maximum((first_row[name] + points_per_batch - 1 for name in delivered); init = 0),
+    maximum((last(h.rows) for h in holes); init = 0),
+    maximum((last(b.rows) for b in batches); init = 0),
 )
-# one column; a multi-column run fills a samples × columns matrix from load_segment(...).data
+# one column; a multi-column run fills a samples × columns matrix from read_batch_matrix
 series = Vector{Union{Missing,Float32}}(missing, n_rows)
-for name in delivered
-    payload = vec(read_payload(joinpath(run_dir, "ground", name)))   # as in the streaming example
-    r = first_row[name]
-    series[r:(r + length(payload) - 1)] .= payload
+for b in batches
+    series[b.rows] .= RunAdapter.read_batch(run, b.name; delivered = true)
 end
 ```
 
 `series` is the stationary record and `holes` its declared gaps with
-causes, each row the interval `RowFirst:RowLast` on the same grid.
-`Masks.gap_table(run_dir)` computes the same table from the record.
+causes, each the interval `rows` on the same grid. `masks/gaps.csv` holds
+the same intervals as a table, and `Masks.gap_table(run_dir)` computes it
+from the record.
 
 **The arrival stream, replayed.** For a latency study, replay
 `events_rx.csv` in `SimTime` order as the arrival stream and drive the same

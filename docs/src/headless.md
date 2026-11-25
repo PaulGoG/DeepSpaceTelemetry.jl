@@ -46,9 +46,9 @@ runtime libraries (GPL-3.0 with the GCC Runtime Library Exception), libgit2
 (GPL-2.0 with a linking exception), the SuiteSparse modules (several
 GPL-2.0 or LGPL-2.1), which the headless package does not load, and the CA
 certificates of `MozillaCACerts_jll` (MPL-2.0). A redistributor meets these
-terms by passing the licences on and offering the sources, which the
-non-free FFmpeg build does not allow. A container image adds the licences
-of its base image, the Debian userland of `julia:1.13`.
+terms by passing the licences on and offering the sources. A container
+image adds the licences of its base image, the Debian userland of
+`julia:1.13`.
 
 ## Installation
 
@@ -59,11 +59,10 @@ packages of the checkout:
 julia deploy/run_mission.jl scenarios/smoke_1d.toml --tick SMOKE
 ```
 
-A project that depends on the headless package adds it by URL, together
-with the reader in one call on every Julia version: its `[sources]` entry
-points at the sibling directory `../reader`, which Pkg does not follow from
-a package added by `subdir` (on Julia 1.13.4 the headless package alone
-fails to resolve the reader):
+A project that depends on the headless package adds it by URL with the
+reader in one call, on every Julia version. Pkg does not follow the
+`[sources]` entry `../reader` of a package added by `subdir`: on Julia
+1.13.4 the headless package added alone fails to resolve the reader.
 
 ```julia
 using Pkg
@@ -81,15 +80,20 @@ package loaded is refused before the run starts.
 
 Runs are written under `<data root>/runs/<RUN_ID>`. The data root is the
 directory named by the environment variable `DEEPSPACETELEMETRY_DATA` when
-it is set, else `data/` beside the package (`data/` of the clone for the
-main package). A container or a cluster job sets the variable to a mounted
-volume; `Supervisor.run_mission(cfg; data_root)` overrides both.
+it is set, else `data/` under the package directory: `data/` of the clone
+for the main package, `headless/data/` for the headless package run from a
+clone. A container or a cluster job sets the variable to a mounted volume;
+`Supervisor.run_mission(cfg; data_root)` overrides both. A copy installed
+by Pkg lies in the depot, where `Pkg.gc` removes a package version with
+everything written under it: such a copy warns when a run is created there
+and should be given a data root.
 
-A relative path in a configuration (`physics.external_data_path`,
-`contacts.schedule_csv`) resolves against the package directory, which for
-the headless package is `headless/` and in the image
-`/opt/deepspacetelemetry/headless`. A configuration run in a container
-therefore names its inputs by absolute path, under a mounted volume.
+A relative `physics.external_data_path` resolves against the package
+directory, which for the headless package is `headless/` and in the image
+`/opt/deepspacetelemetry/headless`; a relative `contacts.schedule_csv` is
+tried against the working directory first. A configuration run in a
+container therefore names its inputs by absolute path, under a mounted
+volume.
 
 ## Container image
 
@@ -113,24 +117,24 @@ image's user instead. With Docker, the host directory is made writable by
 uid 1000 (`chown 1000 data`); a Kubernetes pod sets `runAsUser: 1000` and
 `fsGroup: 1000` in its security context.
 
-The image's entry point is `deploy/run_mission.jl`: a configuration path,
-`--tick`, and a run ID, as for `scripts/run_full_sim.jl`. Its data root is
-the volume mounted at `/data`. In a Kubernetes cluster a mission is a Job
-whose pod mounts a persistent volume claim at `/data` and the scenario at a
-read-only path, with one run ID per pod (for example the seed of an
-ensemble member); the run directory carries its own provenance.
+The image's entry point is `deploy/run_mission.jl`. It takes a
+configuration path, which is required here, and optionally `--tick` and a
+run ID, in any order. Its data root is the volume mounted at `/data`. In a
+Kubernetes cluster a mission is a Job whose pod mounts a persistent volume
+claim at `/data` and the scenario at a read-only path, with one
+configuration and one run ID per pod; the members of an ensemble differ in
+`simulation.rng_seed`. The run directory carries its own provenance.
 
 A run in the image records the source identity of the `headless/`
-directory as copied into it (`identity_source = "directory"`): its git tree
-hash equals `git rev-parse <commit>:headless` of the commit the image was
-built from, and `reader_tree_sha1` equals `git rev-parse <commit>:reader`,
-when the image is built from a clean checkout: an untracked file under
-`headless/` or `reader/` that `.dockerignore` does not exclude enters the
-hash.
-A run of the headless package in a clone records the commit itself
-(`identity_source = "work_tree"`), with `git_dirty` set by any change to
-a tracked file of the clone. The resolved environment is the run's
-`manifest_snapshot.toml`.
+directory as copied into it (`identity_source = "directory"`). For an image
+built from a clean checkout, its git tree hash equals
+`git rev-parse <commit>:headless` of the commit the image was built from,
+and `reader_tree_sha1` equals `git rev-parse <commit>:reader`. An untracked
+file under `headless/` or `reader/` that `.dockerignore` does not exclude
+enters the hash. A run of the headless package in a clone records the
+commit itself (`identity_source = "work_tree"`), with `git_dirty` set by
+any change to a tracked file of the clone. The resolved environment is the
+run's `manifest_snapshot.toml`.
 
 The image compiles its package images for the CPU targets of the official
 Julia binaries on x86-64 (`JULIA_CPU_TARGET` in the Dockerfile), so a pod on
