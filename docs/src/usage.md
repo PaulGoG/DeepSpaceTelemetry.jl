@@ -261,7 +261,7 @@ headless run whose terminal shows nothing else.
 
 ## Ensembles and Sweeps
 A sweep runs one configuration on the tick clock once per seed, with
-optional overrides of any key, and gathers the realized totals of every
+optional overrides of scalar keys, and gathers the realized totals of every
 run into one table. Any run of the table can be regenerated exactly from
 its seed and the sweep's provenance:
 ```bash
@@ -273,8 +273,11 @@ script restarts itself with `--threads=N` when Julia was started with
 fewer. On the tick clock the runs are independent of the host's load and
 share no state, so parallel runs reproduce the serial ones exactly. Every
 `--set section.key=value` applies to all runs; the value is read as a
-boolean, an integer, a float, or else a string (quotes optional), and a
-key outside the configuration schema is refused. The runs land under
+boolean, an integer, a float, or else a string (quotes optional). A key
+outside the configuration schema is refused, as is an array of tables such
+as `disruption.events`, which a dotted key cannot address, and
+`[provenance]`, which the pipeline writes; a sweep over event lists takes
+one configuration file per list. The runs land under
 `data/runs/<PREFIX>_seed<seed>/`, and their post-processing writes the gap table and the metrology tables but no
 figures and no mask timeline. `data/sweeps/<PREFIX>/` receives
 `summary.csv`, one row per run with the seed and the totals of

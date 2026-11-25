@@ -2,8 +2,8 @@
     Sweeps
 
 Ensembles and sweeps on the tick clock: the same configuration run over a
-set of seeds, with optional overrides of any key, and the realized totals of
-every run gathered into one table. [`run_sweep`](@ref) drives the runs,
+set of seeds, with optional overrides of scalar keys, and the realized totals
+of every run gathered into one table. [`run_sweep`](@ref) drives the runs,
 serially or several at once on Julia threads; [`summarize_run`](@ref) reads
 one run's totals. The products land under `<data root>/sweeps/<prefix>/`.
 """
@@ -143,8 +143,8 @@ The configuration of one sweep run: `cfg` on the tick clock
 ([`TelemetryCore.tick_configuration`](@ref)), every `"section.key=value"`
 override applied, `simulation.rng_seed = seed`, the switches of
 [`FIGURE_FREE_POST_PROCESSING`](@ref), and the publication export off. An
-override of a key outside the configuration schema is refused
-([`require_known_override`](@ref)). The figures themselves are skipped by
+override of a key outside the configuration schema, of an array of tables or
+of `[provenance]` is refused ([`require_known_override`](@ref)). The figures themselves are skipped by
 [`run_one`](@ref).
 """
 function sweep_configuration(

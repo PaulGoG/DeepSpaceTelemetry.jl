@@ -1,7 +1,7 @@
 include(joinpath(@__DIR__, "activate.jl"))
 
 # Ensembles and sweeps on the tick clock: the configuration once per seed,
-# with optional overrides of any key, the realized totals of every run in
+# with optional overrides of scalar keys, the realized totals of every run in
 # one table under data/sweeps/<PREFIX>/.
 #
 #   julia scripts/run_sweep.jl <config.toml> <PREFIX> --seeds 1:8 [--workers 4] [--set packet_loss.p_loss=0.2 ...]

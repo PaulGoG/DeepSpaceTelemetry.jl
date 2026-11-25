@@ -41,14 +41,16 @@ byte-identical to those of 3.3.1 under the fixes below.
   (storage budgets, `loss_multiplier`, the on-board data rate, and others)
   are unchanged. An infinite `sigmoid_steepness` is refused under the
   sigmoid profile, where it gave a capacity of NaN. `estimate_artifacts`
-  and `check_storage_limits` refuse the keys they read when called without
-  the configuration check.
+  and `check_storage_limits` refuse an infinite value of the keys they read
+  when called without the configuration check.
 - A value that is no array in place of an array of tables
   (`[[disruption.events]]`, `[[events.markers]]`, `[[contacts.passes]]`,
   `[[contacts.exceptions]]`, `[[contacts.low_latency_periods]]`,
-  `[[labels]]`) is refused with a `[CONFIG]` error that names the key
-  (`TelemetryCore.checked_table_array`). An empty string was read as no
-  entries, and a single table gave an error about its first element.
+  `[[labels]]`) is refused by `validate_config` with a `[CONFIG]` error that
+  names the key (`TelemetryCore.checked_table_array`). An empty string was
+  read as no entries, a single table gave an error about its first element,
+  and a date gave a `MethodError`. The accessors read the snapshots of
+  earlier runs as before.
 - `scripts/run_sweep.jl --seeds a:step:b` runs the stepped range; it ran
   `a:b`. A `--set` override of a key outside the configuration schema is
   refused; it left every run on the default while `sweep.toml` recorded it
