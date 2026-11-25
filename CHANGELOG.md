@@ -6,6 +6,74 @@ Notable changes to DeepSpaceTelemetry. The format follows
 
 ## [Unreleased]
 
+The tables of the tick-clock runs of the ten gallery scenarios are
+byte-identical to those of 3.3.1 under the fixes below.
+
+### Fixed
+- A transfer whose work equals the capacity left in a contact window, to
+  within floating-point rounding, completes at the end of that window. It
+  was deferred to the opening of the next window, with an empty
+  transmitting interval there (`ChannelEffects.transfer_completion`,
+  `WORK_TOLERANCE_SEC`).
+- `alert_latency_markers.csv` gives no latency where the look-back window
+  of a marker holds data the on-board recorder discarded, as the
+  Kaplan–Meier columns of `alert_latency.csv` treat such a window; it gave
+  the completion of the batches that exist.
+- For a recorder gap still open at the mission end, `discarded` and
+  `fraction_within_resolved` of the delivery compliance count the batches
+  finalized before the end. The batch whose content span ends at the
+  mission end, which is not generated, and an incomplete one were counted
+  as well (`Metrology.discarded_batches`).
+- `RunAdapter.arrival_events(run; after)`, `declared_holes(run; after)` and
+  `delivered_rows` leave out a last line still being written, as the feed
+  cursors do; they threw on one.
+- An infinite value (`inf` is valid TOML) of a key that is converted to an
+  instant, a period or a count is refused with a `[CONFIG]` error that
+  names the key: the mission span and speed-up, the backlog, the sample
+  rate and segment duration, the downlink rate and `max_batches_per_hour`,
+  the recorder capacity, the range, the retention grace and log rotation,
+  the alert look-back and the delivery requirement, and the timings of
+  passes, low-latency periods, disruption events and markers. Each ended in
+  an `InexactError`: most before the run, two after the run directory
+  existed, the range in the receiver, which aborted the mission with
+  nothing delivered, and the two post-processing spans in the metrology
+  tables of a finished run. The keys that ran with an infinite value
+  (storage budgets, `loss_multiplier`, the on-board data rate, and others)
+  are unchanged.
+- `scripts/run_sweep.jl --seeds a:step:b` runs the stepped range; it ran
+  `a:b`. A `--set` override of a key outside the configuration schema is
+  refused; it left every run on the default while `sweep.toml` recorded it
+  as applied.
+- The overlap warning of `validate_config` also catches a link event inside
+  a longer one that started earlier, whatever lies between them; it
+  compared neighbors in start order only.
+- The opt-in installed-copy test carries the headless package in its
+  fixture; it had errored since 3.3.0.
+
+### Added
+- `validate_config` warns when the in-flight window cannot bridge one
+  emitter step, `(max_inflight_batches − 1) ×` transfer time
+  `< segment_duration_sec`: the emitter refills the link once per segment,
+  and the link then idles between refills with a backlog on board.
+- A run created under the `packages` directory of a depot, the default
+  data root of a copy installed by Pkg, draws a `[RUN]` warning: `Pkg.gc`
+  deletes it with the package version (`TelemetryCore.inside_depot`).
+- The reader package precompiles the read path of `RunAdapter`: its first
+  calls in a fresh process take about 1 s, where they took 13 s.
+- CI runs the container entry point `deploy/run_mission.jl` on the smoke
+  scenario.
+
+### Changed
+- The warning for a non-integer `sample_rate × segment_duration_sec` states
+  its consequence: the payload rows leave the grid `(r − 1) / sample_rate`,
+  and the row intervals of the gap, hole and label tables no longer match
+  the segments.
+- The worked readers of the Analysis Interfaces page use `RunAdapter`,
+  whose names are versioned, in place of `TelemetryCore` functions. The
+  physics page states the capacity floor `min_link_factor`, the
+  discretization error of the transfer integral, the cadence of the
+  emitter, and the two quantile conventions of the alert-latency table.
+
 ## [3.3.1] - 2026-11-17
 
 ### Fixed
