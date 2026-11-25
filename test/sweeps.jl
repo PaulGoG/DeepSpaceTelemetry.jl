@@ -18,6 +18,32 @@
     @test one["post_processing"]["session_figures"] == false &&
           one["post_processing"]["generate_mask_timeline"] == false
     @test_throws ArgumentError Sweeps.apply_override!(Dict{String,Any}(), "p_loss", 0.2)
+    # An override must name a key of the schema: a typo would leave every
+    # run on the default while sweep.toml records the override.
+    for bad in (
+        "packet_loss.p_los=0.9",
+        "packetloss.p_loss=0.9",
+        "post_processing.publication.widht=100",
+        "p_loss=0.9",
+        # Below a key that is no table, and the publication table itself.
+        "packet_loss.max_retries.typo=1",
+        "post_processing.publication.format.typo=pdf",
+        "post_processing.publication=false",
+    )
+        @test_throws ArgumentError Sweeps.sweep_configuration(cfg, 1; overrides = [bad])
+    end
+    known = Sweeps.sweep_configuration(
+        cfg,
+        1;
+        overrides = [
+            "packet_loss.p_loss=0.9",
+            "post_processing.publication.column_width_mm=120",
+            "payload.exporter=demo",
+        ],
+    )
+    @test known["packet_loss"]["p_loss"] == 0.9
+    @test known["post_processing"]["publication"]["column_width_mm"] == 120
+    @test known["payload"]["exporter"] == "demo"
     prefix = "TEST_SWEEP_pid$(getpid())"
     result = with_logger(NullLogger()) do
         Sweeps.run_sweep(

@@ -6,10 +6,24 @@ include(joinpath(@__DIR__, "activate.jl"))
 #
 #   julia scripts/run_sweep.jl <config.toml> <PREFIX> --seeds 1:8 [--workers 4] [--set packet_loss.p_loss=0.2 ...]
 #
-# `--seeds` takes a range (a:b) or a comma-separated list; `--workers N`
-# runs N members at once on N threads (serial without it), restarting the
-# script with --threads=N when Julia was started with fewer; every
-# `--set section.key=value` applies to all runs.
+# `--seeds` takes a range (a:b or a:step:b) or a comma-separated list;
+# `--workers N` runs N members at once on N threads (serial without it),
+# restarting the script with --threads=N when Julia was started with fewer;
+# every `--set section.key=value` applies to all runs.
+
+# `a:b`, `a:step:b`, or a comma-separated list of integers.
+function parse_seeds(text::AbstractString)
+    parts = split(text, ':')
+    if length(parts) == 1
+        return parse.(Int, split(text, ','))
+    elseif length(parts) == 2
+        return collect(parse(Int, parts[1]):parse(Int, parts[2]))
+    elseif length(parts) == 3
+        return collect(parse(Int, parts[1]):parse(Int, parts[2]):parse(Int, parts[3]))
+    end
+    error("--seeds takes a:b, a:step:b, or a comma-separated list (got \"$text\").")
+end
+
 config_arg = ""
 prefix = ""
 seeds = Int[]
@@ -22,11 +36,7 @@ while i <= length(args)
     a = args[i]
     if a == "--seeds"
         global i += 1
-        text = args[i]
-        global seeds =
-            occursin(':', text) ?
-            collect(parse(Int, split(text, ':')[1]):parse(Int, split(text, ':')[end])) :
-            parse.(Int, split(text, ','))
+        global seeds = parse_seeds(args[i])
     elseif a == "--workers"
         global i += 1
         global workers = parse(Int, args[i])

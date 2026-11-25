@@ -4,6 +4,7 @@
 DeepSpaceTelemetry.Sweeps
 DeepSpaceTelemetry.Sweeps.FIGURE_FREE_POST_PROCESSING
 DeepSpaceTelemetry.Sweeps.apply_override!
+DeepSpaceTelemetry.Sweeps.require_known_override
 DeepSpaceTelemetry.Sweeps.parse_override
 DeepSpaceTelemetry.Sweeps.sweep_configuration
 DeepSpaceTelemetry.Sweeps.split_override

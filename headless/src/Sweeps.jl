@@ -74,13 +74,61 @@ function parse_override(text::AbstractString)
 end
 
 """
+    require_known_override(key::AbstractString) -> Nothing
+
+Throws an `ArgumentError` when the dotted `key` of a sweep override names no
+key of the configuration schema: a section absent from
+`TelemetryCore.KNOWN_CONFIG_KEYS`, a key absent from its section, a key of
+`post_processing.publication` absent from
+`TelemetryCore.KNOWN_PUBLICATION_KEYS`, a path below a key that is no table,
+or the `post_processing.publication` table itself. The sections of
+`TelemetryCore.FREE_FORM_SECTIONS` take any key. An override of an unknown
+key would leave every run on the default while `sweep.toml` records it as
+applied.
+"""
+function require_known_override(key::AbstractString)
+    parts = split(String(key), '.')
+    length(parts) >= 2 ||
+        throw(ArgumentError("[SWEEP] An override key is section.key (got \"$key\")."))
+    section = String(parts[1])
+    haskey(TelemetryCore.KNOWN_CONFIG_KEYS, section) || throw(
+        ArgumentError(
+            "[SWEEP] Override \"$key\": the configuration has no section [$section].",
+        ),
+    )
+    section in TelemetryCore.FREE_FORM_SECTIONS && return nothing
+    name = String(parts[2])
+    name in TelemetryCore.KNOWN_CONFIG_KEYS[section] || throw(
+        ArgumentError("[SWEEP] Override \"$key\": section [$section] has no key $name."),
+    )
+    if section == "post_processing" && name == "publication"
+        length(parts) == 3 || throw(
+            ArgumentError(
+                "[SWEEP] Override \"$key\": an override of [post_processing.publication] names one of its keys.",
+            ),
+        )
+        name = String(parts[3])
+        name in TelemetryCore.KNOWN_PUBLICATION_KEYS || throw(
+            ArgumentError(
+                "[SWEEP] Override \"$key\": [post_processing.publication] has no key $name.",
+            ),
+        )
+    elseif length(parts) > 2
+        throw(ArgumentError("[SWEEP] Override \"$key\": $section.$name has no keys."))
+    end
+    return nothing
+end
+
+"""
     sweep_configuration(cfg::AbstractDict, seed::Integer; overrides = String[]) -> Dict{String,Any}
 
 The configuration of one sweep run: `cfg` on the tick clock
 ([`TelemetryCore.tick_configuration`](@ref)), every `"section.key=value"`
 override applied, `simulation.rng_seed = seed`, the switches of
-[`FIGURE_FREE_POST_PROCESSING`](@ref), and the publication export off. The
-figures themselves are skipped by [`run_one`](@ref).
+[`FIGURE_FREE_POST_PROCESSING`](@ref), and the publication export off. An
+override of a key outside the configuration schema is refused
+([`require_known_override`](@ref)). The figures themselves are skipped by
+[`run_one`](@ref).
 """
 function sweep_configuration(
     cfg::AbstractDict,
@@ -90,6 +138,7 @@ function sweep_configuration(
     out = TelemetryCore.tick_configuration(cfg)
     for item in overrides
         key, value = split_override(item)
+        require_known_override(key)
         apply_override!(out, key, value)
     end
     out["simulation"]["rng_seed"] = Int(seed)
