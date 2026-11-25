@@ -5,8 +5,8 @@ on:
     tags: ["*"]
   pull_request:
     branches: [main]
-# Superseded pull-request runs are cancelled. Runs on main and on tags finish:
-# a run cancelled while it instantiates leaves a partial depot in the cache.
+# Superseded pull-request runs are canceled. Runs on main and on tags finish:
+# a run canceled while it instantiates leaves a partial depot in the cache.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -91,6 +91,10 @@ jobs:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
       - run: julia headless/test/runtests.jl
+      # The entry point of the container image, on the smoke scenario.
+      - run: julia deploy/run_mission.jl scenarios/smoke_1d.toml --tick CI_SMOKE
+        env:
+          DEEPSPACETELEMETRY_DATA: ${{ runner.temp }}/deepspacetelemetry
   docs:
     name: Documentation
     runs-on: ubuntu-latest

@@ -1,5 +1,6 @@
-# Coverage of the two packages (src/ and reader/src/); the scripts, the
-# benchmarks and the documentation build are outside the measurement.
+# Coverage of the three packages (src/, headless/src/ and reader/src/); the
+# scripts, the benchmarks and the documentation build are outside the
+# measurement.
 coverage:
   status:
     project:
