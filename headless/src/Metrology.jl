@@ -237,10 +237,11 @@ Window-completeness latency of every event marker of the run
 content span holds it; empty when none does), `Lookback_Hours`, and
 `LIFO_Hours` / `FIFO_Hours`, [`completion_curves`](@ref) with the marker
 instant as `t_m`.
-Missing values mark an undelivered alert batch or a window containing a
-batch that never arrived; one row with `Lookback_Hours = 0` and missing
-latencies records a marker outside every batch. Empty when the run has no
-markers.
+Missing values mark an undelivered alert batch, a window containing a
+batch that never arrived, or a window over data the on-board recorder
+discarded ([`recorder_spans`](@ref)), which never completes under either
+doctrine; one row with `Lookback_Hours = 0` and missing latencies records a
+marker outside every batch. Empty when the run has no markers.
 """
 function marker_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     markers = TelemetryCore.load_markers(run_dir)
@@ -250,6 +251,7 @@ function marker_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
     steps = floor(Int, lookback_hours * TelemetryCore.MS_PER_HOUR / span.value)
     first_epoch = schedule[1].content_epoch
     index_of = Dict(b.name => i for (i, b) in enumerate(schedule))
+    discarded_spans = recorder_spans(run_dir)
 
     labels = String[]
     instants = DateTime[]
@@ -279,12 +281,16 @@ function marker_latency_table(run_dir::String; lookback_hours::Float64 = 72.0)
             continue
         end
         for (k, (r, f)) in enumerate(zip(real, counter))
+            # The window of this look-back, as in alert_latency_table.
+            window_start =
+                min(m.time - Millisecond((k - 1) * span.value), alert.content_epoch)
+            discarded = any(s -> s[1] < m.time && s[2] > window_start, discarded_spans)
             push!(labels, m.label)
             push!(instants, m.time)
             push!(batches, alert.name)
             push!(lookback, (k - 1) * span.value / TelemetryCore.MS_PER_HOUR)
-            push!(lifo, r === nothing ? missing : r)
-            push!(fifo, f === nothing ? missing : f)
+            push!(lifo, discarded || r === nothing ? missing : r)
+            push!(fifo, discarded || f === nothing ? missing : f)
         end
     end
     return DataFrame(
@@ -630,14 +636,20 @@ end
     discarded_batches(run_dir::String) -> Int
 
 The number of whole batches the on-board recorder discarded at its ceiling:
-the length of the [`recorder_spans`](@ref) over the batch content span.
+the whole batch content spans that each of the [`recorder_spans`](@ref)
+holds. A span still open at the mission end counts the batches finalized
+before it: the batch whose content span ends at the mission end is not
+generated, nor one left incomplete there.
 """
 function discarded_batches(run_dir::String)
-    physics = TelemetryCore.physics_settings(TelemetryCore.load_run_config(run_dir))
-    batch_span =
-        Millisecond(round(Int, physics.batch_size * physics.segment_duration_sec * 1000))
-    total = sum(s -> (s[2] - s[1]).value, recorder_spans(run_dir); init = 0)
-    return round(Int, total / batch_span.value)
+    cfg = TelemetryCore.load_run_config(run_dir)
+    physics = TelemetryCore.physics_settings(cfg)
+    batch_ms = round(Int, physics.batch_size * physics.segment_duration_sec * 1000)
+    t_end = TelemetryCore.mission_end(cfg)
+    return sum(recorder_spans(run_dir); init = 0) do (start, stop)
+        length_ms = (stop - start).value
+        stop == t_end ? max(cld(length_ms, batch_ms) - 1, 0) : fld(length_ms, batch_ms)
+    end
 end
 
 """

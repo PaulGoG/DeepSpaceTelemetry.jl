@@ -232,8 +232,9 @@ end
         )
     end
     t0 = DateTime(2035, 1, 1, 6)
-    # Two recorder gaps, the second still open at the end of the log: 9 min
-    # and 10 min, so round(19 / 3) = 6 whole batches.
+    # Two recorder gaps: 9 min, three batches; and one still open at the end
+    # of the run, 10 min, whose batches are finalized 3, 6 and 9 min after
+    # it opens: three more.
     mktempdir() do dir
         snapshot(dir)
         TelemetryCore.log_tx_event(dir, t0, "RECORDER", "gap_start")
@@ -243,7 +244,7 @@ end
               [(t0, t0 + Minute(9)), (t0 + Minute(20), t0 + Minute(30))]
         @test Metrology.discarded_batches(dir) == 6
         # A scheduled generation gap inside the first span produced no data:
-        # 16 min discarded, round(16 / 3) = 5 batches.
+        # one batch before it and one after, five batches in all.
         TelemetryCore.log_tx_event(dir, t0 + Minute(3), "SCHEDULED", "gap_start")
         TelemetryCore.log_tx_event(dir, t0 + Minute(6), "SCHEDULED", "gap_end")
         @test Metrology.recorder_spans(dir) == [
@@ -257,6 +258,20 @@ end
         TelemetryCore.log_tx_event(dir, t0 + Minute(20), "STREAM", "gap_start")
         TelemetryCore.log_tx_event(dir, t0 + Minute(25), "STREAM", "gap_end")
         @test Metrology.discarded_batches(dir) == 5
+    end
+    # A gap still open at the mission end counts the batches finalized
+    # before it: the batch whose content span ends at the mission end is not
+    # generated, nor one left incomplete there. Opened 10 min before the
+    # end, batches are finalized after 3, 6 and 9 min; opened 6 min before,
+    # after 3 min (the next would be finalized at the end); opened 5 min
+    # before, after 3 min; opened 3 min before, none.
+    for (minutes_open, expected) in ((10, 3), (6, 1), (5, 1), (3, 0))
+        mktempdir() do dir
+            snapshot(dir)
+            opened = t0 + Minute(30 - minutes_open)
+            TelemetryCore.log_tx_event(dir, opened, "RECORDER", "gap_start")
+            @test Metrology.discarded_batches(dir) == expected
+        end
     end
     # A window that holds a batch lost for good never completes under the
     # realized doctrine. ARCH_1, ARCH_2 and LIVE_3 arrive (LIVE_3's window
@@ -307,6 +322,50 @@ end
             MetrologyFigures.plot_alert_latency(dir; plots_dir = joinpath(dir, "plots"))
         end
         @test path !== nothing && isfile(path)
+    end
+end
+
+@testset "Marker latency over data the recorder discarded" begin
+    # One mission day from 06:00 with a 12-hour backlog (72 batches of
+    # 10 min) and a recorder of 0.55 days, 79 batches. The buffer reaches the
+    # ceiling at 07:10, and the batches of [07:10, 08:00) are discarded until
+    # the 08:00 pass makes room. A marker at 10:05 lies in the batch of
+    # [10:00, 10:10). Its look-back window holds discarded data once it
+    # starts before 08:00: 10:05 − 13 × 10 min = 07:55. The look-backs up to
+    # 2 h are therefore complete, and every longer one never completes,
+    # under either doctrine.
+    cfg = TelemetryCore.load_config(
+        joinpath(TelemetryCore.PROJECT_ROOT[], "scenarios", "deterministic_1d.toml"),
+    )
+    cfg["simulation"]["initial_downtime_days"] = 0.5
+    cfg["telemetry"]["onboard_capacity_days"] = 0.55
+    cfg["packet_loss"]["enabled"] = false
+    cfg["events"] = Dict{String,Any}(
+        "markers" => Any[Dict{String,Any}(
+            "time" => "2035-01-01T10:05:00",
+            "label" => "after the recorder gap",
+        ),],
+    )
+    for key in ("session_figures", "state_raster", "generate_mask_timeline")
+        cfg["post_processing"][key] = false
+    end
+    run_dir = with_logger(NullLogger()) do
+        Supervisor.run_mission(
+            cfg;
+            run_id = "TEST_RUN_marker_recorder_pid$(getpid())",
+            orig_stdout = devnull,
+            figures = false,
+        )
+    end
+    try
+        @test first(Metrology.recorder_spans(run_dir)) ==
+              (DateTime(2035, 1, 1, 7, 10), DateTime(2035, 1, 1, 8))
+        table = Metrology.marker_latency_table(run_dir; lookback_hours = 4.0)
+        @test table.Lookback_Hours ≈ (0:24) ./ 6
+        @test .!ismissing.(table.LIFO_Hours) == [k <= 12 for k in 0:24]
+        @test ismissing.(table.FIFO_Hours) == ismissing.(table.LIFO_Hours)
+    finally
+        rm(run_dir; recursive = true, force = true)
     end
 end
 

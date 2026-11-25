@@ -251,6 +251,22 @@ end
         tx = TelemetryCore.read_table(joinpath(a, "events_tx.csv"))
         @test count(==("gen"), tx.Event) == fld(segments, phys["batch_size"])
         @test maximum(tx.SimTime) < anchor.horizon
+        # A span of a whole number of batches decides the rule: six hours
+        # without backlog hold 36 batch spans of ten minutes, and the batch
+        # whose content span ends at the horizon is not generated.
+        whole = deepcopy(cfg)
+        whole["simulation"]["initial_downtime_days"] = 0.0
+        e = with_logger(NullLogger()) do
+            Supervisor.run_mission(
+                whole;
+                run_id = "TEST_RUN_tick_e_pid$(getpid())",
+                orig_stdout = devnull,
+                figures = false,
+            )
+        end
+        push!(runs, e)
+        whole_tx = TelemetryCore.read_table(joinpath(e, "events_tx.csv"))
+        @test count(==("gen"), whole_tx.Event) == 35
         # Every generated batch was served within the pass: the link
         # capacity exceeds production, and nothing is stamped past the
         # horizon on the arrival side either.
