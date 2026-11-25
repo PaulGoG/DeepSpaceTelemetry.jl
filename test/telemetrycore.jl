@@ -833,6 +833,62 @@ end
         ],
     )
     @test TelemetryCore.disruption_event_settings(cfg)[1].loss_multiplier == Inf
+    # The steepness of the sigmoid profile: tanh(k·0) is NaN for an infinite
+    # k, and with it the capacity of a pass. Under another profile the
+    # capacity model does not read the key, and the value passes as before.
+    cfg = valid_test_cfg()
+    cfg["telemetry"]["bandwidth_profile"] = "sigmoid"
+    cfg["telemetry"]["sigmoid_steepness"] = Inf
+    @test_throws "telemetry.sigmoid_steepness must be finite" with_logger(
+        () -> TelemetryCore.validate_config(cfg),
+        NullLogger(),
+    )
+    cfg["telemetry"]["bandwidth_profile"] = "flat"
+    @test with_logger(() -> TelemetryCore.validate_config(cfg), NullLogger()) isa
+          AbstractDict
+    # The storage estimate reads three of the keys itself and refuses them
+    # when called without the configuration check.
+    for (section, key) in (
+        ("physics", "segment_duration_sec"),
+        ("physics", "sample_rate"),
+        ("simulation", "initial_downtime_days"),
+    )
+        cfg = valid_test_cfg()
+        cfg[section][key] = Inf
+        @test_throws "$section.$key must be finite" TelemetryCore.estimate_artifacts(cfg)
+    end
+end
+
+@testset "Arrays of tables" begin
+    # `[[disruption.events]]` and its like are arrays of tables. A string
+    # iterates as well, and an empty one read as no entries; a single table,
+    # `[disruption.events]`, is the likely slip.
+    check(cfg) = with_logger(() -> TelemetryCore.validate_config(cfg), NullLogger())
+    for (section, key) in (
+            ("disruption", "events"),
+            ("events", "markers"),
+            ("contacts", "passes"),
+            ("contacts", "exceptions"),
+            ("contacts", "low_latency_periods"),
+        ),
+        value in ("", Dict{String,Any}())
+
+        cfg = valid_test_cfg()
+        get!(Dict{String,Any}, cfg, section)[key] = value
+        @test_throws "$section.$key must be an array of tables" check(cfg)
+    end
+    for value in ("", Dict{String,Any}())
+        cfg = valid_test_cfg()
+        cfg["labels"] = value
+        @test_throws "labels must be an array of tables" check(cfg)
+    end
+    # An empty array is a configuration without entries.
+    cfg = valid_test_cfg()
+    cfg["disruption"] = Dict{String,Any}("events" => Any[])
+    cfg["events"] = Dict{String,Any}("markers" => Any[])
+    cfg["labels"] = Any[]
+    @test check(cfg) isa AbstractDict
+    @test isempty(TelemetryCore.disruption_event_settings(cfg))
 end
 
 @testset "Samples per segment" begin

@@ -27,6 +27,7 @@ DeepSpaceTelemetry.TelemetryCore.checked_number
 DeepSpaceTelemetry.TelemetryCore.checked_integer
 DeepSpaceTelemetry.TelemetryCore.checked_string
 DeepSpaceTelemetry.TelemetryCore.checked_flag
+DeepSpaceTelemetry.TelemetryCore.checked_table_array
 DeepSpaceTelemetry.TelemetryCore.dashboard_settings
 DeepSpaceTelemetry.TelemetryCore.config_error
 DeepSpaceTelemetry.TelemetryCore.required_value

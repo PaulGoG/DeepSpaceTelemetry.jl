@@ -118,15 +118,20 @@ function estimate_artifacts(cfg::AbstractDict)
 
     segment_duration_sec = checked_number(
         required_value(phy, "physics", "segment_duration_sec"),
-        "physics.segment_duration_sec",
+        "physics.segment_duration_sec";
+        finite = true,
     )
-    sample_rate =
-        checked_number(required_value(phy, "physics", "sample_rate"), "physics.sample_rate")
+    sample_rate = checked_number(
+        required_value(phy, "physics", "sample_rate"),
+        "physics.sample_rate";
+        finite = true,
+    )
     batch_size =
         checked_integer(required_value(phy, "physics", "batch_size"), "physics.batch_size")
     downtime_days = checked_number(
         get(sim, "initial_downtime_days", 0.0),
-        "simulation.initial_downtime_days",
+        "simulation.initial_downtime_days";
+        finite = true,
     )
 
     loss = loss_channel_settings(cfg)
@@ -402,7 +407,8 @@ function check_storage_limits(cfg::AbstractDict)
                     "physics",
                     "segment_duration_sec",
                 ),
-                "physics.segment_duration_sec",
+                "physics.segment_duration_sec";
+                finite = true,
             )
         )
     if grace_payload > ret.watermark_bytes

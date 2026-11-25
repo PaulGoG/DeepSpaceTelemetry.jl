@@ -134,6 +134,20 @@ function checked_string(v, name::String)
 end
 
 """
+    checked_table_array(v, name::String) -> AbstractVector
+
+Returns `v` when the config value is an array, as `[[name]]` gives it in
+TOML, and aborts with a `[CONFIG]` error naming the key otherwise. A string
+iterates as well as an array does: without this check an empty one reads as
+no entries.
+"""
+function checked_table_array(v, name::String)
+    v isa AbstractVector ||
+        config_error("[CONFIG] $name must be an array of tables (got $(repr(v))).")
+    return v
+end
+
+"""
     checked_flag(v, name::String) -> Bool
 
 Coerces a config value to `Bool` with a `[CONFIG]` error naming the key when
@@ -355,6 +369,16 @@ const KNOWN_CONTACT_ENTRY_KEYS = Dict(
     "passes" => ["start", "duration_hours"],
     "exceptions" => ["date", "start", "duration_hours"],
     "low_latency_periods" => ["start", "duration_hours", "capacity_fraction", "label"],
+)
+
+# The keys that hold an array of tables, as (section, key). `[[labels]]` is
+# an array of tables at the top level and is not listed.
+const TABLE_ARRAY_KEYS = (
+    ("disruption", "events"),
+    ("events", "markers"),
+    ("contacts", "passes"),
+    ("contacts", "exceptions"),
+    ("contacts", "low_latency_periods"),
 )
 
 # --- Retired configuration keys ---
@@ -696,8 +720,12 @@ function telemetry_settings(cfg::AbstractDict)
     0.0 <= min_link_factor < 1.0 || config_error(
         "[CONFIG] telemetry.min_link_factor = $min_link_factor outside [0, 1).",
     )
-    sigmoid_steepness =
-        checked_number(get(tel, "sigmoid_steepness", 10.0), "telemetry.sigmoid_steepness")
+    # tanh(k·0) is NaN for an infinite k: the sigmoid profile cannot honor one.
+    sigmoid_steepness = checked_number(
+        get(tel, "sigmoid_steepness", 10.0),
+        "telemetry.sigmoid_steepness";
+        finite = bandwidth_profile == "sigmoid",
+    )
     sigmoid_steepness > 0.0 || config_error(
         "[CONFIG] telemetry.sigmoid_steepness must be > 0 (got $sigmoid_steepness).",
     )
@@ -1021,7 +1049,12 @@ required), `label` (default `marker <i>`), `low_latency_after_hours ≥ 0`,
 """
 function event_marker_settings(cfg::AbstractDict)
     markers = EventMarker[]
-    for (i, e) in enumerate(get(get(cfg, "events", Dict{String,Any}()), "markers", Any[]))
+    for (i, e) in enumerate(
+        checked_table_array(
+            get(get(cfg, "events", Dict{String,Any}()), "markers", Any[]),
+            "events.markers",
+        ),
+    )
         e isa AbstractDict ||
             config_error("[CONFIG] events.markers[$i] must be a table of marker keys.")
         time = parsed_datetime(get(e, "time", nothing), "events.markers[$i].time")
@@ -1083,7 +1116,7 @@ both required). A malformed entry raises a `[CONFIG]` error.
 """
 function label_settings(cfg::AbstractDict)
     spans = LabelSpan[]
-    for (i, e) in enumerate(get(cfg, "labels", Any[]))
+    for (i, e) in enumerate(checked_table_array(get(cfg, "labels", Any[]), "labels"))
         e isa AbstractDict ||
             config_error("[CONFIG] labels[$i] must be a table of label keys.")
         label = checked_string(get(e, "label", "label $i"), "labels[$i].label")
@@ -1505,7 +1538,8 @@ keys are ignored). `type = "antenna_repointing"` defaults to
 function disruption_event_settings(cfg::AbstractDict)
     d = get(cfg, "disruption", Dict{String,Any}())
     events = DisruptionEventSettings[]
-    for (i, e) in enumerate(get(d, "events", Any[]))
+    for (i, e) in
+        enumerate(checked_table_array(get(d, "events", Any[]), "disruption.events"))
         e isa AbstractDict ||
             config_error("[CONFIG] disruption.events[$i] must be a table of event keys.")
         start_day = checked_number(
@@ -1812,7 +1846,7 @@ function contacts_settings(cfg::AbstractDict)
     )
 
     schedule_csv = checked_string(get(c, "schedule_csv", ""), "contacts.schedule_csv")
-    pass_entries = get(c, "passes", Any[])
+    pass_entries = checked_table_array(get(c, "passes", Any[]), "contacts.passes")
     isempty(schedule_csv) ||
         isempty(pass_entries) ||
         config_error(
@@ -1868,7 +1902,8 @@ function contacts_settings(cfg::AbstractDict)
     end
 
     exceptions = Dict{Date,Tuple{Time,Second}}()
-    exception_entries = get(c, "exceptions", Any[])
+    exception_entries =
+        checked_table_array(get(c, "exceptions", Any[]), "contacts.exceptions")
     isempty(passes) ||
         isempty(exception_entries) ||
         config_error(
@@ -1903,7 +1938,12 @@ function contacts_settings(cfg::AbstractDict)
         "[CONFIG] contacts.low_latency_capacity_fraction must lie in (0, 1] (got $default_fraction).",
     )
     periods = ContactWindow[]
-    for (i, e) in enumerate(get(c, "low_latency_periods", Any[]))
+    for (i, e) in enumerate(
+        checked_table_array(
+            get(c, "low_latency_periods", Any[]),
+            "contacts.low_latency_periods",
+        ),
+    )
         e isa AbstractDict || config_error(
             "[CONFIG] contacts.low_latency_periods[$i] must be a table of period keys.",
         )
