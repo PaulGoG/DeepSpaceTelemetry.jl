@@ -299,7 +299,14 @@ end
 Work below which a transfer counts as complete in
 [`transfer_completion`](@ref): 1 ns of full-capacity transfer. The remaining
 work accumulates rounding of the order of 10⁻¹³ s over the steps of a
-transfer, and the completion instants live on the millisecond grid.
+transfer, and the completion instants live on the millisecond grid. The
+work it leaves undone lasts at most 10⁻⁹/c seconds at capacity `c`, below
+the millisecond above `c = 10⁻⁶`; under a disruption of severity above
+1 − 10⁻⁶ a transfer can complete that much earlier. When the work left
+exceeds the capacity of a step by less than the tolerance, the transfer
+completes inside that step, at the instant of the linear interpolant,
+rather than at its end; the two instants differ by the discretization
+error of the step.
 """
 const WORK_TOLERANCE_SEC = 1e-9
 

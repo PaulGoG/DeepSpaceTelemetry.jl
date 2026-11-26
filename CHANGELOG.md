@@ -23,7 +23,10 @@ byte-identical to those of 3.3.1 under the fixes below.
   `fraction_within_resolved` of the delivery compliance count the batches
   finalized before the end. The batch whose content span ends at the
   mission end, which is not generated, and an incomplete one were counted
-  as well (`Metrology.discarded_batches`).
+  as well (`Metrology.discarded_batches`). The count is taken per recorder
+  span, in whole batches; 3.3.1 rounded the summed length of the spans,
+  which also counted the partial batch of a span closed off the batch grid
+  after an emitter restart.
 - `RunAdapter.arrival_events(run; after)`, `declared_holes(run; after)` and
   `delivered_rows` leave out a last line still being written, as the feed
   cursors do; they threw on one.
@@ -39,10 +42,15 @@ byte-identical to those of 3.3.1 under the fixes below.
   nothing delivered, and the two post-processing spans in the metrology
   tables of a finished run. The keys that ran with an infinite value
   (storage budgets, `loss_multiplier`, the on-board data rate, and others)
-  are unchanged. An infinite `sigmoid_steepness` is refused under the
-  sigmoid profile, where it gave a capacity of NaN. `estimate_artifacts`
-  and `check_storage_limits` refuse an infinite value of the keys they read
-  when called without the configuration check.
+  are unchanged, as are `low_latency_after_hours` of a marker without a
+  low-latency period and `recovery_hours` of a generation event, which are
+  not read. An infinite `sigmoid_steepness` is refused under the sigmoid
+  profile, where it gave a capacity of NaN. `estimate_artifacts` and
+  `check_storage_limits` refuse an infinite value of the keys they read
+  when called without the configuration check. A run of 3.3.1 whose
+  snapshot holds an infinite post-processing span failed in its metrology;
+  post-processing it again stops at the `[CONFIG]` error, before the gap
+  table.
 - A value that is no array in place of an array of tables
   (`[[disruption.events]]`, `[[events.markers]]`, `[[contacts.passes]]`,
   `[[contacts.exceptions]]`, `[[contacts.low_latency_periods]]`,
@@ -88,6 +96,10 @@ byte-identical to those of 3.3.1 under the fixes below.
   physics page states the capacity floor `min_link_factor`, the
   discretization error of the transfer integral, the cadence of the
   emitter, and the two quantile conventions of the alert-latency table.
+- The versioning principle of the Analysis Interfaces page counts as a
+  defect fix the refusal of a configuration that an earlier release could
+  not run to its end, or ran outside the documented types and syntax; the
+  Upgrading and Support page lists the refusals of this release.
 
 ## [3.3.1] - 2026-11-17
 

@@ -19,6 +19,24 @@ and 1.12 on Linux. Defects are reported as issues of the
 [repository](https://github.com/PaulGoG/DeepSpaceTelemetry.jl/issues), with the
 run's `descriptor.toml` where a run is involved.
 
+## From 3.3.1 to 3.3.2
+
+The interfaces are unchanged. A configuration or a sweep that 3.3.1
+accepted outside the documented schema may now stop before the run:
+
+| 3.3.1 | 3.3.2 |
+|---|---|
+| `inf` for a key converted to an instant, a period or a count: accepted, then an `InexactError` in the run, or the mission aborted (the range) | refused with a `[CONFIG]` error that names the key; `inf` for a key the configuration does not use (`low_latency_after_hours` without a low-latency period, `recovery_hours` of a generation event) passes as before |
+| a value that is no array in place of an array of tables: `events = ""` read as no events | refused; `events = []` is no events |
+| a section that is no table: a `MethodError`, or, for `[provenance]` and `[payload]`, accepted | refused |
+| `run_sweep.jl --seeds a:step:b` ran `a:b` | runs the stepped range |
+| `--set` of a key outside the schema, of an array of tables or of `[provenance]`: the runs kept the default | refused |
+
+The products of a run that 3.3.1 completed are unchanged except where the
+changelog lists a fix: a transfer that fills its contact window, the marker
+latency over data the recorder discarded, and the count of discarded
+batches.
+
 ## From 3.2 to 3.3
 
 The simulator is now the package `DeepSpaceTelemetryHeadless`

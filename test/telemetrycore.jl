@@ -778,6 +778,14 @@ end
     @test any(contains("At least 7 batches in flight"), config_warnings(cfg))
     cfg["telemetry"]["max_inflight_batches"] = 7
     @test !any(contains("max_inflight_batches"), config_warnings(cfg))
+    # 660 batches per hour: transfers of 3600 / 660 s, eleven of which fill
+    # a segment exactly, so twelve suffice; 11 × (3600 / 660) rounds to
+    # 59.99999999999999 s and must not ask for a twelfth.
+    cfg["telemetry"]["max_batches_per_hour"] = 660.0
+    cfg["telemetry"]["max_inflight_batches"] = 12
+    @test !any(contains("max_inflight_batches"), config_warnings(cfg))
+    cfg["telemetry"]["max_inflight_batches"] = 11
+    @test any(contains("At least 12 batches in flight"), config_warnings(cfg))
 end
 
 @testset "Non-finite configuration values" begin
@@ -846,6 +854,31 @@ end
     cfg["telemetry"]["bandwidth_profile"] = "flat"
     @test with_logger(() -> TelemetryCore.validate_config(cfg), NullLogger()) isa
           AbstractDict
+    # The delay of a marker without a low-latency period, and the recovery
+    # of a gap in generation, are not read: an infinite value passes there
+    # and is refused where the key places a period or a ramp.
+    check(cfg) = with_logger(() -> TelemetryCore.validate_config(cfg), NullLogger())
+    cfg = valid_test_cfg()
+    marker = Dict{String,Any}(
+        "time" => "2035-01-01T07:00:00",
+        "low_latency_after_hours" => Inf,
+        "low_latency_duration_hours" => 0.0,
+    )
+    cfg["events"] = Dict{String,Any}("markers" => Any[marker])
+    @test check(cfg) isa AbstractDict
+    marker["low_latency_duration_hours"] = 2.0
+    @test_throws "low_latency_after_hours must be finite" check(cfg)
+    cfg = valid_test_cfg()
+    gap = Dict{String,Any}(
+        "start_day" => 0.1,
+        "duration_hours" => 1.0,
+        "recovery_hours" => Inf,
+        "affects" => "generation",
+    )
+    cfg["disruption"] = Dict{String,Any}("events" => Any[gap])
+    @test check(cfg) isa AbstractDict
+    gap["affects"] = "link"
+    @test_throws "recovery_hours must be finite" check(cfg)
     # The storage estimate reads three of the keys itself and refuses them
     # when called without the configuration check.
     for (section, key) in (

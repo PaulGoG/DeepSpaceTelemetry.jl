@@ -39,7 +39,10 @@ one run at a time.
    release if it changes what a consumer reads from the tick-clock runs of
    the shipped scenarios, as 3.3.0 did in moving the instants of
    `events_rx.csv` to the completion of the transfer, and in a patch release
-   otherwise. The Julia modules and functions are the implementation and may
+   otherwise. Refusing, before the run, a configuration that an earlier
+   release accepted but could not run to its end, or a value outside the
+   documented types and argument syntax that an earlier release ran by
+   accident, is a defect fix of the same kind. The Julia modules and functions are the implementation and may
    change between minor releases; the API pages document them for
    contributors. The exception is `RunAdapter`: its public names are
    versioned with this contract.
@@ -123,8 +126,9 @@ capacity (visibility times disruption) and `Nominal_Bandwidth_Pct` the
 visibility alone, in percent of the peak and rounded to 0.1. The buffer and
 `Ground_*` columns count batches, `Lost_Count` and `Retry_Count` are
 cumulative, and `Disruption_Active` tells whether a disruption lowers the
-link. A row is written when a count changes or the capacity moves by more
-than 0.1 percentage points.
+link. A row is written when the on-board, link, ground or lost count
+changes or the capacity moves by more than 0.1 percentage points; a retry
+alone writes none.
 
 A batch directory contains `metadata.json` and one `seg_<id>.csv` per
 segment. A segment file has one column per payload column, under its name:

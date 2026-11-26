@@ -321,10 +321,10 @@ end
     # Observed order of accuracy, against the same closed form on a one-hour
     # pass, where the capacity curves more per step: a 60 s transfer that
     # starts 300 s after the opening completes 354.813 s later. The midpoint
-    # rule with a linear completing step is of second order, so each halving
-    # of the step from 60 s to 7.5 s divides the error by about four (0.122,
-    # 0.039, 0.011 and 0.003 s, the last within reach of the millisecond
-    # rounding).
+    # rule with a linear completing step is of second order: each halving of
+    # the step from 60 s to 7.5 s divides the error by 3.1, 3.5 and 3.7
+    # (0.122, 0.039, 0.011 and 0.003 s, the last within reach of the
+    # millisecond rounding), approaching four.
     hour = TelemetryCore.VisibilityModel(Time(8, 0, 0), Second(3600), "sine")
     G(s) = s / 2 - 3600 / (4π) * sin(2π * s / 3600)
     lo, hi = 300.0, 3600.0

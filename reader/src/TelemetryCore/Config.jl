@@ -1055,14 +1055,6 @@ function event_marker_settings(cfg::AbstractDict)
             config_error("[CONFIG] events.markers[$i] must be a table of marker keys.")
         time = parsed_datetime(get(e, "time", nothing), "events.markers[$i].time")
         label = checked_string(get(e, "label", "marker $i"), "events.markers[$i].label")
-        after = checked_number(
-            get(e, "low_latency_after_hours", 0.0),
-            "events.markers[$i].low_latency_after_hours";
-            finite = true,
-        )
-        after >= 0.0 || config_error(
-            "[CONFIG] events.markers[$i].low_latency_after_hours must be ≥ 0 (got $after).",
-        )
         duration = checked_number(
             get(e, "low_latency_duration_hours", 0.0),
             "events.markers[$i].low_latency_duration_hours";
@@ -1070,6 +1062,15 @@ function event_marker_settings(cfg::AbstractDict)
         )
         duration >= 0.0 || config_error(
             "[CONFIG] events.markers[$i].low_latency_duration_hours must be ≥ 0 (got $duration).",
+        )
+        # The delay places the triggered period; without one it is not read.
+        after = checked_number(
+            get(e, "low_latency_after_hours", 0.0),
+            "events.markers[$i].low_latency_after_hours";
+            finite = duration > 0.0,
+        )
+        after >= 0.0 || config_error(
+            "[CONFIG] events.markers[$i].low_latency_after_hours must be ≥ 0 (got $after).",
         )
         fraction = NaN
         if haskey(e, "low_latency_capacity_fraction")
@@ -1553,10 +1554,20 @@ function disruption_event_settings(cfg::AbstractDict)
         duration_hours > 0.0 || config_error(
             "[CONFIG] disruption.events[$i].duration_hours must be > 0 (got $duration_hours).",
         )
+        type =
+            checked_string(get(e, "type", "link_disruption"), "disruption.events[$i].type")
+        affects = checked_string(
+            get(e, "affects", type == "antenna_repointing" ? "generation" : "link"),
+            "disruption.events[$i].affects",
+        )
+        affects in ("link", "generation") || config_error(
+            "[CONFIG] disruption.events[$i].affects must be \"link\" or \"generation\" (got \"$affects\").",
+        )
+        # A gap in generation has no recovery ramp, and the key is not read.
         recovery_hours = checked_number(
             get(e, "recovery_hours", 0.0),
             "disruption.events[$i].recovery_hours";
-            finite = true,
+            finite = affects == "link",
         )
         recovery_hours >= 0.0 || config_error(
             "[CONFIG] disruption.events[$i].recovery_hours must be ≥ 0 (got $recovery_hours).",
@@ -1568,15 +1579,6 @@ function disruption_event_settings(cfg::AbstractDict)
         loss_multiplier = checked_number(
             get(e, "loss_multiplier", 1.0),
             "disruption.events[$i].loss_multiplier",
-        )
-        type =
-            checked_string(get(e, "type", "link_disruption"), "disruption.events[$i].type")
-        affects = checked_string(
-            get(e, "affects", type == "antenna_repointing" ? "generation" : "link"),
-            "disruption.events[$i].affects",
-        )
-        affects in ("link", "generation") || config_error(
-            "[CONFIG] disruption.events[$i].affects must be \"link\" or \"generation\" (got \"$affects\").",
         )
         push!(
             events,

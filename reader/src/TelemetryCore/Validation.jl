@@ -215,11 +215,14 @@ function validate_config(cfg::AbstractDict)
     end
     # The emitter refills the link once per segment. Unless the batches
     # waiting behind the one in service outlast a segment, the link empties
-    # between two refills and idles with a backlog on board.
+    # between two refills and idles with a backlog on board. (n − 1)·T ≥ S
+    # holds for n ≥ ⌈S/T⌉ + 1; the margin keeps a ratio that rounds just
+    # above an integer from asking for one batch more.
     transfer_sec = tel_settings.nominal_batch_transfer_sec
-    if (tel_settings.max_inflight_batches - 1) * transfer_sec < segment_duration_sec
+    needed = ceil(Int, segment_duration_sec / transfer_sec - 1e-9) + 1
+    if tel_settings.max_inflight_batches < needed
         @warn "[CONFIG] telemetry.max_inflight_batches = $(tel_settings.max_inflight_batches): the emitter places batches on the link once per segment ($(segment_duration_sec) s), and the batches waiting behind the one in service last $(round((tel_settings.max_inflight_batches - 1) * transfer_sec, digits = 1)) s at full capacity, less than a segment, so the link can empty and idle until the next segment boundary. " *
-              "At least $(ceil(Int, segment_duration_sec / transfer_sec) + 1) batches in flight keep the link served."
+              "At least $needed batches in flight keep the link served."
     end
 
     # -- [contacts], [[events.markers]], [[labels]], [ground], [post_processing.publication] --
